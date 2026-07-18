@@ -43,6 +43,6 @@ world"' "$TMP_DIR/newline_in_string.tiq:1: error: newline in string literal"
 assert_diagnostic "unterminated_string" '!"hello' "$TMP_DIR/unterminated_string.tiq:1: error: unterminated string literal"
 assert_diagnostic "second_line_location" '!"ok"
 abc
-' "$TMP_DIR/second_line_location.tiq:2: error: expected print statement starting with '!'"
+' "$TMP_DIR/second_line_location.tiq:2: error: undefined symbol 'abc'"
 
 echo "diagnostics: ok"

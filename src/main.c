@@ -10,6 +10,7 @@
 #include "../include/lexer.h"
 #include "../include/diag.h"
 #include "../include/parser.h"
+#include "../include/semantic.h"
 
 #define TIQ_VERSION "0.1.0-dev"
 
@@ -100,6 +101,14 @@ static void compile_to_c(const char *source_path, const char *source, FILE *out,
 
     int count;
     AstNode **stmts = parser_parse(&parser, &count);
+
+    if (diag->has_error) {
+        free(stmts);
+        parser_free(&parser);
+        return;
+    }
+
+    semantic_check(stmts, count, source_path, diag);
 
     if (diag->has_error) {
         free(stmts);
@@ -312,11 +321,35 @@ static int dump_ast(const char *input, DiagContext *diag) {
     return diag->has_error ? 1 : 0;
 }
 
+static int dump_typed_ast(const char *input, DiagContext *diag) {
+    char *source = read_all(input);
+    Parser parser;
+    parser_init(&parser, source, input, diag);
+
+    int count;
+    AstNode **stmts = parser_parse(&parser, &count);
+
+    if (!diag->has_error) {
+        semantic_check(stmts, count, input, diag);
+    }
+
+    for (int i = 0; i < count; i++) {
+        ast_print(stmts[i], 0);
+    }
+
+    free(stmts);
+    parser_free(&parser);
+    free(source);
+
+    return diag->has_error ? 1 : 0;
+}
+
 static void usage(FILE *out) {
     fputs("usage:\n"
           "  tiq --version\n"
           "  tiq dump-tokens <file.tiq>\n"
           "  tiq dump-ast <file.tiq>\n"
+          "  tiq dump-typed-ast <file.tiq>\n"
           "  tiq emit-c <file.tiq>\n"
           "  tiq build <file.tiq> [-o output]\n", out);
 }
@@ -334,6 +367,9 @@ int main(int argc, char **argv) {
     }
     if (argc == 3 && strcmp(argv[1], "dump-ast") == 0) {
         return dump_ast(argv[2], &diag);
+    }
+    if (argc == 3 && strcmp(argv[1], "dump-typed-ast") == 0) {
+        return dump_typed_ast(argv[2], &diag);
     }
     if (argc == 3 && strcmp(argv[1], "emit-c") == 0) {
         return emit_file(argv[2], NULL, &diag);
