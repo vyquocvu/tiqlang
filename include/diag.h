@@ -1,0 +1,26 @@
+#ifndef TIQ_DIAG_H
+#define TIQ_DIAG_H
+
+#include <stdbool.h>
+
+typedef enum {
+    ERR_UNEXPECTED_CHAR,
+    ERR_UNTERMINATED_STRING,
+    ERR_NEWLINE_IN_STRING,
+    ERR_EXPECTED_PRINT,
+    ERR_EXPECTED_STRING,
+    ERR_UNEXPECTED_TOKEN,
+    ERR_EXPECTED_EXPRESSION,
+    ERR_EXPECTED_IDENTIFIER,
+    ERR_UNSUPPORTED_STATEMENT
+} ErrorCode;
+
+typedef struct {
+    bool has_error;
+    bool fatal_error;
+} DiagContext;
+
+void diag_init(DiagContext *diag);
+void diag_error(DiagContext *diag, const char *path, int line, ErrorCode code, const char *message);
+
+#endif

@@ -8,9 +8,15 @@ TIQ := $(BUILD)/tiq
 
 all: $(TIQ)
 
-$(TIQ): src/main.c
+SRCS = src/main.c src/lexer.c src/diag.c src/parser.c
+OBJS = $(SRCS:src/%.c=$(BUILD)/%.o)
+
+$(BUILD)/%.o: src/%.c
 	mkdir -p $(BUILD)
-	$(CC) $(CFLAGS) src/main.c -o $(TIQ)
+	$(CC) $(CFLAGS) -c $< -o $@
+
+$(TIQ): $(OBJS)
+	$(CC) $(CFLAGS) $(OBJS) -o $(TIQ)
 
 example: $(TIQ)
 	$(TIQ) build examples/hello.tiq -o $(BUILD)/hello
@@ -19,6 +25,8 @@ example: $(TIQ)
 test: $(TIQ)
 	sh tests/smoke.sh
 	sh tests/diagnostics.sh
+	sh tests/lexer.sh
+	sh tests/parser.sh
 
 clean:
 	rm -rf $(BUILD)
