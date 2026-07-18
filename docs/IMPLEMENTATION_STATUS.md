@@ -4,7 +4,7 @@ Updated: 2026-07-18
 
 ## Current milestone
 
-M0 — Repository and language baseline.
+M1 — Real frontend.
 
 ## Implemented
 
@@ -16,9 +16,12 @@ M0 — Repository and language baseline.
 - `tiq --version`
 - `tiq emit-c <file.tiq>`
 - `tiq build <file.tiq> -o <output>`
+- POSIX `mkstemp`, `TMPDIR`, `fork`, `execvp`, and `waitpid` build path for temporary C files and host C compiler invocation without shell interpretation
 - String print statements: `!"text"`
 - Fail-closed rejection of unsupported statements
 - Shell smoke test for compile, execute, and reject paths
+- Golden diagnostic tests for bootstrap malformed-input boundaries
+- Linux and macOS CI workflow running required build, test, and sanitizer checks
 
 ## Not implemented
 
@@ -29,15 +32,13 @@ M0 — Repository and language baseline.
 - `run`, `check`, `fmt`, and `test` CLI commands
 - Package system or standard library
 - Ownership checking
-- CI and cross-platform process spawning
+- Cross-platform non-POSIX process spawning
 
 ## Known bootstrap limitations
 
-- The compiler currently invokes the host compiler through `system()`.
-- Temporary-file creation uses the C bootstrap path and must be replaced with a secure platform abstraction.
-- Paths containing hostile shell syntax are not yet supported safely.
+- Temporary-file creation and host compiler execution currently use POSIX APIs; non-POSIX platforms need an equivalent documented process abstraction.
 - The implementation is a proof of the compilation path, not a production compiler.
 
 ## Next package
 
-M0.1: replace temporary/process handling with safe platform functions, add CI, and prove `make test` on Linux and macOS.
+M1.1: source and lexer package covering tokens, positions, comments, strings, integers, identifiers, and all reserved operators.
