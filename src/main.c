@@ -1,8 +1,12 @@
+#define _POSIX_C_SOURCE 200809L
+
 #include <ctype.h>
 #include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/wait.h>
+#include <unistd.h>
 
 #define TIQ_VERSION "0.1.0-dev"
 
@@ -125,42 +129,144 @@ static void compile_to_c(const char *source_path, const char *source, FILE *out)
     fputs("    return 0;\n}\n", out);
 }
 
-static int emit_file(const char *input, const char *output) {
+static int compile_file_to_c_stream(const char *input, FILE *out) {
     char *source = read_all(input);
-    FILE *out = output == NULL ? stdout : fopen(output, "wb");
 
-    if (out == NULL) {
-        free(source);
-        fprintf(stderr, "tiq: cannot create %s: %s\n", output, strerror(errno));
+    compile_to_c(input, source, out);
+    free(source);
+    if (ferror(out)) {
+        fprintf(stderr, "tiq: cannot write generated C: %s\n", strerror(errno));
         return 1;
     }
-    compile_to_c(input, source, out);
-    if (output != NULL) fclose(out);
-    free(source);
     return 0;
 }
 
-static int build(const char *input, const char *output) {
-    const char *cc = getenv("CC");
-    char temp_name[L_tmpnam];
-    char command[4096];
+static int emit_file(const char *input, const char *output) {
+    FILE *out = output == NULL ? stdout : fopen(output, "wb");
+    int result;
+
+    if (out == NULL) {
+        fprintf(stderr, "tiq: cannot create %s: %s\n", output, strerror(errno));
+        return 1;
+    }
+    result = compile_file_to_c_stream(input, out);
+    if (output != NULL && fclose(out) != 0) {
+        fprintf(stderr, "tiq: cannot close %s: %s\n", output, strerror(errno));
+        return 1;
+    }
+    if (output == NULL && fflush(out) != 0) {
+        fprintf(stderr, "tiq: cannot flush generated C: %s\n", strerror(errno));
+        return 1;
+    }
+    if (result != 0) return 1;
+    return 0;
+}
+
+static int run_host_compiler(const char *cc, const char *source_path, const char *output_path) {
+    pid_t pid = fork();
     int status;
 
-    if (cc == NULL || *cc == '\0') cc = "cc";
-    if (tmpnam(temp_name) == NULL) die("cannot create temporary path");
-    if (emit_file(input, temp_name) != 0) return 1;
-
-    if (snprintf(command, sizeof(command), "%s -std=c11 -Os \"%s\" -o \"%s\"", cc, temp_name, output) >= (int)sizeof(command)) {
-        remove(temp_name);
-        die("compiler command is too long");
+    if (pid < 0) {
+        fprintf(stderr, "tiq: cannot start host C compiler: %s\n", strerror(errno));
+        return 1;
     }
-    status = system(command);
-    remove(temp_name);
-    if (status != 0) {
+    if (pid == 0) {
+        char *const args[] = {
+            (char *)cc,
+            (char *)"-std=c11",
+            (char *)"-Os",
+            (char *)"-x",
+            (char *)"c",
+            (char *)source_path,
+            (char *)"-o",
+            (char *)output_path,
+            NULL
+        };
+        execvp(cc, args);
+        fprintf(stderr, "tiq: cannot execute host C compiler %s: %s\n", cc, strerror(errno));
+        _exit(127);
+    }
+
+    for (;;) {
+        if (waitpid(pid, &status, 0) >= 0) break;
+        if (errno != EINTR) {
+            fprintf(stderr, "tiq: cannot wait for host C compiler: %s\n", strerror(errno));
+            return 1;
+        }
+    }
+
+    if (!WIFEXITED(status) || WEXITSTATUS(status) != 0) {
         fprintf(stderr, "tiq: host C compiler failed\n");
         return 1;
     }
     return 0;
+}
+
+static char *temporary_c_template(void) {
+    const char *dir = getenv("TMPDIR");
+    const char *suffix = "tiq-c-XXXXXX";
+    size_t dir_len;
+    size_t suffix_len = strlen(suffix);
+    int need_slash;
+    char *path;
+
+    if (dir == NULL || *dir == '\0') dir = "/tmp";
+    dir_len = strlen(dir);
+    need_slash = dir_len > 0U && dir[dir_len - 1U] != '/';
+    path = malloc(dir_len + (need_slash ? 1U : 0U) + suffix_len + 1U);
+    if (path == NULL) die("out of memory");
+    memcpy(path, dir, dir_len);
+    if (need_slash) {
+        path[dir_len] = '/';
+        dir_len++;
+    }
+    memcpy(path + dir_len, suffix, suffix_len + 1U);
+    return path;
+}
+
+static int build(const char *input, const char *output) {
+    const char *cc = getenv("CC");
+    char *temp_name = temporary_c_template();
+    int fd;
+    FILE *temp_file;
+    int result;
+
+    if (cc == NULL || *cc == '\0') cc = "cc";
+    fd = mkstemp(temp_name);
+    if (fd < 0) {
+        fprintf(stderr, "tiq: cannot create temporary C file: %s\n", strerror(errno));
+        free(temp_name);
+        return 1;
+    }
+    temp_file = fdopen(fd, "wb");
+    if (temp_file == NULL) {
+        remove(temp_name);
+        close(fd);
+        fprintf(stderr, "tiq: cannot open temporary C file: %s\n", strerror(errno));
+        free(temp_name);
+        return 1;
+    }
+    result = compile_file_to_c_stream(input, temp_file);
+    if (fclose(temp_file) != 0) {
+        remove(temp_name);
+        fprintf(stderr, "tiq: cannot close temporary C file: %s\n", strerror(errno));
+        free(temp_name);
+        return 1;
+    }
+    if (result != 0) {
+        remove(temp_name);
+        free(temp_name);
+        return 1;
+    }
+
+    result = run_host_compiler(cc, temp_name, output);
+    if (remove(temp_name) != 0) {
+        fprintf(stderr, "tiq: cannot remove temporary C file %s: %s\n", temp_name, strerror(errno));
+        free(temp_name);
+        return 1;
+    }
+    free(temp_name);
+    return result;
 }
 
 static void usage(FILE *out) {

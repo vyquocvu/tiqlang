@@ -4,7 +4,7 @@ Status labels: `done`, `active`, `queued`, `blocked`.
 
 ## M0 — Repository and language baseline
 
-Status: active
+Status: done
 
 - [x] Project identity and README
 - [x] Draft language specification v0.1
@@ -14,14 +14,15 @@ Status: active
 - [x] Compiler architecture
 - [x] C11 bootstrap build
 - [x] First native compilation slice: string print statement
-- [ ] CI on Linux and macOS
-- [ ] Golden diagnostic tests
+- [x] Safe POSIX temporary C file and host compiler invocation without shell interpretation
+- [x] CI on Linux and macOS
+- [x] Golden diagnostic tests
 
 Exit gate: clean checkout can build `tiq`, compile `examples/hello.tiq`, run it, and reject malformed input.
 
 ## M1 — Real frontend
 
-Status: queued
+Status: active
 
 ### M1.1 Source and lexer
 

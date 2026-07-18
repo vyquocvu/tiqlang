@@ -18,6 +18,7 @@ example: $(TIQ)
 
 test: $(TIQ)
 	sh tests/smoke.sh
+	sh tests/diagnostics.sh
 
 clean:
 	rm -rf $(BUILD)
