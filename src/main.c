@@ -10,6 +10,7 @@
 #include "../include/lexer.h"
 #include "../include/diag.h"
 #include "../include/parser.h"
+#include "../include/sema.h"
 
 #define TIQ_VERSION "0.1.0-dev"
 
@@ -312,6 +313,28 @@ static int dump_ast(const char *input, DiagContext *diag) {
     return diag->has_error ? 1 : 0;
 }
 
+static int check_sema(const char *input, DiagContext *diag) {
+    char *source = read_all(input);
+    Parser parser;
+    parser_init(&parser, source, input, diag);
+
+    int count;
+    AstNode **stmts = parser_parse(&parser, &count);
+
+    if (!diag->has_error) {
+        SemanticAnalyzer analyzer;
+        sema_init(&analyzer, diag, input);
+        sema_analyze(&analyzer, stmts, count);
+        sema_free(&analyzer);
+    }
+
+    free(stmts);
+    parser_free(&parser);
+    free(source);
+
+    return diag->has_error ? 1 : 0;
+}
+
 static void usage(FILE *out) {
     fputs("usage:\n"
           "  tiq --version\n"
@@ -334,6 +357,9 @@ int main(int argc, char **argv) {
     }
     if (argc == 3 && strcmp(argv[1], "dump-ast") == 0) {
         return dump_ast(argv[2], &diag);
+    }
+    if (argc == 3 && strcmp(argv[1], "check-sema") == 0) {
+        return check_sema(argv[2], &diag);
     }
     if (argc == 3 && strcmp(argv[1], "emit-c") == 0) {
         return emit_file(argv[2], NULL, &diag);

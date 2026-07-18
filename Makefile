@@ -8,7 +8,7 @@ TIQ := $(BUILD)/tiq
 
 all: $(TIQ)
 
-SRCS = src/main.c src/lexer.c src/diag.c src/parser.c
+SRCS = src/main.c src/lexer.c src/diag.c src/parser.c src/sema.c
 OBJS = $(SRCS:src/%.c=$(BUILD)/%.o)
 
 $(BUILD)/%.o: src/%.c
@@ -27,6 +27,7 @@ test: $(TIQ)
 	sh tests/diagnostics.sh
 	sh tests/lexer.sh
 	sh tests/parser.sh
+	sh tests/sema.sh
 
 clean:
 	rm -rf $(BUILD)
