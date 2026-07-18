@@ -22,7 +22,7 @@ Exit gate: clean checkout can build `tiq`, compile `examples/hello.tiq`, run it,
 
 ## M1 — Real frontend
 
-Status: active
+Status: done
 
 ### M1.1 Source and lexer
 

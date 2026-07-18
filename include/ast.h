@@ -1,0 +1,90 @@
+#ifndef TIQ_AST_H
+#define TIQ_AST_H
+
+#include "lexer.h"
+#include <stdbool.h>
+
+typedef enum {
+    AST_PRINT,
+    AST_LITERAL,
+    AST_IDENTIFIER,
+    AST_BINARY,
+    AST_UNARY,
+    AST_CONDITIONAL,
+    AST_CALL,
+    AST_BLOCK,
+    AST_BINDING,
+    AST_ASSIGN,
+    AST_FUNCTION
+} AstKind;
+
+typedef struct AstNode AstNode;
+
+struct AstNode {
+    AstKind kind;
+    Token token;
+
+    union {
+        struct {
+            AstNode *expr;
+        } print_stmt;
+
+        struct {
+            TokenKind type;
+        } literal;
+
+        struct {
+            Token name;
+        } identifier;
+
+        struct {
+            AstNode *left;
+            AstNode *right;
+            TokenKind op;
+        } binary;
+
+        struct {
+            AstNode *right;
+            TokenKind op;
+        } unary;
+
+        struct {
+            AstNode *cond;
+            AstNode *then_branch;
+            AstNode *else_branch;
+        } conditional;
+
+        struct {
+            AstNode *callee;
+            AstNode **args;
+            int arg_count;
+        } call;
+
+        struct {
+            AstNode **statements;
+            int stmt_count;
+            AstNode *final_expr;
+        } block;
+
+        struct {
+            Token name;
+            bool is_mutable;
+            AstNode *expr;
+        } binding;
+
+        struct {
+            Token name;
+            TokenKind op;
+            AstNode *expr;
+        } assign;
+
+        struct {
+            Token name;
+            Token *params;
+            int param_count;
+            AstNode *body;
+        } function;
+    } as;
+};
+
+#endif

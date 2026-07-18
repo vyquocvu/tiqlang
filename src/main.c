@@ -7,6 +7,9 @@
 #include <string.h>
 #include <sys/wait.h>
 #include <unistd.h>
+#include "../include/lexer.h"
+#include "../include/diag.h"
+#include "../include/parser.h"
 
 #define TIQ_VERSION "0.1.0-dev"
 
@@ -67,73 +70,73 @@ static void emit_c_string(FILE *out, const char *start, size_t length) {
     fputc('"', out);
 }
 
-static const char *skip_space(const char *p, int *line) {
-    for (;;) {
-        while (*p != '\0' && isspace((unsigned char)*p)) {
-            if (*p == '\n') (*line)++;
-            p++;
+
+static void emit_ast_node(AstNode *node, FILE *out, DiagContext *diag, const char *source_path) {
+    if (!node) return;
+
+    if (node->kind == AST_PRINT) {
+        AstNode *expr = node->as.print_stmt.expr;
+        if (expr && expr->kind == AST_LITERAL && expr->as.literal.type == TOK_STRING) {
+            if (out) {
+                fputs("    fputs(", out);
+                // We need to strip the quotes from the token for emit_c_string
+                const char *start = expr->token.start + 1;
+                size_t length = expr->token.length - 2;
+                emit_c_string(out, start, length);
+                fputs(", stdout);\n    fputc('\\n', stdout);\n", out);
+            }
+        } else {
+            diag_error(diag, source_path, node->token.line, ERR_EXPECTED_STRING, "bootstrap compiler expects a string literal after '!'");
         }
-        if (p[0] == '/' && p[1] == '/') {
-            while (*p != '\0' && *p != '\n') p++;
-            continue;
-        }
-        return p;
+    } else {
+        // Any node other than PRINT is unsupported in M1 for C emission
+        diag_error(diag, source_path, node->token.line, ERR_EXPECTED_PRINT, "expected print statement starting with '!'");
     }
 }
 
-static void compile_to_c(const char *source_path, const char *source, FILE *out) {
-    const char *p = source;
-    int line = 1;
+static void compile_to_c(const char *source_path, const char *source, FILE *out, DiagContext *diag) {
+    Parser parser;
+    parser_init(&parser, source, source_path, diag);
+
+    int count;
+    AstNode **stmts = parser_parse(&parser, &count);
+
+    if (diag->has_error) {
+        free(stmts);
+        parser_free(&parser);
+        return;
+    }
+
+    for (int i = 0; i < count; i++) {
+        // Look for errors during tree walking/emission since it's the backend that complains about unsupported stuff now
+        emit_ast_node(stmts[i], NULL, diag, source_path);
+    }
+
+    if (diag->has_error) {
+        free(stmts);
+        parser_free(&parser);
+        return;
+    }
 
     fputs("#include <stdio.h>\n\nint main(void) {\n", out);
-    p = skip_space(p, &line);
 
-    while (*p != '\0') {
-        const char *start;
-        const char *end;
-
-        if (*p != '!') {
-            fprintf(stderr, "%s:%d: error: expected print statement starting with '!'\n", source_path, line);
-            exit(1);
-        }
-        p++;
-        while (*p == ' ' || *p == '\t') p++;
-        if (*p != '"') {
-            fprintf(stderr, "%s:%d: error: bootstrap compiler expects a string literal after '!'\n", source_path, line);
-            exit(1);
-        }
-        p++;
-        start = p;
-        while (*p != '\0' && *p != '"') {
-            if (*p == '\n') {
-                fprintf(stderr, "%s:%d: error: newline in string literal\n", source_path, line);
-                exit(1);
-            }
-            if (*p == '\\' && p[1] != '\0') p++;
-            p++;
-        }
-        if (*p != '"') {
-            fprintf(stderr, "%s:%d: error: unterminated string literal\n", source_path, line);
-            exit(1);
-        }
-        end = p;
-        p++;
-
-        fputs("    fputs(", out);
-        emit_c_string(out, start, (size_t)(end - start));
-        fputs(", stdout);\n    fputc('\\n', stdout);\n", out);
-
-        p = skip_space(p, &line);
+    for (int i = 0; i < count; i++) {
+        emit_ast_node(stmts[i], out, diag, source_path);
     }
 
     fputs("    return 0;\n}\n", out);
+
+    free(stmts);
+    parser_free(&parser);
 }
 
-static int compile_file_to_c_stream(const char *input, FILE *out) {
+static int compile_file_to_c_stream(const char *input, FILE *out, DiagContext *diag) {
     char *source = read_all(input);
 
-    compile_to_c(input, source, out);
+    compile_to_c(input, source, out, diag);
     free(source);
+
+    if (diag->has_error) return 1;
     if (ferror(out)) {
         fprintf(stderr, "tiq: cannot write generated C: %s\n", strerror(errno));
         return 1;
@@ -141,7 +144,7 @@ static int compile_file_to_c_stream(const char *input, FILE *out) {
     return 0;
 }
 
-static int emit_file(const char *input, const char *output) {
+static int emit_file(const char *input, const char *output, DiagContext *diag) {
     FILE *out = output == NULL ? stdout : fopen(output, "wb");
     int result;
 
@@ -149,7 +152,7 @@ static int emit_file(const char *input, const char *output) {
         fprintf(stderr, "tiq: cannot create %s: %s\n", output, strerror(errno));
         return 1;
     }
-    result = compile_file_to_c_stream(input, out);
+    result = compile_file_to_c_stream(input, out, diag);
     if (output != NULL && fclose(out) != 0) {
         fprintf(stderr, "tiq: cannot close %s: %s\n", output, strerror(errno));
         return 1;
@@ -224,7 +227,7 @@ static char *temporary_c_template(void) {
     return path;
 }
 
-static int build(const char *input, const char *output) {
+static int build(const char *input, const char *output, DiagContext *diag) {
     const char *cc = getenv("CC");
     char *temp_name = temporary_c_template();
     int fd;
@@ -246,7 +249,7 @@ static int build(const char *input, const char *output) {
         free(temp_name);
         return 1;
     }
-    result = compile_file_to_c_stream(input, temp_file);
+    result = compile_file_to_c_stream(input, temp_file, diag);
     if (fclose(temp_file) != 0) {
         remove(temp_name);
         fprintf(stderr, "tiq: cannot close temporary C file: %s\n", strerror(errno));
@@ -269,20 +272,71 @@ static int build(const char *input, const char *output) {
     return result;
 }
 
+static int dump_tokens(const char *input, DiagContext *diag) {
+    char *source = read_all(input);
+    Lexer lexer;
+    lexer_init(&lexer, source, input, diag);
+
+    for (;;) {
+        Token token = lexer_next(&lexer);
+        if (token.kind == TOK_EOF) break;
+        if (token.kind == TOK_NEWLINE) continue;
+
+        printf("%s", token_kind_name(token.kind));
+        if (token.kind == TOK_IDENT || token.kind == TOK_INT || token.kind == TOK_FLOAT || token.kind == TOK_STRING) {
+            printf(" %.*s", (int)token.length, token.start);
+        }
+        printf("\n");
+    }
+
+    free(source);
+    return diag->has_error ? 1 : 0;
+}
+
+static int dump_ast(const char *input, DiagContext *diag) {
+    char *source = read_all(input);
+    Parser parser;
+    parser_init(&parser, source, input, diag);
+
+    int count;
+    AstNode **stmts = parser_parse(&parser, &count);
+
+    for (int i = 0; i < count; i++) {
+        ast_print(stmts[i], 0);
+    }
+
+    free(stmts);
+    parser_free(&parser);
+    free(source);
+
+    return diag->has_error ? 1 : 0;
+}
+
 static void usage(FILE *out) {
     fputs("usage:\n"
           "  tiq --version\n"
+          "  tiq dump-tokens <file.tiq>\n"
+          "  tiq dump-ast <file.tiq>\n"
           "  tiq emit-c <file.tiq>\n"
           "  tiq build <file.tiq> [-o output]\n", out);
 }
 
 int main(int argc, char **argv) {
+    DiagContext diag;
+    diag_init(&diag);
+
     if (argc == 2 && strcmp(argv[1], "--version") == 0) {
         printf("tiq %s\n", TIQ_VERSION);
         return 0;
     }
+    if (argc == 3 && strcmp(argv[1], "dump-tokens") == 0) {
+        return dump_tokens(argv[2], &diag);
+    }
+    if (argc == 3 && strcmp(argv[1], "dump-ast") == 0) {
+        return dump_ast(argv[2], &diag);
+    }
     if (argc == 3 && strcmp(argv[1], "emit-c") == 0) {
-        return emit_file(argv[2], NULL);
+        return emit_file(argv[2], NULL, &diag);
     }
     if (argc >= 3 && strcmp(argv[1], "build") == 0) {
         const char *output = "a.out";
@@ -291,7 +345,7 @@ int main(int argc, char **argv) {
             usage(stderr);
             return 2;
         }
-        return build(argv[2], output);
+        return build(argv[2], output, &diag);
     }
     usage(stderr);
     return 2;
