@@ -4,7 +4,7 @@ Updated: 2026-07-18
 
 ## Current milestone
 
-M2 — Static semantics.
+M3 — Control flow and collections.
 
 ## Implemented
 
@@ -25,14 +25,21 @@ M2 — Static semantics.
 - M1.1: Source and lexer (tokens, positions, comments, strings, integers, identifiers, reserved operators).
 - M1.3: Diagnostics (stable error codes, source spans, expected/found messages).
 - M1.2: Parser and AST (expressions, bindings, conditional expressions, function definitions, calls, and blocks).
+- M2: Lexical scopes and symbols.
+- M2: Primitive types.
+- M2: Local inference.
+- M2: Explicit conversions (fail closed).
+- M2: Mutability checks.
+- M2: Function type checking (arity checking).
+- M2: Deterministic typed IR.
 
 ## Not implemented
 
 - Escape decoding beyond preserving source spelling
-- Type checking, semantic analysis
-- `run`, `check`, `fmt`, and `test` CLI commands
-- Package system or standard library
-- Ownership checking
+- Control flow and collections (M3)
+- Ownership (M4)
+- Tooling commands (`run`, `check`, `fmt`, `test`) (M5)
+- Package system or standard library (M6)
 - Cross-platform non-POSIX process spawning
 
 ## Known bootstrap limitations
@@ -42,4 +49,4 @@ M2 — Static semantics.
 
 ## Next package
 
-M2: Static semantics (lexical scopes and symbols).
+M3: Control flow and collections (while and range loops).

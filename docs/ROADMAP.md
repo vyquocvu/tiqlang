@@ -40,15 +40,15 @@ Exit gate: parser golden tests cover every grammar production and malformed boun
 
 ## M2 — Static semantics
 
-Status: queued
+Status: done
 
 - lexical scopes and symbols;
 - primitive types;
-- local inference;
-- explicit conversions;
-- mutability checks;
-- function type checking;
-- deterministic typed IR.
+- [x] local inference;
+- [x] explicit conversions;
+- [x] mutability checks;
+- [x] function type checking;
+- [x] deterministic typed IR.
 
 Exit gate: invalid programs are rejected before code generation and typed IR snapshots are stable.
 

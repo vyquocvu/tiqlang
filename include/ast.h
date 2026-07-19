@@ -23,6 +23,7 @@ typedef struct AstNode AstNode;
 struct AstNode {
     AstKind kind;
     Token token;
+    void *semantic_type; // Maps to SemanticType* during checking
 
     union {
         struct {

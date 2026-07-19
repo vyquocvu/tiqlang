@@ -1,4 +1,5 @@
 #include "../include/parser.h"
+#include "../include/semantic.h"
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
@@ -455,9 +456,23 @@ void parser_free(Parser *parser) {
         } else if (parser->nodes[i]->kind == AST_FUNCTION) {
             free(parser->nodes[i]->as.function.params);
         }
+        if (parser->nodes[i]->semantic_type) {
+            free(parser->nodes[i]->semantic_type);
+        }
         free(parser->nodes[i]);
     }
     free(parser->nodes);
+}
+
+static const char *type_name(SemanticType *t) {
+    if (!t) return "";
+    switch (t->kind) {
+        case TYPE_INT: return " <TYPE_INT>";
+        case TYPE_FLOAT: return " <TYPE_FLOAT>";
+        case TYPE_STR: return " <TYPE_STR>";
+        case TYPE_BOOL: return " <TYPE_BOOL>";
+        default: return " <TYPE_UNKNOWN>";
+    }
 }
 
 void ast_print(AstNode *node, int indent) {
@@ -465,47 +480,49 @@ void ast_print(AstNode *node, int indent) {
 
     for (int i = 0; i < indent; i++) printf("  ");
 
+    const char *t_str = type_name((SemanticType *)node->semantic_type);
+
     switch (node->kind) {
         case AST_PRINT:
-            printf("PRINT\n");
+            printf("PRINT%s\n", t_str);
             ast_print(node->as.print_stmt.expr, indent + 1);
             break;
         case AST_LITERAL:
             if (node->as.literal.type == TOK_STRING) {
-                printf("STRING %.*s\n", (int)node->token.length, node->token.start);
+                printf("STRING %.*s%s\n", (int)node->token.length, node->token.start, t_str);
             } else if (node->as.literal.type == TOK_INT) {
-                printf("INT %.*s\n", (int)node->token.length, node->token.start);
+                printf("INT %.*s%s\n", (int)node->token.length, node->token.start, t_str);
             } else {
-                printf("LITERAL\n");
+                printf("LITERAL%s\n", t_str);
             }
             break;
         case AST_IDENTIFIER:
-            printf("IDENT %.*s\n", (int)node->as.identifier.name.length, node->as.identifier.name.start);
+            printf("IDENT %.*s%s\n", (int)node->as.identifier.name.length, node->as.identifier.name.start, t_str);
             break;
         case AST_BINARY:
-            printf("BINARY %s\n", token_kind_name(node->as.binary.op));
+            printf("BINARY %s%s\n", token_kind_name(node->as.binary.op), t_str);
             ast_print(node->as.binary.left, indent + 1);
             ast_print(node->as.binary.right, indent + 1);
             break;
         case AST_UNARY:
-            printf("UNARY %s\n", token_kind_name(node->as.unary.op));
+            printf("UNARY %s%s\n", token_kind_name(node->as.unary.op), t_str);
             ast_print(node->as.unary.right, indent + 1);
             break;
         case AST_CONDITIONAL:
-            printf("CONDITIONAL\n");
+            printf("CONDITIONAL%s\n", t_str);
             ast_print(node->as.conditional.cond, indent + 1);
             ast_print(node->as.conditional.then_branch, indent + 1);
             ast_print(node->as.conditional.else_branch, indent + 1);
             break;
         case AST_CALL:
-            printf("CALL\n");
+            printf("CALL%s\n", t_str);
             ast_print(node->as.call.callee, indent + 1);
             for (int i = 0; i < node->as.call.arg_count; i++) {
                 ast_print(node->as.call.args[i], indent + 1);
             }
             break;
         case AST_BLOCK:
-            printf("BLOCK\n");
+            printf("BLOCK%s\n", t_str);
             for (int i = 0; i < node->as.block.stmt_count; i++) {
                 ast_print(node->as.block.statements[i], indent + 1);
             }
@@ -515,18 +532,18 @@ void ast_print(AstNode *node, int indent) {
             break;
         case AST_BINDING:
             if (node->as.binding.is_mutable) {
-                printf("MUT_BINDING %.*s\n", (int)node->as.binding.name.length, node->as.binding.name.start);
+                printf("MUT_BINDING %.*s%s\n", (int)node->as.binding.name.length, node->as.binding.name.start, t_str);
             } else {
-                printf("BINDING %.*s\n", (int)node->as.binding.name.length, node->as.binding.name.start);
+                printf("BINDING %.*s%s\n", (int)node->as.binding.name.length, node->as.binding.name.start, t_str);
             }
             ast_print(node->as.binding.expr, indent + 1);
             break;
         case AST_ASSIGN:
-            printf("ASSIGN %.*s %s\n", (int)node->as.assign.name.length, node->as.assign.name.start, token_kind_name(node->as.assign.op));
+            printf("ASSIGN %.*s %s%s\n", (int)node->as.assign.name.length, node->as.assign.name.start, token_kind_name(node->as.assign.op), t_str);
             ast_print(node->as.assign.expr, indent + 1);
             break;
         case AST_FUNCTION:
-            printf("FUNCTION %.*s\n", (int)node->as.function.name.length, node->as.function.name.start);
+            printf("FUNCTION %.*s%s\n", (int)node->as.function.name.length, node->as.function.name.start, t_str);
             for (int i = 0; i < node->as.function.param_count; i++) {
                 for (int j = 0; j < indent + 1; j++) printf("  ");
                 printf("PARAM %.*s\n", (int)node->as.function.params[i].length, node->as.function.params[i].start);
@@ -534,7 +551,7 @@ void ast_print(AstNode *node, int indent) {
             ast_print(node->as.function.body, indent + 1);
             break;
         default:
-            printf("UNKNOWN\n");
+            printf("UNKNOWN%s\n", t_str);
             break;
     }
 }
