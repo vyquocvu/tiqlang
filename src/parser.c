@@ -199,23 +199,33 @@ static AstNode *call_or_index(Parser *parser) {
             AstNode *node = allocate_node(parser, AST_CALL);
             node->as.call.callee = expr;
             node->as.call.is_bracket_call = true;
+            node->as.call.is_slice = false;
             if (check(parser, TOK_WHILE) || check(parser, TOK_UNTIL)) {
                 advance(parser);
                 AstNode *idx_expr = expression(parser);
                 node->as.call.arg_count = 1;
                 node->as.call.args = malloc(sizeof(AstNode *));
                 node->as.call.args[0] = idx_expr;
-            } else if (check(parser, TOK_DOT_DOT)) {
-                advance(parser);
-                AstNode *start = expression(parser);
+            } else if (match(parser, TOK_DOT_DOT)) {
+                AstNode *end = check(parser, TOK_RBRACKET) ? NULL : expression(parser);
+                node->as.call.is_slice = true;
                 node->as.call.arg_count = 2;
                 node->as.call.args = malloc(sizeof(AstNode *) * 2);
-                node->as.call.args[0] = start;
+                node->as.call.args[0] = NULL;
+                node->as.call.args[1] = end;
             } else {
                 AstNode *idx_expr = expression(parser);
-                node->as.call.arg_count = 1;
-                node->as.call.args = malloc(sizeof(AstNode *));
-                node->as.call.args[0] = idx_expr;
+                if (idx_expr && idx_expr->kind == AST_BINARY && idx_expr->as.binary.op == TOK_DOT_DOT) {
+                    node->as.call.is_slice = true;
+                    node->as.call.arg_count = 2;
+                    node->as.call.args = malloc(sizeof(AstNode *) * 2);
+                    node->as.call.args[0] = idx_expr->as.binary.left;
+                    node->as.call.args[1] = idx_expr->as.binary.right;
+                } else {
+                    node->as.call.arg_count = 1;
+                    node->as.call.args = malloc(sizeof(AstNode *));
+                    node->as.call.args[0] = idx_expr;
+                }
             }
             consume(parser, TOK_RBRACKET, ERR_UNEXPECTED_TOKEN, "expected ']' after index");
             expr = node;
@@ -266,7 +276,7 @@ static AstNode *range(Parser *parser) {
         AstNode *node = allocate_node(parser, AST_BINARY);
         node->as.binary.op = TOK_DOT_DOT;
         node->as.binary.left = expr;
-        node->as.binary.right = additive(parser);
+        node->as.binary.right = check(parser, TOK_RBRACKET) ? NULL : additive(parser);
         return node;
     }
     return expr;
@@ -587,10 +597,19 @@ void ast_print(AstNode *node, int indent) {
             ast_print(node->as.conditional.else_branch, indent + 1);
             break;
         case AST_CALL:
-            printf("CALL%s\n", t_str);
+            if (node->as.call.is_slice) {
+                printf("SLICE%s\n", t_str);
+            } else {
+                printf("CALL%s\n", t_str);
+            }
             ast_print(node->as.call.callee, indent + 1);
             for (int i = 0; i < node->as.call.arg_count; i++) {
-                ast_print(node->as.call.args[i], indent + 1);
+                if (node->as.call.args[i]) {
+                    ast_print(node->as.call.args[i], indent + 1);
+                } else {
+                    for (int k = 0; k < indent + 1; k++) printf("  ");
+                    printf("OMITTED\n");
+                }
             }
             break;
         case AST_BLOCK:

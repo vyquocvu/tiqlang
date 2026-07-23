@@ -158,4 +158,19 @@ assert_semantic "array_print" 'x := [1, 2, 3]
 !x
 ' "$TMP_DIR/array_print.tiq:2: error: cannot print array directly"
 
+assert_semantic "len_non_array" 'x := 42
+!len(x)
+' "$TMP_DIR/len_non_array.tiq:2: error: len expects an array argument"
+
+assert_semantic "len_no_args" '!len()
+' "$TMP_DIR/len_no_args.tiq:1: error: len expects exactly 1 argument"
+
+assert_semantic "slice_non_int" 'x = [1, 2, 3]
+y = x["bad"..2]
+' "$TMP_DIR/slice_non_int.tiq:2: error: slice index must be int"
+
+assert_semantic "slice_non_array" 'x = 42
+y = x[1..2]
+' "$TMP_DIR/slice_non_array.tiq:2: error: cannot slice non-array"
+
 echo "semantic: ok"

@@ -46,16 +46,18 @@ M3 — Control flow and collections.
 - M3: Identifiers carry full TYPE_ARRAY metadata (element_type, array_length).
 - M3: TYPE_ARRAY type name in dump-typed-ast output.
 - M3: Memory leak fix — element_type freed in parser_free for TYPE_ARRAY.
-- LANGUAGE_SPEC §13 updated from "Planned v0.2" to concrete v0.1 array spec.
+- M3: `len(xs)` built-in — accepts array, slice, and string views; returns length.
+- LANGUAGE_SPEC §13 updated from "Planned v0.2" to concrete v0.1 array and slice spec.
+- M3: Slices and String Views syntax specification (LANGUAGE_SPEC §13.1, GRAMMAR EBNF `slice_range`).
+- M3: Slices and String Views compiler support:
+  - AST `AST_CALL` with `is_slice` flag and `OMITTED` bounds support (`xs[i..j]`, `xs[i..]`, `xs[..j]`, `xs[..]`).
+  - Semantic type checking for `TYPE_SLICE` and `TYPE_STR_VIEW`.
+  - C11 backend emission for `TiqSlice` non-owning views and string view printing.
+  - Tests: `parser.sh` (slice AST golden tests), `semantic.sh` (slice type mismatch diagnostics), `smoke.sh` (end-to-end string view slicing and `len()` execution).
 
 ## Not implemented
 
 - Escape decoding beyond preserving source spelling
-- Slices and slice syntax (`xs[i..j]`) (planned v0.2)
-- Bounds checks (depends on slices for variable-range access)
-- String views (depends on slices)
-- Minimal collection primitives (beyond literal arrays)
-- Mutable array element assignment
 - Ownership (M4)
 - Tooling commands (`run`, `check`, `fmt`, `test`) (M5)
 - Package system or standard library (M6)
@@ -69,4 +71,4 @@ M3 — Control flow and collections.
 
 ## Next package
 
-M3: Slices and bounds checks. Requires LANGUAGE_SPEC slice syntax specification first.
+M4: Ownership and memory model.

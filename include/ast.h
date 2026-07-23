@@ -66,6 +66,7 @@ struct AstNode {
             AstNode **args;
             int arg_count;
             bool is_bracket_call;
+            bool is_slice;
         } call;
 
         struct {

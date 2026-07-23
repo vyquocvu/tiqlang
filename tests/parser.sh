@@ -122,10 +122,28 @@ assert_parser "bracket_expr" 'x = [1 + 2]' 'BINDING x
       INT 1
       INT 2'
 
-assert_parser "array_literal" 'x = [1, 2, 3]' 'BINDING x
-  ARRAY
+assert_parser "slice_full" 'sub = xs[1..3]' 'BINDING sub
+  SLICE
+    IDENT xs
     INT 1
-    INT 2
     INT 3'
+
+assert_parser "slice_omitted_end" 'tail = xs[1..]' 'BINDING tail
+  SLICE
+    IDENT xs
+    INT 1
+    OMITTED'
+
+assert_parser "slice_omitted_start" 'head = xs[..2]' 'BINDING head
+  SLICE
+    IDENT xs
+    OMITTED
+    INT 2'
+
+assert_parser "slice_omitted_both" 'full = xs[..]' 'BINDING full
+  SLICE
+    IDENT xs
+    OMITTED
+    OMITTED'
 
 echo "parser: ok"

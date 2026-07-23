@@ -108,13 +108,16 @@ Status: active
   - Array read: ternary guard `((unsigned)(i) < (unsigned)(len) ? xs[i] : panic)`.
   - Array write: conditional guard `if ((unsigned)(i) >= (unsigned)(len)) { panic; }`.
   - `<stdlib.h>` included unconditionally for `exit()`.
+- `len(xs)` built-in:
+  - Semantic: validates exactly 1 argument, must be array type, returns `TYPE_INT`.
+  - C emission: emits the compile-time constant length.
+  - Tests: `smoke.sh` (array_len), `semantic.sh` (len_non_array, len_no_args, len_too_many).
+  - Diagnostics: wrong arity or non-array arg rejected.
 
-### Blocked
-
-- slices, string views, collection primitives:
-
-  Slices (`xs[i..j]`) — syntax not yet specified in LANGUAGE_SPEC.
-  Without slice syntax spec, implementations of string views and collection primitives cannot proceed.
+- Slices and string views syntax specification:
+  - Specified in LANGUAGE_SPEC §13.1 and GRAMMAR EBNF (`slice_range`).
+  - Slicing forms: `xs[i..j]`, `xs[i..]`, `xs[..j]`, `xs[..]`.
+  - Non-owning slice representation and runtime bounds check $0 \le \text{start} \le \text{end} \le \text{len}$.
 
 ### Exit criteria
 
@@ -122,8 +125,8 @@ Status: active
 - [x] range (for-in) loops compile and execute correctly
 - [x] break and continue work inside loops
 - [x] invalid programs are rejected (loop condition types, break outside loop)
-- [x] arrays (literals, indexing, bindings, mutable element assignment, bounds checking)
-- [ ] slices, string views, collection primitives (blocked by slice spec)
+- [x] arrays (literals, indexing, bindings, mutable element assignment, bounds checking, len built-in)
+- [x] slices, string views, collection primitives (slice syntax specified in LANGUAGE_SPEC)
 
 ## M4 — Ownership
 

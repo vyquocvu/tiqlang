@@ -115,8 +115,73 @@ static void emit_expr(AstNode *node, FILE *out, DiagContext *diag, const char *p
                     node->as.call.args[0]->semantic_type : NULL;
                 if (ct && ct->kind == TYPE_ARRAY) {
                     fprintf(out, "%d", ct->array_length);
+                } else if (ct && (ct->kind == TYPE_SLICE || ct->kind == TYPE_STR_VIEW)) {
+                    fputs("(((TiqSlice)", out);
+                    emit_expr(node->as.call.args[0], out, diag, path);
+                    fputs(").len)", out);
+                } else if (ct && ct->kind == TYPE_STR) {
+                    fputs("((int)strlen(", out);
+                    emit_expr(node->as.call.args[0], out, diag, path);
+                    fputs("))", out);
                 } else {
                     fprintf(out, "0");
+                }
+                break;
+            }
+            if (node->as.call.is_bracket_call && node->as.call.is_slice && node->as.call.callee) {
+                SemanticType *ct = node->as.call.callee->semantic_type;
+                fputs("((TiqSlice){ .ptr = ", out);
+                if (ct && (ct->kind == TYPE_SLICE || ct->kind == TYPE_STR_VIEW)) {
+                    fputs("((const char*)(((TiqSlice)", out);
+                    emit_expr(node->as.call.callee, out, diag, path);
+                    fputs(").ptr) + (", out);
+                    if (node->as.call.args[0]) emit_expr(node->as.call.args[0], out, diag, path);
+                    else fputs("0", out);
+                    fputs(") * ", out);
+                    if (ct->kind == TYPE_SLICE) fputs("sizeof(int)", out);
+                    else fputs("1", out);
+                    fputs("), .len = (", out);
+                    if (node->as.call.args[1]) emit_expr(node->as.call.args[1], out, diag, path);
+                    else {
+                        fputs("(((TiqSlice)", out);
+                        emit_expr(node->as.call.callee, out, diag, path);
+                        fputs(").len)", out);
+                    }
+                    fputs(") - (", out);
+                    if (node->as.call.args[0]) emit_expr(node->as.call.args[0], out, diag, path);
+                    else fputs("0", out);
+                    fputs(") })", out);
+                } else if (ct && ct->kind == TYPE_STR) {
+                    fputs("((const char*)(", out);
+                    emit_expr(node->as.call.callee, out, diag, path);
+                    fputs(") + (", out);
+                    if (node->as.call.args[0]) emit_expr(node->as.call.args[0], out, diag, path);
+                    else fputs("0", out);
+                    fputs(")), .len = (", out);
+                    if (node->as.call.args[1]) emit_expr(node->as.call.args[1], out, diag, path);
+                    else {
+                        fputs("((int)strlen(", out);
+                        emit_expr(node->as.call.callee, out, diag, path);
+                        fputs("))", out);
+                    }
+                    fputs(") - (", out);
+                    if (node->as.call.args[0]) emit_expr(node->as.call.args[0], out, diag, path);
+                    else fputs("0", out);
+                    fputs(") })", out);
+                } else {
+                    int arr_len = ct ? ct->array_length : 0;
+                    fputs("((const char*)(", out);
+                    emit_expr(node->as.call.callee, out, diag, path);
+                    fputs(") + (", out);
+                    if (node->as.call.args[0]) emit_expr(node->as.call.args[0], out, diag, path);
+                    else fputs("0", out);
+                    fputs(") * sizeof(int)), .len = (", out);
+                    if (node->as.call.args[1]) emit_expr(node->as.call.args[1], out, diag, path);
+                    else fprintf(out, "%d", arr_len);
+                    fputs(") - (", out);
+                    if (node->as.call.args[0]) emit_expr(node->as.call.args[0], out, diag, path);
+                    else fputs("0", out);
+                    fputs(") })", out);
                 }
                 break;
             }
@@ -124,7 +189,7 @@ static void emit_expr(AstNode *node, FILE *out, DiagContext *diag, const char *p
                 SemanticType *ct = node->as.call.callee->semantic_type;
                 if (ct && ct->kind == TYPE_ARRAY) {
                     int len = ct->array_length;
-                    if (len > 0 && node->as.call.arg_count > 0) {
+                    if (len > 0 && node->as.call.arg_count > 0 && node->as.call.args[0]) {
                         fputs("((unsigned)(", out);
                         emit_expr(node->as.call.args[0], out, diag, path);
                         fprintf(out, ") < (unsigned)(%d) ? ", len);
@@ -132,7 +197,7 @@ static void emit_expr(AstNode *node, FILE *out, DiagContext *diag, const char *p
                         fputs("[", out);
                         for (int i = 0; i < node->as.call.arg_count; i++) {
                             if (i > 0) fputs("][", out);
-                            emit_expr(node->as.call.args[i], out, diag, path);
+                            if (node->as.call.args[i]) emit_expr(node->as.call.args[i], out, diag, path);
                         }
                         fputs("] : (fprintf(stderr, \"tiq: index %d out of bounds for array of length %d\\n\", (int)(", out);
                         emit_expr(node->as.call.args[0], out, diag, path);
@@ -141,7 +206,7 @@ static void emit_expr(AstNode *node, FILE *out, DiagContext *diag, const char *p
                         fputs("[", out);
                         for (int i = 0; i < node->as.call.arg_count; i++) {
                             if (i > 0) fputs("][", out);
-                            emit_expr(node->as.call.args[i], out, diag, path);
+                            if (node->as.call.args[i]) emit_expr(node->as.call.args[i], out, diag, path);
                         }
                         fputs("]))", out);
                     } else {
@@ -149,7 +214,7 @@ static void emit_expr(AstNode *node, FILE *out, DiagContext *diag, const char *p
                         fputs("[", out);
                         for (int i = 0; i < node->as.call.arg_count; i++) {
                             if (i > 0) fputs("][", out);
-                            emit_expr(node->as.call.args[i], out, diag, path);
+                            if (node->as.call.args[i]) emit_expr(node->as.call.args[i], out, diag, path);
                         }
                         fputs("]", out);
                     }
@@ -167,7 +232,7 @@ static void emit_expr(AstNode *node, FILE *out, DiagContext *diag, const char *p
             }
             for (int i = 0; i < node->as.call.arg_count; i++) {
                 if (i > 0) fputs(", ", out);
-                emit_expr(node->as.call.args[i], out, diag, path);
+                if (node->as.call.args[i]) emit_expr(node->as.call.args[i], out, diag, path);
             }
             fputs(")", out);
             break;
@@ -194,12 +259,14 @@ static void emit_expr(AstNode *node, FILE *out, DiagContext *diag, const char *p
 
 static void emit_type_name(PrimitiveType kind, FILE *out) {
     switch (kind) {
-        case TYPE_INT:    fputs("int", out); break;
-        case TYPE_FLOAT:  fputs("double", out); break;
-        case TYPE_BOOL:   fputs("int", out); break;
-        case TYPE_STR:    fputs("const char *", out); break;
-        case TYPE_ARRAY:  fputs("int", out); break;
-        default:          fputs("int", out); break;
+        case TYPE_INT:      fputs("int", out); break;
+        case TYPE_FLOAT:    fputs("double", out); break;
+        case TYPE_BOOL:     fputs("int", out); break;
+        case TYPE_STR:      fputs("const char *", out); break;
+        case TYPE_ARRAY:    fputs("int", out); break;
+        case TYPE_SLICE:    fputs("TiqSlice", out); break;
+        case TYPE_STR_VIEW: fputs("TiqSlice", out); break;
+        default:           fputs("int", out); break;
     }
 }
 
@@ -215,6 +282,16 @@ static void emit_stmt(AstNode *node, FILE *out, DiagContext *diag, const char *p
                 fputs("fputs(", out); emit_expr(expr, out, diag, path); fputs(", stdout);\n", out);
                 for (int i = 0; i < indent; i++) fputs("    ", out);
                 fputs("fputc('\\n', stdout);\n", out);
+            } else if (t && t->kind == TYPE_STR_VIEW) {
+                fputs("{\n", out);
+                for (int i = 0; i <= indent; i++) fputs("    ", out);
+                fputs("TiqSlice _sv = ", out); emit_expr(expr, out, diag, path); fputs(";\n", out);
+                for (int i = 0; i <= indent; i++) fputs("    ", out);
+                fputs("fwrite(_sv.ptr, 1, _sv.len, stdout);\n", out);
+                for (int i = 0; i <= indent; i++) fputs("    ", out);
+                fputs("fputc('\\n', stdout);\n", out);
+                for (int i = 0; i < indent; i++) fputs("    ", out);
+                fputs("}\n", out);
             } else if (t && t->kind == TYPE_INT) {
                 fputs("printf(\"%d\\n\", (int)(", out); emit_expr(expr, out, diag, path); fputs("));\n", out);
             } else if (t && t->kind == TYPE_BOOL) {
@@ -477,6 +554,8 @@ static void compile_to_c(const char *source_path, const char *source, FILE *out,
 
     fputs("#include <stdio.h>\n", out);
     fputs("#include <stdlib.h>\n", out);
+    fputs("#include <string.h>\n", out);
+    fputs("typedef struct { const void *ptr; int len; } TiqSlice;\n", out);
 
     // Forward-declare stream gen functions
     for (int g = 0; g < stream_gen_count; g++)

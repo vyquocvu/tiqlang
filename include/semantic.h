@@ -10,7 +10,9 @@ typedef enum {
     TYPE_FLOAT,
     TYPE_STR,
     TYPE_BOOL,
-    TYPE_ARRAY
+    TYPE_ARRAY,
+    TYPE_SLICE,
+    TYPE_STR_VIEW
 } PrimitiveType;
 
 typedef struct SemanticType {

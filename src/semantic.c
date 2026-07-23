@@ -182,10 +182,10 @@ static void check_node(SemanticContext *ctx, AstNode *node) {
                     if (node->as.call.arg_count != 1) {
                         diag_error(ctx->diag, ctx->path, node->token.line, ERR_ARITY_MISMATCH, "len expects exactly 1 argument");
                     } else {
-                        check_node(ctx, node->as.call.args[0]);
+                        if (node->as.call.args[0]) check_node(ctx, node->as.call.args[0]);
                         SemanticType *at = node->as.call.args[0] ?
                             node->as.call.args[0]->semantic_type : NULL;
-                        if (!at || at->kind != TYPE_ARRAY)
+                        if (!at || (at->kind != TYPE_ARRAY && at->kind != TYPE_SLICE && at->kind != TYPE_STR && at->kind != TYPE_STR_VIEW))
                             diag_error(ctx->diag, ctx->path, node->token.line, ERR_TYPE_MISMATCH,
                                        "len expects an array argument");
                     }
@@ -207,7 +207,7 @@ static void check_node(SemanticContext *ctx, AstNode *node) {
                     diag_error(ctx->diag, ctx->path, node->token.line, ERR_UNSUPPORTED_CONVERSION, "unsupported conversion");
                     node->semantic_type = alloc_type(TYPE_UNKNOWN);
                     for (int i = 0; i < node->as.call.arg_count; i++) {
-                        check_node(ctx, node->as.call.args[i]);
+                        if (node->as.call.args[i]) check_node(ctx, node->as.call.args[i]);
                     }
                     break;
                 }
@@ -215,21 +215,66 @@ static void check_node(SemanticContext *ctx, AstNode *node) {
             check_node(ctx, node->as.call.callee);
             if (node->as.call.callee && node->as.call.callee->semantic_type) {
                 SemanticType *callee_type = (SemanticType *)node->as.call.callee->semantic_type;
-                if (node->as.call.is_bracket_call && callee_type->kind == TYPE_ARRAY) {
-                    for (int i = 0; i < node->as.call.arg_count; i++)
-                        check_node(ctx, node->as.call.args[i]);
-                    if (node->as.call.arg_count >= 1) {
-                        SemanticType *it = node->as.call.args[0] ?
-                            node->as.call.args[0]->semantic_type : NULL;
-                        if (it && it->kind != TYPE_INT)
-                            diag_error(ctx->diag, ctx->path, node->token.line, ERR_TYPE_MISMATCH,
-                                       "array index must be int");
+                if (node->as.call.is_bracket_call) {
+                    for (int i = 0; i < node->as.call.arg_count; i++) {
+                        if (node->as.call.args[i]) check_node(ctx, node->as.call.args[i]);
                     }
-                    if (callee_type->element_type)
-                        node->semantic_type = alloc_type(callee_type->element_type->kind);
-                    else
-                        node->semantic_type = alloc_type(TYPE_UNKNOWN);
-                    break;
+                    if (node->as.call.is_slice) {
+                        if (callee_type->kind == TYPE_ARRAY || callee_type->kind == TYPE_SLICE) {
+                            for (int i = 0; i < 2; i++) {
+                                if (node->as.call.args[i]) {
+                                    SemanticType *it = node->as.call.args[i]->semantic_type;
+                                    if (it && it->kind != TYPE_INT)
+                                        diag_error(ctx->diag, ctx->path, node->token.line, ERR_TYPE_MISMATCH,
+                                                   "slice index must be int");
+                                }
+                            }
+                            SemanticType *st = alloc_type(TYPE_SLICE);
+                            if (callee_type->element_type)
+                                st->element_type = alloc_type(callee_type->element_type->kind);
+                            else
+                                st->element_type = alloc_type(TYPE_INT);
+                            node->semantic_type = st;
+                            break;
+                        } else if (callee_type->kind == TYPE_STR || callee_type->kind == TYPE_STR_VIEW) {
+                            for (int i = 0; i < 2; i++) {
+                                if (node->as.call.args[i]) {
+                                    SemanticType *it = node->as.call.args[i]->semantic_type;
+                                    if (it && it->kind != TYPE_INT)
+                                        diag_error(ctx->diag, ctx->path, node->token.line, ERR_TYPE_MISMATCH,
+                                                   "slice index must be int");
+                                }
+                            }
+                            node->semantic_type = alloc_type(TYPE_STR_VIEW);
+                            break;
+                        } else {
+                            diag_error(ctx->diag, ctx->path, node->token.line, ERR_TYPE_MISMATCH,
+                                       "cannot slice non-array");
+                            node->semantic_type = alloc_type(TYPE_UNKNOWN);
+                            break;
+                        }
+                    } else if (callee_type->kind == TYPE_ARRAY || callee_type->kind == TYPE_SLICE) {
+                        if (node->as.call.arg_count >= 1 && node->as.call.args[0]) {
+                            SemanticType *it = node->as.call.args[0]->semantic_type;
+                            if (it && it->kind != TYPE_INT)
+                                diag_error(ctx->diag, ctx->path, node->token.line, ERR_TYPE_MISMATCH,
+                                           "array index must be int");
+                        }
+                        if (callee_type->element_type)
+                            node->semantic_type = alloc_type(callee_type->element_type->kind);
+                        else
+                            node->semantic_type = alloc_type(TYPE_UNKNOWN);
+                        break;
+                    } else if (callee_type->kind == TYPE_STR || callee_type->kind == TYPE_STR_VIEW) {
+                        if (node->as.call.arg_count >= 1 && node->as.call.args[0]) {
+                            SemanticType *it = node->as.call.args[0]->semantic_type;
+                            if (it && it->kind != TYPE_INT)
+                                diag_error(ctx->diag, ctx->path, node->token.line, ERR_TYPE_MISMATCH,
+                                           "string index must be int");
+                        }
+                        node->semantic_type = alloc_type(TYPE_STR_VIEW);
+                        break;
+                    }
                 }
                 if (!node->as.call.is_bracket_call && callee_type->param_count >= 0 && callee_type->param_count != node->as.call.arg_count) {
                     diag_error(ctx->diag, ctx->path, node->token.line, ERR_ARITY_MISMATCH, "arity mismatch");
@@ -271,7 +316,7 @@ static void check_node(SemanticContext *ctx, AstNode *node) {
                 }
                 env_define(ctx->current_env, node->as.binding.name, node->as.binding.is_mutable, type);
                 SemanticType *bind_type = alloc_type(type.kind);
-                if (type.kind == TYPE_ARRAY) {
+                if (type.kind == TYPE_ARRAY || type.kind == TYPE_SLICE) {
                     if (type.element_type)
                         bind_type->element_type = alloc_type(type.element_type->kind);
                     bind_type->array_length = type.array_length;

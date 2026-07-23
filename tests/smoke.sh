@@ -92,4 +92,18 @@ ASSIGN_EXPECTED="99
 3"
 [ "$ASSIGN_OUTPUT" = "$ASSIGN_EXPECTED" ] || { echo "array_assign expected '$ASSIGN_EXPECTED', got '$ASSIGN_OUTPUT'"; exit 1; }
 
+printf 'xs := [10, 20, 30]\n!len(xs)\n!len(xs) + 1\n' > "$TMP_DIR/array_len.tiq"
+./build/tiq build "$TMP_DIR/array_len.tiq" -o "$TMP_DIR/array_len" 2>"$TMP_DIR/array_len.err"
+LEN_OUTPUT="$($TMP_DIR/array_len)"
+LEN_EXPECTED="3
+4"
+[ "$LEN_OUTPUT" = "$LEN_EXPECTED" ] || { echo "array_len expected '$LEN_EXPECTED', got '$LEN_OUTPUT'"; exit 1; }
+
+printf 's := "Hello World"\nsub = s[0..5]\n!sub\n!len(sub)\n' > "$TMP_DIR/str_slice.tiq"
+./build/tiq build "$TMP_DIR/str_slice.tiq" -o "$TMP_DIR/str_slice" 2>"$TMP_DIR/str_slice.err"
+STR_SLICE_OUTPUT="$($TMP_DIR/str_slice)"
+STR_SLICE_EXPECTED="Hello
+5"
+[ "$STR_SLICE_OUTPUT" = "$STR_SLICE_EXPECTED" ] || { echo "str_slice expected '$STR_SLICE_EXPECTED', got '$STR_SLICE_OUTPUT'"; exit 1; }
+
 echo "smoke: ok"

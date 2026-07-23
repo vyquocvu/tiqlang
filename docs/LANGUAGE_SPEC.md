@@ -180,7 +180,7 @@ never
 
 Integer literals default to the smallest compatible signed type, with `i64` as the fallback. Floating literals default to `f64`.
 
-## 13. Arrays
+## 13. Arrays and Slices
 
 Array literals are written with square brackets and comma-separated elements:
 
@@ -198,7 +198,31 @@ The index must be an `int` value. Multi-dimensional arrays are not supported in 
 
 Array bounds are checked unless the compiler proves the access safe. An explicit unsafe facility is deferred.
 
-Slices and slice syntax (`xs[i..j]`) are planned for v0.2.
+### 13.1 Slices and String Views
+
+Slices construct non-owning dynamic views over contiguous sequence elements (array elements or string characters). Slicing syntax uses half-open range notation inside index brackets:
+
+```tiq
+sub = xs[1..3]   // slice of xs from index 1 (inclusive) to 3 (exclusive)
+tail = xs[1..]   // slice from index 1 to end
+head = xs[..2]   // slice from start (0) to index 2
+full = xs[..]    // full slice view of all elements
+```
+
+Slicing a string `s[i..j]` returns a `str` view over the designated byte range.
+
+Omitting the start index defaults to `0`. Omitting the end index defaults to `len(xs)` (or string length for `str`).
+
+Slice bounds are evaluated at runtime. Slicing dynamically enforces 0 <= start <= end <= len. If a slice bound is violated, execution halts deterministically.
+
+The built-in `len()` returns the runtime length of arrays, array slices, and string views:
+
+```tiq
+!len(xs)       // prints 3
+!len(xs[1..3]) // prints 2
+```
+
+`len()` accepts seeds of exactly one argument, which must be an array, slice, or string view.
 
 ## 14. Stream Generators
 
