@@ -527,6 +527,10 @@ void parser_free(Parser *parser) {
             free(parser->nodes[i]->as.array.elements);
         }
         if (parser->nodes[i]->semantic_type) {
+            SemanticType *st = (SemanticType *)parser->nodes[i]->semantic_type;
+            if (st->kind == TYPE_ARRAY && st->element_type) {
+                free(st->element_type);
+            }
             free(parser->nodes[i]->semantic_type);
         }
         free(parser->nodes[i]);
@@ -541,6 +545,7 @@ static const char *type_name(SemanticType *t) {
         case TYPE_FLOAT: return " <TYPE_FLOAT>";
         case TYPE_STR: return " <TYPE_STR>";
         case TYPE_BOOL: return " <TYPE_BOOL>";
+        case TYPE_ARRAY: return " <TYPE_ARRAY>";
         default: return " <TYPE_UNKNOWN>";
     }
 }

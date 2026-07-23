@@ -42,6 +42,10 @@ M3 — Control flow and collections.
 - M3: Array binding emission (`int xs[3] = {1, 2, 3};`).
 - M3: Mutable array element assignment (`xs[0] <- 99`, `xs[0] += 1`) with compound operators.
 - M3: Print rejects array types (ERR_TYPE_MISMATCH: "cannot print array directly").
+- M3: Runtime bounds checking on array access (ternary guard on read, conditional guard on write).
+- M3: Identifiers carry full TYPE_ARRAY metadata (element_type, array_length).
+- M3: TYPE_ARRAY type name in dump-typed-ast output.
+- M3: Memory leak fix — element_type freed in parser_free for TYPE_ARRAY.
 - LANGUAGE_SPEC §13 updated from "Planned v0.2" to concrete v0.1 array spec.
 
 ## Not implemented

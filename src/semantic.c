@@ -102,6 +102,11 @@ static void check_node(SemanticContext *ctx, AstNode *node) {
             } else {
                 SemanticType *t = alloc_type(sym->type.kind);
                 t->param_count = sym->type.param_count;
+                if (sym->type.kind == TYPE_ARRAY) {
+                    t->array_length = sym->type.array_length;
+                    if (sym->type.element_type)
+                        t->element_type = alloc_type(sym->type.element_type->kind);
+                }
                 node->semantic_type = t;
             }
             break;
@@ -173,6 +178,20 @@ static void check_node(SemanticContext *ctx, AstNode *node) {
         case AST_CALL:
             if (node->as.call.callee && node->as.call.callee->kind == AST_IDENTIFIER) {
                 Token name = node->as.call.callee->as.identifier.name;
+                if (name.length == 3 && memcmp(name.start, "len", 3) == 0) {
+                    if (node->as.call.arg_count != 1) {
+                        diag_error(ctx->diag, ctx->path, node->token.line, ERR_ARITY_MISMATCH, "len expects exactly 1 argument");
+                    } else {
+                        check_node(ctx, node->as.call.args[0]);
+                        SemanticType *at = node->as.call.args[0] ?
+                            node->as.call.args[0]->semantic_type : NULL;
+                        if (!at || at->kind != TYPE_ARRAY)
+                            diag_error(ctx->diag, ctx->path, node->token.line, ERR_TYPE_MISMATCH,
+                                       "len expects an array argument");
+                    }
+                    node->semantic_type = alloc_type(TYPE_INT);
+                    break;
+                }
                 if ((name.length == 2 && memcmp(name.start, "i8", 2) == 0) ||
                     (name.length == 3 && memcmp(name.start, "i16", 3) == 0) ||
                     (name.length == 3 && memcmp(name.start, "i32", 3) == 0) ||
@@ -282,8 +301,16 @@ static void check_node(SemanticContext *ctx, AstNode *node) {
                         diag_error(ctx->diag, ctx->path, node->token.line, ERR_TYPE_MISMATCH,
                                    "cannot index non-array");
                 }
+                if (node->as.assign.index && sym && sym->type.kind == TYPE_ARRAY) {
+                    SemanticType *arr_type = alloc_type(TYPE_ARRAY);
+                    arr_type->array_length = sym->type.array_length;
+                    if (sym->type.element_type)
+                        arr_type->element_type = alloc_type(sym->type.element_type->kind);
+                    node->semantic_type = arr_type;
+                } else {
+                    node->semantic_type = alloc_type(TYPE_UNKNOWN);
+                }
             }
-            node->semantic_type = alloc_type(TYPE_UNKNOWN);
             break;
         case AST_FUNCTION: {
             SemanticType unknown_type = { TYPE_UNKNOWN, 0, NULL, 0 };

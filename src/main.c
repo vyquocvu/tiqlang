@@ -108,16 +108,51 @@ static void emit_expr(AstNode *node, FILE *out, DiagContext *diag, const char *p
             emit_expr(node->as.conditional.else_branch, out, diag, path);
             break;
         case AST_CALL:
+            if (node->as.call.callee && node->as.call.callee->kind == AST_IDENTIFIER &&
+                node->as.call.callee->as.identifier.name.length == 3 &&
+                memcmp(node->as.call.callee->as.identifier.name.start, "len", 3) == 0) {
+                SemanticType *ct = node->as.call.args[0] ?
+                    node->as.call.args[0]->semantic_type : NULL;
+                if (ct && ct->kind == TYPE_ARRAY) {
+                    fprintf(out, "%d", ct->array_length);
+                } else {
+                    fprintf(out, "0");
+                }
+                break;
+            }
             if (node->as.call.is_bracket_call && node->as.call.callee) {
                 SemanticType *ct = node->as.call.callee->semantic_type;
                 if (ct && ct->kind == TYPE_ARRAY) {
-                    emit_expr(node->as.call.callee, out, diag, path);
-                    fputs("[", out);
-                    for (int i = 0; i < node->as.call.arg_count; i++) {
-                        if (i > 0) fputs("][", out);
-                        emit_expr(node->as.call.args[i], out, diag, path);
+                    int len = ct->array_length;
+                    if (len > 0 && node->as.call.arg_count > 0) {
+                        fputs("((unsigned)(", out);
+                        emit_expr(node->as.call.args[0], out, diag, path);
+                        fprintf(out, ") < (unsigned)(%d) ? ", len);
+                        emit_expr(node->as.call.callee, out, diag, path);
+                        fputs("[", out);
+                        for (int i = 0; i < node->as.call.arg_count; i++) {
+                            if (i > 0) fputs("][", out);
+                            emit_expr(node->as.call.args[i], out, diag, path);
+                        }
+                        fputs("] : (fprintf(stderr, \"tiq: index %d out of bounds for array of length %d\\n\", (int)(", out);
+                        emit_expr(node->as.call.args[0], out, diag, path);
+                        fprintf(out, "), %d), exit(1), ", len);
+                        emit_expr(node->as.call.callee, out, diag, path);
+                        fputs("[", out);
+                        for (int i = 0; i < node->as.call.arg_count; i++) {
+                            if (i > 0) fputs("][", out);
+                            emit_expr(node->as.call.args[i], out, diag, path);
+                        }
+                        fputs("]))", out);
+                    } else {
+                        emit_expr(node->as.call.callee, out, diag, path);
+                        fputs("[", out);
+                        for (int i = 0; i < node->as.call.arg_count; i++) {
+                            if (i > 0) fputs("][", out);
+                            emit_expr(node->as.call.args[i], out, diag, path);
+                        }
+                        fputs("]", out);
                     }
-                    fputs("]", out);
                     break;
                 }
                 if (node->as.call.callee->kind == AST_IDENTIFIER) {
@@ -214,11 +249,23 @@ static void emit_stmt(AstNode *node, FILE *out, DiagContext *diag, const char *p
             break;
         }
         case AST_ASSIGN:
-            fprintf(out, "%.*s", (int)node->as.assign.name.length, node->as.assign.name.start);
-            if (node->as.assign.index) {
-                fputs("[", out);
-                emit_expr(node->as.assign.index, out, diag, path);
-                fputs("]", out);
+            {
+                int arr_len = 0;
+                SemanticType *st = node->semantic_type;
+                if (st && st->kind == TYPE_ARRAY) arr_len = st->array_length;
+                if (node->as.assign.index && arr_len > 0) {
+                    fputs("if ((unsigned)(", out);
+                    emit_expr(node->as.assign.index, out, diag, path);
+                    fprintf(out, ") >= (unsigned)(%d)) { ", arr_len);
+                    fprintf(out, "fprintf(stderr, \"tiq: index out of bounds for array of length %d\\n\"); exit(1); }\n", arr_len);
+                    for (int j = 0; j < indent; j++) fputs("    ", out);
+                }
+                fprintf(out, "%.*s", (int)node->as.assign.name.length, node->as.assign.name.start);
+                if (node->as.assign.index) {
+                    fputs("[", out);
+                    emit_expr(node->as.assign.index, out, diag, path);
+                    fputs("]", out);
+                }
             }
             fputs(" ", out);
             {
@@ -429,7 +476,7 @@ static void compile_to_c(const char *source_path, const char *source, FILE *out,
         if (stmts[i] && stmts[i]->kind == AST_FUNCTION) has_function = 1;
 
     fputs("#include <stdio.h>\n", out);
-    if (stream_gen_count > 0) fputs("#include <stdlib.h>\n", out);
+    fputs("#include <stdlib.h>\n", out);
 
     // Forward-declare stream gen functions
     for (int g = 0; g < stream_gen_count; g++)

@@ -104,13 +104,17 @@ Status: active
   - C emission: `name[index] = value;` and compound forms (`+=`, `-=`, etc.).
   - Tests: `smoke.sh` (array_assign), `semantic.sh` (immutable rejection, bad index).
   - Diagnostics: immutable array, non-int index, non-array target all rejected.
+- Runtime bounds checking:
+  - Array read: ternary guard `((unsigned)(i) < (unsigned)(len) ? xs[i] : panic)`.
+  - Array write: conditional guard `if ((unsigned)(i) >= (unsigned)(len)) { panic; }`.
+  - `<stdlib.h>` included unconditionally for `exit()`.
 
 ### Blocked
 
-- slices and bounds checks; string views; minimal collection primitives:
+- slices, string views, collection primitives:
 
   Slices (`xs[i..j]`) — syntax not yet specified in LANGUAGE_SPEC.
-  Without slice syntax spec, implementations of bounds checks, string views, and collection primitives cannot proceed.
+  Without slice syntax spec, implementations of string views and collection primitives cannot proceed.
 
 ### Exit criteria
 
@@ -118,8 +122,8 @@ Status: active
 - [x] range (for-in) loops compile and execute correctly
 - [x] break and continue work inside loops
 - [x] invalid programs are rejected (loop condition types, break outside loop)
-- [x] arrays (literals, indexing, bindings, mutable element assignment)
-- [ ] slices, bounds checks, string views, collection primitives (blocked by slice spec)
+- [x] arrays (literals, indexing, bindings, mutable element assignment, bounds checking)
+- [ ] slices, string views, collection primitives (blocked by slice spec)
 
 ## M4 — Ownership
 
