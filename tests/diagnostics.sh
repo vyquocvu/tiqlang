@@ -34,15 +34,23 @@ assert_diagnostic() {
   fi
 }
 
-assert_diagnostic "unsupported_statement" 'x = 1
-' "$TMP_DIR/unsupported_statement.tiq:1: error: expected print statement starting with '!'"
 assert_diagnostic "missing_string" '!
-' "$TMP_DIR/missing_string.tiq:1: error: bootstrap compiler expects a string literal after '!'"
+' "$TMP_DIR/missing_string.tiq:1: error: expected expression after '!'"
 assert_diagnostic "newline_in_string" '!"hello
 world"' "$TMP_DIR/newline_in_string.tiq:1: error: newline in string literal"
 assert_diagnostic "unterminated_string" '!"hello' "$TMP_DIR/unterminated_string.tiq:1: error: unterminated string literal"
 assert_diagnostic "second_line_location" '!"ok"
 abc
 ' "$TMP_DIR/second_line_location.tiq:2: error: undefined symbol 'abc'"
+
+assert_diagnostic "while_no_block" 'x := 0
+while x < 3
+' "$TMP_DIR/while_no_block.tiq:2: error: expected block after while condition"
+
+assert_diagnostic "for_no_in" 'for i x
+' "$TMP_DIR/for_no_in.tiq:1: error: expected 'in' after loop variable"
+
+assert_diagnostic "for_no_range" 'for i in 5
+' "$TMP_DIR/for_no_range.tiq:1: error: for-in loop requires a range expression"
 
 echo "diagnostics: ok"

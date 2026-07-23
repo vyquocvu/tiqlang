@@ -65,6 +65,7 @@ Tiq-specific operators:
 <-   reassignment
 ? :  conditional expression
 ..   half-open range
+...  stream generator expansion
 =>   lambda or match arm; reserved for a later v0.x
 ??   optional fallback; reserved for a later v0.x
 ```
@@ -135,23 +136,24 @@ A block evaluates to its final expression. Statements before the final expressio
 
 ## 10. Loops
 
-While loop:
+Tiq uses unified **Bracket Loops (`[domain | body]`)** for iteration, eliminating `for` and `while` keywords.
+
+Range iteration:
 
 ```tiq
-while count < 10 {
-  count += 1
-}
+[0..10 | !i]
 ```
 
-Range loop:
+Conditional iteration:
 
 ```tiq
-for i in 0..10 {
-  !i
-}
+[count < 10 | count += 1]
 ```
 
-Ranges are half-open: `a..b` contains `a` through `b-1`.
+Loop control statements:
+- `break`: Terminate loop execution immediately (`[0..10 | !i, break]`).
+- `skip`: Skip the remainder of the current iteration (`[1..4 | !x, skip, x += 100]`).
+- Inline guards: `break if condition` and `skip if condition`.
 
 ## 11. Print statement
 
@@ -190,19 +192,37 @@ part = xs[1..3]
 
 Array bounds are checked unless the compiler proves the access safe. An explicit unsafe facility is deferred.
 
-## 14. Errors
+## 14. Stream Generators
+
+Stream generators define infinite or lazy recursive sequences via initial seed values followed by `...` and a windowed combination expression:
+
+```tiq
+fib = [0, 1, ... a + b]
+first = fib[0]   // 0
+tenth = fib[10]  // 55
+
+// Bounded stream generator
+powers = [1, ... x * 2 while x < 100]
+
+// Predicate slicing
+!fib[while x < 100]
+```
+
+The number of seed elements determines the window size bound to preceding terms in the generator expression (e.g. `a + b` binds the previous two terms). Generators can specify inline termination bounds (`while condition` or `until condition`). Indexing or predicate slicing evaluates or retrieves terms in $O(k)$ time using $O(1)$ state.
+
+## 15. Errors
 
 Tiq has no exceptions. Fallible functions return a result value. The concrete result and propagation syntax will be standardized after the core type checker exists. Until then, the compiler must not invent implicit failure behavior.
 
-## 15. Memory
+## 16. Memory
 
 Values have deterministic scope-based destruction. Scalars and small aggregates use value semantics. Heap allocation, ownership transfer, borrowing, and shared ownership are specified in `MEMORY_MODEL.md` and are not part of the bootstrap slice.
 
-## 16. Program entry
+## 17. Program entry
 
 Top-level executable statements form the implicit entry point. Libraries may contain definitions only. A future explicit `main` function may be supported but is not required for scripts and tools.
 
-## 17. Bootstrap conformance
+## 18. Bootstrap conformance
 
 The first compiler slice is conforming only for:
 

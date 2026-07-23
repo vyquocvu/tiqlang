@@ -127,17 +127,16 @@ static TokenKind check_keyword(Lexer *lexer, const char *start, size_t start_off
 static TokenKind identifier_type(Lexer *lexer, const char *start) {
     switch (start[0]) {
         case 'b': return check_keyword(lexer, start, 1, 4, "reak", TOK_BREAK);
-        case 'c': return check_keyword(lexer, start, 1, 7, "ontinue", TOK_CONTINUE);
         case 'f':
             if (lexer->current - start > 1) {
                 switch (start[1]) {
                     case 'a': return check_keyword(lexer, start, 2, 3, "lse", TOK_FALSE);
-                    case 'o': return check_keyword(lexer, start, 2, 1, "r", TOK_FOR);
                 }
             }
             break;
-        case 'i': return check_keyword(lexer, start, 1, 1, "n", TOK_IN);
+        case 's': return check_keyword(lexer, start, 1, 3, "kip", TOK_SKIP);
         case 't': return check_keyword(lexer, start, 1, 3, "rue", TOK_TRUE);
+        case 'u': return check_keyword(lexer, start, 1, 4, "ntil", TOK_UNTIL);
         case 'w': return check_keyword(lexer, start, 1, 4, "hile", TOK_WHILE);
     }
     return TOK_IDENT;
@@ -178,7 +177,10 @@ Token lexer_next(Lexer *lexer) {
         case '?': return make_token(lexer, TOK_QUESTION, start);
         case '^': return make_token(lexer, TOK_CARET, start);
         case '.':
-            if (match(lexer, '.')) return make_token(lexer, TOK_DOT_DOT, start);
+            if (match(lexer, '.')) {
+                if (match(lexer, '.')) return make_token(lexer, TOK_DOT_DOT_DOT, start);
+                return make_token(lexer, TOK_DOT_DOT, start);
+            }
             break;
         case '+':
             if (match(lexer, '=')) return make_token(lexer, TOK_PLUS_EQ, start);
@@ -239,10 +241,10 @@ const char *token_kind_name(TokenKind kind) {
         case TOK_TRUE: return "TRUE";
         case TOK_FALSE: return "FALSE";
         case TOK_WHILE: return "WHILE";
-        case TOK_FOR: return "FOR";
-        case TOK_IN: return "IN";
         case TOK_BREAK: return "BREAK";
-        case TOK_CONTINUE: return "CONTINUE";
+        case TOK_SKIP: return "SKIP";
+        case TOK_UNTIL: return "UNTIL";
+        case TOK_DOT_DOT_DOT: return "DOT_DOT_DOT";
         case TOK_PLUS: return "PLUS";
         case TOK_MINUS: return "MINUS";
         case TOK_STAR: return "STAR";

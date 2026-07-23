@@ -15,7 +15,12 @@ typedef enum {
     AST_BLOCK,
     AST_BINDING,
     AST_ASSIGN,
-    AST_FUNCTION
+    AST_FUNCTION,
+    AST_BRACKET_LOOP,
+    AST_BREAK,
+    AST_SKIP,
+    AST_STREAM_GEN,
+    AST_BRACKET_EXPR
 } AstKind;
 
 typedef struct AstNode AstNode;
@@ -85,6 +90,24 @@ struct AstNode {
             int param_count;
             AstNode *body;
         } function;
+
+        struct {
+            AstNode *domain;
+            AstNode **body_stmts;
+            int body_count;
+            AstNode *body_final;
+        } bracket_loop;
+
+        struct {
+            AstNode **seeds;
+            int seed_count;
+            AstNode *gen_expr;
+            AstNode *bound;
+        } stream_gen;
+
+        struct {
+            AstNode *expr;
+        } bracket_expr;
     } as;
 };
 

@@ -25,11 +25,12 @@ top_item      = function_def | binding | statement ;
 
 function_def  = identifier, { identifier }, "=", expression ;
 binding       = identifier, ("=" | ":="), expression ;
-statement     = print_stmt | assign_stmt | while_stmt | for_stmt | expression ;
+statement     = print_stmt | assign_stmt | bracket_loop | control_stmt | expression ;
 print_stmt    = "!", expression ;
 assign_stmt   = identifier, ("<-" | "+=" | "-=" | "*=" | "/=" | "%="), expression ;
-while_stmt    = "while", expression, block ;
-for_stmt      = "for", identifier, "in", expression, block ;
+control_stmt  = ("break" | "continue" | "skip"), [ "if", expression ] ;
+bracket_loop  = "[", loop_domain, "|", { statement, separator }, [ expression ], "]" ;
+loop_domain   = expression ;
 block         = "{", { statement, separator }, [ expression ], "}" ;
 separator     = newline | ";" ;
 
@@ -49,8 +50,11 @@ multiplicative = unary, { ("*" | "/" | "%"), unary } ;
 unary         = ("!" | "+" | "-"), unary | postfix ;
 postfix       = primary, { call | index } ;
 call          = "(", [ expression, { ",", expression } ], ")" ;
-index         = "[", expression, "]" ;
-primary       = identifier | literal | "(", expression, ")" | block ;
+index         = "[", ( expression | stream_slice ), "]" ;
+stream_slice  = ("while" | "until"), expression ;
+primary       = identifier | literal | stream_gen | "(", expression, ")" | block ;
+stream_gen    = "[", expression, { ",", expression }, ",", "...", expression, [ stream_bound ], "]" ;
+stream_bound = ("while" | "until"), expression ;
 literal       = integer | float | string | "true" | "false" ;
 ```
 

@@ -10,9 +10,9 @@ Tiq is an experimental, statically typed, ahead-of-time compiled language design
 4. **Predictable programs** — explicit mutation, strict typing, no hidden exceptions, and minimal implicit behavior.
 
 ```tiq
-fib n = n < 2 ? n : fib(n-1) + fib(n-2)
+fib = [0, 1, ... a + b]
 
-!fib(20)
+!fib[10]
 ```
 
 Tiq keeps familiar operators:
@@ -32,6 +32,10 @@ name = value       immutable binding
 name := value      mutable binding
 name <- value      reassignment
 f a b = expression function
+[0..10 | !i]       bracket loop iteration
+[0, 1, ... a + b]  stream generator sequence
+[1, ... x * 2 while x < 100]  bounded stream generator
+skip               continue iteration shorthand
 condition ? a : b  conditional expression
 0..n               half-open range
 _                  placeholder in collection expressions

@@ -83,4 +83,54 @@ val += 3' 'MUT_BINDING val
 ASSIGN val PLUS_EQ
   INT 3'
 
+assert_parser "while_loop" 'x := 0
+while x < 3 {
+    x += 1
+}' 'MUT_BINDING x
+  INT 0
+WHILE
+  BINARY LT
+    IDENT x
+    INT 3
+  BLOCK
+    ASSIGN x PLUS_EQ
+      INT 1'
+
+assert_parser "for_range" 'for i in 0..3 {
+    !i
+}' 'FOR i
+  BINARY DOT_DOT
+    INT 0
+    INT 3
+  BLOCK
+    PRINT
+      IDENT i'
+
+assert_parser "break_in_while" 'x := 0
+while x < 3 {
+    break
+    x += 1
+}' 'MUT_BINDING x
+  INT 0
+WHILE
+  BINARY LT
+    IDENT x
+    INT 3
+  BLOCK
+    BREAK
+    ASSIGN x PLUS_EQ
+      INT 1'
+
+assert_parser "continue_in_while" 'x := 0
+while x < 3 {
+    continue
+}' 'MUT_BINDING x
+  INT 0
+WHILE
+  BINARY LT
+    IDENT x
+    INT 3
+  BLOCK
+    CONTINUE'
+
 echo "parser: ok"

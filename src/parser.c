@@ -10,7 +10,6 @@ void parser_init(Parser *parser, const char *source, const char *path, DiagConte
     parser->nodes = NULL;
     parser->node_count = 0;
     parser->node_capacity = 0;
-    // Advance past initial newlines and get first token
     do {
         parser->current = lexer_next(&parser->lexer);
     } while (parser->current.kind == TOK_NEWLINE);
@@ -18,21 +17,14 @@ void parser_init(Parser *parser, const char *source, const char *path, DiagConte
 
 static AstNode *allocate_node(Parser *parser, AstKind kind) {
     AstNode *node = malloc(sizeof(AstNode));
-    if (!node) {
-        fprintf(stderr, "out of memory\n");
-        exit(1);
-    }
+    if (!node) { fprintf(stderr, "out of memory\n"); exit(1); }
     memset(node, 0, sizeof(AstNode));
     node->kind = kind;
     node->token = parser->previous;
-
     if (parser->node_count + 1 > parser->node_capacity) {
         parser->node_capacity = parser->node_capacity < 8 ? 8 : parser->node_capacity * 2;
         parser->nodes = realloc(parser->nodes, sizeof(AstNode *) * parser->node_capacity);
-        if (!parser->nodes) {
-            fprintf(stderr, "out of memory\n");
-            exit(1);
-        }
+        if (!parser->nodes) { fprintf(stderr, "out of memory\n"); exit(1); }
     }
     parser->nodes[parser->node_count++] = node;
     return node;
@@ -40,7 +32,6 @@ static AstNode *allocate_node(Parser *parser, AstKind kind) {
 
 static void advance(Parser *parser) {
     parser->previous = parser->current;
-
     for (;;) {
         parser->current = lexer_next(&parser->lexer);
         if (parser->current.kind != TOK_NEWLINE) break;
@@ -63,39 +54,75 @@ static void error_at_current(Parser *parser, ErrorCode code, const char *message
 }
 
 static void consume(Parser *parser, TokenKind kind, ErrorCode code, const char *message) {
-    if (check(parser, kind)) {
-        advance(parser);
-        return;
-    }
+    if (check(parser, kind)) { advance(parser); return; }
     error_at_current(parser, code, message);
 }
 
-// Forward declarations
 static AstNode *expression(Parser *parser);
 static AstNode *statement(Parser *parser);
 static AstNode *declaration(Parser *parser);
+static AstNode *bit_xor(Parser *parser);
+
 static AstNode *block(Parser *parser) {
     AstNode *node = allocate_node(parser, AST_BLOCK);
-
     int capacity = 0;
     while (!check(parser, TOK_RBRACE) && !check(parser, TOK_EOF)) {
         if (node->as.block.stmt_count + 1 > capacity) {
             capacity = capacity < 4 ? 4 : capacity * 2;
             node->as.block.statements = realloc(node->as.block.statements, sizeof(AstNode *) * capacity);
         }
-
         AstNode *stmt = statement(parser);
         if (parser->diag->fatal_error) break;
         node->as.block.statements[node->as.block.stmt_count++] = stmt;
-
-        // According to grammar: { statement, separator }, [ expression ]
-        // We simplified a bit for now to just parsing statements until '}'
     }
-
     consume(parser, TOK_RBRACE, ERR_UNEXPECTED_TOKEN, "expected '}' after block");
+    return node;
+}
 
-    // For M0/M1 we just treat all as statements in the block.
-    // Real implementation will pull the last one as final_expr if no separator.
+static AstNode *stream_gen(Parser *parser) {
+    AstNode *node = allocate_node(parser, AST_STREAM_GEN);
+    int cap = 0;
+    while (!check(parser, TOK_DOT_DOT_DOT) && !check(parser, TOK_RBRACKET) && !check(parser, TOK_EOF)) {
+        if (node->as.stream_gen.seed_count + 1 > cap) {
+            cap = cap < 4 ? 4 : cap * 2;
+            node->as.stream_gen.seeds = realloc(node->as.stream_gen.seeds, sizeof(AstNode *) * cap);
+        }
+        node->as.stream_gen.seeds[node->as.stream_gen.seed_count++] = expression(parser);
+        if (!check(parser, TOK_DOT_DOT_DOT) && !check(parser, TOK_RBRACKET)) {
+            consume(parser, TOK_COMMA, ERR_UNEXPECTED_TOKEN, "expected ',' in stream generator");
+        }
+    }
+    if (match(parser, TOK_DOT_DOT_DOT)) {
+        node->as.stream_gen.gen_expr = expression(parser);
+    }
+    if (check(parser, TOK_WHILE) || check(parser, TOK_UNTIL)) {
+        advance(parser);
+        node->as.stream_gen.bound = expression(parser);
+    }
+    return node;
+}
+
+static AstNode *bracket_loop(Parser *parser) {
+    AstNode *node = allocate_node(parser, AST_BRACKET_LOOP);
+    node->as.bracket_loop.domain = bit_xor(parser);
+    if (!match(parser, TOK_PIPE)) {
+        error_at_current(parser, ERR_UNEXPECTED_TOKEN, "expected '|' in bracket loop");
+        return node;
+    }
+    int capacity = 0;
+    while (!check(parser, TOK_RBRACKET) && !check(parser, TOK_EOF)) {
+        if (node->as.bracket_loop.body_count + 1 > capacity) {
+            capacity = capacity < 4 ? 4 : capacity * 2;
+            node->as.bracket_loop.body_stmts = realloc(node->as.bracket_loop.body_stmts, sizeof(AstNode *) * capacity);
+        }
+        AstNode *stmt = statement(parser);
+        if (parser->diag->fatal_error) break;
+        node->as.bracket_loop.body_stmts[node->as.bracket_loop.body_count++] = stmt;
+        if (!check(parser, TOK_RBRACKET) && !check(parser, TOK_EOF)) {
+            consume(parser, TOK_COMMA, ERR_UNEXPECTED_TOKEN, "expected ',' or ']' after bracket loop body statement");
+        }
+    }
+    consume(parser, TOK_RBRACKET, ERR_UNEXPECTED_TOKEN, "expected ']' after bracket loop body");
     return node;
 }
 
@@ -105,35 +132,45 @@ static AstNode *primary(Parser *parser) {
         node->as.literal.type = parser->previous.kind;
         return node;
     }
-
     if (match(parser, TOK_LPAREN)) {
         AstNode *expr = expression(parser);
         consume(parser, TOK_RPAREN, ERR_UNEXPECTED_TOKEN, "expected ')' after expression");
         return expr;
     }
-
     if (match(parser, TOK_LBRACE)) {
         return block(parser);
     }
-
     if (match(parser, TOK_IDENT)) {
         AstNode *node = allocate_node(parser, AST_IDENTIFIER);
         node->as.identifier.name = parser->previous;
         return node;
     }
-
+    if (match(parser, TOK_LBRACKET)) {
+        AstNode *node = stream_gen(parser);
+        if (node->as.stream_gen.seed_count == 0 && !node->as.stream_gen.gen_expr && !node->as.stream_gen.bound) {
+            return node;
+        }
+        consume(parser, TOK_RBRACKET, ERR_UNEXPECTED_TOKEN, "expected ']' after bracket expression");
+        if (node->as.stream_gen.seed_count > 0 && !node->as.stream_gen.gen_expr) {
+            if (node->as.stream_gen.seed_count == 1) {
+                AstNode *bare = allocate_node(parser, AST_BRACKET_EXPR);
+                bare->as.bracket_expr.expr = node->as.stream_gen.seeds[0];
+                free(node->as.stream_gen.seeds);
+                return bare;
+            }
+        }
+        return node;
+    }
     error_at_current(parser, ERR_EXPECTED_EXPRESSION, "expected expression");
     return NULL;
 }
 
 static AstNode *call_or_index(Parser *parser) {
     AstNode *expr = primary(parser);
-
     while (true) {
         if (match(parser, TOK_LPAREN)) {
             AstNode *node = allocate_node(parser, AST_CALL);
             node->as.call.callee = expr;
-
             int capacity = 0;
             if (!check(parser, TOK_RPAREN)) {
                 do {
@@ -147,14 +184,32 @@ static AstNode *call_or_index(Parser *parser) {
             consume(parser, TOK_RPAREN, ERR_UNEXPECTED_TOKEN, "expected ')' after arguments");
             expr = node;
         } else if (match(parser, TOK_LBRACKET)) {
-            // Indexing - not required for M1 but parsing grammar allows it, keeping simple for now
-            error_at_current(parser, ERR_UNEXPECTED_TOKEN, "indexing not yet supported");
-            break;
+            AstNode *node = allocate_node(parser, AST_CALL);
+            node->as.call.callee = expr;
+            if (check(parser, TOK_WHILE) || check(parser, TOK_UNTIL)) {
+                advance(parser);
+                AstNode *idx_expr = expression(parser);
+                node->as.call.arg_count = 1;
+                node->as.call.args = malloc(sizeof(AstNode *));
+                node->as.call.args[0] = idx_expr;
+            } else if (check(parser, TOK_DOT_DOT)) {
+                advance(parser);
+                AstNode *start = expression(parser);
+                node->as.call.arg_count = 2;
+                node->as.call.args = malloc(sizeof(AstNode *) * 2);
+                node->as.call.args[0] = start;
+            } else {
+                AstNode *idx_expr = expression(parser);
+                node->as.call.arg_count = 1;
+                node->as.call.args = malloc(sizeof(AstNode *));
+                node->as.call.args[0] = idx_expr;
+            }
+            consume(parser, TOK_RBRACKET, ERR_UNEXPECTED_TOKEN, "expected ']' after index");
+            expr = node;
         } else {
             break;
         }
     }
-
     return expr;
 }
 
@@ -302,7 +357,6 @@ static AstNode *logical_or(Parser *parser) {
 
 static AstNode *conditional(Parser *parser) {
     AstNode *expr = logical_or(parser);
-
     if (match(parser, TOK_QUESTION)) {
         AstNode *node = allocate_node(parser, AST_CONDITIONAL);
         node->as.conditional.cond = expr;
@@ -311,7 +365,6 @@ static AstNode *conditional(Parser *parser) {
         node->as.conditional.else_branch = expression(parser);
         return node;
     }
-
     return expr;
 }
 
@@ -321,28 +374,13 @@ static AstNode *expression(Parser *parser) {
 
 static AstNode *print_statement(Parser *parser) {
     AstNode *node = allocate_node(parser, AST_PRINT);
-
-    // We should make sure it is exactly a string literal for now to match the bootstrap compiler requirements
-    if (check(parser, TOK_STRING) || check(parser, TOK_INT) || check(parser, TOK_IDENT)) {
-        // We only support STRING but since our expression function allows more, we need to manually error if it isn't STRING
-        if (check(parser, TOK_STRING)) {
-            node->as.print_stmt.expr = expression(parser);
-        } else {
-             error_at_current(parser, ERR_EXPECTED_STRING, "bootstrap compiler expects a string literal after '!'");
-             node->as.print_stmt.expr = expression(parser);
-        }
-    } else {
-        // Only output if we didn't already have an unterminated string error, which would be reported from the lexer
-        if (!parser->diag->has_error) {
-            // We want the error to be at the BANG for missing_string.tiq since EOF is line 2
-            if (parser->current.kind == TOK_EOF) {
-                diag_error(parser->diag, parser->lexer.path, parser->previous.line, ERR_EXPECTED_STRING, "bootstrap compiler expects a string literal after '!'");
-            } else {
-                error_at_current(parser, ERR_EXPECTED_STRING, "bootstrap compiler expects a string literal after '!'");
-            }
-        }
+    if (parser->diag->has_error) { node->as.print_stmt.expr = NULL; return node; }
+    if (check(parser, TOK_EOF)) {
+        diag_error(parser->diag, parser->lexer.path, parser->previous.line, ERR_EXPECTED_EXPRESSION, "expected expression after '!'");
         node->as.print_stmt.expr = NULL;
+        return node;
     }
+    node->as.print_stmt.expr = expression(parser);
     return node;
 }
 
@@ -354,25 +392,37 @@ static AstNode *assign_statement(Parser *parser, Token name) {
     return node;
 }
 
+static AstNode *control_statement(Parser *parser) {
+    if (match(parser, TOK_BREAK)) {
+        return allocate_node(parser, AST_BREAK);
+    }
+    if (match(parser, TOK_SKIP)) {
+        return allocate_node(parser, AST_SKIP);
+    }
+    return NULL;
+}
+
 static AstNode *statement(Parser *parser) {
+    AstNode *ctrl = control_statement(parser);
+    if (ctrl) return ctrl;
+
     if (match(parser, TOK_BANG)) {
         return print_statement(parser);
     }
 
+    if (match(parser, TOK_LBRACKET)) {
+        return bracket_loop(parser);
+    }
+
     if (check(parser, TOK_IDENT)) {
-        // Look ahead to check for assignment
         Token name = parser->current;
         Lexer peek_lexer = parser->lexer;
-        // peek
         Token next = lexer_next(&peek_lexer);
-        while(next.kind == TOK_NEWLINE) {
-            next = lexer_next(&peek_lexer);
-        }
-
+        while (next.kind == TOK_NEWLINE) next = lexer_next(&peek_lexer);
         if (next.kind == TOK_LARROW || next.kind == TOK_PLUS_EQ || next.kind == TOK_MINUS_EQ ||
             next.kind == TOK_STAR_EQ || next.kind == TOK_SLASH_EQ || next.kind == TOK_PERCENT_EQ) {
-            advance(parser); // Consume IDENT
-            advance(parser); // Consume OP
+            advance(parser);
+            advance(parser);
             return assign_statement(parser, name);
         }
     }
@@ -383,29 +433,21 @@ static AstNode *statement(Parser *parser) {
 static AstNode *declaration(Parser *parser) {
     if (check(parser, TOK_IDENT)) {
         Token name = parser->current;
-
-        // We need to lookahead a bit. Could be a binding `x = 1`, `x := 1`, a function def `f x y = x + y`, or an assign/expr statement
-        // For function def or binding, the structure is IDENT (IDENT)* (=|:=)
-
         Lexer peek_lexer = parser->lexer;
         Token next = lexer_next(&peek_lexer);
         while (next.kind == TOK_NEWLINE) next = lexer_next(&peek_lexer);
-
         if (next.kind == TOK_EQ || next.kind == TOK_COLON_EQ) {
-            advance(parser); // Consume IDENT
-            advance(parser); // Consume EQ / COLON_EQ
+            advance(parser);
+            advance(parser);
             AstNode *node = allocate_node(parser, AST_BINDING);
             node->as.binding.name = name;
             node->as.binding.is_mutable = parser->previous.kind == TOK_COLON_EQ;
             node->as.binding.expr = expression(parser);
             return node;
         } else if (next.kind == TOK_IDENT) {
-            // Function definition `f a b = expr`
-            advance(parser); // Consume name
-
+            advance(parser);
             AstNode *node = allocate_node(parser, AST_FUNCTION);
             node->as.function.name = name;
-
             int capacity = 0;
             while (check(parser, TOK_IDENT)) {
                 if (node->as.function.param_count + 1 > capacity) {
@@ -415,13 +457,11 @@ static AstNode *declaration(Parser *parser) {
                 node->as.function.params[node->as.function.param_count++] = parser->current;
                 advance(parser);
             }
-
             consume(parser, TOK_EQ, ERR_UNEXPECTED_TOKEN, "expected '=' after function parameters");
             node->as.function.body = expression(parser);
             return node;
         }
     }
-
     return statement(parser);
 }
 
@@ -429,25 +469,20 @@ AstNode **parser_parse(Parser *parser, int *out_count) {
     AstNode **statements = NULL;
     int count = 0;
     int capacity = 0;
-
     while (!match(parser, TOK_EOF)) {
         AstNode *decl = declaration(parser);
         if (parser->diag->fatal_error) break;
-
         if (count + 1 > capacity) {
             capacity = capacity < 8 ? 8 : capacity * 2;
             statements = realloc(statements, sizeof(AstNode *) * capacity);
         }
         statements[count++] = decl;
     }
-
     *out_count = count;
     return statements;
 }
 
 void parser_free(Parser *parser) {
-    // Only free the nodes themselves, any nested pointers to dynamically allocated arrays inside the nodes
-    // need to be handled, but for now we haven't allocated any inner arrays like args or params.
     for (int i = 0; i < parser->node_count; i++) {
         if (parser->nodes[i]->kind == AST_CALL) {
             free(parser->nodes[i]->as.call.args);
@@ -455,6 +490,10 @@ void parser_free(Parser *parser) {
             free(parser->nodes[i]->as.block.statements);
         } else if (parser->nodes[i]->kind == AST_FUNCTION) {
             free(parser->nodes[i]->as.function.params);
+        } else if (parser->nodes[i]->kind == AST_BRACKET_LOOP) {
+            free(parser->nodes[i]->as.bracket_loop.body_stmts);
+        } else if (parser->nodes[i]->kind == AST_STREAM_GEN) {
+            free(parser->nodes[i]->as.stream_gen.seeds);
         }
         if (parser->nodes[i]->semantic_type) {
             free(parser->nodes[i]->semantic_type);
@@ -477,11 +516,8 @@ static const char *type_name(SemanticType *t) {
 
 void ast_print(AstNode *node, int indent) {
     if (!node) return;
-
     for (int i = 0; i < indent; i++) printf("  ");
-
     const char *t_str = type_name((SemanticType *)node->semantic_type);
-
     switch (node->kind) {
         case AST_PRINT:
             printf("PRINT%s\n", t_str);
@@ -549,6 +585,38 @@ void ast_print(AstNode *node, int indent) {
                 printf("PARAM %.*s\n", (int)node->as.function.params[i].length, node->as.function.params[i].start);
             }
             ast_print(node->as.function.body, indent + 1);
+            break;
+        case AST_BRACKET_LOOP:
+            printf("BRACKET_LOOP%s\n", t_str);
+            ast_print(node->as.bracket_loop.domain, indent + 1);
+            for (int i = 0; i < node->as.bracket_loop.body_count; i++) {
+                ast_print(node->as.bracket_loop.body_stmts[i], indent + 1);
+            }
+            if (node->as.bracket_loop.body_final) {
+                ast_print(node->as.bracket_loop.body_final, indent + 1);
+            }
+            break;
+        case AST_BREAK:
+            printf("BREAK%s\n", t_str);
+            break;
+        case AST_SKIP:
+            printf("SKIP%s\n", t_str);
+            break;
+        case AST_STREAM_GEN:
+            printf("STREAM_GEN%s\n", t_str);
+            for (int i = 0; i < node->as.stream_gen.seed_count; i++) {
+                ast_print(node->as.stream_gen.seeds[i], indent + 1);
+            }
+            if (node->as.stream_gen.gen_expr) {
+                ast_print(node->as.stream_gen.gen_expr, indent + 1);
+            }
+            if (node->as.stream_gen.bound) {
+                ast_print(node->as.stream_gen.bound, indent + 1);
+            }
+            break;
+        case AST_BRACKET_EXPR:
+            printf("BRACKET_EXPR%s\n", t_str);
+            ast_print(node->as.bracket_expr.expr, indent + 1);
             break;
         default:
             printf("UNKNOWN%s\n", t_str);

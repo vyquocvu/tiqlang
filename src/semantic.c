@@ -18,19 +18,16 @@ static void env_free(Environment *env) {
 }
 
 static bool env_define(Environment *env, Token name, bool is_mutable, SemanticType type) {
-    // Check current scope for redeclaration (we could do this but for now just insert)
     for (int i = 0; i < env->count; i++) {
         if (env->symbols[i].name.length == name.length &&
             memcmp(env->symbols[i].name.start, name.start, name.length) == 0) {
-            return false; // Already defined in this scope
+            return false;
         }
     }
-
     if (env->count + 1 > env->capacity) {
         env->capacity = env->capacity < 8 ? 8 : env->capacity * 2;
         env->symbols = realloc(env->symbols, sizeof(Symbol) * env->capacity);
     }
-
     env->symbols[env->count].name = name;
     env->symbols[env->count].is_mutable = is_mutable;
     env->symbols[env->count].type = type;
@@ -56,10 +53,10 @@ typedef struct {
     Environment *current_env;
     const char *path;
     DiagContext *diag;
+    int loop_depth;
 } SemanticContext;
 
 static SemanticType *alloc_type(PrimitiveType kind) {
-    // In a real implementation we might arena allocate these
     SemanticType *t = malloc(sizeof(SemanticType));
     t->kind = kind;
     t->param_count = 0;
@@ -103,11 +100,14 @@ static void check_node(SemanticContext *ctx, AstNode *node) {
         case AST_BINARY: {
             check_node(ctx, node->as.binary.left);
             check_node(ctx, node->as.binary.right);
-
             SemanticType *lt = node->as.binary.left ? node->as.binary.left->semantic_type : NULL;
             SemanticType *rt = node->as.binary.right ? node->as.binary.right->semantic_type : NULL;
-
             if (lt && rt) {
+                if (lt->kind == TYPE_UNKNOWN && rt->kind != TYPE_UNKNOWN) {
+                    lt->kind = rt->kind;
+                } else if (rt->kind == TYPE_UNKNOWN && lt->kind != TYPE_UNKNOWN) {
+                    rt->kind = lt->kind;
+                }
                 if (lt->kind != rt->kind) {
                     diag_error(ctx->diag, ctx->path, node->token.line, ERR_TYPE_MISMATCH, "type mismatch");
                 } else {
@@ -137,7 +137,29 @@ static void check_node(SemanticContext *ctx, AstNode *node) {
             check_node(ctx, node->as.conditional.cond);
             check_node(ctx, node->as.conditional.then_branch);
             check_node(ctx, node->as.conditional.else_branch);
-            node->semantic_type = alloc_type(TYPE_UNKNOWN); // Basic for now
+            {
+                SemanticType *ct = node->as.conditional.cond ?
+                    node->as.conditional.cond->semantic_type : NULL;
+                if (ct && ct->kind != TYPE_BOOL) {
+                    diag_error(ctx->diag, ctx->path, node->token.line, ERR_CONDITION_TYPE,
+                               "conditional condition must be bool");
+                }
+                SemanticType *tt = node->as.conditional.then_branch ?
+                    node->as.conditional.then_branch->semantic_type : NULL;
+                SemanticType *et = node->as.conditional.else_branch ?
+                    node->as.conditional.else_branch->semantic_type : NULL;
+                if (tt && et) {
+                    if (tt->kind == TYPE_UNKNOWN && et->kind != TYPE_UNKNOWN) {
+                        tt->kind = et->kind;
+                    } else if (et->kind == TYPE_UNKNOWN && tt->kind != TYPE_UNKNOWN) {
+                        et->kind = tt->kind;
+                    }
+                    if (tt->kind != et->kind) {
+                        diag_error(ctx->diag, ctx->path, node->token.line, ERR_TYPE_MISMATCH, "type mismatch");
+                    }
+                }
+                node->semantic_type = alloc_type(TYPE_UNKNOWN);
+            }
             break;
         case AST_CALL:
             if (node->as.call.callee && node->as.call.callee->kind == AST_IDENTIFIER) {
@@ -154,7 +176,6 @@ static void check_node(SemanticContext *ctx, AstNode *node) {
                     (name.length == 3 && memcmp(name.start, "f64", 3) == 0) ||
                     (name.length == 3 && memcmp(name.start, "str", 3) == 0) ||
                     (name.length == 4 && memcmp(name.start, "bool", 4) == 0)) {
-
                     diag_error(ctx->diag, ctx->path, node->token.line, ERR_UNSUPPORTED_CONVERSION, "unsupported conversion");
                     node->semantic_type = alloc_type(TYPE_UNKNOWN);
                     for (int i = 0; i < node->as.call.arg_count; i++) {
@@ -163,33 +184,35 @@ static void check_node(SemanticContext *ctx, AstNode *node) {
                     break;
                 }
             }
-
             check_node(ctx, node->as.call.callee);
-
             if (node->as.call.callee && node->as.call.callee->semantic_type) {
                 SemanticType *callee_type = (SemanticType *)node->as.call.callee->semantic_type;
                 if (callee_type->param_count >= 0 && callee_type->param_count != node->as.call.arg_count) {
                     diag_error(ctx->diag, ctx->path, node->token.line, ERR_ARITY_MISMATCH, "arity mismatch");
                 }
             }
-
             for (int i = 0; i < node->as.call.arg_count; i++) {
                 check_node(ctx, node->as.call.args[i]);
             }
-            node->semantic_type = alloc_type(TYPE_UNKNOWN);
+            {
+                PrimitiveType ret_kind = TYPE_UNKNOWN;
+                if (node->as.call.callee && node->as.call.callee->semantic_type) {
+                    SemanticType *ct = node->as.call.callee->semantic_type;
+                    ret_kind = ct->kind;
+                }
+                node->semantic_type = alloc_type(ret_kind);
+            }
             break;
         case AST_BLOCK: {
             Environment block_env;
             env_init(&block_env, ctx->current_env);
             ctx->current_env = &block_env;
-
             for (int i = 0; i < node->as.block.stmt_count; i++) {
                 check_node(ctx, node->as.block.statements[i]);
             }
             if (node->as.block.final_expr) {
                 check_node(ctx, node->as.block.final_expr);
             }
-
             ctx->current_env = block_env.parent;
             env_free(&block_env);
             node->semantic_type = alloc_type(TYPE_UNKNOWN);
@@ -198,7 +221,7 @@ static void check_node(SemanticContext *ctx, AstNode *node) {
         case AST_BINDING:
             check_node(ctx, node->as.binding.expr);
             {
-                SemanticType type = { TYPE_UNKNOWN };
+                SemanticType type = { TYPE_UNKNOWN, 0 };
                 if (node->as.binding.expr && node->as.binding.expr->semantic_type) {
                     type = *(SemanticType *)node->as.binding.expr->semantic_type;
                 }
@@ -222,27 +245,124 @@ static void check_node(SemanticContext *ctx, AstNode *node) {
             node->semantic_type = alloc_type(TYPE_UNKNOWN);
             break;
         case AST_FUNCTION: {
-            // Function names are available in the scope they are defined in
-            SemanticType unknown_type = { TYPE_UNKNOWN };
-            SemanticType func_type = { TYPE_UNKNOWN };
+            SemanticType unknown_type = { TYPE_UNKNOWN, 0 };
+            SemanticType func_type = { TYPE_UNKNOWN, 0 };
             func_type.param_count = node->as.function.param_count;
             env_define(ctx->current_env, node->as.function.name, false, func_type);
-
             Environment func_env;
             env_init(&func_env, ctx->current_env);
             ctx->current_env = &func_env;
-
             for (int i = 0; i < node->as.function.param_count; i++) {
                 env_define(ctx->current_env, node->as.function.params[i], false, unknown_type);
             }
-
             check_node(ctx, node->as.function.body);
-
             ctx->current_env = func_env.parent;
             env_free(&func_env);
+            PrimitiveType ret_kind = TYPE_UNKNOWN;
+            if (node->as.function.body && node->as.function.body->semantic_type) {
+                SemanticType *bt = (SemanticType *)node->as.function.body->semantic_type;
+                ret_kind = bt->kind;
+            }
+            Symbol *sym = env_lookup(ctx->current_env, node->as.function.name);
+            if (sym && ret_kind != TYPE_UNKNOWN) {
+                sym->type.kind = ret_kind;
+            }
+            node->semantic_type = alloc_type(ret_kind);
+            break;
+        }
+        case AST_BRACKET_LOOP: {
+            ctx->loop_depth++;
+            check_node(ctx, node->as.bracket_loop.domain);
+            bool is_range = node->as.bracket_loop.domain &&
+                node->as.bracket_loop.domain->kind == AST_BINARY &&
+                node->as.bracket_loop.domain->as.binary.op == TOK_DOT_DOT;
+            Environment loop_env;
+            env_init(&loop_env, ctx->current_env);
+            ctx->current_env = &loop_env;
+            if (is_range) {
+                Token itoken;
+                itoken.start = "i";
+                itoken.length = 1;
+                SemanticType int_type = { TYPE_INT, 0 };
+                env_define(ctx->current_env, itoken, true, int_type);
+            }
+            for (int i = 0; i < node->as.bracket_loop.body_count; i++) {
+                check_node(ctx, node->as.bracket_loop.body_stmts[i]);
+            }
+            if (node->as.bracket_loop.body_final) {
+                check_node(ctx, node->as.bracket_loop.body_final);
+            }
+            ctx->current_env = loop_env.parent;
+            env_free(&loop_env);
+            ctx->loop_depth--;
             node->semantic_type = alloc_type(TYPE_UNKNOWN);
             break;
         }
+        case AST_BREAK:
+            if (ctx->loop_depth == 0) {
+                diag_error(ctx->diag, ctx->path, node->token.line, ERR_BREAK_OUTSIDE_LOOP,
+                           "break outside loop");
+            }
+            node->semantic_type = alloc_type(TYPE_UNKNOWN);
+            break;
+        case AST_SKIP:
+            if (ctx->loop_depth == 0) {
+                diag_error(ctx->diag, ctx->path, node->token.line, ERR_BREAK_OUTSIDE_LOOP,
+                           "skip outside loop");
+            }
+            node->semantic_type = alloc_type(TYPE_UNKNOWN);
+            break;
+        case AST_STREAM_GEN:
+            for (int i = 0; i < node->as.stream_gen.seed_count; i++) {
+                check_node(ctx, node->as.stream_gen.seeds[i]);
+            }
+            if (node->as.stream_gen.gen_expr) {
+                Environment gen_env;
+                env_init(&gen_env, ctx->current_env);
+                ctx->current_env = &gen_env;
+                if (node->as.stream_gen.seed_count == 1) {
+                    Token xtoken;
+                    xtoken.start = "x"; xtoken.length = 1;
+                    SemanticType int_type = { TYPE_INT, 0 };
+                    env_define(ctx->current_env, xtoken, false, int_type);
+                }
+                if (node->as.stream_gen.seed_count >= 2) {
+                    Token atoken, btoken;
+                    atoken.start = "a"; atoken.length = 1;
+                    btoken.start = "b"; btoken.length = 1;
+                    SemanticType int_type = { TYPE_INT, 0 };
+                    env_define(ctx->current_env, atoken, false, int_type);
+                    env_define(ctx->current_env, btoken, false, int_type);
+                }
+                Token itoken, stoken;
+                itoken.start = "i"; itoken.length = 1;
+                stoken.start = "s"; stoken.length = 1;
+                SemanticType int_type = { TYPE_INT, 0 };
+                env_define(ctx->current_env, itoken, false, int_type);
+                env_define(ctx->current_env, stoken, false, int_type);
+                check_node(ctx, node->as.stream_gen.gen_expr);
+                ctx->current_env = gen_env.parent;
+                env_free(&gen_env);
+                node->semantic_type = alloc_type(TYPE_INT);
+            } else {
+                node->semantic_type = alloc_type(TYPE_UNKNOWN);
+            }
+            if (node->as.stream_gen.bound) {
+                check_node(ctx, node->as.stream_gen.bound);
+            }
+            break;
+        case AST_BRACKET_EXPR:
+            check_node(ctx, node->as.bracket_expr.expr);
+            {
+                SemanticType *et = node->as.bracket_expr.expr ?
+                    node->as.bracket_expr.expr->semantic_type : NULL;
+                if (et) {
+                    node->semantic_type = alloc_type(et->kind);
+                } else {
+                    node->semantic_type = alloc_type(TYPE_UNKNOWN);
+                }
+            }
+            break;
     }
 }
 
@@ -250,14 +370,12 @@ void semantic_check(AstNode **stmts, int count, const char *path, DiagContext *d
     SemanticContext ctx;
     ctx.path = path;
     ctx.diag = diag;
-
+    ctx.loop_depth = 0;
     Environment global_env;
     env_init(&global_env, NULL);
     ctx.current_env = &global_env;
-
     for (int i = 0; i < count; i++) {
         check_node(&ctx, stmts[i]);
     }
-
     env_free(&global_env);
 }

@@ -1,6 +1,6 @@
 # Tiq Implementation Status
 
-Updated: 2026-07-18
+Updated: 2026-07-23
 
 ## Current milestone
 
@@ -32,11 +32,18 @@ M3 — Control flow and collections.
 - M2: Mutability checks.
 - M2: Function type checking (arity checking).
 - M2: Deterministic typed IR.
+- M3: While loops (parse, type-check, C11 emission via `while (cond) { body }`).
+- M3: For-in range loops (parse, type-check, C11 emission via `for (int var = start; var < end; var++)`).
+- M3: Break and continue (parse, type-check with loop-context validation, C11 emission).
+- M3: C expression emitter for all AST node types (arithmetic, logic, comparisons, conditionals, functions, calls, bindings, assignments, blocks).
 
 ## Not implemented
 
 - Escape decoding beyond preserving source spelling
-- Control flow and collections (M3)
+- Arrays and slices (blocked: LANGUAGE_SPEC §13 marks as "Planned v0.2"; provisional type syntax)
+- Bounds checks (depends on arrays/slices)
+- String views (depends on slices)
+- Minimal collection primitives (depends on arrays)
 - Ownership (M4)
 - Tooling commands (`run`, `check`, `fmt`, `test`) (M5)
 - Package system or standard library (M6)
@@ -46,7 +53,8 @@ M3 — Control flow and collections.
 
 - Temporary-file creation and host compiler execution currently use POSIX APIs; non-POSIX platforms need an equivalent documented process abstraction.
 - The implementation is a proof of the compilation path, not a production compiler.
+- Block bodies produce double braces in generated C (cosmetic, valid C11).
 
 ## Next package
 
-M3: Control flow and collections (while and range loops).
+M3: Arrays and slices. Blocked until LANGUAGE_SPEC provides complete array/slice type specification (currently "Planned v0.2 syntax" in §13).

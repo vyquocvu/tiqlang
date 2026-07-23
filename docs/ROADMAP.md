@@ -54,14 +54,52 @@ Exit gate: invalid programs are rejected before code generation and typed IR sna
 
 ## M3 — Control flow and collections
 
-Status: queued
+Status: active
 
-- while and range loops;
-- arrays and slices;
-- bounds checks;
-- break and continue;
-- string views;
-- minimal collection primitives.
+### Completed
+
+- while loops (expression condition, block body, C emission as `while`):
+  - Parsing: `while_statement()` in `parser.c` handles `while` keyword, parses condition, expects block body.
+  - Semantic: checks condition is `bool`, allocates block scope for body.
+  - C emission: `while (cond) { body }`; integer print via `printf("%d\n", ...)`; string print via `fputs`; bool print via `fputs(cond ? "true" : "false")`.
+  - Tests: `parser.sh` (AST golden), `semantic.sh` (typed AST, condition type error), `smoke.sh` (while count 0→3).
+  - Diagnostics: missing block body reports error.
+
+- range (for-in) loops:
+  - Parsing: `for_statement()` in `parser.c` handles `for var in range { body }`.
+  - Validates iterable is a `..` binary expression at parse time.
+  - Semantic: creates loop variable in dedicated scope, type-checks body.
+  - C emission: desugared to `for (int var = start; var < end; var++) { body }`.
+  - Tests: `parser.sh` (AST golden), `semantic.sh` (typed AST), `smoke.sh` (sum 0..4=10, print 0..2).
+  - Diagnostics: missing `in`, missing range, missing block all report errors.
+
+- break and continue:
+  - Parsing: `TOK_BREAK` → `AST_BREAK`, `TOK_CONTINUE` → `AST_CONTINUE` in `statement()`.
+  - Semantic: tracked via `loop_depth` in `SemanticContext`; reject break/continue outside loop.
+  - C emission: `break;` and `continue;` emit directly.
+  - Tests: `parser.sh` (AST golden), `semantic.sh` (typed AST, outside-loop rejection), `smoke.sh` (break exits immediately, continue skips rest).
+
+- Expression C emitter (foundation):
+  - All AST nodes now emit valid C11: `AST_LITERAL`, `AST_IDENTIFIER`, `AST_BINARY` (arithmetic, comparison, logical, bitwise), `AST_UNARY`, `AST_CONDITIONAL`, `AST_CALL`, `AST_BLOCK`, `AST_BINDING`, `AST_ASSIGN`, `AST_FUNCTION`, `AST_PRINT`.
+  - Helper `binary_op_c_str()` maps token kinds to C operators.
+  - Function definitions emit before `main()` with forward declarations for mutual recursion.
+  - Pre-emission validation (`emit_check_node`) catches `..` outside for-in loops.
+
+### Blocked
+
+- arrays and slices; bounds checks; string views; minimal collection primitives:
+
+  The LANGUAGE_SPEC (§13) marks array and slice syntax as "Planned v0.2."
+  The TYPE_SYSTEM.md defines composite type forms as provisional.
+  Without a complete specification for array types, indexing semantics, and bounds behavior, these packages cannot be implemented.
+
+### Exit criteria
+
+- [x] while loops compile and execute correctly
+- [x] range (for-in) loops compile and execute correctly
+- [x] break and continue work inside loops
+- [ ] invalid programs are rejected (loop condition types, break outside loop)
+- [ ] arrays, slices, bounds checks, string views, collection primitives (blocked by spec)
 
 ## M4 — Ownership
 
