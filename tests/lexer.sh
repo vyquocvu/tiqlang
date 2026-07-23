@@ -58,13 +58,11 @@ QUESTION
 COLON
 DOT_DOT'
 
-assert_lexer "keywords" 'true false while for in break continue' 'TRUE
+assert_lexer "keywords" 'true false break skip until' 'TRUE
 FALSE
-WHILE
-FOR
-IN
 BREAK
-CONTINUE'
+SKIP
+UNTIL'
 
 assert_lexer "literals" '42 3.14 "hello"' 'INT 42
 FLOAT 3.14
@@ -78,13 +76,14 @@ IDENT y
 EQ
 INT 2'
 
-assert_lexer "punctuation" '{ } ( ) [ ] ,' 'LBRACE
+assert_lexer "punctuation" '{ } ( ) [ ] , ...' 'LBRACE
 RBRACE
 LPAREN
 RPAREN
 LBRACKET
 RBRACKET
-COMMA'
+COMMA
+DOT_DOT_DOT'
 
 assert_lexer "math" '+ - * / %' 'PLUS
 MINUS

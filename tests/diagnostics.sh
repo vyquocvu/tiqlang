@@ -43,14 +43,8 @@ assert_diagnostic "second_line_location" '!"ok"
 abc
 ' "$TMP_DIR/second_line_location.tiq:2: error: undefined symbol 'abc'"
 
-assert_diagnostic "while_no_block" 'x := 0
-while x < 3
-' "$TMP_DIR/while_no_block.tiq:2: error: expected block after while condition"
+assert_diagnostic "bracket_loop_no_pipe" '[0..10' "$TMP_DIR/bracket_loop_no_pipe.tiq:1: error: expected '|' in bracket loop"
 
-assert_diagnostic "for_no_in" 'for i x
-' "$TMP_DIR/for_no_in.tiq:1: error: expected 'in' after loop variable"
-
-assert_diagnostic "for_no_range" 'for i in 5
-' "$TMP_DIR/for_no_range.tiq:1: error: for-in loop requires a range expression"
+assert_diagnostic "bracket_loop_no_rbracket" '[0..10 | !i' "$TMP_DIR/bracket_loop_no_rbracket.tiq:1: error: expected ']' after bracket loop body"
 
 echo "diagnostics: ok"

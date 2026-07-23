@@ -10,9 +10,10 @@ typedef struct {
     Token current;
     Token previous;
     DiagContext *diag;
-    AstNode **nodes; // Keep track of allocated nodes for cleanup
+    AstNode **nodes;
     int node_count;
     int node_capacity;
+    bool crossed_newline;
 } Parser;
 
 void parser_init(Parser *parser, const char *source, const char *path, DiagContext *diag);

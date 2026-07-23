@@ -108,8 +108,12 @@ static void emit_expr(AstNode *node, FILE *out, DiagContext *diag, const char *p
             emit_expr(node->as.conditional.else_branch, out, diag, path);
             break;
         case AST_CALL:
-            emit_expr(node->as.call.callee, out, diag, path);
-            fputs("(", out);
+            if (node->as.call.is_bracket_call && node->as.call.callee && node->as.call.callee->kind == AST_IDENTIFIER) {
+                fprintf(out, "tiq_gen_%.*s(", (int)node->as.call.callee->as.identifier.name.length, node->as.call.callee->as.identifier.name.start);
+            } else {
+                emit_expr(node->as.call.callee, out, diag, path);
+                fputs("(", out);
+            }
             for (int i = 0; i < node->as.call.arg_count; i++) {
                 if (i > 0) fputs(", ", out);
                 emit_expr(node->as.call.args[i], out, diag, path);
@@ -409,8 +413,14 @@ static void compile_to_c(const char *source_path, const char *source, FILE *out,
     fputs("\nint main(void) {\n", out);
 
     for (int i = 0; i < count; i++) {
-        if (stmts[i] && stmts[i]->kind != AST_FUNCTION)
+        if (stmts[i] && stmts[i]->kind != AST_FUNCTION) {
+            if (stmts[i]->kind == AST_BINDING && stmts[i]->as.binding.expr &&
+                stmts[i]->as.binding.expr->kind == AST_STREAM_GEN) {
+                // stream gen bindings are emitted via tiq_gen_* functions below
+                continue;
+            }
             emit_stmt(stmts[i], out, diag, source_path, 1);
+        }
     }
     fputs("    return 0;\n}\n\n", out);
 

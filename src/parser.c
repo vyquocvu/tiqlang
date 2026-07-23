@@ -32,9 +32,11 @@ static AstNode *allocate_node(Parser *parser, AstKind kind) {
 
 static void advance(Parser *parser) {
     parser->previous = parser->current;
+    parser->crossed_newline = false;
     for (;;) {
         parser->current = lexer_next(&parser->lexer);
         if (parser->current.kind != TOK_NEWLINE) break;
+        parser->crossed_newline = true;
     }
 }
 
@@ -153,10 +155,12 @@ static AstNode *primary(Parser *parser) {
         consume(parser, TOK_RBRACKET, ERR_UNEXPECTED_TOKEN, "expected ']' after bracket expression");
         if (node->as.stream_gen.seed_count > 0 && !node->as.stream_gen.gen_expr) {
             if (node->as.stream_gen.seed_count == 1) {
-                AstNode *bare = allocate_node(parser, AST_BRACKET_EXPR);
-                bare->as.bracket_expr.expr = node->as.stream_gen.seeds[0];
-                free(node->as.stream_gen.seeds);
-                return bare;
+                AstNode **saved_seeds = node->as.stream_gen.seeds;
+                AstNode *inner = saved_seeds[0];
+                node->kind = AST_BRACKET_EXPR;
+                node->as.bracket_expr.expr = inner;
+                free(saved_seeds);
+                return node;
             }
         }
         return node;
@@ -168,6 +172,7 @@ static AstNode *primary(Parser *parser) {
 static AstNode *call_or_index(Parser *parser) {
     AstNode *expr = primary(parser);
     while (true) {
+        if (parser->crossed_newline) break;
         if (match(parser, TOK_LPAREN)) {
             AstNode *node = allocate_node(parser, AST_CALL);
             node->as.call.callee = expr;
@@ -186,6 +191,7 @@ static AstNode *call_or_index(Parser *parser) {
         } else if (match(parser, TOK_LBRACKET)) {
             AstNode *node = allocate_node(parser, AST_CALL);
             node->as.call.callee = expr;
+            node->as.call.is_bracket_call = true;
             if (check(parser, TOK_WHILE) || check(parser, TOK_UNTIL)) {
                 advance(parser);
                 AstNode *idx_expr = expression(parser);
@@ -470,6 +476,7 @@ AstNode **parser_parse(Parser *parser, int *out_count) {
     int count = 0;
     int capacity = 0;
     while (!match(parser, TOK_EOF)) {
+        while (check(parser, TOK_NEWLINE)) advance(parser);
         AstNode *decl = declaration(parser);
         if (parser->diag->fatal_error) break;
         if (count + 1 > capacity) {

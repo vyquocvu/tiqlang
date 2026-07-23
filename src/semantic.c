@@ -187,7 +187,7 @@ static void check_node(SemanticContext *ctx, AstNode *node) {
             check_node(ctx, node->as.call.callee);
             if (node->as.call.callee && node->as.call.callee->semantic_type) {
                 SemanticType *callee_type = (SemanticType *)node->as.call.callee->semantic_type;
-                if (callee_type->param_count >= 0 && callee_type->param_count != node->as.call.arg_count) {
+                if (!node->as.call.is_bracket_call && callee_type->param_count >= 0 && callee_type->param_count != node->as.call.arg_count) {
                     diag_error(ctx->diag, ctx->path, node->token.line, ERR_ARITY_MISMATCH, "arity mismatch");
                 }
             }

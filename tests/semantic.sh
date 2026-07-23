@@ -91,39 +91,38 @@ assert_semantic_ast "typed_ir_basic" 'x = 1 + 2' 'BINDING x <TYPE_INT>
     INT 1 <TYPE_INT>
     INT 2 <TYPE_INT>'
 
-assert_semantic_ast "typed_while" 'x := 0
-while x < 3 { x += 1 }' 'MUT_BINDING x <TYPE_INT>
+assert_semantic_ast "typed_bracket_loop" 'x := 0
+[0..3 | x += i]' 'MUT_BINDING x <TYPE_INT>
   INT 0 <TYPE_INT>
-WHILE <TYPE_UNKNOWN>
-  BINARY LT <TYPE_BOOL>
-    IDENT x <TYPE_INT>
-    INT 3 <TYPE_INT>
-  BLOCK <TYPE_UNKNOWN>
-    ASSIGN x PLUS_EQ <TYPE_UNKNOWN>
-      INT 1 <TYPE_INT>'
-
-assert_semantic_ast "typed_for" 'for i in 0..3 { !i }' 'FOR i <TYPE_UNKNOWN>
+BRACKET_LOOP <TYPE_UNKNOWN>
   BINARY DOT_DOT <TYPE_INT>
     INT 0 <TYPE_INT>
     INT 3 <TYPE_INT>
-  BLOCK <TYPE_UNKNOWN>
-    PRINT <TYPE_UNKNOWN>
-      IDENT i <TYPE_INT>'
+  ASSIGN x PLUS_EQ <TYPE_UNKNOWN>
+    IDENT i <TYPE_INT>'
 
-assert_semantic_ast "typed_break" 'while true { break }' 'WHILE <TYPE_UNKNOWN>
-  LITERAL <TYPE_BOOL>
-  BLOCK <TYPE_UNKNOWN>
-    BREAK <TYPE_UNKNOWN>'
+assert_semantic_ast "typed_bracket_expr" 'x = [1 + 2]' 'BINDING x <TYPE_INT>
+  BRACKET_EXPR <TYPE_INT>
+    BINARY PLUS <TYPE_INT>
+      INT 1 <TYPE_INT>
+      INT 2 <TYPE_INT>'
 
-assert_semantic_ast "typed_continue" 'while true { continue }' 'WHILE <TYPE_UNKNOWN>
-  LITERAL <TYPE_BOOL>
-  BLOCK <TYPE_UNKNOWN>
-    CONTINUE <TYPE_UNKNOWN>'
+assert_semantic_ast "typed_break_bracket" '[0..3 | break]' 'BRACKET_LOOP <TYPE_UNKNOWN>
+  BINARY DOT_DOT <TYPE_INT>
+    INT 0 <TYPE_INT>
+    INT 3 <TYPE_INT>
+  BREAK <TYPE_UNKNOWN>'
+
+assert_semantic_ast "typed_skip_bracket" '[0..3 | skip]' 'BRACKET_LOOP <TYPE_UNKNOWN>
+  BINARY DOT_DOT <TYPE_INT>
+    INT 0 <TYPE_INT>
+    INT 3 <TYPE_INT>
+  SKIP <TYPE_UNKNOWN>'
 
 assert_semantic "break_outside_loop" 'break
 ' "$TMP_DIR/break_outside_loop.tiq:1: error: break outside loop"
 
-assert_semantic "continue_outside_loop" 'continue
-' "$TMP_DIR/continue_outside_loop.tiq:1: error: continue outside loop"
+assert_semantic "skip_outside_loop" 'skip
+' "$TMP_DIR/skip_outside_loop.tiq:1: error: skip outside loop"
 
 echo "semantic: ok"
