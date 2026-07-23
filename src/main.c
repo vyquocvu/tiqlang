@@ -108,8 +108,24 @@ static void emit_expr(AstNode *node, FILE *out, DiagContext *diag, const char *p
             emit_expr(node->as.conditional.else_branch, out, diag, path);
             break;
         case AST_CALL:
-            if (node->as.call.is_bracket_call && node->as.call.callee && node->as.call.callee->kind == AST_IDENTIFIER) {
-                fprintf(out, "tiq_gen_%.*s(", (int)node->as.call.callee->as.identifier.name.length, node->as.call.callee->as.identifier.name.start);
+            if (node->as.call.is_bracket_call && node->as.call.callee) {
+                SemanticType *ct = node->as.call.callee->semantic_type;
+                if (ct && ct->kind == TYPE_ARRAY) {
+                    emit_expr(node->as.call.callee, out, diag, path);
+                    fputs("[", out);
+                    for (int i = 0; i < node->as.call.arg_count; i++) {
+                        if (i > 0) fputs("][", out);
+                        emit_expr(node->as.call.args[i], out, diag, path);
+                    }
+                    fputs("]", out);
+                    break;
+                }
+                if (node->as.call.callee->kind == AST_IDENTIFIER) {
+                    fprintf(out, "tiq_gen_%.*s(", (int)node->as.call.callee->as.identifier.name.length, node->as.call.callee->as.identifier.name.start);
+                } else {
+                    emit_expr(node->as.call.callee, out, diag, path);
+                    fputs("(", out);
+                }
             } else {
                 emit_expr(node->as.call.callee, out, diag, path);
                 fputs("(", out);
@@ -123,6 +139,15 @@ static void emit_expr(AstNode *node, FILE *out, DiagContext *diag, const char *p
         case AST_BRACKET_EXPR:
             emit_expr(node->as.bracket_expr.expr, out, diag, path);
             break;
+        case AST_ARRAY: {
+            fputs("{", out);
+            for (int i = 0; i < node->as.array.element_count; i++) {
+                if (i > 0) fputs(", ", out);
+                emit_expr(node->as.array.elements[i], out, diag, path);
+            }
+            fputs("}", out);
+            break;
+        }
         case AST_BLOCK:
             diag_error(diag, path, node->token.line, ERR_UNEXPECTED_TOKEN,
                        "block expression not supported in this context");
@@ -138,6 +163,7 @@ static void emit_type_name(PrimitiveType kind, FILE *out) {
         case TYPE_FLOAT:  fputs("double", out); break;
         case TYPE_BOOL:   fputs("int", out); break;
         case TYPE_STR:    fputs("const char *", out); break;
+        case TYPE_ARRAY:  fputs("int", out); break;
         default:          fputs("int", out); break;
     }
 }
@@ -170,16 +196,30 @@ static void emit_stmt(AstNode *node, FILE *out, DiagContext *diag, const char *p
         }
         case AST_BINDING: {
             SemanticType *t = node->semantic_type;
-            if (t) emit_type_name(t->kind, out);
-            else fputs("int", out);
-            fprintf(out, " %.*s", (int)node->as.binding.name.length, node->as.binding.name.start);
-            fputs(" = ", out);
-            emit_expr(node->as.binding.expr, out, diag, path);
-            fputs(";\n", out);
+            if (t && t->kind == TYPE_ARRAY) {
+                if (t->element_type) emit_type_name(t->element_type->kind, out);
+                else fputs("int", out);
+                fprintf(out, " %.*s[%d] = ", (int)node->as.binding.name.length, node->as.binding.name.start,
+                        t->array_length > 0 ? t->array_length : 0);
+                emit_expr(node->as.binding.expr, out, diag, path);
+                fputs(";\n", out);
+            } else {
+                if (t) emit_type_name(t->kind, out);
+                else fputs("int", out);
+                fprintf(out, " %.*s", (int)node->as.binding.name.length, node->as.binding.name.start);
+                fputs(" = ", out);
+                emit_expr(node->as.binding.expr, out, diag, path);
+                fputs(";\n", out);
+            }
             break;
         }
         case AST_ASSIGN:
             fprintf(out, "%.*s", (int)node->as.assign.name.length, node->as.assign.name.start);
+            if (node->as.assign.index) {
+                fputs("[", out);
+                emit_expr(node->as.assign.index, out, diag, path);
+                fputs("]", out);
+            }
             fputs(" ", out);
             {
                 TokenKind op = node->as.assign.op;
@@ -239,7 +279,7 @@ static void emit_stmt(AstNode *node, FILE *out, DiagContext *diag, const char *p
         }
         case AST_LITERAL: case AST_IDENTIFIER: case AST_BINARY: case AST_UNARY:
         case AST_CONDITIONAL: case AST_CALL: case AST_BRACKET_EXPR:
-        case AST_STREAM_GEN:
+        case AST_STREAM_GEN: case AST_ARRAY:
             emit_expr(node, out, diag, path);
             fputs(";\n", out);
             break;
@@ -255,7 +295,7 @@ static void emit_check_node(AstNode *node, DiagContext *diag, const char *path) 
     switch (node->kind) {
         case AST_LITERAL: case AST_IDENTIFIER: case AST_PRINT: case AST_BINDING:
         case AST_ASSIGN: case AST_FUNCTION: case AST_BREAK: case AST_SKIP:
-        case AST_BRACKET_EXPR:
+        case AST_BRACKET_EXPR: case AST_ARRAY:
             break;
         case AST_BINARY:
             emit_check_node(node->as.binary.left, diag, path);

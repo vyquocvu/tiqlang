@@ -84,22 +84,42 @@ Status: active
   - Helper `binary_op_c_str()` maps token kinds to C operators.
   - Function definitions emit before `main()` with forward declarations for mutual recursion.
   - Pre-emission validation (`emit_check_node`) catches `..` outside for-in loops.
+- Loop condition type validation:
+  - While-style bracket loops: domain must be `bool` (ERR_CONDITION_TYPE with "loop condition must be bool").
+  - Range bracket loops: left and right bounds must be `int` (ERR_TYPE_MISMATCH with "range bounds must be int").
+  - Tests: `semantic.sh` (loop_cond_type, loop_cond_float, loop_range_type, loop_range_mixed_type), `smoke.sh` (while_loop).
+
+### Completed
+
+- Array literals:
+  - Parsing: multi-seed `[a, b, c]` (no `...`) → `AST_ARRAY`.
+  - Semantic: validates uniform element type; assigns `TYPE_ARRAY` with element type and length.
+  - C emission: `int name[size] = {val1, val2, ...};` binding; array indexing via `arr[idx]`.
+  - Tests: `parser.sh` (AST golden), `smoke.sh` (index each element).
+  - LANGUAGE_SPEC §13 updated from "Planned v0.2" to concrete v0.1 array spec.
+  - Diagnostics: non-uniform element types rejected (ERR_TYPE_MISMATCH), non-int index rejected (ERR_TYPE_MISMATCH).
+- Mutable array element assignment:
+  - Parsing: `expr[idx] <- value` detected in `statement()` after expression parse; extends `AST_ASSIGN` with optional `index` field.
+  - Semantic: validates array is mutable, index is `int`, target is array type.
+  - C emission: `name[index] = value;` and compound forms (`+=`, `-=`, etc.).
+  - Tests: `smoke.sh` (array_assign), `semantic.sh` (immutable rejection, bad index).
+  - Diagnostics: immutable array, non-int index, non-array target all rejected.
 
 ### Blocked
 
-- arrays and slices; bounds checks; string views; minimal collection primitives:
+- slices and bounds checks; string views; minimal collection primitives:
 
-  The LANGUAGE_SPEC (§13) marks array and slice syntax as "Planned v0.2."
-  The TYPE_SYSTEM.md defines composite type forms as provisional.
-  Without a complete specification for array types, indexing semantics, and bounds behavior, these packages cannot be implemented.
+  Slices (`xs[i..j]`) — syntax not yet specified in LANGUAGE_SPEC.
+  Without slice syntax spec, implementations of bounds checks, string views, and collection primitives cannot proceed.
 
 ### Exit criteria
 
 - [x] while loops compile and execute correctly
 - [x] range (for-in) loops compile and execute correctly
 - [x] break and continue work inside loops
-- [ ] invalid programs are rejected (loop condition types, break outside loop)
-- [ ] arrays, slices, bounds checks, string views, collection primitives (blocked by spec)
+- [x] invalid programs are rejected (loop condition types, break outside loop)
+- [x] arrays (literals, indexing, bindings, mutable element assignment)
+- [ ] slices, bounds checks, string views, collection primitives (blocked by slice spec)
 
 ## M4 — Ownership
 

@@ -180,17 +180,25 @@ never
 
 Integer literals default to the smallest compatible signed type, with `i64` as the fallback. Floating literals default to `f64`.
 
-## 13. Arrays and slices
+## 13. Arrays
 
-Planned v0.2 syntax:
+Array literals are written with square brackets and comma-separated elements:
 
 ```tiq
-xs = [1,2,3]
-first = xs[0]
-part = xs[1..3]
+xs = [1, 2, 3]
 ```
 
+All elements must have the same type. The element type is inferred from the literal. Array access uses indexing syntax:
+
+```tiq
+first = xs[0]
+```
+
+The index must be an `int` value. Multi-dimensional arrays are not supported in v0.1.
+
 Array bounds are checked unless the compiler proves the access safe. An explicit unsafe facility is deferred.
+
+Slices and slice syntax (`xs[i..j]`) are planned for v0.2.
 
 ## 14. Stream Generators
 

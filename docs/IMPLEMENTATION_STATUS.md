@@ -36,14 +36,22 @@ M3 — Control flow and collections.
 - M3: For-in range loops (parse, type-check, C11 emission via `for (int var = start; var < end; var++)`).
 - M3: Break and continue (parse, type-check with loop-context validation, C11 emission).
 - M3: C expression emitter for all AST node types (arithmetic, logic, comparisons, conditionals, functions, calls, bindings, assignments, blocks).
+- M3: Bracket loop condition type validation — while-style condition must be `bool`, range bounds must be `int`, rejected with source-located diagnostics.
+- M3: Array literals (`[1, 2, 3]`) with uniform element type inference.
+- M3: Array indexing (`xs[0]`) with int-index validation.
+- M3: Array binding emission (`int xs[3] = {1, 2, 3};`).
+- M3: Mutable array element assignment (`xs[0] <- 99`, `xs[0] += 1`) with compound operators.
+- M3: Print rejects array types (ERR_TYPE_MISMATCH: "cannot print array directly").
+- LANGUAGE_SPEC §13 updated from "Planned v0.2" to concrete v0.1 array spec.
 
 ## Not implemented
 
 - Escape decoding beyond preserving source spelling
-- Arrays and slices (blocked: LANGUAGE_SPEC §13 marks as "Planned v0.2"; provisional type syntax)
-- Bounds checks (depends on arrays/slices)
+- Slices and slice syntax (`xs[i..j]`) (planned v0.2)
+- Bounds checks (depends on slices for variable-range access)
 - String views (depends on slices)
-- Minimal collection primitives (depends on arrays)
+- Minimal collection primitives (beyond literal arrays)
+- Mutable array element assignment
 - Ownership (M4)
 - Tooling commands (`run`, `check`, `fmt`, `test`) (M5)
 - Package system or standard library (M6)
@@ -57,4 +65,4 @@ M3 — Control flow and collections.
 
 ## Next package
 
-M3: Arrays and slices. Blocked until LANGUAGE_SPEC provides complete array/slice type specification (currently "Planned v0.2 syntax" in §13).
+M3: Slices and bounds checks. Requires LANGUAGE_SPEC slice syntax specification first.

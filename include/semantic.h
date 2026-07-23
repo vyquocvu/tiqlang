@@ -9,13 +9,15 @@ typedef enum {
     TYPE_INT,
     TYPE_FLOAT,
     TYPE_STR,
-    TYPE_BOOL
+    TYPE_BOOL,
+    TYPE_ARRAY
 } PrimitiveType;
 
 typedef struct SemanticType {
     PrimitiveType kind;
-    // For function symbols, we'll store parameter count for arity checking
     int param_count;
+    struct SemanticType *element_type;
+    int array_length;
 } SemanticType;
 
 typedef struct Symbol {

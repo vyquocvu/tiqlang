@@ -161,6 +161,13 @@ static AstNode *primary(Parser *parser) {
                 node->as.bracket_expr.expr = inner;
                 free(saved_seeds);
                 return node;
+            } else {
+                AstNode **saved = node->as.stream_gen.seeds;
+                int count = node->as.stream_gen.seed_count;
+                node->kind = AST_ARRAY;
+                node->as.array.elements = saved;
+                node->as.array.element_count = count;
+                return node;
             }
         }
         return node;
@@ -433,7 +440,22 @@ static AstNode *statement(Parser *parser) {
         }
     }
 
-    return expression(parser);
+    AstNode *expr = expression(parser);
+
+    if (expr->kind == AST_CALL && expr->as.call.is_bracket_call &&
+        (check(parser, TOK_LARROW) || check(parser, TOK_PLUS_EQ) ||
+         check(parser, TOK_MINUS_EQ) || check(parser, TOK_STAR_EQ) ||
+         check(parser, TOK_SLASH_EQ) || check(parser, TOK_PERCENT_EQ))) {
+        AstNode *assign = allocate_node(parser, AST_ASSIGN);
+        assign->as.assign.name = expr->as.call.callee->as.identifier.name;
+        assign->as.assign.op = parser->current.kind;
+        assign->as.assign.index = expr->as.call.arg_count > 0 ? expr->as.call.args[0] : NULL;
+        advance(parser);
+        assign->as.assign.expr = expression(parser);
+        return assign;
+    }
+
+    return expr;
 }
 
 static AstNode *declaration(Parser *parser) {
@@ -501,6 +523,8 @@ void parser_free(Parser *parser) {
             free(parser->nodes[i]->as.bracket_loop.body_stmts);
         } else if (parser->nodes[i]->kind == AST_STREAM_GEN) {
             free(parser->nodes[i]->as.stream_gen.seeds);
+        } else if (parser->nodes[i]->kind == AST_ARRAY) {
+            free(parser->nodes[i]->as.array.elements);
         }
         if (parser->nodes[i]->semantic_type) {
             free(parser->nodes[i]->semantic_type);
@@ -583,6 +607,9 @@ void ast_print(AstNode *node, int indent) {
             break;
         case AST_ASSIGN:
             printf("ASSIGN %.*s %s%s\n", (int)node->as.assign.name.length, node->as.assign.name.start, token_kind_name(node->as.assign.op), t_str);
+            if (node->as.assign.index) {
+                ast_print(node->as.assign.index, indent + 1);
+            }
             ast_print(node->as.assign.expr, indent + 1);
             break;
         case AST_FUNCTION:
@@ -624,6 +651,11 @@ void ast_print(AstNode *node, int indent) {
         case AST_BRACKET_EXPR:
             printf("BRACKET_EXPR%s\n", t_str);
             ast_print(node->as.bracket_expr.expr, indent + 1);
+            break;
+        case AST_ARRAY:
+            printf("ARRAY%s\n", t_str);
+            for (int i = 0; i < node->as.array.element_count; i++)
+                ast_print(node->as.array.elements[i], indent + 1);
             break;
         default:
             printf("UNKNOWN%s\n", t_str);

@@ -60,6 +60,8 @@ static SemanticType *alloc_type(PrimitiveType kind) {
     SemanticType *t = malloc(sizeof(SemanticType));
     t->kind = kind;
     t->param_count = 0;
+    t->element_type = NULL;
+    t->array_length = 0;
     return t;
 }
 
@@ -71,6 +73,13 @@ static void check_node(SemanticContext *ctx, AstNode *node) {
     switch (node->kind) {
         case AST_PRINT:
             check_node(ctx, node->as.print_stmt.expr);
+            {
+                SemanticType *pt = node->as.print_stmt.expr ?
+                    node->as.print_stmt.expr->semantic_type : NULL;
+                if (pt && pt->kind == TYPE_ARRAY)
+                    diag_error(ctx->diag, ctx->path, node->token.line, ERR_TYPE_MISMATCH,
+                               "cannot print array directly");
+            }
             node->semantic_type = alloc_type(TYPE_UNKNOWN);
             break;
         case AST_LITERAL: {
@@ -187,6 +196,22 @@ static void check_node(SemanticContext *ctx, AstNode *node) {
             check_node(ctx, node->as.call.callee);
             if (node->as.call.callee && node->as.call.callee->semantic_type) {
                 SemanticType *callee_type = (SemanticType *)node->as.call.callee->semantic_type;
+                if (node->as.call.is_bracket_call && callee_type->kind == TYPE_ARRAY) {
+                    for (int i = 0; i < node->as.call.arg_count; i++)
+                        check_node(ctx, node->as.call.args[i]);
+                    if (node->as.call.arg_count >= 1) {
+                        SemanticType *it = node->as.call.args[0] ?
+                            node->as.call.args[0]->semantic_type : NULL;
+                        if (it && it->kind != TYPE_INT)
+                            diag_error(ctx->diag, ctx->path, node->token.line, ERR_TYPE_MISMATCH,
+                                       "array index must be int");
+                    }
+                    if (callee_type->element_type)
+                        node->semantic_type = alloc_type(callee_type->element_type->kind);
+                    else
+                        node->semantic_type = alloc_type(TYPE_UNKNOWN);
+                    break;
+                }
                 if (!node->as.call.is_bracket_call && callee_type->param_count >= 0 && callee_type->param_count != node->as.call.arg_count) {
                     diag_error(ctx->diag, ctx->path, node->token.line, ERR_ARITY_MISMATCH, "arity mismatch");
                 }
@@ -221,12 +246,18 @@ static void check_node(SemanticContext *ctx, AstNode *node) {
         case AST_BINDING:
             check_node(ctx, node->as.binding.expr);
             {
-                SemanticType type = { TYPE_UNKNOWN, 0 };
+                SemanticType type = { TYPE_UNKNOWN, 0, NULL, 0 };
                 if (node->as.binding.expr && node->as.binding.expr->semantic_type) {
                     type = *(SemanticType *)node->as.binding.expr->semantic_type;
                 }
                 env_define(ctx->current_env, node->as.binding.name, node->as.binding.is_mutable, type);
-                node->semantic_type = alloc_type(type.kind);
+                SemanticType *bind_type = alloc_type(type.kind);
+                if (type.kind == TYPE_ARRAY) {
+                    if (type.element_type)
+                        bind_type->element_type = alloc_type(type.element_type->kind);
+                    bind_type->array_length = type.array_length;
+                }
+                node->semantic_type = bind_type;
             }
             break;
         case AST_ASSIGN:
@@ -240,13 +271,23 @@ static void check_node(SemanticContext *ctx, AstNode *node) {
                     diag_error(ctx->diag, ctx->path, node->token.line, ERR_UNDEFINED_SYMBOL, msg);
                 } else if (!sym->is_mutable) {
                     diag_error(ctx->diag, ctx->path, node->token.line, ERR_IMMUTABLE_ASSIGNMENT, "cannot assign to immutable binding");
+                } else if (node->as.assign.index) {
+                    check_node(ctx, node->as.assign.index);
+                    SemanticType *it = node->as.assign.index ?
+                        node->as.assign.index->semantic_type : NULL;
+                    if (it && it->kind != TYPE_INT)
+                        diag_error(ctx->diag, ctx->path, node->token.line, ERR_TYPE_MISMATCH,
+                                   "array index must be int");
+                    if (sym->type.kind != TYPE_ARRAY)
+                        diag_error(ctx->diag, ctx->path, node->token.line, ERR_TYPE_MISMATCH,
+                                   "cannot index non-array");
                 }
             }
             node->semantic_type = alloc_type(TYPE_UNKNOWN);
             break;
         case AST_FUNCTION: {
-            SemanticType unknown_type = { TYPE_UNKNOWN, 0 };
-            SemanticType func_type = { TYPE_UNKNOWN, 0 };
+            SemanticType unknown_type = { TYPE_UNKNOWN, 0, NULL, 0 };
+            SemanticType func_type = { TYPE_UNKNOWN, 0, NULL, 0 };
             func_type.param_count = node->as.function.param_count;
             env_define(ctx->current_env, node->as.function.name, false, func_type);
             Environment func_env;
@@ -276,6 +317,21 @@ static void check_node(SemanticContext *ctx, AstNode *node) {
             bool is_range = node->as.bracket_loop.domain &&
                 node->as.bracket_loop.domain->kind == AST_BINARY &&
                 node->as.bracket_loop.domain->as.binary.op == TOK_DOT_DOT;
+            if (is_range) {
+                SemanticType *lt = node->as.bracket_loop.domain->as.binary.left ?
+                    node->as.bracket_loop.domain->as.binary.left->semantic_type : NULL;
+                SemanticType *rt = node->as.bracket_loop.domain->as.binary.right ?
+                    node->as.bracket_loop.domain->as.binary.right->semantic_type : NULL;
+                if ((lt && lt->kind != TYPE_INT) || (rt && rt->kind != TYPE_INT))
+                    diag_error(ctx->diag, ctx->path, node->token.line, ERR_TYPE_MISMATCH,
+                               "range bounds must be int");
+            } else {
+                SemanticType *dt = node->as.bracket_loop.domain ?
+                    node->as.bracket_loop.domain->semantic_type : NULL;
+                if (dt && dt->kind != TYPE_BOOL)
+                    diag_error(ctx->diag, ctx->path, node->token.line, ERR_CONDITION_TYPE,
+                               "loop condition must be bool");
+            }
             Environment loop_env;
             env_init(&loop_env, ctx->current_env);
             ctx->current_env = &loop_env;
@@ -283,7 +339,7 @@ static void check_node(SemanticContext *ctx, AstNode *node) {
                 Token itoken;
                 itoken.start = "i";
                 itoken.length = 1;
-                SemanticType int_type = { TYPE_INT, 0 };
+                SemanticType int_type = { TYPE_INT, 0, NULL, 0 };
                 env_define(ctx->current_env, itoken, true, int_type);
             }
             for (int i = 0; i < node->as.bracket_loop.body_count; i++) {
@@ -323,21 +379,21 @@ static void check_node(SemanticContext *ctx, AstNode *node) {
                 if (node->as.stream_gen.seed_count == 1) {
                     Token xtoken;
                     xtoken.start = "x"; xtoken.length = 1;
-                    SemanticType int_type = { TYPE_INT, 0 };
+                    SemanticType int_type = { TYPE_INT, 0, NULL, 0 };
                     env_define(ctx->current_env, xtoken, false, int_type);
                 }
                 if (node->as.stream_gen.seed_count >= 2) {
                     Token atoken, btoken;
                     atoken.start = "a"; atoken.length = 1;
                     btoken.start = "b"; btoken.length = 1;
-                    SemanticType int_type = { TYPE_INT, 0 };
+                    SemanticType int_type = { TYPE_INT, 0, NULL, 0 };
                     env_define(ctx->current_env, atoken, false, int_type);
                     env_define(ctx->current_env, btoken, false, int_type);
                 }
                 Token itoken, stoken;
                 itoken.start = "i"; itoken.length = 1;
                 stoken.start = "s"; stoken.length = 1;
-                SemanticType int_type = { TYPE_INT, 0 };
+                SemanticType int_type = { TYPE_INT, 0, NULL, 0 };
                 env_define(ctx->current_env, itoken, false, int_type);
                 env_define(ctx->current_env, stoken, false, int_type);
                 check_node(ctx, node->as.stream_gen.gen_expr);
@@ -363,6 +419,31 @@ static void check_node(SemanticContext *ctx, AstNode *node) {
                 }
             }
             break;
+        case AST_ARRAY: {
+            PrimitiveType elem_kind = TYPE_UNKNOWN;
+            bool uniform = true;
+            for (int i = 0; i < node->as.array.element_count; i++) {
+                check_node(ctx, node->as.array.elements[i]);
+                SemanticType *et = node->as.array.elements[i] ?
+                    node->as.array.elements[i]->semantic_type : NULL;
+                if (et) {
+                    if (i == 0) {
+                        elem_kind = et->kind;
+                    } else if (et->kind != elem_kind) {
+                        if (et->kind != TYPE_UNKNOWN) uniform = false;
+                    }
+                }
+            }
+            if (!uniform) {
+                diag_error(ctx->diag, ctx->path, node->token.line, ERR_TYPE_MISMATCH,
+                           "array elements must have the same type");
+            }
+            SemanticType *arr_type = alloc_type(TYPE_ARRAY);
+            arr_type->element_type = alloc_type(elem_kind);
+            arr_type->array_length = node->as.array.element_count;
+            node->semantic_type = arr_type;
+            break;
+        }
     }
 }
 

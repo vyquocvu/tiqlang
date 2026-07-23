@@ -122,4 +122,10 @@ assert_parser "bracket_expr" 'x = [1 + 2]' 'BINDING x
       INT 1
       INT 2'
 
+assert_parser "array_literal" 'x = [1, 2, 3]' 'BINDING x
+  ARRAY
+    INT 1
+    INT 2
+    INT 3'
+
 echo "parser: ok"

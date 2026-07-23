@@ -20,7 +20,8 @@ typedef enum {
     AST_BREAK,
     AST_SKIP,
     AST_STREAM_GEN,
-    AST_BRACKET_EXPR
+    AST_BRACKET_EXPR,
+    AST_ARRAY
 } AstKind;
 
 typedef struct AstNode AstNode;
@@ -82,6 +83,7 @@ struct AstNode {
         struct {
             Token name;
             TokenKind op;
+            AstNode *index;
             AstNode *expr;
         } assign;
 
@@ -109,6 +111,11 @@ struct AstNode {
         struct {
             AstNode *expr;
         } bracket_expr;
+
+        struct {
+            AstNode **elements;
+            int element_count;
+        } array;
     } as;
 };
 

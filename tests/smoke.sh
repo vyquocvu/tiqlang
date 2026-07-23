@@ -71,4 +71,25 @@ printf 'x := 0\n[0..3 | x += 1, skip, x += 100]\n!x\n' > "$TMP_DIR/bracket_skip.
 SKIP_OUTPUT="$($TMP_DIR/bracket_skip)"
 [ "$SKIP_OUTPUT" = "3" ] || { echo "bracket_skip expected 3, got: $SKIP_OUTPUT"; exit 1; }
 
+printf 'x := 0\n[x < 5 | x += 1]\n!x\n' > "$TMP_DIR/while_loop.tiq"
+./build/tiq build "$TMP_DIR/while_loop.tiq" -o "$TMP_DIR/while_loop" 2>"$TMP_DIR/while_loop.err"
+WHILE_OUTPUT="$($TMP_DIR/while_loop)"
+[ "$WHILE_OUTPUT" = "5" ] || { echo "while_loop expected 5, got: $WHILE_OUTPUT"; exit 1; }
+
+printf 'xs := [1, 2, 3]\n!xs[0]\n!xs[1]\n!xs[2]\n' > "$TMP_DIR/array_literal.tiq"
+./build/tiq build "$TMP_DIR/array_literal.tiq" -o "$TMP_DIR/array_literal" 2>"$TMP_DIR/array_literal.err"
+ARRAY_OUTPUT="$($TMP_DIR/array_literal)"
+ARRAY_EXPECTED="1
+2
+3"
+[ "$ARRAY_OUTPUT" = "$ARRAY_EXPECTED" ] || { echo "array_literal expected '$ARRAY_EXPECTED', got '$ARRAY_OUTPUT'"; exit 1; }
+
+printf 'xs := [1, 2, 3]\nxs[0] <- 99\n!xs[0]\n!xs[1]\n!xs[2]\n' > "$TMP_DIR/array_assign.tiq"
+./build/tiq build "$TMP_DIR/array_assign.tiq" -o "$TMP_DIR/array_assign" 2>"$TMP_DIR/array_assign.err"
+ASSIGN_OUTPUT="$($TMP_DIR/array_assign)"
+ASSIGN_EXPECTED="99
+2
+3"
+[ "$ASSIGN_OUTPUT" = "$ASSIGN_EXPECTED" ] || { echo "array_assign expected '$ASSIGN_EXPECTED', got '$ASSIGN_OUTPUT'"; exit 1; }
+
 echo "smoke: ok"

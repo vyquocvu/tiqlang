@@ -125,4 +125,37 @@ assert_semantic "break_outside_loop" 'break
 assert_semantic "skip_outside_loop" 'skip
 ' "$TMP_DIR/skip_outside_loop.tiq:1: error: skip outside loop"
 
+assert_semantic "loop_cond_type" 'x := 0
+[1 | x += 1]
+' "$TMP_DIR/loop_cond_type.tiq:2: error: loop condition must be bool"
+
+assert_semantic "loop_range_type" '["a".."b" | !"nope"]
+' "$TMP_DIR/loop_range_type.tiq:1: error: range bounds must be int"
+
+assert_semantic "loop_range_mixed_type" '[0.."b" | !"nope"]
+' "$TMP_DIR/loop_range_mixed_type.tiq:1: error: type mismatch
+$TMP_DIR/loop_range_mixed_type.tiq:1: error: range bounds must be int"
+
+assert_semantic "loop_cond_float" '[1.0 | !"nope"]
+' "$TMP_DIR/loop_cond_float.tiq:1: error: loop condition must be bool"
+
+assert_semantic "array_mixed_types" 'x = [1, "foo"]
+' "$TMP_DIR/array_mixed_types.tiq:1: error: array elements must have the same type"
+
+assert_semantic "array_index_non_int" 'x = [1, 2, 3]
+y = x["foo"]
+' "$TMP_DIR/array_index_non_int.tiq:2: error: array index must be int"
+
+assert_semantic "array_assign_immutable" 'x = [1, 2, 3]
+x[0] <- 99
+' "$TMP_DIR/array_assign_immutable.tiq:2: error: cannot assign to immutable binding"
+
+assert_semantic "array_assign_bad_index" 'x := [1, 2, 3]
+x["bad"] <- 99
+' "$TMP_DIR/array_assign_bad_index.tiq:2: error: array index must be int"
+
+assert_semantic "array_print" 'x := [1, 2, 3]
+!x
+' "$TMP_DIR/array_print.tiq:2: error: cannot print array directly"
+
 echo "semantic: ok"
