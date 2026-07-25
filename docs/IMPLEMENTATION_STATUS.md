@@ -95,6 +95,11 @@ M5 — Tooling (complete)
   - XDG-compliant cache directory (`~/.cache/tiq`)
   - Source file tracking by modification time
   - Cache operations: `tiq cache clear`, `tiq cache path`
+- Benchmark tool (`tiq bench`):
+  - Measures lexer, parser, and semantic analysis performance
+  - Supports multiple files and directories
+  - Configurable iterations for accuracy
+  - Throughput reporting in bytes/second
 - Language Server Protocol baseline (`tiq lsp`):
   - JSON-RPC 2.0 message handling over stdin/stdout
   - Initialize/shutdown protocol support

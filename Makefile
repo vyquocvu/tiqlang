@@ -4,12 +4,13 @@ CFLAGS ?= -std=c11 -Wall -Wextra -Wpedantic -Werror -O2
 BUILD := build
 TIQ := $(BUILD)/tiq
 
-.PHONY: all clean test example
+.PHONY: all clean test example bench
 
 all: $(TIQ)
 
 SRCS = src/main.c src/lexer.c src/diag.c src/parser.c src/semantic.c \
-       src/formatter.c src/cache.c src/tester.c src/manifest.c src/lsp.c
+       src/formatter.c src/cache.c src/tester.c src/manifest.c src/lsp.c \
+       src/benchmark.c
 OBJS = $(SRCS:src/%.c=$(BUILD)/%.o)
 
 $(BUILD)/%.o: src/%.c
@@ -58,7 +59,29 @@ test-cache: $(TIQ)
 	$(TIQ) cache clear
 	@echo "cache: ok"
 
-test-all: test-fmt test-check test-init test-cache
+test-run: $(TIQ)
+	@# Test run command
+	OUTPUT=$$($(TIQ) run examples/hello.tiq)
+	[ "$$OUTPUT" = "Hello from Tiq" ]
+	@echo "run: ok"
+
+test-bench: $(TIQ)
+	@# Test benchmark command
+	$(TIQ) bench -q examples/
+	$(TIQ) bench -v -i 3 examples/hello.tiq > /dev/null
+	@echo "bench: ok"
+
+test-all: test-fmt test-check test-init test-cache test-run test-bench
+
+test-tooling: $(TIQ)
+	sh tests/tooling.sh
+
+bench: $(TIQ)
+	@echo "=== Benchmark: all examples ==="
+	$(TIQ) bench examples/
+
+bench-quick: $(TIQ)
+	$(TIQ) bench -q examples/ -i 5
 
 clean:
 	rm -rf $(BUILD)

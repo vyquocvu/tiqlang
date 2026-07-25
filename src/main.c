@@ -17,6 +17,7 @@
 #include "../include/tester.h"
 #include "../include/manifest.h"
 #include "../include/lsp.h"
+#include "../include/benchmark.h"
 
 #define TIQ_VERSION "0.1.0-dev"
 
@@ -867,6 +868,7 @@ static int cmd_fmt(int argc, char **argv) {
     formatter_init_options(&opts);
     const char *output = NULL;
     bool check_mode = false;
+    const char *input_file = NULL;
 
     for (int i = 2; i < argc; i++) {
         if (strcmp(argv[i], "--check") == 0) {
@@ -879,12 +881,16 @@ static int cmd_fmt(int argc, char **argv) {
             opts.indent_width = atoi(argv[++i]);
         } else if (argv[i][0] != '-') {
             // Input file
-            int result = format_file(argv[i], output, &opts);
-            if (check_mode) {
-                // TODO: Compare formatted output with original
-            }
-            return result;
+            input_file = argv[i];
         }
+    }
+
+    if (input_file) {
+        int result = format_file(input_file, output, &opts);
+        if (check_mode) {
+            // TODO: Compare formatted output with original
+        }
+        return result;
     }
 
     // No input file, format stdin to stdout
@@ -895,14 +901,14 @@ static int cmd_test(int argc, char **argv) {
     test_runner_init();
     TestResults results = {0, 0, 0};
     bool verbose = false;
-    bool list_only = false;
-    (void)list_only; // TODO: implement list mode
 
     for (int i = 2; i < argc; i++) {
         if (strcmp(argv[i], "--verbose") == 0 || strcmp(argv[i], "-v") == 0) {
             verbose = true;
         } else if (strcmp(argv[i], "--list") == 0 || strcmp(argv[i], "-l") == 0) {
-            list_only = true;
+            // List mode - show files without running
+            printf("Listing tests in: %s\n", argv[i]);
+            // TODO: implement list mode
         } else if (argv[i][0] != '-') {
             struct stat st;
             if (stat(argv[i], &st) == 0) {
@@ -917,11 +923,14 @@ static int cmd_test(int argc, char **argv) {
 
     test_runner_shutdown();
 
-    if (verbose) {
-        printf("Tests: %d passed, %d failed, %d skipped\n",
-               results.passed, results.failed, results.skipped);
+    printf("Tests: %d passed, %d failed, %d skipped\n",
+           results.passed, results.failed, results.skipped);
+
+    if (results.passed == 0 && results.failed == 0) {
+        printf("Note: Test files should contain '//! expected_output' comments\n");
     }
 
+    (void)verbose; // Reserved for future use
     return results.failed > 0 ? 1 : 0;
 }
 
@@ -975,17 +984,19 @@ static void usage(FILE *out) {
     fputs("tiq " TIQ_VERSION " - Tiq compiler and tools\n\n", out);
     fputs("usage:\n", out);
     fputs("  tiq --version\n", out);
-    fputs("  tiq dump-tokens <file.tiq>\n", out);
-    fputs("  tiq dump-ast <file.tiq>\n", out);
-    fputs("  tiq dump-typed-ast <file.tiq>\n", out);
-    fputs("  tiq emit-c <file.tiq>\n", out);
+    fputs("  tiq run <file.tiq>\n", out);
     fputs("  tiq build <file.tiq> [-o output]\n", out);
+    fputs("  tiq emit-c <file.tiq>\n", out);
     fputs("  tiq check <file.tiq>...\n", out);
     fputs("  tiq fmt [--check] [--output <file>] [--use-tabs] [--indent-width <n>] [file]\n", out);
     fputs("  tiq test [--verbose] [--list] [dir|file...]\n", out);
+    fputs("  tiq bench [-v] [-i N] [-q] <file|dir>...\n", out);
     fputs("  tiq init [name]\n", out);
     fputs("  tiq lsp [--root <path>]\n", out);
     fputs("  tiq cache [clear|path]\n", out);
+    fputs("  tiq dump-tokens <file.tiq>\n", out);
+    fputs("  tiq dump-ast <file.tiq>\n", out);
+    fputs("  tiq dump-typed-ast <file.tiq>\n", out);
 }
 
 int main(int argc, char **argv) {
@@ -1023,6 +1034,51 @@ int main(int argc, char **argv) {
         }
         if (strcmp(argv[1], "cache") == 0) {
             return cmd_cache(argc, argv);
+        }
+        if (strcmp(argv[1], "bench") == 0) {
+            BenchmarkOptions opts;
+            benchmark_init_options(&opts);
+            const char *paths[64];
+            int path_count = 0;
+            for (int i = 2; i < argc; i++) {
+                if (strcmp(argv[i], "-v") == 0 || strcmp(argv[i], "--verbose") == 0) {
+                    opts.verbose = true;
+                } else if (strcmp(argv[i], "-q") == 0 || strcmp(argv[i], "--quiet") == 0) {
+                    opts.quiet = true;
+                } else if (strcmp(argv[i], "-i") == 0 && i + 1 < argc) {
+                    opts.iterations = atoi(argv[++i]);
+                } else if (argv[i][0] != '-') {
+                    if (path_count < 64) paths[path_count++] = argv[i];
+                }
+            }
+            if (path_count == 0) paths[path_count++] = ".";
+            return benchmark_files(paths, path_count, &opts);
+        }
+        if (strcmp(argv[1], "run") == 0) {
+            if (argc < 3) { usage(stderr); return 2; }
+            // Run file: build and execute
+            const char *input = argv[2];
+            char *tmp_exe = strdup("/tmp/tiq-run-XXXXXX");
+            int fd = mkstemp(tmp_exe);
+            if (fd < 0) { free(tmp_exe); return 1; }
+            close(fd);
+            DiagContext diag;
+            diag_init(&diag);
+            int result = build(input, tmp_exe, &diag);
+            if (result == 0) {
+                // Execute
+                pid_t pid = fork();
+                if (pid == 0) {
+                    execl(tmp_exe, tmp_exe, NULL);
+                    _exit(127);
+                }
+                int status;
+                waitpid(pid, &status, 0);
+                result = WIFEXITED(status) ? WEXITSTATUS(status) : 1;
+            }
+            remove(tmp_exe);
+            free(tmp_exe);
+            return result;
         }
     }
 

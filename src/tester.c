@@ -180,6 +180,11 @@ static int compile_and_run(const char *source_path, const char *expected_output,
     int pclose_result = pclose(out);
     (void)pclose_result; // Reserved for future use
 
+    // Trim trailing newline from output
+    while (out_len > 0 && output[out_len - 1] == '\n') {
+        output[--out_len] = '\0';
+    }
+
     // Compare output
     int pass = (out_len == strlen(expected_output)) &&
                (memcmp(output, expected_output, out_len) == 0);
@@ -252,9 +257,10 @@ int run_tests_in_dir(const char *dir_path, TestResults *results) {
     int found = 0;
 
     while ((entry = readdir(dir)) != NULL) {
-        // Skip hidden files and non-.tiq files
+        // Skip hidden files
         if (entry->d_name[0] == '.') continue;
 
+        // Skip non-.tiq files (don't auto-run shell scripts)
         size_t name_len = strlen(entry->d_name);
         if (name_len < 4 || strcmp(entry->d_name + name_len - 4, ".tiq") != 0) {
             continue;

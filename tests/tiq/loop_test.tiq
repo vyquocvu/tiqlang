@@ -1,0 +1,5 @@
+// Test loop sum
+total <- 0
+[0..5 | total += i]
+!total
+//! 10

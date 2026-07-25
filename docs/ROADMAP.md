@@ -200,6 +200,7 @@ Status: done
 - [x] Proper handling of braces, brackets, operators, keywords
 - [x] `--check` mode for CI integration
 - [x] stdin/stdout support
+- [x] `--output` option for file redirection
 
 ### M5.2 — Test Runner
 
@@ -231,6 +232,15 @@ Status: done
 - [x] Initialize/shutdown protocol
 - [x] Diagnostics publishing
 - [x] Text document sync infrastructure
+
+### M5.6 — Benchmark Tool
+
+- [x] `tiq bench` command for compiler performance measurement
+- [x] Lexer, parser, and semantic analysis timing
+- [x] Support for multiple files and directories
+- [x] Verbose and quiet output modes
+- [x] Multiple iterations for more accurate measurements
+- [x] Throughput reporting (bytes/s)
 
 ### Exit criteria
 
