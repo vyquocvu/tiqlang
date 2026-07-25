@@ -79,6 +79,9 @@ static void check_node(SemanticContext *ctx, AstNode *node) {
                 if (pt && pt->kind == TYPE_ARRAY)
                     diag_error(ctx->diag, ctx->path, node->token.line, ERR_TYPE_MISMATCH,
                                "cannot print array directly");
+                if (pt && pt->kind == TYPE_STREAM)
+                    diag_error(ctx->diag, ctx->path, node->token.line, ERR_TYPE_MISMATCH,
+                               "cannot print stream generator directly");
             }
             node->semantic_type = alloc_type(TYPE_UNKNOWN);
             break;
@@ -247,6 +250,11 @@ static void check_node(SemanticContext *ctx, AstNode *node) {
                             }
                             node->semantic_type = alloc_type(TYPE_STR_VIEW);
                             break;
+                        } else if (callee_type->kind == TYPE_STREAM) {
+                            diag_error(ctx->diag, ctx->path, node->token.line, ERR_TYPE_MISMATCH,
+                                       "cannot range-slice a stream generator");
+                            node->semantic_type = alloc_type(TYPE_UNKNOWN);
+                            break;
                         } else {
                             diag_error(ctx->diag, ctx->path, node->token.line, ERR_TYPE_MISMATCH,
                                        "cannot slice non-array");
@@ -273,6 +281,15 @@ static void check_node(SemanticContext *ctx, AstNode *node) {
                                            "string index must be int");
                         }
                         node->semantic_type = alloc_type(TYPE_STR_VIEW);
+                        break;
+                    } else if (callee_type->kind == TYPE_STREAM) {
+                        if (node->as.call.arg_count >= 1 && node->as.call.args[0]) {
+                            SemanticType *it = node->as.call.args[0]->semantic_type;
+                            if (it && it->kind != TYPE_INT)
+                                diag_error(ctx->diag, ctx->path, node->token.line, ERR_TYPE_MISMATCH,
+                                           "stream index must be int");
+                        }
+                        node->semantic_type = alloc_type(TYPE_INT);
                         break;
                     }
                 }
@@ -471,7 +488,7 @@ static void check_node(SemanticContext *ctx, AstNode *node) {
                 check_node(ctx, node->as.stream_gen.gen_expr);
                 ctx->current_env = gen_env.parent;
                 env_free(&gen_env);
-                node->semantic_type = alloc_type(TYPE_INT);
+                node->semantic_type = alloc_type(TYPE_STREAM);
             } else {
                 node->semantic_type = alloc_type(TYPE_UNKNOWN);
             }

@@ -53,6 +53,22 @@ static void emit_c_string(FILE *out, const char *start, size_t length) {
 static void emit_expr(AstNode *node, FILE *out, DiagContext *diag, const char *path);
 static void emit_stmt(AstNode *node, FILE *out, DiagContext *diag, const char *path, int indent);
 
+typedef struct { const char *name; Token *params; int param_count; } EmitStreamGenInfo;
+static EmitStreamGenInfo emit_stream_gen_table[64];
+static int emit_stream_gen_table_count = 0;
+
+static bool is_stream_gen_name(const char *name, int len, int *out_params, int *out_param_count) {
+    for (int i = 0; i < emit_stream_gen_table_count; i++) {
+        if ((int)strlen(emit_stream_gen_table[i].name) == len &&
+            memcmp(emit_stream_gen_table[i].name, name, len) == 0) {
+            *out_params = 0;
+            *out_param_count = emit_stream_gen_table[i].param_count;
+            return true;
+        }
+    }
+    return false;
+}
+
 static const char *binary_op_c_str(TokenKind op) {
     switch (op) {
         case TOK_PLUS: return "+"; case TOK_MINUS: return "-"; case TOK_STAR: return "*";
@@ -222,6 +238,25 @@ static void emit_expr(AstNode *node, FILE *out, DiagContext *diag, const char *p
                 }
                 if (node->as.call.callee->kind == AST_IDENTIFIER) {
                     fprintf(out, "tiq_gen_%.*s(", (int)node->as.call.callee->as.identifier.name.length, node->as.call.callee->as.identifier.name.start);
+                } else if (node->as.call.callee->kind == AST_CALL &&
+                           node->as.call.callee->as.call.callee &&
+                           node->as.call.callee->as.call.callee->kind == AST_IDENTIFIER) {
+                    AstNode *inner_fn = node->as.call.callee->as.call.callee;
+                    int dummy1, fn_param_count;
+                    if (is_stream_gen_name(inner_fn->as.identifier.name.start,
+                                           (int)inner_fn->as.identifier.name.length,
+                                           &dummy1, &fn_param_count)) {
+                        fprintf(out, "tiq_gen_%.*s(", (int)inner_fn->as.identifier.name.length, inner_fn->as.identifier.name.start);
+                        for (int ai = 0; ai < node->as.call.callee->as.call.arg_count; ai++) {
+                            if (ai > 0) fputs(", ", out);
+                            if (node->as.call.callee->as.call.args[ai])
+                                emit_expr(node->as.call.callee->as.call.args[ai], out, diag, path);
+                        }
+                        if (node->as.call.arg_count > 0) fputs(", ", out);
+                    } else {
+                        emit_expr(node->as.call.callee, out, diag, path);
+                        fputs("(", out);
+                    }
                 } else {
                     emit_expr(node->as.call.callee, out, diag, path);
                     fputs("(", out);
@@ -266,6 +301,7 @@ static void emit_type_name(PrimitiveType kind, FILE *out) {
         case TYPE_ARRAY:    fputs("int", out); break;
         case TYPE_SLICE:    fputs("TiqSlice", out); break;
         case TYPE_STR_VIEW: fputs("TiqSlice", out); break;
+        case TYPE_STREAM:   fputs("int", out); break;
         default:           fputs("int", out); break;
     }
 }
@@ -464,10 +500,16 @@ static void emit_check_node(AstNode *node, DiagContext *diag, const char *path) 
     }
 }
 
-static void emit_stream_gen_def(FILE *out, const char *name, AstNode *node, DiagContext *diag, const char *path) {
+static void emit_stream_gen_def(FILE *out, const char *name, AstNode *node, Token *params, int param_count, DiagContext *diag, const char *path) {
     int sc = node->as.stream_gen.seed_count;
     if (sc == 1) {
-        fprintf(out, "int tiq_gen_%s(int n) {\n", name);
+        fprintf(out, "int tiq_gen_%s(", name);
+        for (int p = 0; p < param_count; p++) {
+            if (p > 0) fputs(", ", out);
+            fprintf(out, "int %.*s", (int)params[p].length, params[p].start);
+        }
+        if (param_count > 0) fputs(", ", out);
+        fputs("int n) {\n", out);
         fputs("    if (n < 0) return 0;\n", out);
         fputs("    int x = ", out);
         emit_expr(node->as.stream_gen.seeds[0], out, diag, path);
@@ -483,7 +525,13 @@ static void emit_stream_gen_def(FILE *out, const char *name, AstNode *node, Diag
         fputs("    return x;\n", out);
         fputs("}\n\n", out);
     } else if (sc >= 2) {
-        fprintf(out, "int tiq_gen_%s(int n) {\n", name);
+        fprintf(out, "int tiq_gen_%s(", name);
+        for (int p = 0; p < param_count; p++) {
+            if (p > 0) fputs(", ", out);
+            fprintf(out, "int %.*s", (int)params[p].length, params[p].start);
+        }
+        if (param_count > 0) fputs(", ", out);
+        fputs("int n) {\n", out);
         fputs("    if (n < 0) return 0;\n", out);
         fputs("    if (n == 0) return ", out);
         emit_expr(node->as.stream_gen.seeds[0], out, diag, path);
@@ -523,7 +571,7 @@ static void compile_to_c(const char *source_path, const char *source, FILE *out,
     if (diag->has_error) { free(stmts); parser_free(&parser); return; }
 
     // Collect stream gen bindings
-    typedef struct { const char *name; AstNode *gen; } StreamGenDef;
+    typedef struct { const char *name; AstNode *gen; Token *params; int param_count; } StreamGenDef;
     StreamGenDef stream_gens[64];
     int stream_gen_count = 0;
     for (int i = 0; i < count; i++) {
@@ -534,6 +582,8 @@ static void compile_to_c(const char *source_path, const char *source, FILE *out,
             memcpy(sname, n.start, n.length); sname[n.length] = '\0';
             stream_gens[stream_gen_count].name = sname;
             stream_gens[stream_gen_count].gen = stmts[i]->as.binding.expr;
+            stream_gens[stream_gen_count].params = NULL;
+            stream_gens[stream_gen_count].param_count = 0;
             stream_gen_count++;
         }
         // Also handle function-level streams
@@ -544,6 +594,8 @@ static void compile_to_c(const char *source_path, const char *source, FILE *out,
             memcpy(sname, n.start, n.length); sname[n.length] = '\0';
             stream_gens[stream_gen_count].name = sname;
             stream_gens[stream_gen_count].gen = stmts[i]->as.function.body;
+            stream_gens[stream_gen_count].params = stmts[i]->as.function.params;
+            stream_gens[stream_gen_count].param_count = stmts[i]->as.function.param_count;
             stream_gen_count++;
         }
     }
@@ -552,18 +604,35 @@ static void compile_to_c(const char *source_path, const char *source, FILE *out,
     for (int i = 0; i < count; i++)
         if (stmts[i] && stmts[i]->kind == AST_FUNCTION) has_function = 1;
 
+    // Populate emit-time stream gen lookup table
+    emit_stream_gen_table_count = 0;
+    for (int g = 0; g < stream_gen_count; g++) {
+        emit_stream_gen_table[g].name = stream_gens[g].name;
+        emit_stream_gen_table[g].params = stream_gens[g].params;
+        emit_stream_gen_table[g].param_count = stream_gens[g].param_count;
+        emit_stream_gen_table_count++;
+    }
+
     fputs("#include <stdio.h>\n", out);
     fputs("#include <stdlib.h>\n", out);
     fputs("#include <string.h>\n", out);
     fputs("typedef struct { const void *ptr; int len; } TiqSlice;\n", out);
 
     // Forward-declare stream gen functions
-    for (int g = 0; g < stream_gen_count; g++)
-        fprintf(out, "int tiq_gen_%s(int n);\n", stream_gens[g].name);
+    for (int g = 0; g < stream_gen_count; g++) {
+        fprintf(out, "int tiq_gen_%s(", stream_gens[g].name);
+        for (int p = 0; p < stream_gens[g].param_count; p++) {
+            if (p > 0) fputs(", ", out);
+            fprintf(out, "int %.*s", (int)stream_gens[g].params[p].length, stream_gens[g].params[p].start);
+        }
+        if (stream_gens[g].param_count > 0) fputs(", ", out);
+        fputs("int n);\n", out);
+    }
 
     if (has_function) {
         for (int i = 0; i < count; i++) {
-            if (stmts[i] && stmts[i]->kind == AST_FUNCTION) {
+            if (stmts[i] && stmts[i]->kind == AST_FUNCTION &&
+                !(stmts[i]->as.function.body && stmts[i]->as.function.body->kind == AST_STREAM_GEN)) {
                 SemanticType *t = stmts[i]->semantic_type;
                 if (t) emit_type_name(t->kind, out); else fputs("int", out);
                 fprintf(out, " %.*s(", (int)stmts[i]->as.function.name.length, stmts[i]->as.function.name.start);
@@ -592,7 +661,7 @@ static void compile_to_c(const char *source_path, const char *source, FILE *out,
 
     // Emit stream gen definitions
     for (int g = 0; g < stream_gen_count; g++)
-        emit_stream_gen_def(out, stream_gens[g].name, stream_gens[g].gen, diag, source_path);
+        emit_stream_gen_def(out, stream_gens[g].name, stream_gens[g].gen, stream_gens[g].params, stream_gens[g].param_count, diag, source_path);
 
     // Emit function definitions
     for (int i = 0; i < count; i++) {

@@ -146,4 +146,20 @@ assert_parser "slice_omitted_both" 'full = xs[..]' 'BINDING full
     OMITTED
     OMITTED'
 
+assert_parser "stream_gen" 'fib = [0, 1, ... a + b]' 'BINDING fib
+  STREAM_GEN
+    INT 0
+    INT 1
+    BINARY PLUS
+      IDENT a
+      IDENT b'
+
+assert_parser "stream_gen_single_seed" 'pow b = [1, ... x * b]' 'FUNCTION pow
+  PARAM b
+  STREAM_GEN
+    INT 1
+    BINARY STAR
+      IDENT x
+      IDENT b'
+
 echo "parser: ok"

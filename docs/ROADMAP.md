@@ -54,7 +54,7 @@ Exit gate: invalid programs are rejected before code generation and typed IR sna
 
 ## M3 — Control flow and collections
 
-Status: active
+Status: done
 
 ### Completed
 
@@ -119,6 +119,17 @@ Status: active
   - Slicing forms: `xs[i..j]`, `xs[i..]`, `xs[..j]`, `xs[..]`.
   - Non-owning slice representation and runtime bounds check $0 \le \text{start} \le \text{end} \le \text{len}$.
 
+- Stream generators:
+  - Parsing: `AST_STREAM_GEN` with seeds, generation expression, and optional `while`/`until` bound.
+  - Semantic: `TYPE_STREAM` type for generator expressions; single indexing returns `TYPE_INT`.
+  - C emission: `tiq_gen_<name>(int n)` functions for parameterless generators.
+  - C emission: `tiq_gen_<name>(params..., int n)` for parameterized stream gen functions.
+  - C emission: bracket call on function call results (`pow(2)[0]` → `tiq_gen_pow(2, 0)`).
+  - Bounded generators with `while`/`until` termination.
+  - Diagnostics: cannot print stream generator directly; cannot range-slice a stream generator.
+  - Tests: `parser.sh` (stream gen AST golden), `semantic.sh` (stream gen type errors), `smoke.sh` (stream gen indexing, parameterized functions, bracket loop integration).
+  - Examples: `fib.tiq`, `factorial.tiq`, `power.tiq`, `sum_range.tiq`, `even_print.tiq`.
+
 ### Exit criteria
 
 - [x] while loops compile and execute correctly
@@ -127,6 +138,7 @@ Status: active
 - [x] invalid programs are rejected (loop condition types, break outside loop)
 - [x] arrays (literals, indexing, bindings, mutable element assignment, bounds checking, len built-in)
 - [x] slices, string views, collection primitives (slice syntax specified in LANGUAGE_SPEC)
+- [x] stream generators (parameterless and parameterized, single indexing, bounded generators)
 
 ## M4 — Ownership
 

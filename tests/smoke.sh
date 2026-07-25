@@ -106,4 +106,32 @@ STR_SLICE_EXPECTED="Hello
 5"
 [ "$STR_SLICE_OUTPUT" = "$STR_SLICE_EXPECTED" ] || { echo "str_slice expected '$STR_SLICE_EXPECTED', got '$STR_SLICE_OUTPUT'"; exit 1; }
 
+printf 'fib = [0, 1, ... a + b]\n!fib[10]\n' > "$TMP_DIR/stream_index.tiq"
+./build/tiq build "$TMP_DIR/stream_index.tiq" -o "$TMP_DIR/stream_index" 2>"$TMP_DIR/stream_index.err"
+STREAM_IDX_OUTPUT="$($TMP_DIR/stream_index)"
+[ "$STREAM_IDX_OUTPUT" = "55" ] || { echo "stream_index expected 55, got: $STREAM_IDX_OUTPUT"; exit 1; }
+
+printf 'fact = [1, ... i * x]\n!fact[5]\n' > "$TMP_DIR/stream_single_seed.tiq"
+./build/tiq build "$TMP_DIR/stream_single_seed.tiq" -o "$TMP_DIR/stream_single_seed" 2>"$TMP_DIR/stream_single_seed.err"
+STREAM_SS_OUTPUT="$($TMP_DIR/stream_single_seed)"
+[ "$STREAM_SS_OUTPUT" = "120" ] || { echo "stream_single_seed expected 120, got: $STREAM_SS_OUTPUT"; exit 1; }
+
+printf 'pow b = [1, ... x * b]\n!pow(2)[0]\n!pow(2)[10]\n!pow(3)[3]\n' > "$TMP_DIR/stream_func.tiq"
+./build/tiq build "$TMP_DIR/stream_func.tiq" -o "$TMP_DIR/stream_func" 2>"$TMP_DIR/stream_func.err"
+STREAM_FUNC_OUTPUT="$($TMP_DIR/stream_func)"
+STREAM_FUNC_EXPECTED="1
+1024
+27"
+[ "$STREAM_FUNC_OUTPUT" = "$STREAM_FUNC_EXPECTED" ] || { echo "stream_func expected '$STREAM_FUNC_EXPECTED', got '$STREAM_FUNC_OUTPUT'"; exit 1; }
+
+printf 'evens = [0, ... x + 2]\n[0..5 | !evens[i]]\n' > "$TMP_DIR/stream_bracket_loop.tiq"
+./build/tiq build "$TMP_DIR/stream_bracket_loop.tiq" -o "$TMP_DIR/stream_bracket_loop" 2>"$TMP_DIR/stream_bracket_loop.err"
+STREAM_BL_OUTPUT="$($TMP_DIR/stream_bracket_loop)"
+STREAM_BL_EXPECTED="0
+2
+4
+6
+8"
+[ "$STREAM_BL_OUTPUT" = "$STREAM_BL_EXPECTED" ] || { echo "stream_bracket_loop expected '$STREAM_BL_EXPECTED', got '$STREAM_BL_OUTPUT'"; exit 1; }
+
 echo "smoke: ok"

@@ -1,6 +1,6 @@
 # Tiq Implementation Status
 
-Updated: 2026-07-23
+Updated: 2026-07-25
 
 ## Current milestone
 
@@ -54,6 +54,17 @@ M3 — Control flow and collections.
   - Semantic type checking for `TYPE_SLICE` and `TYPE_STR_VIEW`.
   - C11 backend emission for `TiqSlice` non-owning views and string view printing.
   - Tests: `parser.sh` (slice AST golden tests), `semantic.sh` (slice type mismatch diagnostics), `smoke.sh` (end-to-end string view slicing and `len()` execution).
+- M3: Stream generators (LANGUAGE_SPEC §14, GRAMMAR EBNF `stream_gen`):
+  - AST `AST_STREAM_GEN` with seeds, generation expression, and optional bound.
+  - Semantic type checking: `TYPE_STREAM` type for generator expressions.
+  - Single indexing of stream generators (`fib[10]`) with int-index validation.
+  - C11 backend emission for parameterless stream gen bindings (`tiq_gen_<name>(int n)`).
+  - C11 backend emission for parameterized stream gen functions (`tiq_gen_<name>(params..., int n)`).
+  - Bracket call on function call results for stream gen functions (`pow(2)[0]` emits `tiq_gen_pow(2, 0)`).
+  - Bounded stream generators with `while`/`until` termination.
+  - Print rejects stream generator types (ERR_TYPE_MISMATCH: "cannot print stream generator directly").
+  - Range slicing of stream generators rejected (ERR_TYPE_MISMATCH: "cannot range-slice a stream generator").
+  - Tests: `parser.sh` (stream gen AST golden tests), `semantic.sh` (stream gen type errors), `smoke.sh` (stream gen indexing, parameterized functions, bracket loop integration).
 
 ## Not implemented
 

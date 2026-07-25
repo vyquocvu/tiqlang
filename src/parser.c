@@ -556,6 +556,7 @@ static const char *type_name(SemanticType *t) {
         case TYPE_STR: return " <TYPE_STR>";
         case TYPE_BOOL: return " <TYPE_BOOL>";
         case TYPE_ARRAY: return " <TYPE_ARRAY>";
+        case TYPE_STREAM: return " <TYPE_STREAM>";
         default: return " <TYPE_UNKNOWN>";
     }
 }

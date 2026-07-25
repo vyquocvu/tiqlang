@@ -173,4 +173,16 @@ assert_semantic "slice_non_array" 'x = 42
 y = x[1..2]
 ' "$TMP_DIR/slice_non_array.tiq:2: error: cannot slice non-array"
 
+assert_semantic "stream_print" 'fib = [0, 1, ... a + b]
+!fib
+' "$TMP_DIR/stream_print.tiq:2: error: cannot print stream generator directly"
+
+assert_semantic "stream_range_slice" 'fib = [0, 1, ... a + b]
+x = fib[0..5]
+' "$TMP_DIR/stream_range_slice.tiq:2: error: cannot range-slice a stream generator"
+
+assert_semantic "stream_index_non_int" 'fib = [0, 1, ... a + b]
+x = fib["bad"]
+' "$TMP_DIR/stream_index_non_int.tiq:2: error: stream index must be int"
+
 echo "semantic: ok"
