@@ -1,1 +1,2 @@
-!"Hello from Tiq"
+// Hello example
+msg = "Hello from Tiq"

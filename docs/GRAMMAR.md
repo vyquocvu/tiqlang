@@ -26,8 +26,7 @@ top_item      = function_def | binding | statement ;
 function_def  = identifier, { identifier }, "->", expression ;
 binding       = identifier, "=", expression ;
 mutable_def   = identifier, "<-", expression ;
-statement     = print_stmt | assign_stmt | bracket_loop | control_stmt | defer_stmt | expression ;
-print_stmt    = "!", expression ;
+statement     = assign_stmt | bracket_loop | control_stmt | defer_stmt | expression ;
 assign_stmt   = identifier, ("<-" | "+=" | "-=" | "*=" | "/=" | "%="), expression ;
 control_stmt  = ("break" | "continue" | "skip"), [ "if", expression ] ;
 defer_stmt    = "defer", statement ;
@@ -87,13 +86,4 @@ From tightest to loosest:
 
 ## Bootstrap grammar
 
-The current bootstrap compiler implements exactly:
-
-```ebnf
-program         = spacing, { print_statement, spacing } ;
-print_statement = "!", spacing_inline, string ;
-spacing         = { space | tab | newline | comment } ;
-spacing_inline  = { space | tab } ;
-```
-
-Unsupported input must produce a diagnostic with source position and a non-zero exit status.
+The bootstrap compiler must reject all unsupported input with a diagnostic containing source position and a non-zero exit status.

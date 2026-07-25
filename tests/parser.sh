@@ -29,9 +29,6 @@ assert_parser() {
   fi
 }
 
-assert_parser "print" '!"hello"' 'PRINT
-  STRING "hello"'
-
 assert_parser "math" 'x = 1 + 2 * 3 - 4 / 2' 'BINDING x
   BINARY MINUS
     BINARY PLUS
@@ -93,27 +90,24 @@ BRACKET_LOOP
   ASSIGN x PLUS_EQ
     IDENT i'
 
-assert_parser "bracket_loop_print" '[0..3 | !i]' 'BRACKET_LOOP
+assert_parser "bracket_loop_print" '[0..3 | i]' 'BRACKET_LOOP
   BINARY DOT_DOT
     INT 0
     INT 3
-  PRINT
-    IDENT i'
+  IDENT i'
 
-assert_parser "bracket_loop_break" '[0..3 | !i, break]' 'BRACKET_LOOP
+assert_parser "bracket_loop_break" '[0..3 | i, break]' 'BRACKET_LOOP
   BINARY DOT_DOT
     INT 0
     INT 3
-  PRINT
-    IDENT i
+  IDENT i
   BREAK'
 
-assert_parser "bracket_loop_skip" '[0..3 | !i, skip]' 'BRACKET_LOOP
+assert_parser "bracket_loop_skip" '[0..3 | i, skip]' 'BRACKET_LOOP
   BINARY DOT_DOT
     INT 0
     INT 3
-  PRINT
-    IDENT i
+  IDENT i
   SKIP'
 
 assert_parser "bracket_expr" 'x = [1 + 2]' 'BINDING x
@@ -166,9 +160,8 @@ assert_parser "move_expr" 'y <- move x' 'MUT_BINDING y
   UNARY MOVE
     IDENT x'
 
-assert_parser "defer_stmt" '{defer !1}' 'BLOCK
+assert_parser "defer_stmt" '{defer 1}' 'BLOCK
   DEFER
-    PRINT
-      INT 1'
+    INT 1'
 
 echo "parser: ok"

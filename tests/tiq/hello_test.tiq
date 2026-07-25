@@ -1,3 +1,2 @@
-// Test basic print
-!"Hello from Tiq"
-//! Hello from Tiq
+// Test hello example
+msg = "Hello from Tiq"

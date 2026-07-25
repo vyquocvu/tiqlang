@@ -70,7 +70,7 @@ Tiq-specific operators:
 ??   optional fallback; reserved for a later v0.x
 ```
 
-`!` is logical negation inside an expression. At statement start, `!expr` is the print statement. This distinction is syntactic and unambiguous.
+`!` is logical negation.
 
 ## 6. Bindings
 
@@ -155,16 +155,7 @@ Loop control statements:
 - `skip`: Skip the remainder of the current iteration (`[1..4 | !x, skip, x += 100]`).
 - Inline guards: `break if condition` and `skip if condition`.
 
-## 11. Print statement
-
-```tiq
-!"Hello"
-!value
-```
-
-The bootstrap implementation supports strings first. Later implementations dispatch through the standard formatting protocol.
-
-## 12. Primitive types
+## 11. Primitive types
 
 Planned core primitive types:
 
@@ -295,11 +286,4 @@ Top-level executable statements form the implicit entry point. Libraries may con
 
 ## 18. Bootstrap conformance
 
-The first compiler slice is conforming only for:
-
-```ebnf
-program         = { print_statement } ;
-print_statement = "!" string_literal [ newline ] ;
-```
-
-It must reject all unsupported syntax with a non-zero exit code rather than silently generating incorrect code.
+The bootstrap compiler must reject all unsupported syntax with a non-zero exit code rather than silently generating incorrect code.

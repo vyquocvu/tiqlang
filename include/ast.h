@@ -5,7 +5,6 @@
 #include <stdbool.h>
 
 typedef enum {
-    AST_PRINT,
     AST_LITERAL,
     AST_IDENTIFIER,
     AST_BINARY,
@@ -33,10 +32,6 @@ struct AstNode {
     void *semantic_type; // Maps to SemanticType* during checking
 
     union {
-        struct {
-            AstNode *expr;
-        } print_stmt;
-
         struct {
             TokenKind type;
         } literal;

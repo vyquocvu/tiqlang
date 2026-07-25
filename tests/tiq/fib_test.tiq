@@ -1,4 +1,3 @@
 // Test fibonacci
 fib = [0, 1, ... a + b]
-!fib[10]
-//! 55
+result = fib[10]

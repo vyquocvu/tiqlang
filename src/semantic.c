@@ -72,20 +72,6 @@ static void check_node(SemanticContext *ctx, AstNode *node) {
     if (!node) return;
 
     switch (node->kind) {
-        case AST_PRINT:
-            check_node(ctx, node->as.print_stmt.expr);
-            {
-                SemanticType *pt = node->as.print_stmt.expr ?
-                    node->as.print_stmt.expr->semantic_type : NULL;
-                if (pt && pt->kind == TYPE_ARRAY)
-                    diag_error(ctx->diag, ctx->path, node->token.line, ERR_TYPE_MISMATCH,
-                               "cannot print array directly");
-                if (pt && pt->kind == TYPE_STREAM)
-                    diag_error(ctx->diag, ctx->path, node->token.line, ERR_TYPE_MISMATCH,
-                               "cannot print stream generator directly");
-            }
-            node->semantic_type = alloc_type(TYPE_UNKNOWN);
-            break;
         case AST_LITERAL: {
             PrimitiveType p = TYPE_UNKNOWN;
             if (node->as.literal.type == TOK_INT) p = TYPE_INT;

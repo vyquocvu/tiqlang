@@ -408,18 +408,6 @@ static AstNode *expression(Parser *parser) {
     return conditional(parser);
 }
 
-static AstNode *print_statement(Parser *parser) {
-    AstNode *node = allocate_node(parser, AST_PRINT);
-    if (parser->diag->has_error) { node->as.print_stmt.expr = NULL; return node; }
-    if (check(parser, TOK_EOF)) {
-        diag_error(parser->diag, parser->lexer.path, parser->previous.line, ERR_EXPECTED_EXPRESSION, "expected expression after '!'");
-        node->as.print_stmt.expr = NULL;
-        return node;
-    }
-    node->as.print_stmt.expr = expression(parser);
-    return node;
-}
-
 static AstNode *assign_statement(Parser *parser, Token name) {
     AstNode *node = allocate_node(parser, AST_ASSIGN);
     node->as.assign.name = name;
@@ -446,10 +434,6 @@ static AstNode *statement(Parser *parser) {
         AstNode *node = allocate_node(parser, AST_DEFER);
         node->as.defer.expr = statement(parser);
         return node;
-    }
-
-    if (match(parser, TOK_BANG)) {
-        return print_statement(parser);
     }
 
     if (match(parser, TOK_LBRACKET)) {
@@ -591,10 +575,6 @@ void ast_print(AstNode *node, int indent) {
     for (int i = 0; i < indent; i++) printf("  ");
     const char *t_str = type_name((SemanticType *)node->semantic_type);
     switch (node->kind) {
-        case AST_PRINT:
-            printf("PRINT%s\n", t_str);
-            ast_print(node->as.print_stmt.expr, indent + 1);
-            break;
         case AST_LITERAL:
             if (node->as.literal.type == TOK_STRING) {
                 printf("STRING %.*s%s\n", (int)node->token.length, node->token.start, t_str);

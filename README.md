@@ -39,20 +39,14 @@ condition ? a : b  conditional expression
 0..n               half-open range
 _                  placeholder in collection expressions
 ^value             early return
-!value             print as a statement
+
 ```
 
 ## Status
 
 Tiq is in **pre-alpha language design and compiler bootstrap**. The syntax and ABI may change without compatibility guarantees.
 
-The bootstrap compiler is written in ISO C11. The first vertical slice compiles a Tiq print statement such as:
-
-```tiq
-!"Hello from Tiq"
-```
-
-into a native executable through the host C compiler.
+The bootstrap compiler is written in ISO C11 and compiles Tiq programs into native executables through the host C compiler.
 
 ## Build the bootstrap compiler
 
@@ -145,24 +139,16 @@ Run tests in directories or files:
 Test files (`.tiq`) include expected output comments using `//!`:
 
 ```tiq
-// Test basic print
-!"Hello from Tiq"
-//! Hello from Tiq
-
 // Test arithmetic
-!1 + 2
-//! 3
+a = 1 + 2
 
 // Test loop
 total <- 0
 [0..5 | total += i]
-!total
-//! 10
 
 // Test fibonacci
 fib = [0, 1, ... a + b]
-!fib[10]
-//! 55
+result = fib[10]
 ```
 
 ##### Benchmark

@@ -17,7 +17,6 @@ M5 — Tooling (complete)
 - `tiq emit-c <file.tiq>`
 - `tiq build <file.tiq> -o <output>`
 - POSIX `mkstemp`, `TMPDIR`, `fork`, `execvp`, and `waitpid` build path for temporary C files and host C compiler invocation without shell interpretation
-- String print statements: `!"text"`
 - Fail-closed rejection of unsupported statements
 - Shell smoke test for compile, execute, and reject paths
 - Golden diagnostic tests for bootstrap malformed-input boundaries
@@ -41,7 +40,6 @@ M5 — Tooling (complete)
 - M3: Array indexing (`xs[0]`) with int-index validation.
 - M3: Array binding emission (`int xs[3] = {1, 2, 3};`).
 - M3: Mutable array element assignment (`xs[0] <- 99`, `xs[0] += 1`) with compound operators.
-- M3: Print rejects array types (ERR_TYPE_MISMATCH: "cannot print array directly").
 - M3: Runtime bounds checking on array access (ternary guard on read, conditional guard on write).
 - M3: Identifiers carry full TYPE_ARRAY metadata (element_type, array_length).
 - M3: TYPE_ARRAY type name in dump-typed-ast output.
@@ -52,7 +50,7 @@ M5 — Tooling (complete)
 - M3: Slices and String Views compiler support:
   - AST `AST_CALL` with `is_slice` flag and `OMITTED` bounds support (`xs[i..j]`, `xs[i..]`, `xs[..j]`, `xs[..]`).
   - Semantic type checking for `TYPE_SLICE` and `TYPE_STR_VIEW`.
-  - C11 backend emission for `TiqSlice` non-owning views and string view printing.
+  - C11 backend emission for `TiqSlice` non-owning views and string views.
   - Tests: `parser.sh` (slice AST golden tests), `semantic.sh` (slice type mismatch diagnostics), `smoke.sh` (end-to-end string view slicing and `len()` execution).
 - M3: Stream generators (LANGUAGE_SPEC §14, GRAMMAR EBNF `stream_gen`):
   - AST `AST_STREAM_GEN` with seeds, generation expression, and optional bound.
@@ -62,7 +60,6 @@ M5 — Tooling (complete)
   - C11 backend emission for parameterized stream gen functions (`tiq_gen_<name>(params..., int n)`).
   - Bracket call on function call results for stream gen functions (`pow(2)[0]` emits `tiq_gen_pow(2, 0)`).
   - Bounded stream generators with `while`/`until` termination.
-  - Print rejects stream generator types (ERR_TYPE_MISMATCH: "cannot print stream generator directly").
   - Range slicing of stream generators rejected (ERR_TYPE_MISMATCH: "cannot range-slice a stream generator").
   - Tests: `parser.sh` (stream gen AST golden tests), `semantic.sh` (stream gen type errors), `smoke.sh` (stream gen indexing, parameterized functions, bracket loop integration).
 - M4: `move` keyword (unary prefix operator for ownership transfer).

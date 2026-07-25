@@ -326,38 +326,6 @@ static void emit_stmt(AstNode *node, FILE *out, DiagContext *diag, const char *p
     if (!node) return;
     for (int i = 0; i < indent; i++) fputs("    ", out);
     switch (node->kind) {
-        case AST_PRINT: {
-            AstNode *expr = node->as.print_stmt.expr;
-            if (!expr) { fputs(";\n", out); break; }
-            SemanticType *t = expr->semantic_type;
-            if (t && t->kind == TYPE_STR) {
-                fputs("fputs(", out); emit_expr(expr, out, diag, path); fputs(", stdout);\n", out);
-                for (int i = 0; i < indent; i++) fputs("    ", out);
-                fputs("fputc('\\n', stdout);\n", out);
-            } else if (t && t->kind == TYPE_STR_VIEW) {
-                fputs("{\n", out);
-                for (int i = 0; i <= indent; i++) fputs("    ", out);
-                fputs("TiqSlice _sv = ", out); emit_expr(expr, out, diag, path); fputs(";\n", out);
-                for (int i = 0; i <= indent; i++) fputs("    ", out);
-                fputs("fwrite(_sv.ptr, 1, _sv.len, stdout);\n", out);
-                for (int i = 0; i <= indent; i++) fputs("    ", out);
-                fputs("fputc('\\n', stdout);\n", out);
-                for (int i = 0; i < indent; i++) fputs("    ", out);
-                fputs("}\n", out);
-            } else if (t && t->kind == TYPE_INT) {
-                fputs("printf(\"%d\\n\", (int)(", out); emit_expr(expr, out, diag, path); fputs("));\n", out);
-            } else if (t && t->kind == TYPE_BOOL) {
-                fputs("fputs(((", out); emit_expr(expr, out, diag, path);
-                fputs(") ? \"true\" : \"false\"), stdout);\n", out);
-                for (int i = 0; i < indent; i++) fputs("    ", out);
-                fputs("fputc('\\n', stdout);\n", out);
-            } else if (t && t->kind == TYPE_FLOAT) {
-                fputs("printf(\"%g\\n\", (double)(", out); emit_expr(expr, out, diag, path); fputs("));\n", out);
-            } else {
-                fputs("printf(\"%d\\n\", (int)(", out); emit_expr(expr, out, diag, path); fputs("));\n", out);
-            }
-            break;
-        }
         case AST_BINDING: {
             SemanticType *t = node->semantic_type;
             bool is_move = node->as.binding.expr && node->as.binding.expr->kind == AST_UNARY &&
@@ -489,7 +457,7 @@ static void emit_check_node(AstNode *node, DiagContext *diag, const char *path);
 static void emit_check_node(AstNode *node, DiagContext *diag, const char *path) {
     if (!node || diag->fatal_error) return;
     switch (node->kind) {
-        case AST_LITERAL: case AST_IDENTIFIER: case AST_PRINT: case AST_BINDING:
+        case AST_LITERAL: case AST_IDENTIFIER: case AST_BINDING:
         case AST_ASSIGN: case AST_FUNCTION: case AST_BREAK: case AST_SKIP:
         case AST_BRACKET_EXPR: case AST_ARRAY:
             break;

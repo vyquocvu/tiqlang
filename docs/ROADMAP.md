@@ -13,7 +13,7 @@ Status: done
 - [x] Memory-model direction
 - [x] Compiler architecture
 - [x] C11 bootstrap build
-- [x] First native compilation slice: string print statement
+
 - [x] Safe POSIX temporary C file and host compiler invocation without shell interpretation
 - [x] CI on Linux and macOS
 - [x] Golden diagnostic tests
@@ -61,7 +61,7 @@ Status: done
 - while loops (expression condition, block body, C emission as `while`):
   - Parsing: `while_statement()` in `parser.c` handles `while` keyword, parses condition, expects block body.
   - Semantic: checks condition is `bool`, allocates block scope for body.
-  - C emission: `while (cond) { body }`; integer print via `printf("%d\n", ...)`; string print via `fputs`; bool print via `fputs(cond ? "true" : "false")`.
+  - C emission: `while (cond) { body }`.
   - Tests: `parser.sh` (AST golden), `semantic.sh` (typed AST, condition type error), `smoke.sh` (while count 0→3).
   - Diagnostics: missing block body reports error.
 
@@ -70,7 +70,7 @@ Status: done
   - Validates iterable is a `..` binary expression at parse time.
   - Semantic: creates loop variable in dedicated scope, type-checks body.
   - C emission: desugared to `for (int var = start; var < end; var++) { body }`.
-  - Tests: `parser.sh` (AST golden), `semantic.sh` (typed AST), `smoke.sh` (sum 0..4=10, print 0..2).
+  - Tests: `parser.sh` (AST golden), `semantic.sh` (typed AST), `smoke.sh` (sum 0..4).
   - Diagnostics: missing `in`, missing range, missing block all report errors.
 
 - break and continue:
@@ -80,7 +80,7 @@ Status: done
   - Tests: `parser.sh` (AST golden), `semantic.sh` (typed AST, outside-loop rejection), `smoke.sh` (break exits immediately, continue skips rest).
 
 - Expression C emitter (foundation):
-  - All AST nodes now emit valid C11: `AST_LITERAL`, `AST_IDENTIFIER`, `AST_BINARY` (arithmetic, comparison, logical, bitwise), `AST_UNARY`, `AST_CONDITIONAL`, `AST_CALL`, `AST_BLOCK`, `AST_BINDING`, `AST_ASSIGN`, `AST_FUNCTION`, `AST_PRINT`.
+  - All AST nodes now emit valid C11: `AST_LITERAL`, `AST_IDENTIFIER`, `AST_BINARY` (arithmetic, comparison, logical, bitwise), `AST_UNARY`, `AST_CONDITIONAL`, `AST_CALL`, `AST_BLOCK`, `AST_BINDING`, `AST_ASSIGN`, `AST_FUNCTION`.
   - Helper `binary_op_c_str()` maps token kinds to C operators.
   - Function definitions emit before `main()` with forward declarations for mutual recursion.
   - Pre-emission validation (`emit_check_node`) catches `..` outside for-in loops.
@@ -126,9 +126,9 @@ Status: done
   - C emission: `tiq_gen_<name>(params..., int n)` for parameterized stream gen functions.
   - C emission: bracket call on function call results (`pow(2)[0]` → `tiq_gen_pow(2, 0)`).
   - Bounded generators with `while`/`until` termination.
-  - Diagnostics: cannot print stream generator directly; cannot range-slice a stream generator.
+  - Diagnostics: cannot range-slice a stream generator.
   - Tests: `parser.sh` (stream gen AST golden), `semantic.sh` (stream gen type errors), `smoke.sh` (stream gen indexing, parameterized functions, bracket loop integration).
-  - Examples: `fib.tiq`, `factorial.tiq`, `power.tiq`, `sum_range.tiq`, `even_print.tiq`.
+  
 
 ### Exit criteria
 

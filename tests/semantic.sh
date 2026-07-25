@@ -129,14 +129,14 @@ assert_semantic "loop_cond_type" 'x <- 0
 [1 | x += 1]
 ' "$TMP_DIR/loop_cond_type.tiq:2: error: loop condition must be bool"
 
-assert_semantic "loop_range_type" '["a".."b" | !"nope"]
+assert_semantic "loop_range_type" '["a".."b" | 0]
 ' "$TMP_DIR/loop_range_type.tiq:1: error: range bounds must be int"
 
-assert_semantic "loop_range_mixed_type" '[0.."b" | !"nope"]
+assert_semantic "loop_range_mixed_type" '[0.."b" | 0]
 ' "$TMP_DIR/loop_range_mixed_type.tiq:1: error: type mismatch
 $TMP_DIR/loop_range_mixed_type.tiq:1: error: range bounds must be int"
 
-assert_semantic "loop_cond_float" '[1.0 | !"nope"]
+assert_semantic "loop_cond_float" '[1.0 | 0]
 ' "$TMP_DIR/loop_cond_float.tiq:1: error: loop condition must be bool"
 
 assert_semantic "array_mixed_types" 'x = [1, "foo"]
@@ -154,15 +154,11 @@ assert_semantic "array_assign_bad_index" 'x <- [1, 2, 3]
 x["bad"] <- 99
 ' "$TMP_DIR/array_assign_bad_index.tiq:2: error: array index must be int"
 
-assert_semantic "array_print" 'x <- [1, 2, 3]
-!x
-' "$TMP_DIR/array_print.tiq:2: error: cannot print array directly"
-
 assert_semantic "len_non_array" 'x <- 42
-!len(x)
+y = len(x)
 ' "$TMP_DIR/len_non_array.tiq:2: error: len expects an array argument"
 
-assert_semantic "len_no_args" '!len()
+assert_semantic "len_no_args" 'y = len()
 ' "$TMP_DIR/len_no_args.tiq:1: error: len expects exactly 1 argument"
 
 assert_semantic "slice_non_int" 'x = [1, 2, 3]
@@ -172,10 +168,6 @@ y = x["bad"..2]
 assert_semantic "slice_non_array" 'x = 42
 y = x[1..2]
 ' "$TMP_DIR/slice_non_array.tiq:2: error: cannot slice non-array"
-
-assert_semantic "stream_print" 'fib = [0, 1, ... a + b]
-!fib
-' "$TMP_DIR/stream_print.tiq:2: error: cannot print stream generator directly"
 
 assert_semantic "stream_range_slice" 'fib = [0, 1, ... a + b]
 x = fib[0..5]
@@ -191,7 +183,7 @@ y <- move x
 
 assert_semantic "use_after_move" 'x <- [1, 2, 3]
 y <- move x
-!x
+z = x
 ' "$TMP_DIR/use_after_move.tiq:3: error: use of moved value 'x'"
 
 assert_semantic "double_move" 'x <- [1, 2, 3]
