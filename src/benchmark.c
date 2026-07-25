@@ -3,6 +3,7 @@
 #include "../include/lexer.h"
 #include "../include/parser.h"
 #include "../include/semantic.h"
+#include "../include/type.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -102,11 +103,14 @@ static void benchmark_file(const char *path, BenchmarkResult *result) {
         parser_init(&parser, source, path, &diag);
         int stmt_count;
         AstNode **stmts = parser_parse(&parser, &stmt_count);
+        TypePool pool;
+        type_pool_init(&pool);
         if (!diag.has_error) {
-            semantic_check(stmts, stmt_count, path, &diag);
+            semantic_check(stmts, stmt_count, path, &diag, &pool);
         }
         free(stmts);
         parser_free(&parser);
+        type_pool_free(&pool);
     }
     end = get_time_ms();
     result->semantic_time = end - start;
@@ -166,11 +170,14 @@ static void benchmark_file_repeatedly(const char *path, int iterations, Benchmar
             parser_init(&parser, source, path, &diag);
             int stmt_cnt;
             AstNode **stmts = parser_parse(&parser, &stmt_cnt);
+            TypePool pool;
+            type_pool_init(&pool);
             if (!diag.has_error) {
-                semantic_check(stmts, stmt_cnt, path, &diag);
+                semantic_check(stmts, stmt_cnt, path, &diag, &pool);
             }
             free(stmts);
             parser_free(&parser);
+            type_pool_free(&pool);
         }
         result->semantic_time += get_time_ms() - start;
     }

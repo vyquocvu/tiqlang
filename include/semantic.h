@@ -38,7 +38,7 @@ typedef struct Symbol {
     Token name;
     bool is_mutable;
     bool is_moved;
-    SemanticType type;
+    SemanticType *type;
 } Symbol;
 
 typedef struct Environment {
@@ -48,6 +48,8 @@ typedef struct Environment {
     int capacity;
 } Environment;
 
-void semantic_check(AstNode **stmts, int count, const char *path, DiagContext *diag);
+typedef struct TypePool TypePool;
+
+void semantic_check(AstNode **stmts, int count, const char *path, DiagContext *diag, TypePool *pool);
 
 #endif

@@ -43,11 +43,11 @@ Exit gate: parser golden tests cover every grammar production and malformed boun
 Status: done
 
 - lexical scopes and symbols;
-- primitive types;
-- [x] local inference;
-- [x] explicit conversions;
+- primitive types (coarse `int`/`float`/`str`/`bool` buckets only; sized types move to M12);
+- [x] local inference (ad hoc, per-site; unification moves to M12);
+- [x] explicit conversions (fail-closed rejection only; real checked conversions move to M12);
 - [x] mutability checks;
-- [x] function type checking;
+- [x] function type checking (arity only; signature checking moves to M12);
 - [x] deterministic typed IR.
 
 Exit gate: invalid programs are rejected before code generation and typed IR snapshots are stable.
@@ -265,53 +265,123 @@ Status: done
 
 ## M7 — Generic functions, collections & structured concurrency
 
-Status: done
+Status: active
+
+Status audit 2026-07-25: previously marked done; corrected after source review. Unchecked items below have no working implementation in `src/`.
 
 - [x] Non-scalar function parameter type emission in C backend (`TiqSlice`, `const char *`)
 - [x] Single character byte indexing on `str` and `str_view` (`s[i]`)
 - [x] Array fill / repeated initialization syntax (`[val; len]`)
 - [x] Implicit array/string decay to non-owning slice parameters (`TiqSlice`)
 - [x] Block body return value emission for non-stream functions
-- [x] Structured concurrency primitives (`chan`, `spawn`)
-- [x] WebAssembly / WASI compilation target support (`tiq build --target wasm32-wasi` via WASI-SDK / Clang)
-- [x] WebAssembly JS host bindings generator for standalone browser modules (`--target wasm32-unknown-unknown`)
-- [x] Cross-compilation matrix
+- [ ] Structured concurrency primitives (`chan`, `spawn`) — parsed only; the backend emits placeholder comments (`/* spawn thread */ 0`), no thread or channel runtime exists
+- [ ] WebAssembly / WASI compilation target support (`tiq build --target wasm32-wasi`) — no `--target` flag exists in the CLI
+- [ ] WebAssembly JS host bindings generator (`--target wasm32-unknown-unknown`) — not implemented
+- [ ] Cross-compilation matrix — not implemented
 
 ## M8 — User-defined composite types & explicit error handling
 
-Status: done
+Status: active
 
-- [x] Record / struct type definitions (`Point = { x: int, y: int }`)
-- [x] Explicit Result & Option types (`T?` / `T!E`) eliminating hidden exceptions
-- [x] Pattern matching & structural destructuring (`match result`)
+Status audit 2026-07-25: previously marked done; corrected after source review.
+
+- [x] Record / struct type definitions and field access — AST, parsing, and basic field-type lookup exist; field types are stored as raw tokens and never resolved against declared types
+- [ ] Explicit Result & Option types (`T?` / `T!E`) — only reserved `TYPE_OPTION`/`TYPE_RESULT` enum kinds exist; no syntax, construction, or checking (blocked on M12 type representation)
+- [x] Pattern matching (`match expr { pattern => body }`) — parsed and checked; arm types are not unified, only the first arm's type is taken
 - [x] Direct C struct emission in backend without vtables or dynamic dispatch
 
 ## M9 — Memory ownership & borrow checker (M4 completion)
 
-Status: done
+Status: active
 
-- [x] Non-owning borrow references (`&x`, `&mut x`) with lifetime validation
-- [x] Scope-bound destruction and reverse declaration order cleanup for heap values
-- [x] Explicit arena / scope allocator interfaces (`Allocator`)
-- [x] Opt-in reference-counted shared ownership (`Shared<T>`)
+Status audit 2026-07-25: previously marked done; corrected after source review.
+
+- [x] Borrow reference syntax (`&x`, `&mut x`) parsed into the AST
+- [ ] Borrow lifetime validation — no lifetime or aliasing checks exist in `semantic.c`
+- [ ] Scope-bound destruction and reverse declaration order cleanup for heap values — no destructor emission; only `defer` exists
+- [ ] Explicit arena / scope allocator interfaces (`Allocator`) — not present in source
+- [ ] Opt-in reference-counted shared ownership (`Shared<T>`) — not present in source
 
 ## M10 — Service stack & non-blocking I/O
 
-Status: done
+Status: queued
 
-- [x] Non-blocking event loop integration (`epoll` on Linux, `kqueue` on macOS)
-- [x] Zero-copy JSON encoder and decoder primitives
-- [x] HTTP/1.1 service server & client socket primitives
-- [x] Standard library CLI flag and argument parsing
+Status audit 2026-07-25: previously marked done; corrected after source review. `net_fetch` is a hardcoded stub returning a fixed JSON string; no sockets, event loop, or HTTP code exists.
+
+- [ ] Non-blocking event loop integration (`epoll` on Linux, `kqueue` on macOS)
+- [ ] Zero-copy JSON encoder and decoder primitives (current `json_parse_int`/`json_encode_str` are minimal `atoi`/escape helpers)
+- [ ] HTTP/1.1 service server & client socket primitives (replace the `tiq_net_fetch` stub)
+- [ ] Standard library CLI flag and argument parsing
 
 ## M11 — Platform expansion, IDE tooling & self-hosting
 
-Status: done
+Status: queued
 
-- [x] Native Windows platform abstraction layer (`src/platform.c` using Win32 API)
-- [x] WebAssembly-compiled in-browser Tiq compiler & interactive web playground
-- [x] Full LSP server capabilities (`hover`, `go-to-definition`, `semanticTokens`)
-- [x] Self-hosting Tiq compiler written in Tiq
+Status audit 2026-07-25: previously marked done; corrected after source review. `src/platform.c` does not exist; LSP `hover`/`definition`/`semanticTokens` handlers are protocol stubs returning static responses; there is no wasm playground or self-hosted compiler.
+
+- [ ] Native Windows platform abstraction layer (`src/platform.c` using Win32 API)
+- [ ] WebAssembly-compiled in-browser Tiq compiler & interactive web playground
+- [ ] Full LSP server capabilities (`hover`, `go-to-definition`, `semanticTokens` with real symbol data)
+- [ ] Self-hosting Tiq compiler written in Tiq
+
+## M12 — Type system implementation
+
+Status: in progress (M12.1 complete 2026-07-25)
+
+Implements `TYPE_SYSTEM.md` as written; prerequisite for M8 Option/Result, M9 ownership checks, and honest function signatures. Each phase lands test-first per `AGENTS.md`.
+
+### M12.1 — Type representation core
+
+- [x] Interned type arena (`TypePool`): structurally identical types canonicalized, pointer equality = type equality
+- [x] Replace `SemanticType` value copies and fixed-size field arrays with pooled `Type *`
+- [x] `type_display()` for diagnostics and `dump-typed-ast`
+- [x] No behavior change: existing golden tests stay green; sanitizer run required
+
+Evidence 2026-07-25: `include/type.h` + `src/type.c` (interned `TypePool`, pool owned by
+`semantic_check` callers); `src/semantic.c` migrated to pooled immutable `SemanticType *`
+(inference swaps node pointers, never mutates types); `type_display()` in `src/parser.c`
+renders nested types (`TYPE_ARRAY[3]:TYPE_INT`, `TYPE_SLICE:TYPE_INT`) covered by
+`typed_array_nested` / `typed_slice_nested` goldens in `tests/semantic.sh` (added failing
+first); `make test` and the ASan/UBSan build both green.
+
+### M12.2 — Sized primitives and literal typing
+
+- [ ] `i8`–`i64`, `u8`–`u64`, `f32`, `f64`, `unit`, `never` kinds mapped to `stdint.h` C types
+- [ ] Amend LANGUAGE_SPEC §11 literal rule: context-constrained integer literals defaulting to `i64` (replaces "smallest compatible signed type")
+- [ ] Deterministic failing test for the `int` → `int64_t` backend migration (behavior change)
+- [ ] Compile-time literal range checks against resolved width (fail closed)
+
+### M12.3 — Explicit conversions
+
+- [ ] `i32(x)`, `f64(n)`, etc. become real checked conversions instead of `ERR_UNSUPPORTED_CONVERSION`
+- [ ] Conversion allowlist; everything else keeps failing closed
+- [ ] No implicit narrowing or signedness change; widening only when value-preserving
+
+### M12.4 — Type annotation syntax
+
+- [ ] Spec and grammar first: `param = identifier, [":", type]`, optional return annotation, `type` production
+- [ ] Parser `parse_type` producing type expressions resolved through the pool
+- [ ] Resolve `struct_def` field-type tokens through the same path
+- [ ] Recursive and exported functions require inferable-or-explicit signatures; bodies checked against declared types
+
+### M12.5 — Unification-based local checking
+
+- [ ] Single `unify(expected, found)` used by binary ops, `?:` branches, call args, array elements, match arms, returns
+- [ ] Remove ad hoc `TYPE_UNKNOWN` in-place mutation (e.g. `len(x)` retroactively assigning slice-of-int)
+- [ ] Diagnostics upgraded to `expected <T>, found <U>` with source location; golden tests per error shape
+
+### M12.6 — Composite types on the new core
+
+- [ ] Rebase array/slice/struct types onto the arena with real nested `Type *`
+- [ ] Nominal identity for named types by declaration site
+- [ ] Option (`T?`) and Result (`T!E`) become constructible (unblocks M8)
+
+### Exit criteria
+
+- [ ] `TYPE_SYSTEM.md` examples (`small = i8(value)`, `ratio = f64(count) / f64(total)`) compile and run
+- [ ] Width/signedness mixing without explicit conversion is rejected with located diagnostics
+- [ ] Typed IR dump shows full nested types; snapshots stable
+- [ ] `make test` plus sanitizer build pass
 
 
 ## Explicitly deferred

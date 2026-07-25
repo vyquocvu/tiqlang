@@ -111,9 +111,18 @@ M6 — Service-ready standard library (complete)
 - M10: Non-blocking event loop & networking socket primitives.
 - M11: LSP server capabilities (`hover`, `go-to-definition`, `semanticTokens/full`), platform abstraction layer structure.
 
+### M12: Type system implementation (in progress)
+
+- M12.1: Type representation core (complete, 2026-07-25):
+  - Interned type arena (`TypePool` in `include/type.h` / `src/type.c`): structurally identical types share one canonical `SemanticType`, so pointer equality implies type equality; pool lifetime owned by `semantic_check` callers.
+  - `src/semantic.c` migrated to pooled immutable `SemanticType *`; inference propagates by swapping node type pointers instead of mutating types in place.
+  - `type_display()` renders nested composite types in `dump-typed-ast` (`TYPE_ARRAY[3]:TYPE_INT`, `TYPE_SLICE:TYPE_INT`).
+  - Fixes latent uninitialized `field_count` read (pool zero-initializes types) and `param_types` leak (freed in `parser_free`).
+  - Tests: `semantic.sh` (`typed_array_nested`, `typed_slice_nested` goldens, added failing first); full suite green under ASan/UBSan.
+
 ## Current milestone
 
-M11 — Self-hosting, platform expansion & full language roadmap (complete)
+M12 — Type system implementation (in progress; M12.1 complete)
 
 ## Known bootstrap limitations
 

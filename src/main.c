@@ -12,6 +12,7 @@
 #include "../include/diag.h"
 #include "../include/parser.h"
 #include "../include/semantic.h"
+#include "../include/type.h"
 #include "../include/formatter.h"
 #include "../include/cache.h"
 #include "../include/tester.h"
@@ -688,12 +689,14 @@ static void compile_to_c(const char *source_path, const char *source, FILE *out,
     AstNode **stmts = parser_parse(&parser, &count);
     if (diag->has_error) { free(stmts); parser_free(&parser); return; }
 
-    semantic_check(stmts, count, source_path, diag);
-    if (diag->has_error) { free(stmts); parser_free(&parser); return; }
+    TypePool pool;
+    type_pool_init(&pool);
+    semantic_check(stmts, count, source_path, diag, &pool);
+    if (diag->has_error) { free(stmts); parser_free(&parser); type_pool_free(&pool); return; }
 
     for (int i = 0; i < count && !diag->fatal_error; i++)
         emit_check_node(stmts[i], diag, source_path);
-    if (diag->has_error) { free(stmts); parser_free(&parser); return; }
+    if (diag->has_error) { free(stmts); parser_free(&parser); type_pool_free(&pool); return; }
 
     // Collect stream gen bindings
     typedef struct { const char *name; AstNode *gen; Token *params; int param_count; } StreamGenDef;
@@ -900,6 +903,7 @@ static void compile_to_c(const char *source_path, const char *source, FILE *out,
 
     free(stmts);
     parser_free(&parser);
+    type_pool_free(&pool);
 }
 
 static int compile_file_to_c_stream(const char *input, FILE *out, DiagContext *diag) {
@@ -1029,9 +1033,11 @@ static int dump_typed_ast(const char *input, DiagContext *diag) {
     parser_init(&parser, source, input, diag);
     int count;
     AstNode **stmts = parser_parse(&parser, &count);
-    if (!diag->has_error) semantic_check(stmts, count, input, diag);
+    TypePool pool;
+    type_pool_init(&pool);
+    if (!diag->has_error) semantic_check(stmts, count, input, diag, &pool);
     for (int i = 0; i < count; i++) ast_print(stmts[i], 0);
-    free(stmts); parser_free(&parser); free(source);
+    free(stmts); parser_free(&parser); type_pool_free(&pool); free(source);
     return diag->has_error ? 1 : 0;
 }
 
@@ -1053,9 +1059,12 @@ static int cmd_check(const char *input) {
         free(source);
         return 1;
     }
-    semantic_check(stmts, count, input, &diag);
+    TypePool pool;
+    type_pool_init(&pool);
+    semantic_check(stmts, count, input, &diag, &pool);
     free(stmts);
     parser_free(&parser);
+    type_pool_free(&pool);
     free(source);
     return diag.has_error ? 1 : 0;
 }

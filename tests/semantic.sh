@@ -91,6 +91,24 @@ assert_semantic_ast "typed_ir_basic" 'x = 1 + 2' 'BINDING x <TYPE_INT>
     INT 1 <TYPE_INT>
     INT 2 <TYPE_INT>'
 
+assert_semantic_ast "typed_array_nested" 'x = [1, 2, 3]' 'BINDING x <TYPE_ARRAY[3]:TYPE_INT>
+  ARRAY <TYPE_ARRAY[3]:TYPE_INT>
+    INT 1 <TYPE_INT>
+    INT 2 <TYPE_INT>
+    INT 3 <TYPE_INT>'
+
+assert_semantic_ast "typed_slice_nested" 'x = [1, 2, 3]
+y = x[1..3]' 'BINDING x <TYPE_ARRAY[3]:TYPE_INT>
+  ARRAY <TYPE_ARRAY[3]:TYPE_INT>
+    INT 1 <TYPE_INT>
+    INT 2 <TYPE_INT>
+    INT 3 <TYPE_INT>
+BINDING y <TYPE_SLICE:TYPE_INT>
+  SLICE <TYPE_SLICE:TYPE_INT>
+    IDENT x <TYPE_ARRAY[3]:TYPE_INT>
+    INT 1 <TYPE_INT>
+    INT 3 <TYPE_INT>'
+
 assert_semantic_ast "typed_bracket_loop" 'x <- 0
 [0..3 | x += i]' 'MUT_BINDING x <TYPE_INT>
   INT 0 <TYPE_INT>

@@ -9,6 +9,7 @@ TIQ := $(BUILD)/tiq
 all: $(TIQ)
 
 SRCS = src/main.c src/lexer.c src/diag.c src/parser.c src/semantic.c \
+       src/type.c \
        src/formatter.c src/cache.c src/tester.c src/manifest.c src/lsp.c \
        src/benchmark.c
 OBJS = $(SRCS:src/%.c=$(BUILD)/%.o)
@@ -30,6 +31,7 @@ test: $(TIQ)
 	sh tests/lexer.sh
 	sh tests/parser.sh
 	sh tests/semantic.sh
+	sh tests/examples.sh
 
 # Tooling tests
 test-fmt: $(TIQ)

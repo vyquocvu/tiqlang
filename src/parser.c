@@ -609,6 +609,7 @@ void parser_free(Parser *parser) {
             free(parser->nodes[i]->as.block.deferred);
         } else if (parser->nodes[i]->kind == AST_FUNCTION) {
             free(parser->nodes[i]->as.function.params);
+            free(parser->nodes[i]->as.function.param_types);
         } else if (parser->nodes[i]->kind == AST_BRACKET_LOOP) {
             free(parser->nodes[i]->as.bracket_loop.body_stmts);
         } else if (parser->nodes[i]->kind == AST_STREAM_GEN) {
@@ -616,35 +617,54 @@ void parser_free(Parser *parser) {
         } else if (parser->nodes[i]->kind == AST_ARRAY) {
             free(parser->nodes[i]->as.array.elements);
         }
-        if (parser->nodes[i]->semantic_type) {
-            SemanticType *st = (SemanticType *)parser->nodes[i]->semantic_type;
-            if (st->kind == TYPE_ARRAY && st->element_type) {
-                free(st->element_type);
-            }
-            free(parser->nodes[i]->semantic_type);
-        }
+        // semantic_type instances are owned by the TypePool, not the AST
         free(parser->nodes[i]);
     }
     free(parser->nodes);
 }
 
-static const char *type_name(SemanticType *t) {
-    if (!t) return "";
-    switch (t->kind) {
-        case TYPE_INT: return " <TYPE_INT>";
-        case TYPE_FLOAT: return " <TYPE_FLOAT>";
-        case TYPE_STR: return " <TYPE_STR>";
-        case TYPE_BOOL: return " <TYPE_BOOL>";
-        case TYPE_ARRAY: return " <TYPE_ARRAY>";
-        case TYPE_STREAM: return " <TYPE_STREAM>";
-        default: return " <TYPE_UNKNOWN>";
+static const char *type_kind_name(PrimitiveType kind) {
+    switch (kind) {
+        case TYPE_INT: return "TYPE_INT";
+        case TYPE_FLOAT: return "TYPE_FLOAT";
+        case TYPE_STR: return "TYPE_STR";
+        case TYPE_BOOL: return "TYPE_BOOL";
+        case TYPE_ARRAY: return "TYPE_ARRAY";
+        case TYPE_SLICE: return "TYPE_SLICE";
+        case TYPE_STR_VIEW: return "TYPE_STR_VIEW";
+        case TYPE_STREAM: return "TYPE_STREAM";
+        default: return "TYPE_UNKNOWN";
     }
+}
+
+static void type_display(SemanticType *t, char *buf, size_t cap) {
+    if (!t || cap == 0) { if (cap) buf[0] = '\0'; return; }
+    if (t->kind == TYPE_ARRAY) {
+        char elem[96] = "";
+        type_display(t->element_type, elem, sizeof elem);
+        snprintf(buf, cap, "TYPE_ARRAY[%d]%s%s", t->array_length,
+                 elem[0] ? ":" : "", elem);
+    } else if (t->kind == TYPE_SLICE) {
+        char elem[96] = "";
+        type_display(t->element_type, elem, sizeof elem);
+        snprintf(buf, cap, "TYPE_SLICE%s%s", elem[0] ? ":" : "", elem);
+    } else {
+        snprintf(buf, cap, "%s", type_kind_name(t->kind));
+    }
+}
+
+static void format_type(SemanticType *t, char *buf, size_t cap) {
+    if (!t) { buf[0] = '\0'; return; }
+    char body[128];
+    type_display(t, body, sizeof body);
+    snprintf(buf, cap, " <%s>", body);
 }
 
 void ast_print(AstNode *node, int indent) {
     if (!node) return;
     for (int i = 0; i < indent; i++) printf("  ");
-    const char *t_str = type_name((SemanticType *)node->semantic_type);
+    char t_str[160];
+    format_type((SemanticType *)node->semantic_type, t_str, sizeof t_str);
     switch (node->kind) {
         case AST_LITERAL:
             if (node->as.literal.type == TOK_STRING) {

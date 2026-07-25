@@ -3,6 +3,7 @@
 #include "../include/lexer.h"
 #include "../include/parser.h"
 #include "../include/semantic.h"
+#include "../include/type.h"
 #include "../include/diag.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -116,11 +117,14 @@ static int compile_and_run(const char *source_path, const char *expected_output,
         free(temp_name);
         return -1;
     }
-    semantic_check(stmts, count, source_path, &diag);
+    TypePool pool;
+    type_pool_init(&pool);
+    semantic_check(stmts, count, source_path, &diag, &pool);
     if (diag.has_error) {
         fprintf(stderr, "tiq: semantic error in %s\n", source_path);
         free(stmts);
         parser_free(&parser);
+        type_pool_free(&pool);
         free(source);
         fclose(temp_file);
         remove(temp_name);
@@ -135,6 +139,7 @@ static int compile_and_run(const char *source_path, const char *expected_output,
     free(temp_name);
     free(stmts);
     parser_free(&parser);
+    type_pool_free(&pool);
     free(source);
 
     // Use the main compiler to build and run
