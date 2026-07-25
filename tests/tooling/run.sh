@@ -24,7 +24,7 @@ fi
 
 # Test run arithmetic
 cat > "$TMP/arith.tiq" << 'EOF'
-!1 + 2
+!(1 + 2)
 EOF
 OUTPUT=$($TIQ run "$TMP/arith.tiq")
 EXPECTED="3"

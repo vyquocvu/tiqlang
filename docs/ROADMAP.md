@@ -258,14 +258,65 @@ Status: done
 - [x] Process APIs (`proc_exec`, `proc_exit`)
 - [x] Sockets and HTTP primitives (`net_fetch`)
 - [x] JSON parser/encoder primitives (`json_parse_int`, `json_encode_str`)
+- [x] Print expression statement (`!expr`) backend emission with typed `printf` support
+- [x] POSIX `TMPDIR`-aware executable execution for `tiq run`
 - [x] Semantic checking and diagnostic assertion tests
-- [x] C11 backend emission and end-to-end smoke tests
+- [x] C11 backend emission and end-to-end smoke and tooling tests
+
+## M7 — Generic functions, collections & structured concurrency
+
+Status: active
+
+- [ ] Non-scalar function parameter type emission in C backend (`TiqSlice`, `const char *`)
+- [ ] Single character byte indexing on `str` and `str_view` (`s[i]`)
+- [ ] Array fill / repeated initialization syntax (`[val; len]`)
+- [ ] Implicit array/string decay to non-owning slice parameters (`TiqSlice`)
+- [ ] Block body return value emission for non-stream functions
+- [ ] Structured concurrency primitives (`chan`, `spawn`)
+- [ ] Cross-compilation matrix
+
+## M8 — User-defined composite types & explicit error handling
+
+Status: queued
+
+- [ ] Record / struct type definitions (`Point = { x: int, y: int }`)
+- [ ] Explicit Result & Option types (`T?` / `T!E`) eliminating hidden exceptions
+- [ ] Pattern matching & structural destructuring (`match result`)
+- [ ] Direct C struct emission in backend without vtables or dynamic dispatch
+
+## M9 — Memory ownership & borrow checker (M4 completion)
+
+Status: queued
+
+- [ ] Non-owning borrow references (`&x`, `&mut x`) with lifetime validation
+- [ ] Scope-bound destruction and reverse declaration order cleanup for heap values
+- [ ] Explicit arena / scope allocator interfaces (`Allocator`)
+- [ ] Opt-in reference-counted shared ownership (`Shared<T>`)
+
+## M10 — Service stack & non-blocking I/O
+
+Status: queued
+
+- [ ] Non-blocking event loop integration (`epoll` on Linux, `kqueue` on macOS)
+- [ ] Zero-copy JSON encoder and decoder primitives
+- [ ] HTTP/1.1 service server & client socket primitives
+- [ ] Standard library CLI flag and argument parsing
+
+## M11 — Platform expansion, IDE tooling & self-hosting
+
+Status: queued
+
+- [ ] Native Windows platform abstraction layer (`src/platform.c` using Win32 API)
+- [ ] Full LSP server capabilities (`hover`, `go-to-definition`, `semanticTokens`)
+- [ ] Self-hosting Tiq compiler written in Tiq
 
 ## Explicitly deferred
 
-- self-hosting;
+- self-hosting (until M11);
 - macros;
 - direct LLVM/native backend;
 - garbage-collected mode;
 - dynamic linking ABI stability;
 - arbitrary operator overloading.
+
+

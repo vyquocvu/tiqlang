@@ -460,11 +460,44 @@ static void emit_stmt(AstNode *node, FILE *out, DiagContext *diag, const char *p
             fputs("}\n", out);
             break;
         }
-        case AST_LITERAL: case AST_IDENTIFIER: case AST_BINARY: case AST_UNARY:
+        case AST_LITERAL: case AST_IDENTIFIER: case AST_BINARY:
         case AST_CONDITIONAL: case AST_CALL: case AST_BRACKET_EXPR:
         case AST_STREAM_GEN: case AST_ARRAY:
             emit_expr(node, out, diag, path);
             fputs(";\n", out);
+            break;
+        case AST_UNARY:
+            if (node->as.unary.op == TOK_BANG) {
+                AstNode *expr = node->as.unary.right;
+                SemanticType *st = expr ? expr->semantic_type : NULL;
+                PrimitiveType kind = st ? st->kind : TYPE_INT;
+                if (kind == TYPE_STR) {
+                    fputs("printf(\"%s\\n\", ", out);
+                    emit_expr(expr, out, diag, path);
+                    fputs(");\n", out);
+                } else if (kind == TYPE_FLOAT) {
+                    fputs("printf(\"%g\\n\", (double)(", out);
+                    emit_expr(expr, out, diag, path);
+                    fputs("));\n", out);
+                } else if (kind == TYPE_BOOL) {
+                    fputs("printf(\"%s\\n\", (", out);
+                    emit_expr(expr, out, diag, path);
+                    fputs(") ? \"true\" : \"false\");\n", out);
+                } else if (kind == TYPE_STR_VIEW || kind == TYPE_SLICE) {
+                    fputs("printf(\"%.*s\\n\", ((TiqSlice)(", out);
+                    emit_expr(expr, out, diag, path);
+                    fputs(")).len, (const char*)(((TiqSlice)(", out);
+                    emit_expr(expr, out, diag, path);
+                    fputs(")).ptr));\n", out);
+                } else {
+                    fputs("printf(\"%d\\n\", (int)(", out);
+                    emit_expr(expr, out, diag, path);
+                    fputs("));\n", out);
+                }
+            } else {
+                emit_expr(node, out, diag, path);
+                fputs(";\n", out);
+            }
             break;
         case AST_DEFER:
             emit_stmt(node->as.defer.expr, out, diag, path, indent);
@@ -1115,7 +1148,7 @@ int main(int argc, char **argv) {
             if (argc < 3) { usage(stderr); return 2; }
             // Run file: build and execute
             const char *input = argv[2];
-            char *tmp_exe = strdup("/tmp/tiq-run-XXXXXX");
+            char *tmp_exe = temporary_c_template();
             int fd = mkstemp(tmp_exe);
             if (fd < 0) { free(tmp_exe); return 1; }
             close(fd);

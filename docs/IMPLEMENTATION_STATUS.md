@@ -111,7 +111,9 @@ M6 — Service-ready standard library (complete)
 - Network socket built-in primitives: `net_fetch(url)`.
 - Semantic arity and type checks for all M6 primitives (`ERR_ARITY_MISMATCH`, `ERR_TYPE_MISMATCH`).
 - C11 backend emission (`tiq_fs_read`, `tiq_fs_write`, `tiq_fs_exists`, `tiq_proc_exec`, `tiq_proc_exit`, `tiq_json_parse_int`, `tiq_json_encode_str`, `tiq_net_fetch`).
-- Tests: `semantic.sh` (M6 diagnostic assertions) and `smoke.sh` (end-to-end execution of M6 built-in APIs).
+- Print expression statement (`!expr`) C11 backend emission with type-aware `printf` formatting (`TYPE_STR`, `TYPE_INT`, `TYPE_FLOAT`, `TYPE_BOOL`, `TYPE_STR_VIEW`, `TYPE_SLICE`).
+- POSIX `TMPDIR`-aware temporary executable creation in `tiq run` via `temporary_c_template()`.
+- Tests: `semantic.sh` (M6 diagnostic assertions), `smoke.sh` (end-to-end execution of M6 built-in APIs), and `tests/tooling/run.sh` (end-to-end `tiq run` suite).
 
 ## Not implemented
 
@@ -131,4 +133,4 @@ M6 — Service-ready standard library (complete)
 
 ## Next package
 
-M7: Structured concurrency and cross-compilation matrix.
+M7: Generic functions & collections (non-scalar function params, string byte indexing `s[i]`, array fill `[val; len]`, `TiqSlice` parameter decay) and structured concurrency.
