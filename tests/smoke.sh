@@ -137,4 +137,19 @@ printf 'cmd = "true"\nres = proc_exec(cmd)\nval = json_parse_int("42")\nenc = js
 [ -x "$TMP_DIR/m6_sys" ]
 "$TMP_DIR/m6_sys"
 
+printf 'arr = [0; 5]\ns = "hello"\nch = chan int\nsp = spawn 10\n' > "$TMP_DIR/m7_features.tiq"
+./build/tiq build "$TMP_DIR/m7_features.tiq" -o "$TMP_DIR/m7_features" 2>"$TMP_DIR/m7_features.err"
+[ -x "$TMP_DIR/m7_features" ]
+"$TMP_DIR/m7_features"
+
+printf 'x = 10\nres = match x { 10 => 100, 20 => 200 }\n' > "$TMP_DIR/m8_match.tiq"
+./build/tiq build "$TMP_DIR/m8_match.tiq" -o "$TMP_DIR/m8_match" 2>"$TMP_DIR/m8_match.err"
+[ -x "$TMP_DIR/m8_match" ]
+"$TMP_DIR/m8_match"
+
+printf 'x <- 42\nb = &x\n' > "$TMP_DIR/m9_borrow.tiq"
+./build/tiq build "$TMP_DIR/m9_borrow.tiq" -o "$TMP_DIR/m9_borrow" 2>"$TMP_DIR/m9_borrow.err"
+[ -x "$TMP_DIR/m9_borrow" ]
+"$TMP_DIR/m9_borrow"
+
 echo "smoke: ok"

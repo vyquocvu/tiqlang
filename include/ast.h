@@ -21,10 +21,22 @@ typedef enum {
     AST_STREAM_GEN,
     AST_BRACKET_EXPR,
     AST_ARRAY,
-    AST_DEFER
+    AST_DEFER,
+    AST_ARRAY_FILL,
+    AST_FIELD_ACCESS,
+    AST_STRUCT_DEF,
+    AST_RECORD_LIT,
+    AST_MATCH,
+    AST_SPAWN,
+    AST_CHAN
 } AstKind;
 
 typedef struct AstNode AstNode;
+
+typedef struct {
+    AstNode *pattern;
+    AstNode *body;
+} MatchArm;
 
 struct AstNode {
     AstKind kind;
@@ -49,6 +61,7 @@ struct AstNode {
         struct {
             AstNode *right;
             TokenKind op;
+            bool is_mut_borrow;
         } unary;
 
         struct {
@@ -115,6 +128,44 @@ struct AstNode {
             AstNode **elements;
             int element_count;
         } array;
+
+        struct {
+            AstNode *value;
+            AstNode *length;
+        } array_fill;
+
+        struct {
+            AstNode *target;
+            Token field;
+        } field_access;
+
+        struct {
+            Token name;
+            Token *field_names;
+            Token *field_types;
+            int field_count;
+        } struct_def;
+
+        struct {
+            Token struct_name;
+            Token *field_names;
+            AstNode **field_values;
+            int field_count;
+        } record_lit;
+
+        struct {
+            AstNode *expr;
+            MatchArm *arms;
+            int arm_count;
+        } match_expr;
+
+        struct {
+            AstNode *expr;
+        } spawn;
+
+        struct {
+            Token elem_type;
+        } chan;
 
         struct {
             AstNode *expr;

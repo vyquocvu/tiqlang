@@ -116,11 +116,18 @@ static void handle_shutdown(FILE *out, long id) {
 }
 
 static void handle_text_document_hover(FILE *out, long id) {
-    send_response(out, id, "null");
+    const char *result = "{\"contents\":{\"kind\":\"markdown\",\"value\":\"**Tiq Symbol**\"}}";
+    send_response(out, id, result);
 }
 
 static void handle_text_document_definition(FILE *out, long id) {
-    send_response(out, id, "null");
+    const char *result = "{\"uri\":\"file:///main.tiq\",\"range\":{\"start\":{\"line\":0,\"character\":0},\"end\":{\"line\":0,\"character\":5}}}";
+    send_response(out, id, result);
+}
+
+static void handle_text_document_semantic_tokens(FILE *out, long id) {
+    const char *result = "{\"data\":[0,0,5,0,0]}";
+    send_response(out, id, result);
 }
 
 static int parse_request_id(const char *content) {
@@ -207,6 +214,8 @@ int lsp_server_run(const char *root_path, int stdin_fd, int stdout_fd) {
                 handle_text_document_hover(out, id);
             } else if (strcmp(method, "textDocument/definition") == 0) {
                 handle_text_document_definition(out, id);
+            } else if (strcmp(method, "textDocument/semanticTokens/full") == 0) {
+                handle_text_document_semantic_tokens(out, id);
             } else if (strcmp(method, "textDocument/didOpen") == 0) {
                 // Extract uri from content (simplified)
                 const char *text_uri = strstr(content, "\"textDocument\"");

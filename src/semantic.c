@@ -407,7 +407,7 @@ static void check_node(SemanticContext *ctx, AstNode *node) {
                                 diag_error(ctx->diag, ctx->path, node->token.line, ERR_TYPE_MISMATCH,
                                            "string index must be int");
                         }
-                        node->semantic_type = alloc_type(TYPE_STR_VIEW);
+                        node->semantic_type = alloc_type(TYPE_INT);
                         break;
                     } else if (callee_type->kind == TYPE_STREAM) {
                         if (node->as.call.arg_count >= 1 && node->as.call.args[0]) {
@@ -457,7 +457,7 @@ static void check_node(SemanticContext *ctx, AstNode *node) {
         case AST_BINDING:
             check_node(ctx, node->as.binding.expr);
             {
-                SemanticType type = { TYPE_UNKNOWN, 0, NULL, 0 };
+                SemanticType type = { .kind = TYPE_UNKNOWN };
                 if (node->as.binding.expr && node->as.binding.expr->semantic_type) {
                     type = *(SemanticType *)node->as.binding.expr->semantic_type;
                 }
@@ -508,8 +508,8 @@ static void check_node(SemanticContext *ctx, AstNode *node) {
             }
             break;
         case AST_FUNCTION: {
-            SemanticType unknown_type = { TYPE_UNKNOWN, 0, NULL, 0 };
-            SemanticType func_type = { TYPE_UNKNOWN, 0, NULL, 0 };
+            SemanticType unknown_type = { .kind = TYPE_UNKNOWN };
+            SemanticType func_type = { .kind = TYPE_UNKNOWN };
             func_type.param_count = node->as.function.param_count;
             env_define(ctx->current_env, node->as.function.name, false, func_type);
             Environment func_env;
@@ -561,7 +561,7 @@ static void check_node(SemanticContext *ctx, AstNode *node) {
                 Token itoken;
                 itoken.start = "i";
                 itoken.length = 1;
-                SemanticType int_type = { TYPE_INT, 0, NULL, 0 };
+                SemanticType int_type = { .kind = TYPE_INT };
                 env_define(ctx->current_env, itoken, true, int_type);
             }
             for (int i = 0; i < node->as.bracket_loop.body_count; i++) {
@@ -605,21 +605,21 @@ static void check_node(SemanticContext *ctx, AstNode *node) {
                 if (node->as.stream_gen.seed_count == 1) {
                     Token xtoken;
                     xtoken.start = "x"; xtoken.length = 1;
-                    SemanticType int_type = { TYPE_INT, 0, NULL, 0 };
+                    SemanticType int_type = { .kind = TYPE_INT };
                     env_define(ctx->current_env, xtoken, false, int_type);
                 }
                 if (node->as.stream_gen.seed_count >= 2) {
                     Token atoken, btoken;
                     atoken.start = "a"; atoken.length = 1;
                     btoken.start = "b"; btoken.length = 1;
-                    SemanticType int_type = { TYPE_INT, 0, NULL, 0 };
+                    SemanticType int_type = { .kind = TYPE_INT };
                     env_define(ctx->current_env, atoken, false, int_type);
                     env_define(ctx->current_env, btoken, false, int_type);
                 }
                 Token itoken, stoken;
                 itoken.start = "i"; itoken.length = 1;
                 stoken.start = "s"; stoken.length = 1;
-                SemanticType int_type = { TYPE_INT, 0, NULL, 0 };
+                SemanticType int_type = { .kind = TYPE_INT };
                 env_define(ctx->current_env, itoken, false, int_type);
                 env_define(ctx->current_env, stoken, false, int_type);
                 check_node(ctx, node->as.stream_gen.gen_expr);
@@ -670,6 +670,61 @@ static void check_node(SemanticContext *ctx, AstNode *node) {
             node->semantic_type = arr_type;
             break;
         }
+        case AST_ARRAY_FILL: {
+            check_node(ctx, node->as.array_fill.value);
+            check_node(ctx, node->as.array_fill.length);
+            SemanticType *vt = node->as.array_fill.value ? (SemanticType *)node->as.array_fill.value->semantic_type : NULL;
+            SemanticType *lt = node->as.array_fill.length ? (SemanticType *)node->as.array_fill.length->semantic_type : NULL;
+            if (lt && lt->kind != TYPE_INT) {
+                diag_error(ctx->diag, ctx->path, node->token.line, ERR_TYPE_MISMATCH, "array fill length must be int");
+            }
+            SemanticType *arr_type = alloc_type(TYPE_ARRAY);
+            arr_type->element_type = alloc_type(vt ? vt->kind : TYPE_UNKNOWN);
+            arr_type->array_length = 0;
+            node->semantic_type = arr_type;
+            break;
+        }
+        case AST_FIELD_ACCESS: {
+            check_node(ctx, node->as.field_access.target);
+            SemanticType *tt = node->as.field_access.target ? (SemanticType *)node->as.field_access.target->semantic_type : NULL;
+            SemanticType *ft = alloc_type(TYPE_UNKNOWN);
+            if (tt && tt->kind == TYPE_STRUCT) {
+                for (int i = 0; i < tt->field_count; i++) {
+                    if ((int)node->as.field_access.field.length == (int)strlen(tt->field_names[i]) &&
+                        memcmp(node->as.field_access.field.start, tt->field_names[i], node->as.field_access.field.length) == 0) {
+                        ft = alloc_type(tt->field_types[i] ? tt->field_types[i]->kind : TYPE_UNKNOWN);
+                        break;
+                    }
+                }
+            }
+            node->semantic_type = ft;
+            break;
+        }
+        case AST_SPAWN:
+            check_node(ctx, node->as.spawn.expr);
+            node->semantic_type = alloc_type(TYPE_INT);
+            break;
+        case AST_CHAN:
+            node->semantic_type = alloc_type(TYPE_CHAN);
+            break;
+        case AST_MATCH: {
+            check_node(ctx, node->as.match_expr.expr);
+            PrimitiveType result_kind = TYPE_UNKNOWN;
+            for (int i = 0; i < node->as.match_expr.arm_count; i++) {
+                check_node(ctx, node->as.match_expr.arms[i].pattern);
+                check_node(ctx, node->as.match_expr.arms[i].body);
+                if (node->as.match_expr.arms[i].body && node->as.match_expr.arms[i].body->semantic_type) {
+                    SemanticType *at = (SemanticType *)node->as.match_expr.arms[i].body->semantic_type;
+                    if (result_kind == TYPE_UNKNOWN) result_kind = at->kind;
+                }
+            }
+            node->semantic_type = alloc_type(result_kind);
+            break;
+        }
+        case AST_STRUCT_DEF:
+        case AST_RECORD_LIT:
+            node->semantic_type = alloc_type(TYPE_STRUCT);
+            break;
     }
 }
 

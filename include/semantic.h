@@ -13,7 +13,14 @@ typedef enum {
     TYPE_ARRAY,
     TYPE_SLICE,
     TYPE_STR_VIEW,
-    TYPE_STREAM
+    TYPE_STREAM,
+    TYPE_STRUCT,
+    TYPE_OPTION,
+    TYPE_RESULT,
+    TYPE_REF,
+    TYPE_REF_MUT,
+    TYPE_CHAN,
+    TYPE_UNIT
 } PrimitiveType;
 
 typedef struct SemanticType {
@@ -21,6 +28,10 @@ typedef struct SemanticType {
     int param_count;
     struct SemanticType *element_type;
     int array_length;
+    char struct_name[64];
+    int field_count;
+    char field_names[16][32];
+    struct SemanticType *field_types[16];
 } SemanticType;
 
 typedef struct Symbol {

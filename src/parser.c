@@ -94,11 +94,21 @@ static AstNode *stream_gen(Parser *parser) {
     AstNode *node = allocate_node(parser, AST_STREAM_GEN);
     int cap = 0;
     while (!check(parser, TOK_DOT_DOT_DOT) && !check(parser, TOK_RBRACKET) && !check(parser, TOK_EOF)) {
+        AstNode *elem = expression(parser);
+        if (check(parser, TOK_SEMICOLON) && node->as.stream_gen.seed_count == 0) {
+            advance(parser);
+            AstNode *len_expr = expression(parser);
+            consume(parser, TOK_RBRACKET, ERR_UNEXPECTED_TOKEN, "expected ']' after array fill length");
+            node->kind = AST_ARRAY_FILL;
+            node->as.array_fill.value = elem;
+            node->as.array_fill.length = len_expr;
+            return node;
+        }
         if (node->as.stream_gen.seed_count + 1 > cap) {
             cap = cap < 4 ? 4 : cap * 2;
             node->as.stream_gen.seeds = realloc(node->as.stream_gen.seeds, sizeof(AstNode *) * cap);
         }
-        node->as.stream_gen.seeds[node->as.stream_gen.seed_count++] = expression(parser);
+        node->as.stream_gen.seeds[node->as.stream_gen.seed_count++] = elem;
         if (!check(parser, TOK_DOT_DOT_DOT) && !check(parser, TOK_RBRACKET)) {
             consume(parser, TOK_COMMA, ERR_UNEXPECTED_TOKEN, "expected ',' in stream generator");
         }
@@ -147,6 +157,40 @@ static AstNode *primary(Parser *parser) {
         node->as.literal.type = parser->previous.kind;
         return node;
     }
+    if (match(parser, TOK_SPAWN)) {
+        AstNode *node = allocate_node(parser, AST_SPAWN);
+        node->as.spawn.expr = expression(parser);
+        return node;
+    }
+    if (match(parser, TOK_CHAN)) {
+        AstNode *node = allocate_node(parser, AST_CHAN);
+        if (check(parser, TOK_IDENT)) {
+            advance(parser);
+            node->as.chan.elem_type = parser->previous;
+        }
+        return node;
+    }
+    if (match(parser, TOK_MATCH)) {
+        AstNode *node = allocate_node(parser, AST_MATCH);
+        node->as.match_expr.expr = expression(parser);
+        consume(parser, TOK_LBRACE, ERR_UNEXPECTED_TOKEN, "expected '{' after match expression");
+        int cap = 0;
+        while (!check(parser, TOK_RBRACE) && !check(parser, TOK_EOF)) {
+            AstNode *pat = expression(parser);
+            consume(parser, TOK_FAT_ARROW, ERR_UNEXPECTED_TOKEN, "expected '=>' in match arm");
+            AstNode *arm_body = expression(parser);
+            if (node->as.match_expr.arm_count + 1 > cap) {
+                cap = cap < 4 ? 4 : cap * 2;
+                node->as.match_expr.arms = realloc(node->as.match_expr.arms, sizeof(MatchArm) * cap);
+            }
+            node->as.match_expr.arms[node->as.match_expr.arm_count].pattern = pat;
+            node->as.match_expr.arms[node->as.match_expr.arm_count].body = arm_body;
+            node->as.match_expr.arm_count++;
+            if (check(parser, TOK_COMMA)) advance(parser);
+        }
+        consume(parser, TOK_RBRACE, ERR_UNEXPECTED_TOKEN, "expected '}' after match arms");
+        return node;
+    }
     if (match(parser, TOK_LPAREN)) {
         AstNode *expr = expression(parser);
         consume(parser, TOK_RPAREN, ERR_UNEXPECTED_TOKEN, "expected ')' after expression");
@@ -162,6 +206,7 @@ static AstNode *primary(Parser *parser) {
     }
     if (match(parser, TOK_LBRACKET)) {
         AstNode *node = stream_gen(parser);
+        if (node->kind == AST_ARRAY_FILL) return node;
         if (node->as.stream_gen.seed_count == 0 && !node->as.stream_gen.gen_expr && !node->as.stream_gen.bound) {
             return node;
         }
@@ -208,6 +253,12 @@ static AstNode *call_or_index(Parser *parser) {
             }
             consume(parser, TOK_RPAREN, ERR_UNEXPECTED_TOKEN, "expected ')' after arguments");
             expr = node;
+        } else if (match(parser, TOK_DOT)) {
+            AstNode *node = allocate_node(parser, AST_FIELD_ACCESS);
+            node->as.field_access.target = expr;
+            consume(parser, TOK_IDENT, ERR_UNEXPECTED_TOKEN, "expected field identifier after '.'");
+            node->as.field_access.field = parser->previous;
+            expr = node;
         } else if (match(parser, TOK_LBRACKET)) {
             AstNode *node = allocate_node(parser, AST_CALL);
             node->as.call.callee = expr;
@@ -253,6 +304,15 @@ static AstNode *unary(Parser *parser) {
     if (match(parser, TOK_BANG) || match(parser, TOK_PLUS) || match(parser, TOK_MINUS) || match(parser, TOK_MOVE)) {
         AstNode *node = allocate_node(parser, AST_UNARY);
         node->as.unary.op = parser->previous.kind;
+        node->as.unary.right = unary(parser);
+        return node;
+    }
+    if (match(parser, TOK_AMP)) {
+        AstNode *node = allocate_node(parser, AST_UNARY);
+        node->as.unary.op = TOK_AMP;
+        if (match(parser, TOK_MUT)) {
+            node->as.unary.is_mut_borrow = true;
+        }
         node->as.unary.right = unary(parser);
         return node;
     }

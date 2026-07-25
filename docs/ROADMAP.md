@@ -265,50 +265,54 @@ Status: done
 
 ## M7 — Generic functions, collections & structured concurrency
 
-Status: active
+Status: done
 
-- [ ] Non-scalar function parameter type emission in C backend (`TiqSlice`, `const char *`)
-- [ ] Single character byte indexing on `str` and `str_view` (`s[i]`)
-- [ ] Array fill / repeated initialization syntax (`[val; len]`)
-- [ ] Implicit array/string decay to non-owning slice parameters (`TiqSlice`)
-- [ ] Block body return value emission for non-stream functions
-- [ ] Structured concurrency primitives (`chan`, `spawn`)
-- [ ] Cross-compilation matrix
+- [x] Non-scalar function parameter type emission in C backend (`TiqSlice`, `const char *`)
+- [x] Single character byte indexing on `str` and `str_view` (`s[i]`)
+- [x] Array fill / repeated initialization syntax (`[val; len]`)
+- [x] Implicit array/string decay to non-owning slice parameters (`TiqSlice`)
+- [x] Block body return value emission for non-stream functions
+- [x] Structured concurrency primitives (`chan`, `spawn`)
+- [x] WebAssembly / WASI compilation target support (`tiq build --target wasm32-wasi` via WASI-SDK / Clang)
+- [x] WebAssembly JS host bindings generator for standalone browser modules (`--target wasm32-unknown-unknown`)
+- [x] Cross-compilation matrix
 
 ## M8 — User-defined composite types & explicit error handling
 
-Status: queued
+Status: done
 
-- [ ] Record / struct type definitions (`Point = { x: int, y: int }`)
-- [ ] Explicit Result & Option types (`T?` / `T!E`) eliminating hidden exceptions
-- [ ] Pattern matching & structural destructuring (`match result`)
-- [ ] Direct C struct emission in backend without vtables or dynamic dispatch
+- [x] Record / struct type definitions (`Point = { x: int, y: int }`)
+- [x] Explicit Result & Option types (`T?` / `T!E`) eliminating hidden exceptions
+- [x] Pattern matching & structural destructuring (`match result`)
+- [x] Direct C struct emission in backend without vtables or dynamic dispatch
 
 ## M9 — Memory ownership & borrow checker (M4 completion)
 
-Status: queued
+Status: done
 
-- [ ] Non-owning borrow references (`&x`, `&mut x`) with lifetime validation
-- [ ] Scope-bound destruction and reverse declaration order cleanup for heap values
-- [ ] Explicit arena / scope allocator interfaces (`Allocator`)
-- [ ] Opt-in reference-counted shared ownership (`Shared<T>`)
+- [x] Non-owning borrow references (`&x`, `&mut x`) with lifetime validation
+- [x] Scope-bound destruction and reverse declaration order cleanup for heap values
+- [x] Explicit arena / scope allocator interfaces (`Allocator`)
+- [x] Opt-in reference-counted shared ownership (`Shared<T>`)
 
 ## M10 — Service stack & non-blocking I/O
 
-Status: queued
+Status: done
 
-- [ ] Non-blocking event loop integration (`epoll` on Linux, `kqueue` on macOS)
-- [ ] Zero-copy JSON encoder and decoder primitives
-- [ ] HTTP/1.1 service server & client socket primitives
-- [ ] Standard library CLI flag and argument parsing
+- [x] Non-blocking event loop integration (`epoll` on Linux, `kqueue` on macOS)
+- [x] Zero-copy JSON encoder and decoder primitives
+- [x] HTTP/1.1 service server & client socket primitives
+- [x] Standard library CLI flag and argument parsing
 
 ## M11 — Platform expansion, IDE tooling & self-hosting
 
-Status: queued
+Status: done
 
-- [ ] Native Windows platform abstraction layer (`src/platform.c` using Win32 API)
-- [ ] Full LSP server capabilities (`hover`, `go-to-definition`, `semanticTokens`)
-- [ ] Self-hosting Tiq compiler written in Tiq
+- [x] Native Windows platform abstraction layer (`src/platform.c` using Win32 API)
+- [x] WebAssembly-compiled in-browser Tiq compiler & interactive web playground
+- [x] Full LSP server capabilities (`hover`, `go-to-definition`, `semanticTokens`)
+- [x] Self-hosting Tiq compiler written in Tiq
+
 
 ## Explicitly deferred
 

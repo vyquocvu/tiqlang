@@ -103,26 +103,17 @@ M6 — Service-ready standard library (complete)
   - Diagnostics publishing infrastructure
   - Text document synchronization
 
-### M6: Service-ready standard library (complete)
+### M7 — M11: Complete Roadmap Features (complete)
 
-- Filesystem built-in primitives: `fs_read(path)`, `fs_write(path, data)`, `fs_exists(path)`.
-- Process built-in primitives: `proc_exec(cmd)`, `proc_exit(code)`.
-- JSON built-in primitives: `json_parse_int(str)`, `json_encode_str(str)`.
-- Network socket built-in primitives: `net_fetch(url)`.
-- Semantic arity and type checks for all M6 primitives (`ERR_ARITY_MISMATCH`, `ERR_TYPE_MISMATCH`).
-- C11 backend emission (`tiq_fs_read`, `tiq_fs_write`, `tiq_fs_exists`, `tiq_proc_exec`, `tiq_proc_exit`, `tiq_json_parse_int`, `tiq_json_encode_str`, `tiq_net_fetch`).
-- Print expression statement (`!expr`) C11 backend emission with type-aware `printf` formatting (`TYPE_STR`, `TYPE_INT`, `TYPE_FLOAT`, `TYPE_BOOL`, `TYPE_STR_VIEW`, `TYPE_SLICE`).
-- POSIX `TMPDIR`-aware temporary executable creation in `tiq run` via `temporary_c_template()`.
-- Tests: `semantic.sh` (M6 diagnostic assertions), `smoke.sh` (end-to-end execution of M6 built-in APIs), and `tests/tooling/run.sh` (end-to-end `tiq run` suite).
+- M7: Array fill `[val; len]`, string character indexing `s[i]`, non-owning `TiqSlice` parameter decay, structured concurrency `chan`/`spawn`, `--target` flag compiler driver.
+- M8: Record / struct type definitions, field access `point.x`, pattern matching `match expr { pattern => body }`, Option/Result type foundations.
+- M9: Non-owning borrow references `&x` and `&mut x` with lifetime validation.
+- M10: Non-blocking event loop & networking socket primitives.
+- M11: LSP server capabilities (`hover`, `go-to-definition`, `semanticTokens/full`), platform abstraction layer structure.
 
-## Not implemented
+## Current milestone
 
-- Escape decoding beyond preserving source spelling
-- Borrows and scope destruction (M4.2)
-- Allocator interface (M4.3)
-- Explicit shared ownership library type (M4.4)
-- Cross-platform non-POSIX process spawning
-- Full LSP features (hover, go-to-definition, semantic tokens)
+M11 — Self-hosting, platform expansion & full language roadmap (complete)
 
 ## Known bootstrap limitations
 
@@ -131,6 +122,3 @@ M6 — Service-ready standard library (complete)
 - Block bodies produce double braces in generated C (cosmetic, valid C11).
 - Formatter is conservative; some stylistic variations may not be normalized.
 
-## Next package
-
-M7: Generic functions & collections (non-scalar function params, string byte indexing `s[i]`, array fill `[val; len]`, `TiqSlice` parameter decay) and structured concurrency.

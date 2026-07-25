@@ -317,6 +317,36 @@ static void emit_expr(AstNode *node, FILE *out, DiagContext *diag, const char *p
             fputs("}", out);
             break;
         }
+        case AST_ARRAY_FILL:
+            fputs("{ ", out);
+            emit_expr(node->as.array_fill.value, out, diag, path);
+            fputs(" }", out);
+            break;
+        case AST_FIELD_ACCESS:
+            emit_expr(node->as.field_access.target, out, diag, path);
+            fputs(".", out);
+            fprintf(out, "%.*s", (int)node->as.field_access.field.length, node->as.field_access.field.start);
+            break;
+        case AST_SPAWN:
+            fputs("/* spawn thread */ 0", out);
+            break;
+        case AST_CHAN:
+            fputs("/* channel */ 0", out);
+            break;
+        case AST_MATCH: {
+            fputs("(", out);
+            for (int i = 0; i < node->as.match_expr.arm_count; i++) {
+                fputs("(", out);
+                emit_expr(node->as.match_expr.expr, out, diag, path);
+                fputs(" == ", out);
+                emit_expr(node->as.match_expr.arms[i].pattern, out, diag, path);
+                fputs(") ? (", out);
+                emit_expr(node->as.match_expr.arms[i].body, out, diag, path);
+                fputs(") : ", out);
+            }
+            fputs("0)", out);
+            break;
+        }
         case AST_BLOCK:
             diag_error(diag, path, node->token.line, ERR_UNEXPECTED_TOKEN,
                        "block expression not supported in this context");
@@ -462,7 +492,8 @@ static void emit_stmt(AstNode *node, FILE *out, DiagContext *diag, const char *p
         }
         case AST_LITERAL: case AST_IDENTIFIER: case AST_BINARY:
         case AST_CONDITIONAL: case AST_CALL: case AST_BRACKET_EXPR:
-        case AST_STREAM_GEN: case AST_ARRAY:
+        case AST_STREAM_GEN: case AST_ARRAY: case AST_ARRAY_FILL:
+        case AST_FIELD_ACCESS: case AST_SPAWN: case AST_CHAN: case AST_MATCH:
             emit_expr(node, out, diag, path);
             fputs(";\n", out);
             break;
@@ -833,13 +864,27 @@ static int emit_file(const char *input, const char *output, DiagContext *diag) {
     return 0;
 }
 
-static int run_host_compiler(const char *cc, const char *source_path, const char *output_path) {
+static int run_host_compiler(const char *cc, const char *source_path, const char *output_path, const char *target) {
     pid_t pid = fork();
     int status;
     if (pid < 0) { fprintf(stderr, "tiq: cannot start host C compiler: %s\n", strerror(errno)); return 1; }
     if (pid == 0) {
-        char *const args[] = { (char *)cc, (char *)"-std=c11", (char *)"-Os", (char *)"-x", (char *)"c",
-                               (char *)source_path, (char *)"-o", (char *)output_path, NULL };
+        char target_arg[128] = "";
+        char *args[16];
+        int idx = 0;
+        args[idx++] = (char *)cc;
+        args[idx++] = (char *)"-std=c11";
+        args[idx++] = (char *)"-Os";
+        args[idx++] = (char *)"-x";
+        args[idx++] = (char *)"c";
+        if (target && *target) {
+            snprintf(target_arg, sizeof(target_arg), "--target=%s", target);
+            args[idx++] = target_arg;
+        }
+        args[idx++] = (char *)source_path;
+        args[idx++] = (char *)"-o";
+        args[idx++] = (char *)output_path;
+        args[idx] = NULL;
         execvp(cc, args);
         fprintf(stderr, "tiq: cannot execute host C compiler %s: %s\n", cc, strerror(errno));
         _exit(127);
@@ -869,7 +914,7 @@ static char *temporary_c_template(void) {
     return path;
 }
 
-static int build(const char *input, const char *output, DiagContext *diag) {
+static int build_target(const char *input, const char *output, const char *target, DiagContext *diag) {
     const char *cc = getenv("CC");
     char *temp_name = temporary_c_template();
     int fd, result;
@@ -882,10 +927,14 @@ static int build(const char *input, const char *output, DiagContext *diag) {
     result = compile_file_to_c_stream(input, temp_file, diag);
     if (fclose(temp_file) != 0) { remove(temp_name); fprintf(stderr, "tiq: cannot close temporary C file: %s\n", strerror(errno)); free(temp_name); return 1; }
     if (result != 0) { remove(temp_name); free(temp_name); return 1; }
-    result = run_host_compiler(cc, temp_name, output);
+    result = run_host_compiler(cc, temp_name, output, target);
     if (remove(temp_name) != 0) { fprintf(stderr, "tiq: cannot remove temporary C file %s: %s\n", temp_name, strerror(errno)); free(temp_name); return 1; }
     free(temp_name);
     return result;
+}
+
+static int build(const char *input, const char *output, DiagContext *diag) {
+    return build_target(input, output, NULL, diag);
 }
 
 static int dump_tokens(const char *input, DiagContext *diag) {
@@ -1180,9 +1229,19 @@ int main(int argc, char **argv) {
     if (argc == 3 && strcmp(argv[1], "emit-c") == 0) return emit_file(argv[2], NULL, &diag);
     if (argc >= 3 && strcmp(argv[1], "build") == 0) {
         const char *output = "a.out";
-        if (argc == 5 && strcmp(argv[3], "-o") == 0) output = argv[4];
-        else if (argc != 3) { usage(stderr); return 2; }
-        return build(argv[2], output, &diag);
+        const char *target = NULL;
+        const char *input = NULL;
+        for (int i = 2; i < argc; i++) {
+            if (strcmp(argv[i], "-o") == 0 && i + 1 < argc) {
+                output = argv[++i];
+            } else if (strcmp(argv[i], "--target") == 0 && i + 1 < argc) {
+                target = argv[++i];
+            } else if (argv[i][0] != '-') {
+                input = argv[i];
+            }
+        }
+        if (!input) { usage(stderr); return 2; }
+        return build_target(input, output, target, &diag);
     }
     usage(stderr);
     return 2;

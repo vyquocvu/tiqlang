@@ -57,7 +57,16 @@ typedef enum {
     TOK_LBRACKET,
     TOK_RBRACKET,
     TOK_COMMA,
-    TOK_NEWLINE
+    TOK_NEWLINE,
+    TOK_SPAWN,
+    TOK_CHAN,
+    TOK_MATCH,
+    TOK_STRUCT,
+    TOK_MUT,
+    TOK_SEMICOLON,
+    TOK_FAT_ARROW,
+    TOK_QUESTION_QUESTION,
+    TOK_DOT
 } TokenKind;
 
 typedef struct {

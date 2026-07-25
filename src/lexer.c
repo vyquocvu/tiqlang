@@ -127,6 +127,7 @@ static TokenKind check_keyword(Lexer *lexer, const char *start, size_t start_off
 static TokenKind identifier_type(Lexer *lexer, const char *start) {
     switch (start[0]) {
         case 'b': return check_keyword(lexer, start, 1, 4, "reak", TOK_BREAK);
+        case 'c': return check_keyword(lexer, start, 1, 3, "han", TOK_CHAN);
         case 'd': return check_keyword(lexer, start, 1, 4, "efer", TOK_DEFER);
         case 'f':
             if (lexer->current - start > 1) {
@@ -135,8 +136,24 @@ static TokenKind identifier_type(Lexer *lexer, const char *start) {
                 }
             }
             break;
-        case 'm': return check_keyword(lexer, start, 1, 3, "ove", TOK_MOVE);
-        case 's': return check_keyword(lexer, start, 1, 3, "kip", TOK_SKIP);
+        case 'm':
+            if (lexer->current - start > 1) {
+                switch (start[1]) {
+                    case 'a': return check_keyword(lexer, start, 2, 3, "tch", TOK_MATCH);
+                    case 'o': return check_keyword(lexer, start, 2, 2, "ve", TOK_MOVE);
+                    case 'u': return check_keyword(lexer, start, 2, 1, "t", TOK_MUT);
+                }
+            }
+            break;
+        case 's':
+            if (lexer->current - start > 1) {
+                switch (start[1]) {
+                    case 'k': return check_keyword(lexer, start, 2, 2, "ip", TOK_SKIP);
+                    case 'p': return check_keyword(lexer, start, 2, 3, "awn", TOK_SPAWN);
+                    case 't': return check_keyword(lexer, start, 2, 4, "ruct", TOK_STRUCT);
+                }
+            }
+            break;
         case 't': return check_keyword(lexer, start, 1, 3, "rue", TOK_TRUE);
         case 'u': return check_keyword(lexer, start, 1, 4, "ntil", TOK_UNTIL);
         case 'w': return check_keyword(lexer, start, 1, 4, "hile", TOK_WHILE);
@@ -176,14 +193,17 @@ Token lexer_next(Lexer *lexer) {
         case '[': return make_token(lexer, TOK_LBRACKET, start);
         case ']': return make_token(lexer, TOK_RBRACKET, start);
         case ',': return make_token(lexer, TOK_COMMA, start);
-        case '?': return make_token(lexer, TOK_QUESTION, start);
+        case ';': return make_token(lexer, TOK_SEMICOLON, start);
+        case '?':
+            if (match(lexer, '?')) return make_token(lexer, TOK_QUESTION_QUESTION, start);
+            return make_token(lexer, TOK_QUESTION, start);
         case '^': return make_token(lexer, TOK_CARET, start);
         case '.':
             if (match(lexer, '.')) {
                 if (match(lexer, '.')) return make_token(lexer, TOK_DOT_DOT_DOT, start);
                 return make_token(lexer, TOK_DOT_DOT, start);
             }
-            break;
+            return make_token(lexer, TOK_DOT, start);
         case '+':
             if (match(lexer, '=')) return make_token(lexer, TOK_PLUS_EQ, start);
             return make_token(lexer, TOK_PLUS, start);
@@ -202,6 +222,7 @@ Token lexer_next(Lexer *lexer) {
             return make_token(lexer, TOK_PERCENT, start);
         case '=':
             if (match(lexer, '=')) return make_token(lexer, TOK_EQ_EQ, start);
+            if (match(lexer, '>')) return make_token(lexer, TOK_FAT_ARROW, start);
             return make_token(lexer, TOK_EQ, start);
         case '!':
             if (match(lexer, '=')) return make_token(lexer, TOK_BANG_EQ, start);
@@ -231,7 +252,7 @@ Token lexer_next(Lexer *lexer) {
     char msg[64];
     snprintf(msg, sizeof(msg), "unexpected character '%c'", c);
     diag_error(lexer->diag, lexer->path, lexer->line, ERR_UNEXPECTED_CHAR, msg);
-    return make_token(lexer, TOK_EOF, start); // Return EOF to prevent infinite loops, though maybe error token is better
+    return make_token(lexer, TOK_EOF, start);
 }
 
 const char *token_kind_name(TokenKind kind) {
@@ -289,6 +310,15 @@ const char *token_kind_name(TokenKind kind) {
         case TOK_RBRACKET: return "RBRACKET";
         case TOK_COMMA: return "COMMA";
         case TOK_NEWLINE: return "NEWLINE";
+        case TOK_SPAWN: return "SPAWN";
+        case TOK_CHAN: return "CHAN";
+        case TOK_MATCH: return "MATCH";
+        case TOK_STRUCT: return "STRUCT";
+        case TOK_MUT: return "MUT";
+        case TOK_SEMICOLON: return "SEMICOLON";
+        case TOK_FAT_ARROW: return "FAT_ARROW";
+        case TOK_QUESTION_QUESTION: return "QUESTION_QUESTION";
+        case TOK_DOT: return "DOT";
     }
     return "UNKNOWN";
 }
