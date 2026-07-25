@@ -107,13 +107,17 @@ static void emit_expr(AstNode *node, FILE *out, DiagContext *diag, const char *p
             break;
         }
         case AST_UNARY: {
-            const char *op = "";
-            if (node->as.unary.op == TOK_BANG) op = "!";
-            else if (node->as.unary.op == TOK_MINUS) op = "-";
-            else if (node->as.unary.op == TOK_PLUS) op = "+";
-            fputs(op, out); fputs("(", out);
-            emit_expr(node->as.unary.right, out, diag, path);
-            fputs(")", out);
+            if (node->as.unary.op == TOK_MOVE) {
+                emit_expr(node->as.unary.right, out, diag, path);
+            } else {
+                const char *op = "";
+                if (node->as.unary.op == TOK_BANG) op = "!";
+                else if (node->as.unary.op == TOK_MINUS) op = "-";
+                else if (node->as.unary.op == TOK_PLUS) op = "+";
+                fputs(op, out); fputs("(", out);
+                emit_expr(node->as.unary.right, out, diag, path);
+                fputs(")", out);
+            }
             break;
         }
         case AST_CONDITIONAL:
@@ -344,13 +348,28 @@ static void emit_stmt(AstNode *node, FILE *out, DiagContext *diag, const char *p
         }
         case AST_BINDING: {
             SemanticType *t = node->semantic_type;
+            bool is_move = node->as.binding.expr && node->as.binding.expr->kind == AST_UNARY &&
+                           node->as.binding.expr->as.unary.op == TOK_MOVE;
             if (t && t->kind == TYPE_ARRAY) {
                 if (t->element_type) emit_type_name(t->element_type->kind, out);
                 else fputs("int", out);
-                fprintf(out, " %.*s[%d] = ", (int)node->as.binding.name.length, node->as.binding.name.start,
-                        t->array_length > 0 ? t->array_length : 0);
-                emit_expr(node->as.binding.expr, out, diag, path);
-                fputs(";\n", out);
+                int arr_len = t->array_length > 0 ? t->array_length : 0;
+                fprintf(out, " %.*s[%d]", (int)node->as.binding.name.length, node->as.binding.name.start,
+                        arr_len);
+                if (is_move && node->as.binding.expr->as.unary.right &&
+                    node->as.binding.expr->as.unary.right->kind == AST_IDENTIFIER) {
+                    fputs(";\n", out);
+                    for (int j = 0; j < indent; j++) fputs("    ", out);
+                    fputs("memcpy(", out);
+                    fprintf(out, "%.*s, ", (int)node->as.binding.name.length, node->as.binding.name.start);
+                    AstNode *src = node->as.binding.expr->as.unary.right;
+                    fprintf(out, "%.*s, sizeof(int) * %d);\n",
+                            (int)src->as.identifier.name.length, src->as.identifier.name.start, arr_len);
+                } else {
+                    fputs(" = ", out);
+                    emit_expr(node->as.binding.expr, out, diag, path);
+                    fputs(";\n", out);
+                }
             } else {
                 if (t) emit_type_name(t->kind, out);
                 else fputs("int", out);

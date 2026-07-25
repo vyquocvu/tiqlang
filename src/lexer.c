@@ -134,6 +134,7 @@ static TokenKind identifier_type(Lexer *lexer, const char *start) {
                 }
             }
             break;
+        case 'm': return check_keyword(lexer, start, 1, 3, "ove", TOK_MOVE);
         case 's': return check_keyword(lexer, start, 1, 3, "kip", TOK_SKIP);
         case 't': return check_keyword(lexer, start, 1, 3, "rue", TOK_TRUE);
         case 'u': return check_keyword(lexer, start, 1, 4, "ntil", TOK_UNTIL);
@@ -243,6 +244,7 @@ const char *token_kind_name(TokenKind kind) {
         case TOK_WHILE: return "WHILE";
         case TOK_BREAK: return "BREAK";
         case TOK_SKIP: return "SKIP";
+        case TOK_MOVE: return "MOVE";
         case TOK_UNTIL: return "UNTIL";
         case TOK_DOT_DOT_DOT: return "DOT_DOT_DOT";
         case TOK_PLUS: return "PLUS";

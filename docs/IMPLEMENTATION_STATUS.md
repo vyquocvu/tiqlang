@@ -4,7 +4,7 @@ Updated: 2026-07-25
 
 ## Current milestone
 
-M3 — Control flow and collections.
+M4 — Ownership.
 
 ## Implemented
 
@@ -65,6 +65,10 @@ M3 — Control flow and collections.
   - Print rejects stream generator types (ERR_TYPE_MISMATCH: "cannot print stream generator directly").
   - Range slicing of stream generators rejected (ERR_TYPE_MISMATCH: "cannot range-slice a stream generator").
   - Tests: `parser.sh` (stream gen AST golden tests), `semantic.sh` (stream gen type errors), `smoke.sh` (stream gen indexing, parameterized functions, bracket loop integration).
+- M4: `move` keyword (unary prefix operator for ownership transfer).
+- M4: Move semantics semantic checking: immutable binding move rejected (ERR_CANNOT_MOVE_IMMUTABLE), use-after-move detection (ERR_USE_AFTER_MOVE), moved state reset on compound assignment.
+- M4: Move semantics C backend: `move x` emits identity (C has no move semantics); array move emits `memcpy` for correct C array copy.
+- M4: Tests: `semantic.sh` (move_immutable, use_after_move, double_move), `smoke.sh` (move_basic, move_reassign, move_compound).
 
 ## Not implemented
 

@@ -142,13 +142,34 @@ Status: done
 
 ## M4 — Ownership
 
-Status: queued
+Status: active
 
 - owned values and moves;
 - borrows;
 - scope destruction;
 - allocator interface;
 - explicit shared ownership library type.
+
+### M4.1 — `move` keyword
+
+- [x] `move` keyword in lexer (TOK_MOVE).
+- [x] `move` parsed as unary prefix operator.
+- [x] Semantic: `is_moved` flag on Symbol.
+- [x] Semantic: move on immutable binding rejected.
+- [x] Semantic: use-after-move detection.
+- [x] Semantic: compound assignment resets moved state.
+- [x] C emitter: `move x` emits identity for scalars.
+- [x] C emitter: `move x` emits `memcpy` for arrays.
+- [x] LANGUAGE_SPEC §16.1: Move semantics documented.
+- [x] Tests: `semantic.sh` (move_immutable, use_after_move, double_move), `smoke.sh` (move_basic, move_reassign, move_compound).
+
+### Exit criteria
+
+- [x] `move` keyword parsed and type-checked
+- [x] Use-after-move detected at compile time
+- [x] Move of immutable binding rejected
+- [x] Compound assignment resets moved state
+- [x] Array move emits correct C (memcpy)
 
 ## M5 — Tooling
 

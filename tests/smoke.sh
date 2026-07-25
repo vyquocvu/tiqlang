@@ -134,4 +134,24 @@ STREAM_BL_EXPECTED="0
 8"
 [ "$STREAM_BL_OUTPUT" = "$STREAM_BL_EXPECTED" ] || { echo "stream_bracket_loop expected '$STREAM_BL_EXPECTED', got '$STREAM_BL_OUTPUT'"; exit 1; }
 
+printf 'x := [1, 2, 3]\ny := move x\n!y[0]\n!y[1]\n!y[2]\n' > "$TMP_DIR/move_basic.tiq"
+./build/tiq build "$TMP_DIR/move_basic.tiq" -o "$TMP_DIR/move_basic" 2>"$TMP_DIR/move_basic.err"
+MOVE_OUTPUT="$($TMP_DIR/move_basic)"
+MOVE_EXPECTED="1
+2
+3"
+[ "$MOVE_OUTPUT" = "$MOVE_EXPECTED" ] || { echo "move_basic expected '$MOVE_EXPECTED', got '$MOVE_OUTPUT'"; exit 1; }
+
+printf 'x := 0\ny := move x\nx += 42\n!y\n!x\n' > "$TMP_DIR/move_reassign.tiq"
+./build/tiq build "$TMP_DIR/move_reassign.tiq" -o "$TMP_DIR/move_reassign" 2>"$TMP_DIR/move_reassign.err"
+MOVE_REASSIGN_OUTPUT="$($TMP_DIR/move_reassign)"
+MOVE_REASSIGN_EXPECTED="0
+42"
+[ "$MOVE_REASSIGN_OUTPUT" = "$MOVE_REASSIGN_EXPECTED" ] || { echo "move_reassign expected '$MOVE_REASSIGN_EXPECTED', got '$MOVE_REASSIGN_OUTPUT'"; exit 1; }
+
+printf 'x := 42\ny := move x + 1\n!y\n' > "$TMP_DIR/move_compound.tiq"
+./build/tiq build "$TMP_DIR/move_compound.tiq" -o "$TMP_DIR/move_compound" 2>"$TMP_DIR/move_compound.err"
+MOVE_COMPOUND_OUTPUT="$($TMP_DIR/move_compound)"
+[ "$MOVE_COMPOUND_OUTPUT" = "43" ] || { echo "move_compound expected 43, got: $MOVE_COMPOUND_OUTPUT"; exit 1; }
+
 echo "smoke: ok"

@@ -185,4 +185,18 @@ assert_semantic "stream_index_non_int" 'fib = [0, 1, ... a + b]
 x = fib["bad"]
 ' "$TMP_DIR/stream_index_non_int.tiq:2: error: stream index must be int"
 
+assert_semantic "move_immutable" 'x = [1, 2, 3]
+y := move x
+' "$TMP_DIR/move_immutable.tiq:2: error: cannot move an immutable binding"
+
+assert_semantic "use_after_move" 'x := [1, 2, 3]
+y := move x
+!x
+' "$TMP_DIR/use_after_move.tiq:3: error: use of moved value 'x'"
+
+assert_semantic "double_move" 'x := [1, 2, 3]
+y := move x
+z := move x
+' "$TMP_DIR/double_move.tiq:3: error: use of moved value 'x'"
+
 echo "semantic: ok"

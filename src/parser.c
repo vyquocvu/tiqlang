@@ -237,7 +237,7 @@ static AstNode *call_or_index(Parser *parser) {
 }
 
 static AstNode *unary(Parser *parser) {
-    if (match(parser, TOK_BANG) || match(parser, TOK_PLUS) || match(parser, TOK_MINUS)) {
+    if (match(parser, TOK_BANG) || match(parser, TOK_PLUS) || match(parser, TOK_MINUS) || match(parser, TOK_MOVE)) {
         AstNode *node = allocate_node(parser, AST_UNARY);
         node->as.unary.op = parser->previous.kind;
         node->as.unary.right = unary(parser);

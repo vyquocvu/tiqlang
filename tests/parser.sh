@@ -162,4 +162,8 @@ assert_parser "stream_gen_single_seed" 'pow b = [1, ... x * b]' 'FUNCTION pow
       IDENT x
       IDENT b'
 
+assert_parser "move_expr" 'y := move x' 'MUT_BINDING y
+  UNARY MOVE
+    IDENT x'
+
 echo "parser: ok"

@@ -26,6 +26,7 @@ typedef struct SemanticType {
 typedef struct Symbol {
     Token name;
     bool is_mutable;
+    bool is_moved;
     SemanticType type;
 } Symbol;
 

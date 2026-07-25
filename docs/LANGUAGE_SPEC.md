@@ -248,7 +248,28 @@ Tiq has no exceptions. Fallible functions return a result value. The concrete re
 
 ## 16. Memory
 
-Values have deterministic scope-based destruction. Scalars and small aggregates use value semantics. Heap allocation, ownership transfer, borrowing, and shared ownership are specified in `MEMORY_MODEL.md` and are not part of the bootstrap slice.
+Values have deterministic scope-based destruction. Scalars and small aggregates use value semantics.
+
+### 16.1 Move semantics
+
+The `move` keyword transfers ownership of a binding to a new location:
+
+```tiq
+x := [1, 2, 3]
+y := move x   // ownership transferred to y
+```
+
+After a move, the source binding is invalidated. Any subsequent use of the source produces a compile-time error. Moving an immutable binding (`=`) is also a compile-time error.
+
+Compound assignment resets the moved state, allowing the binding to be reused:
+
+```tiq
+x := [1, 2, 3]
+y := move x
+x += 1   // x is valid again with a new value
+```
+
+Heap allocation, borrowing, and shared ownership are specified in `MEMORY_MODEL.md` and are not part of the bootstrap slice.
 
 ## 17. Program entry
 

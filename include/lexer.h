@@ -15,6 +15,7 @@ typedef enum {
     TOK_WHILE,
     TOK_BREAK,
     TOK_SKIP,
+    TOK_MOVE,
     TOK_UNTIL,
     TOK_DOT_DOT_DOT,
     TOK_PLUS,

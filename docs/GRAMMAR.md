@@ -47,7 +47,7 @@ shift         = range, { ("<<" | ">>"), range } ;
 range         = additive, [ "..", additive ] ;
 additive      = multiplicative, { ("+" | "-"), multiplicative } ;
 multiplicative = unary, { ("*" | "/" | "%"), unary } ;
-unary         = ("!" | "+" | "-"), unary | postfix ;
+unary         = ("!" | "+" | "-" | "move"), unary | postfix ;
 postfix       = primary, { call | index } ;
 call          = "(", [ expression, { ",", expression } ], ")" ;
 index         = "[", ( slice_range | expression | stream_slice ), "]" ;
@@ -66,7 +66,7 @@ Function application without parentheses, as in `fib n`, is allowed only in a fu
 From tightest to loosest:
 
 1. postfix call and index
-2. unary `! + -`
+2. unary `! + - move`
 3. `* / %`
 4. `+ -`
 5. `..`

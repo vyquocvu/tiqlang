@@ -30,6 +30,7 @@ static bool env_define(Environment *env, Token name, bool is_mutable, SemanticTy
     }
     env->symbols[env->count].name = name;
     env->symbols[env->count].is_mutable = is_mutable;
+    env->symbols[env->count].is_moved = false;
     env->symbols[env->count].type = type;
     env->count++;
     return true;
@@ -102,6 +103,12 @@ static void check_node(SemanticContext *ctx, AstNode *node) {
                          (int)node->as.identifier.name.length, node->as.identifier.name.start);
                 diag_error(ctx->diag, ctx->path, node->token.line, ERR_UNDEFINED_SYMBOL, msg);
                 node->semantic_type = alloc_type(TYPE_UNKNOWN);
+            } else if (sym->is_moved) {
+                char msg[256];
+                snprintf(msg, sizeof(msg), "use of moved value '%.*s'",
+                         (int)node->as.identifier.name.length, node->as.identifier.name.start);
+                diag_error(ctx->diag, ctx->path, node->token.line, ERR_USE_AFTER_MOVE, msg);
+                node->semantic_type = alloc_type(TYPE_UNKNOWN);
             } else {
                 SemanticType *t = alloc_type(sym->type.kind);
                 t->param_count = sym->type.param_count;
@@ -142,12 +149,48 @@ static void check_node(SemanticContext *ctx, AstNode *node) {
             break;
         }
         case AST_UNARY:
-            check_node(ctx, node->as.unary.right);
-            if (node->as.unary.right && node->as.unary.right->semantic_type) {
-                 SemanticType *rt = node->as.unary.right->semantic_type;
-                 node->semantic_type = alloc_type(rt->kind);
+            if (node->as.unary.op == TOK_MOVE) {
+                check_node(ctx, node->as.unary.right);
+                if (node->as.unary.right && node->as.unary.right->kind == AST_IDENTIFIER) {
+                    Token name = node->as.unary.right->as.identifier.name;
+                    Symbol *sym = env_lookup(ctx->current_env, name);
+                    if (sym) {
+                        if (!sym->is_mutable) {
+                            diag_error(ctx->diag, ctx->path, node->token.line,
+                                       ERR_CANNOT_MOVE_IMMUTABLE, "cannot move an immutable binding");
+                        } else if (!sym->is_moved) {
+                            sym->is_moved = true;
+                        }
+                    }
+                }
+                if (node->as.unary.right && node->as.unary.right->semantic_type) {
+                    SemanticType *rt = node->as.unary.right->semantic_type;
+                    SemanticType *t = alloc_type(rt->kind);
+                    t->param_count = rt->param_count;
+                    if (rt->kind == TYPE_ARRAY || rt->kind == TYPE_SLICE) {
+                        t->array_length = rt->array_length;
+                        if (rt->element_type)
+                            t->element_type = alloc_type(rt->element_type->kind);
+                    }
+                    node->semantic_type = t;
+                } else {
+                    node->semantic_type = alloc_type(TYPE_UNKNOWN);
+                }
             } else {
-                 node->semantic_type = alloc_type(TYPE_UNKNOWN);
+                check_node(ctx, node->as.unary.right);
+                if (node->as.unary.right && node->as.unary.right->semantic_type) {
+                    SemanticType *rt = node->as.unary.right->semantic_type;
+                    SemanticType *t = alloc_type(rt->kind);
+                    t->param_count = rt->param_count;
+                    if (rt->kind == TYPE_ARRAY || rt->kind == TYPE_SLICE) {
+                        t->array_length = rt->array_length;
+                        if (rt->element_type)
+                            t->element_type = alloc_type(rt->element_type->kind);
+                    }
+                    node->semantic_type = t;
+                } else {
+                    node->semantic_type = alloc_type(TYPE_UNKNOWN);
+                }
             }
             break;
         case AST_CONDITIONAL:
@@ -352,16 +395,19 @@ static void check_node(SemanticContext *ctx, AstNode *node) {
                     diag_error(ctx->diag, ctx->path, node->token.line, ERR_UNDEFINED_SYMBOL, msg);
                 } else if (!sym->is_mutable) {
                     diag_error(ctx->diag, ctx->path, node->token.line, ERR_IMMUTABLE_ASSIGNMENT, "cannot assign to immutable binding");
-                } else if (node->as.assign.index) {
-                    check_node(ctx, node->as.assign.index);
-                    SemanticType *it = node->as.assign.index ?
-                        node->as.assign.index->semantic_type : NULL;
-                    if (it && it->kind != TYPE_INT)
-                        diag_error(ctx->diag, ctx->path, node->token.line, ERR_TYPE_MISMATCH,
-                                   "array index must be int");
-                    if (sym->type.kind != TYPE_ARRAY)
-                        diag_error(ctx->diag, ctx->path, node->token.line, ERR_TYPE_MISMATCH,
-                                   "cannot index non-array");
+                } else {
+                    sym->is_moved = false;
+                    if (node->as.assign.index) {
+                        check_node(ctx, node->as.assign.index);
+                        SemanticType *it = node->as.assign.index ?
+                            node->as.assign.index->semantic_type : NULL;
+                        if (it && it->kind != TYPE_INT)
+                            diag_error(ctx->diag, ctx->path, node->token.line, ERR_TYPE_MISMATCH,
+                                       "array index must be int");
+                        if (sym->type.kind != TYPE_ARRAY)
+                            diag_error(ctx->diag, ctx->path, node->token.line, ERR_TYPE_MISMATCH,
+                                       "cannot index non-array");
+                    }
                 }
                 if (node->as.assign.index && sym && sym->type.kind == TYPE_ARRAY) {
                     SemanticType *arr_type = alloc_type(TYPE_ARRAY);
