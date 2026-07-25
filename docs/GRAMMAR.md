@@ -23,8 +23,9 @@ Whitespace separates tokens. Newline is significant only as a statement separato
 program       = { top_item } ;
 top_item      = function_def | binding | statement ;
 
-function_def  = identifier, { identifier }, "=", expression ;
-binding       = identifier, ("=" | ":="), expression ;
+function_def  = identifier, { identifier }, "->", expression ;
+binding       = identifier, "=", expression ;
+mutable_def   = identifier, "<-", expression ;
 statement     = print_stmt | assign_stmt | bracket_loop | control_stmt | defer_stmt | expression ;
 print_stmt    = "!", expression ;
 assign_stmt   = identifier, ("<-" | "+=" | "-=" | "*=" | "/=" | "%="), expression ;
@@ -80,7 +81,9 @@ From tightest to loosest:
 12. `&&`
 13. `||`
 14. `?:`
-15. assignment, which is statement-only
+15. `=` (immutable binding)
+16. `<-` (mutable binding and reassignment)
+17. `->` (function definition)
 
 ## Bootstrap grammar
 

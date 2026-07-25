@@ -64,7 +64,7 @@ assert_parser "conditional" 'z = a ? b : c ? d : e' 'BINDING z
       IDENT d
       IDENT e'
 
-assert_parser "function_and_block" 'f a b = {
+assert_parser "function_and_block" 'f a b -> {
   a + b
 }' 'FUNCTION f
   PARAM a
@@ -74,7 +74,7 @@ assert_parser "function_and_block" 'f a b = {
       IDENT a
       IDENT b'
 
-assert_parser "call_and_assign" 'val := f(1, 2)
+assert_parser "call_and_assign" 'val <- f(1, 2)
 val += 3' 'MUT_BINDING val
   CALL
     IDENT f
@@ -83,7 +83,7 @@ val += 3' 'MUT_BINDING val
 ASSIGN val PLUS_EQ
   INT 3'
 
-assert_parser "bracket_loop" 'x := 0
+assert_parser "bracket_loop" 'x <- 0
 [0..3 | x += i]' 'MUT_BINDING x
   INT 0
 BRACKET_LOOP
@@ -154,7 +154,7 @@ assert_parser "stream_gen" 'fib = [0, 1, ... a + b]' 'BINDING fib
       IDENT a
       IDENT b'
 
-assert_parser "stream_gen_single_seed" 'pow b = [1, ... x * b]' 'FUNCTION pow
+assert_parser "stream_gen_single_seed" 'pow b -> [1, ... x * b]' 'FUNCTION pow
   PARAM b
   STREAM_GEN
     INT 1
@@ -162,7 +162,7 @@ assert_parser "stream_gen_single_seed" 'pow b = [1, ... x * b]' 'FUNCTION pow
       IDENT x
       IDENT b'
 
-assert_parser "move_expr" 'y := move x' 'MUT_BINDING y
+assert_parser "move_expr" 'y <- move x' 'MUT_BINDING y
   UNARY MOVE
     IDENT x'
 

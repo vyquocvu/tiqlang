@@ -46,6 +46,7 @@ typedef enum {
     TOK_PERCENT_EQ,
     TOK_COLON_EQ,
     TOK_LARROW,
+    TOK_RARROW,
     TOK_QUESTION,
     TOK_COLON,
     TOK_DOT_DOT,

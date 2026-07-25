@@ -4,7 +4,7 @@ Updated: 2026-07-25
 
 ## Current milestone
 
-M4 — Ownership.
+M4.3 — Borrows and scope destruction.
 
 ## Implemented
 
@@ -77,7 +77,9 @@ M4 — Ownership.
 ## Not implemented
 
 - Escape decoding beyond preserving source spelling
-- Ownership (M4)
+- Borrows and scope destruction (M4.2)
+- Allocator interface (M4.3)
+- Explicit shared ownership library type (M4.4)
 - Tooling commands (`run`, `check`, `fmt`, `test`) (M5)
 - Package system or standard library (M6)
 - Cross-platform non-POSIX process spawning
@@ -90,4 +92,4 @@ M4 — Ownership.
 
 ## Next package
 
-M4: Ownership and memory model.
+M5: Tooling (formatter, test runner, package manifests, LSP baseline).

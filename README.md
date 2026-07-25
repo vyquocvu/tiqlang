@@ -29,9 +29,8 @@ Language-specific syntax is intentionally small:
 
 ```text
 name = value       immutable binding
-name := value      mutable binding
-name <- value      reassignment
-f a b = expression function
+name <- value     mutable binding or reassignment
+f a b -> expression function
 [0..10 | !i]       bracket loop iteration
 [0, 1, ... a + b]  stream generator sequence
 [1, ... x * 2 while x < 100]  bounded stream generator
@@ -92,7 +91,6 @@ docs/GRAMMAR.md              lexical and syntactic grammar
 docs/TYPE_SYSTEM.md          static type model
 docs/MEMORY_MODEL.md         ownership and allocation direction
 docs/COMPILER_ARCHITECTURE.md compiler pipeline and invariants
-docs/STANDARD_LIBRARY.md     standard library boundaries
 docs/ROADMAP.md              milestone plan
 docs/IMPLEMENTATION_STATUS.md evidence-backed implementation state
 ```

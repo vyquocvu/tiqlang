@@ -493,12 +493,12 @@ static AstNode *declaration(Parser *parser) {
         Lexer peek_lexer = parser->lexer;
         Token next = lexer_next(&peek_lexer);
         while (next.kind == TOK_NEWLINE) next = lexer_next(&peek_lexer);
-        if (next.kind == TOK_EQ || next.kind == TOK_COLON_EQ) {
+        if (next.kind == TOK_EQ || next.kind == TOK_LARROW) {
             advance(parser);
             advance(parser);
             AstNode *node = allocate_node(parser, AST_BINDING);
             node->as.binding.name = name;
-            node->as.binding.is_mutable = parser->previous.kind == TOK_COLON_EQ;
+            node->as.binding.is_mutable = parser->previous.kind == TOK_LARROW;
             node->as.binding.expr = expression(parser);
             return node;
         } else if (next.kind == TOK_IDENT) {
@@ -514,7 +514,7 @@ static AstNode *declaration(Parser *parser) {
                 node->as.function.params[node->as.function.param_count++] = parser->current;
                 advance(parser);
             }
-            consume(parser, TOK_EQ, ERR_UNEXPECTED_TOKEN, "expected '=' after function parameters");
+            consume(parser, TOK_RARROW, ERR_UNEXPECTED_TOKEN, "expected '->' after function parameters");
             node->as.function.body = expression(parser);
             return node;
         }

@@ -22,7 +22,7 @@ Short syntax never justifies ambiguous semantics or surprising operator behavior
 Tiq removes repeated ceremony:
 
 ```tiq
-add a b = a + b
+add a b -> a + b
 fib = [0, 1, ... a + b]
 [0..10 | !i]
 ```
@@ -48,7 +48,7 @@ A new syntax feature must demonstrate that it:
 
 ```tiq
 x = 1       // immutable
-x := 1      // mutable
+x <- 1      // mutable declaration
 x <- x + 1  // reassignment
 ```
 

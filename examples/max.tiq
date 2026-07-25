@@ -1,3 +1,4 @@
-max a b = a > b ? a : b
+max a b -> a > b ? a : b
+
 !max(7, 3)
 !max(2, 9)

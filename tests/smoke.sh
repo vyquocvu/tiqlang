@@ -43,12 +43,12 @@ if ./build/tiq build "$TMP_DIR/invalid.tiq" -o "$TMP_DIR/invalid" 2>/dev/null; t
   exit 1
 fi
 
-printf 'x := 0\n[0..5 | x += 1]\n!x\n' > "$TMP_DIR/bracket_loop_count.tiq"
+printf 'x <- 0\n[0..5 | x += 1]\n!x\n' > "$TMP_DIR/bracket_loop_count.tiq"
 ./build/tiq build "$TMP_DIR/bracket_loop_count.tiq" -o "$TMP_DIR/bracket_loop_count" 2>"$TMP_DIR/bracket_loop_count.err"
 LOOP_OUTPUT="$($TMP_DIR/bracket_loop_count)"
 [ "$LOOP_OUTPUT" = "5" ] || { echo "bracket_loop_count expected 5, got: $LOOP_OUTPUT"; exit 1; }
 
-printf 'total := 0\n[0..5 | total += i]\n!total\n' > "$TMP_DIR/bracket_sum.tiq"
+printf 'total <- 0\n[0..5 | total += i]\n!total\n' > "$TMP_DIR/bracket_sum.tiq"
 ./build/tiq build "$TMP_DIR/bracket_sum.tiq" -o "$TMP_DIR/bracket_sum" 2>"$TMP_DIR/bracket_sum.err"
 FOR_OUTPUT="$($TMP_DIR/bracket_sum)"
 [ "$FOR_OUTPUT" = "10" ] || { echo "bracket_sum expected 10, got: $FOR_OUTPUT"; exit 1; }
@@ -66,17 +66,17 @@ printf '[0..3 | !i, break]\n' > "$TMP_DIR/bracket_break.tiq"
 BREAK_OUTPUT="$($TMP_DIR/bracket_break)"
 [ "$BREAK_OUTPUT" = "0" ] || { echo "bracket_break expected 0, got: $BREAK_OUTPUT"; exit 1; }
 
-printf 'x := 0\n[0..3 | x += 1, skip, x += 100]\n!x\n' > "$TMP_DIR/bracket_skip.tiq"
+printf 'x <- 0\n[0..3 | x += 1, skip, x += 100]\n!x\n' > "$TMP_DIR/bracket_skip.tiq"
 ./build/tiq build "$TMP_DIR/bracket_skip.tiq" -o "$TMP_DIR/bracket_skip" 2>"$TMP_DIR/bracket_skip.err"
 SKIP_OUTPUT="$($TMP_DIR/bracket_skip)"
 [ "$SKIP_OUTPUT" = "3" ] || { echo "bracket_skip expected 3, got: $SKIP_OUTPUT"; exit 1; }
 
-printf 'x := 0\n[x < 5 | x += 1]\n!x\n' > "$TMP_DIR/while_loop.tiq"
+printf 'x <- 0\n[x < 5 | x += 1]\n!x\n' > "$TMP_DIR/while_loop.tiq"
 ./build/tiq build "$TMP_DIR/while_loop.tiq" -o "$TMP_DIR/while_loop" 2>"$TMP_DIR/while_loop.err"
 WHILE_OUTPUT="$($TMP_DIR/while_loop)"
 [ "$WHILE_OUTPUT" = "5" ] || { echo "while_loop expected 5, got: $WHILE_OUTPUT"; exit 1; }
 
-printf 'xs := [1, 2, 3]\n!xs[0]\n!xs[1]\n!xs[2]\n' > "$TMP_DIR/array_literal.tiq"
+printf 'xs <- [1, 2, 3]\n!xs[0]\n!xs[1]\n!xs[2]\n' > "$TMP_DIR/array_literal.tiq"
 ./build/tiq build "$TMP_DIR/array_literal.tiq" -o "$TMP_DIR/array_literal" 2>"$TMP_DIR/array_literal.err"
 ARRAY_OUTPUT="$($TMP_DIR/array_literal)"
 ARRAY_EXPECTED="1
@@ -84,7 +84,7 @@ ARRAY_EXPECTED="1
 3"
 [ "$ARRAY_OUTPUT" = "$ARRAY_EXPECTED" ] || { echo "array_literal expected '$ARRAY_EXPECTED', got '$ARRAY_OUTPUT'"; exit 1; }
 
-printf 'xs := [1, 2, 3]\nxs[0] <- 99\n!xs[0]\n!xs[1]\n!xs[2]\n' > "$TMP_DIR/array_assign.tiq"
+printf 'xs <- [1, 2, 3]\nxs[0] <- 99\n!xs[0]\n!xs[1]\n!xs[2]\n' > "$TMP_DIR/array_assign.tiq"
 ./build/tiq build "$TMP_DIR/array_assign.tiq" -o "$TMP_DIR/array_assign" 2>"$TMP_DIR/array_assign.err"
 ASSIGN_OUTPUT="$($TMP_DIR/array_assign)"
 ASSIGN_EXPECTED="99
@@ -92,14 +92,14 @@ ASSIGN_EXPECTED="99
 3"
 [ "$ASSIGN_OUTPUT" = "$ASSIGN_EXPECTED" ] || { echo "array_assign expected '$ASSIGN_EXPECTED', got '$ASSIGN_OUTPUT'"; exit 1; }
 
-printf 'xs := [10, 20, 30]\n!len(xs)\n!len(xs) + 1\n' > "$TMP_DIR/array_len.tiq"
+printf 'xs <- [10, 20, 30]\n!len(xs)\n!len(xs) + 1\n' > "$TMP_DIR/array_len.tiq"
 ./build/tiq build "$TMP_DIR/array_len.tiq" -o "$TMP_DIR/array_len" 2>"$TMP_DIR/array_len.err"
 LEN_OUTPUT="$($TMP_DIR/array_len)"
 LEN_EXPECTED="3
 4"
 [ "$LEN_OUTPUT" = "$LEN_EXPECTED" ] || { echo "array_len expected '$LEN_EXPECTED', got '$LEN_OUTPUT'"; exit 1; }
 
-printf 's := "Hello World"\nsub = s[0..5]\n!sub\n!len(sub)\n' > "$TMP_DIR/str_slice.tiq"
+printf 's <- "Hello World"\nsub = s[0..5]\n!sub\n!len(sub)\n' > "$TMP_DIR/str_slice.tiq"
 ./build/tiq build "$TMP_DIR/str_slice.tiq" -o "$TMP_DIR/str_slice" 2>"$TMP_DIR/str_slice.err"
 STR_SLICE_OUTPUT="$($TMP_DIR/str_slice)"
 STR_SLICE_EXPECTED="Hello
@@ -116,7 +116,39 @@ printf 'fact = [1, ... i * x]\n!fact[5]\n' > "$TMP_DIR/stream_single_seed.tiq"
 STREAM_SS_OUTPUT="$($TMP_DIR/stream_single_seed)"
 [ "$STREAM_SS_OUTPUT" = "120" ] || { echo "stream_single_seed expected 120, got: $STREAM_SS_OUTPUT"; exit 1; }
 
-printf 'pow b = [1, ... x * b]\n!pow(2)[0]\n!pow(2)[10]\n!pow(3)[3]\n' > "$TMP_DIR/stream_func.tiq"
+printf 'fib = [0, 1, ... a + b]\n!fib[0]\n!fib[1]\n!fib[2]\n!fib[3]\n!fib[4]\n!fib[5]\n!fib[6]\n!fib[7]\n!fib[8]\n!fib[9]\n!fib[10]\n' > "$TMP_DIR/fib_step_by_step.tiq"
+./build/tiq build "$TMP_DIR/fib_step_by_step.tiq" -o "$TMP_DIR/fib_step_by_step" 2>"$TMP_DIR/fib_step_by_step.err"
+FIB_STEP_OUTPUT="$($TMP_DIR/fib_step_by_step)"
+FIB_STEP_EXPECTED="0
+1
+1
+2
+3
+5
+8
+13
+21
+34
+55"
+[ "$FIB_STEP_OUTPUT" = "$FIB_STEP_EXPECTED" ] || { echo "fib_step_by_step expected '$FIB_STEP_EXPECTED', got '$FIB_STEP_OUTPUT'"; exit 1; }
+
+printf 'fib = [0, 1, ... a + b]\n!fib[0]\n!fib[1]\n!fib[2]\n!fib[3]\n!fib[4]\n!fib[5]\n' > "$TMP_DIR/fib_explain.tiq"
+./build/tiq build "$TMP_DIR/fib_explain.tiq" -o "$TMP_DIR/fib_explain" 2>"$TMP_DIR/fib_explain.err"
+FIB_EXP_OUTPUT="$($TMP_DIR/fib_explain)"
+FIB_EXPECTED="0
+1
+1
+2
+3
+5"
+[ "$FIB_EXP_OUTPUT" = "$FIB_EXPECTED" ] || { echo "fib_explain expected '$FIB_EXPECTED', got '$FIB_EXP_OUTPUT'"; exit 1; }
+
+printf 'fib = [0, 1, ... a + b]\n!fib[10]\n' > "$TMP_DIR/fib_verify.tiq"
+./build/tiq build "$TMP_DIR/fib_verify.tiq" -o "$TMP_DIR/fib_verify" 2>"$TMP_DIR/fib_verify.err"
+FIB_VERIFY_OUTPUT="$($TMP_DIR/fib_verify)"
+[ "$FIB_VERIFY_OUTPUT" = "55" ] || { echo "fib_verify expected 55, got '$FIB_VERIFY_OUTPUT'"; exit 1; }
+
+printf 'pow b -> [1, ... x * b]\n!pow(2)[0]\n!pow(2)[10]\n!pow(3)[3]\n' > "$TMP_DIR/stream_func.tiq"
 ./build/tiq build "$TMP_DIR/stream_func.tiq" -o "$TMP_DIR/stream_func" 2>"$TMP_DIR/stream_func.err"
 STREAM_FUNC_OUTPUT="$($TMP_DIR/stream_func)"
 STREAM_FUNC_EXPECTED="1
@@ -134,7 +166,7 @@ STREAM_BL_EXPECTED="0
 8"
 [ "$STREAM_BL_OUTPUT" = "$STREAM_BL_EXPECTED" ] || { echo "stream_bracket_loop expected '$STREAM_BL_EXPECTED', got '$STREAM_BL_OUTPUT'"; exit 1; }
 
-printf 'x := [1, 2, 3]\ny := move x\n!y[0]\n!y[1]\n!y[2]\n' > "$TMP_DIR/move_basic.tiq"
+printf 'x <- [1, 2, 3]\ny <- move x\n!y[0]\n!y[1]\n!y[2]\n' > "$TMP_DIR/move_basic.tiq"
 ./build/tiq build "$TMP_DIR/move_basic.tiq" -o "$TMP_DIR/move_basic" 2>"$TMP_DIR/move_basic.err"
 MOVE_OUTPUT="$($TMP_DIR/move_basic)"
 MOVE_EXPECTED="1
@@ -142,14 +174,14 @@ MOVE_EXPECTED="1
 3"
 [ "$MOVE_OUTPUT" = "$MOVE_EXPECTED" ] || { echo "move_basic expected '$MOVE_EXPECTED', got '$MOVE_OUTPUT'"; exit 1; }
 
-printf 'x := 0\ny := move x\nx += 42\n!y\n!x\n' > "$TMP_DIR/move_reassign.tiq"
+printf 'x <- 0\ny <- move x\nx += 42\n!y\n!x\n' > "$TMP_DIR/move_reassign.tiq"
 ./build/tiq build "$TMP_DIR/move_reassign.tiq" -o "$TMP_DIR/move_reassign" 2>"$TMP_DIR/move_reassign.err"
 MOVE_REASSIGN_OUTPUT="$($TMP_DIR/move_reassign)"
 MOVE_REASSIGN_EXPECTED="0
 42"
 [ "$MOVE_REASSIGN_OUTPUT" = "$MOVE_REASSIGN_EXPECTED" ] || { echo "move_reassign expected '$MOVE_REASSIGN_EXPECTED', got '$MOVE_REASSIGN_OUTPUT'"; exit 1; }
 
-printf 'x := 42\ny := move x + 1\n!y\n' > "$TMP_DIR/move_compound.tiq"
+printf 'x <- 42\ny <- move x + 1\n!y\n' > "$TMP_DIR/move_compound.tiq"
 ./build/tiq build "$TMP_DIR/move_compound.tiq" -o "$TMP_DIR/move_compound" 2>"$TMP_DIR/move_compound.err"
 MOVE_COMPOUND_OUTPUT="$($TMP_DIR/move_compound)"
 [ "$MOVE_COMPOUND_OUTPUT" = "43" ] || { echo "move_compound expected 43, got: $MOVE_COMPOUND_OUTPUT"; exit 1; }
@@ -171,7 +203,7 @@ DEFER_REV_EXPECTED="1
 2"
 [ "$DEFER_REV_OUTPUT" = "$DEFER_REV_EXPECTED" ] || { echo "defer_reverse expected '$DEFER_REV_EXPECTED', got '$DEFER_REV_OUTPUT'"; exit 1; }
 
-printf 'x := 0\n{\ndefer !99\n!x\n}\n!x\n' > "$TMP_DIR/defer_with_scope.tiq"
+printf 'x <- 0\n{\ndefer !99\n!x\n}\n!x\n' > "$TMP_DIR/defer_with_scope.tiq"
 ./build/tiq build "$TMP_DIR/defer_with_scope.tiq" -o "$TMP_DIR/defer_with_scope" 2>"$TMP_DIR/defer_with_scope.err"
 DEFER_SCOPE_OUTPUT="$($TMP_DIR/defer_with_scope)"
 DEFER_SCOPE_EXPECTED="0

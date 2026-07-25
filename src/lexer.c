@@ -189,6 +189,7 @@ Token lexer_next(Lexer *lexer) {
             return make_token(lexer, TOK_PLUS, start);
         case '-':
             if (match(lexer, '=')) return make_token(lexer, TOK_MINUS_EQ, start);
+            if (match(lexer, '>')) return make_token(lexer, TOK_RARROW, start);
             return make_token(lexer, TOK_MINUS, start);
         case '*':
             if (match(lexer, '=')) return make_token(lexer, TOK_STAR_EQ, start);
@@ -276,6 +277,7 @@ const char *token_kind_name(TokenKind kind) {
         case TOK_PERCENT_EQ: return "PERCENT_EQ";
         case TOK_COLON_EQ: return "COLON_EQ";
         case TOK_LARROW: return "LARROW";
+        case TOK_RARROW: return "RARROW";
         case TOK_QUESTION: return "QUESTION";
         case TOK_COLON: return "COLON";
         case TOK_DOT_DOT: return "DOT_DOT";

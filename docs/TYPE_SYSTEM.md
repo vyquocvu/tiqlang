@@ -45,7 +45,7 @@ ratio = f64(count) / f64(total)
 
 ## Bindings
 
-`=` creates an immutable binding. `:=` creates a mutable binding. Mutability is not part of the value's type and does not transfer through assignment.
+`=` creates an immutable binding. `<-` creates a mutable binding. Mutability is not part of the value's type and does not transfer through assignment.
 
 ## Functions
 
@@ -54,7 +54,7 @@ Functions have fixed parameter and return types after inference. They are not dy
 Planned explicit syntax:
 
 ```tiq
-add a:i32 b:i32 -> i32 = a + b
+add a:i32 b:i32 -> i32 -> a + b
 ```
 
 ## Conditional typing

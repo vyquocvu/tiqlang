@@ -29,7 +29,7 @@ Identifiers match `[A-Za-z_][A-Za-z0-9_]*`.
 Reserved words in v0.1:
 
 ```text
-true false while for in break continue
+true false while for in break continue skip move defer
 ```
 
 Literals:
@@ -60,9 +60,9 @@ Tiq preserves conventional operators:
 Tiq-specific operators:
 
 ```text
-=    immutable definition or function definition
-:=   mutable definition
-<-   reassignment
+=    immutable definition
+<-   mutable definition or reassignment
+->   function definition
 ? :  conditional expression
 ..   half-open range
 ...  stream generator expansion
@@ -83,7 +83,7 @@ port = 8080
 Mutable definition and reassignment:
 
 ```tiq
-count := 0
+count <- 0
 count <- count + 1
 count += 1
 ```
@@ -95,13 +95,13 @@ Reading an uninitialized binding, redefining a name in the same scope, or assign
 Single-expression function:
 
 ```tiq
-add a b = a + b
+add a b -> a + b
 ```
 
 Typed form planned for v0.2:
 
 ```tiq
-add a:i32 b:i32 -> i32 = a + b
+add a:i32 b:i32 -> i32 -> a + b
 ```
 
 In v0.1, parameter and return types are inferred from use where possible. A program whose public or recursive function type cannot be inferred is rejected.
@@ -109,7 +109,7 @@ In v0.1, parameter and return types are inferred from use where possible. A prog
 The value of the final expression is the function result.
 
 ```tiq
-max a b = a > b ? a : b
+max a b -> a > b ? a : b
 ```
 
 Recursive functions are allowed after their complete signature can be inferred.
@@ -255,8 +255,8 @@ Values have deterministic scope-based destruction. Scalars and small aggregates 
 The `move` keyword transfers ownership of a binding to a new location:
 
 ```tiq
-x := [1, 2, 3]
-y := move x   // ownership transferred to y
+x <- [1, 2, 3]
+y <- move x   // ownership transferred to y
 ```
 
 After a move, the source binding is invalidated. Any subsequent use of the source produces a compile-time error. Moving an immutable binding (`=`) is also a compile-time error.
@@ -264,8 +264,8 @@ After a move, the source binding is invalidated. Any subsequent use of the sourc
 Compound assignment resets the moved state, allowing the binding to be reused:
 
 ```tiq
-x := [1, 2, 3]
-y := move x
+x <- [1, 2, 3]
+y <- move x
 x += 1   // x is valid again with a new value
 ```
 

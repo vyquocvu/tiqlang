@@ -41,7 +41,7 @@ assert_semantic "out_of_scope" 'x = 1
 y = z
 ' "$TMP_DIR/out_of_scope.tiq:2: error: undefined symbol 'z'"
 
-assert_semantic "function_scope" 'f a = a + b
+assert_semantic "function_scope" 'f a -> a + b
 ' "$TMP_DIR/function_scope.tiq:1: error: undefined symbol 'b'"
 
 assert_semantic "type_mismatch" 'x = 1 + "foo"
@@ -58,7 +58,7 @@ assert_semantic "immutable_assignment" 'x = 1
 x += 1
 ' "$TMP_DIR/immutable_assignment.tiq:2: error: cannot assign to immutable binding"
 
-assert_semantic "function_arity_mismatch" 'f a = a
+assert_semantic "function_arity_mismatch" 'f a -> a
 x = f(1, 2)
 ' "$TMP_DIR/function_arity_mismatch.tiq:2: error: arity mismatch"
 
@@ -91,7 +91,7 @@ assert_semantic_ast "typed_ir_basic" 'x = 1 + 2' 'BINDING x <TYPE_INT>
     INT 1 <TYPE_INT>
     INT 2 <TYPE_INT>'
 
-assert_semantic_ast "typed_bracket_loop" 'x := 0
+assert_semantic_ast "typed_bracket_loop" 'x <- 0
 [0..3 | x += i]' 'MUT_BINDING x <TYPE_INT>
   INT 0 <TYPE_INT>
 BRACKET_LOOP <TYPE_UNKNOWN>
@@ -125,7 +125,7 @@ assert_semantic "break_outside_loop" 'break
 assert_semantic "skip_outside_loop" 'skip
 ' "$TMP_DIR/skip_outside_loop.tiq:1: error: skip outside loop"
 
-assert_semantic "loop_cond_type" 'x := 0
+assert_semantic "loop_cond_type" 'x <- 0
 [1 | x += 1]
 ' "$TMP_DIR/loop_cond_type.tiq:2: error: loop condition must be bool"
 
@@ -150,15 +150,15 @@ assert_semantic "array_assign_immutable" 'x = [1, 2, 3]
 x[0] <- 99
 ' "$TMP_DIR/array_assign_immutable.tiq:2: error: cannot assign to immutable binding"
 
-assert_semantic "array_assign_bad_index" 'x := [1, 2, 3]
+assert_semantic "array_assign_bad_index" 'x <- [1, 2, 3]
 x["bad"] <- 99
 ' "$TMP_DIR/array_assign_bad_index.tiq:2: error: array index must be int"
 
-assert_semantic "array_print" 'x := [1, 2, 3]
+assert_semantic "array_print" 'x <- [1, 2, 3]
 !x
 ' "$TMP_DIR/array_print.tiq:2: error: cannot print array directly"
 
-assert_semantic "len_non_array" 'x := 42
+assert_semantic "len_non_array" 'x <- 42
 !len(x)
 ' "$TMP_DIR/len_non_array.tiq:2: error: len expects an array argument"
 
@@ -186,17 +186,17 @@ x = fib["bad"]
 ' "$TMP_DIR/stream_index_non_int.tiq:2: error: stream index must be int"
 
 assert_semantic "move_immutable" 'x = [1, 2, 3]
-y := move x
+y <- move x
 ' "$TMP_DIR/move_immutable.tiq:2: error: cannot move an immutable binding"
 
-assert_semantic "use_after_move" 'x := [1, 2, 3]
-y := move x
+assert_semantic "use_after_move" 'x <- [1, 2, 3]
+y <- move x
 !x
 ' "$TMP_DIR/use_after_move.tiq:3: error: use of moved value 'x'"
 
-assert_semantic "double_move" 'x := [1, 2, 3]
-y := move x
-z := move x
+assert_semantic "double_move" 'x <- [1, 2, 3]
+y <- move x
+z <- move x
 ' "$TMP_DIR/double_move.tiq:3: error: use of moved value 'x'"
 
 assert_semantic "defer_outside_block" 'defer 1
