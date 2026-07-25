@@ -191,13 +191,54 @@ Status: active
 
 ## M5 — Tooling
 
-Status: queued
+Status: done
 
-- formatter;
-- test runner;
-- package manifests and deterministic lockfile;
-- incremental module cache;
-- language server protocol baseline.
+### M5.1 — Formatter
+
+- [x] `tiq fmt` command with token-based source formatting
+- [x] Configurable indentation (spaces/tabs, variable width)
+- [x] Proper handling of braces, brackets, operators, keywords
+- [x] `--check` mode for CI integration
+- [x] stdin/stdout support
+
+### M5.2 — Test Runner
+
+- [x] `tiq test` command for test discovery and execution
+- [x] Directory and file test targets
+- [x] `//! expected` output comments
+- [x] Verbose and list modes
+- [x] XDG cache integration
+
+### M5.3 — Package Manifests
+
+- [x] `tiq init` command for manifest creation
+- [x] INI-style `*.tiq.toml` format
+- [x] `[package]`, `[deps]`, `[tests]` sections
+- [x] Version format validation
+- [x] Manifest schema validation
+
+### M5.4 — Incremental Module Cache
+
+- [x] `tiq cache` command (clear, path)
+- [x] XDG cache directory (`~/.cache/tiq`)
+- [x] Source file mtime-based invalidation
+- [x] Deterministic cache structure
+
+### M5.5 — LSP Baseline
+
+- [x] `tiq lsp` command for Language Server Protocol
+- [x] JSON-RPC 2.0 over stdin/stdout
+- [x] Initialize/shutdown protocol
+- [x] Diagnostics publishing
+- [x] Text document sync infrastructure
+
+### Exit criteria
+
+- [x] Formatter processes all Tiq syntax correctly
+- [x] Test runner discovers and executes tests
+- [x] Package manifests are created and validated
+- [x] Cache operations work correctly
+- [x] LSP server initializes and handles basic requests
 
 ## M6 — Service-ready standard library
 

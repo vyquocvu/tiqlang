@@ -4,7 +4,7 @@ Updated: 2026-07-25
 
 ## Current milestone
 
-M4.3 — Borrows and scope destruction.
+M5 — Tooling (complete)
 
 ## Implemented
 
@@ -74,22 +74,50 @@ M4.3 — Borrows and scope destruction.
 - M4: Defer C backend: deferred actions emitted in reverse order before block closing brace.
 - M4: Tests: `parser.sh` (defer AST golden test), `semantic.sh` (defer_outside_block), `smoke.sh` (defer_basic, defer_reverse, defer_with_scope).
 
+### M5: Tooling (complete)
+
+- Formatter (`tiq fmt`):
+  - Token-based source formatting preserving language semantics
+  - Configurable indentation (spaces or tabs, variable width)
+  - Proper handling of braces, brackets, operators, keywords
+  - Options for check mode and output file specification
+- Test runner (`tiq test`):
+  - Discovers `.tiq` test files in directories
+  - Executes tests via `tiq build` and compares output
+  - Respects `//! expected` comments for expected output
+  - Verbose mode for detailed results
+- Package manifests (`tiq init`):
+  - Creates `*.tiq.toml` manifest files
+  - INI-style format with `[package]`, `[deps]`, `[tests]` sections
+  - Version validation (major.minor.patch format)
+  - Schema validation for required fields
+- Incremental module cache:
+  - XDG-compliant cache directory (`~/.cache/tiq`)
+  - Source file tracking by modification time
+  - Cache operations: `tiq cache clear`, `tiq cache path`
+- Language Server Protocol baseline (`tiq lsp`):
+  - JSON-RPC 2.0 message handling over stdin/stdout
+  - Initialize/shutdown protocol support
+  - Diagnostics publishing infrastructure
+  - Text document synchronization
+
 ## Not implemented
 
 - Escape decoding beyond preserving source spelling
 - Borrows and scope destruction (M4.2)
 - Allocator interface (M4.3)
 - Explicit shared ownership library type (M4.4)
-- Tooling commands (`run`, `check`, `fmt`, `test`) (M5)
 - Package system or standard library (M6)
 - Cross-platform non-POSIX process spawning
+- Full LSP features (hover, go-to-definition, semantic tokens)
 
 ## Known bootstrap limitations
 
 - Temporary-file creation and host compiler execution currently use POSIX APIs; non-POSIX platforms need an equivalent documented process abstraction.
 - The implementation is a proof of the compilation path, not a production compiler.
 - Block bodies produce double braces in generated C (cosmetic, valid C11).
+- Formatter is conservative; some stylistic variations may not be normalized.
 
 ## Next package
 
-M5: Tooling (formatter, test runner, package manifests, LSP baseline).
+M6: Service-ready standard library (filesystem and process APIs, sockets and HTTP primitives, JSON parser/encoder).

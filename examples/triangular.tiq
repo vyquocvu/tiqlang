@@ -1,0 +1,6 @@
+// Triangular numbers: 0, 1, 3, 6, 10, 15, 21...
+// T[n] = T[n-1] + n
+tri = [0, ... x + i]
+
+// Print first 11 triangular numbers
+[0..11 | !tri[i]]

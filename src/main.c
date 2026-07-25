@@ -5,11 +5,18 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/wait.h>
+#include <sys/stat.h>
 #include <unistd.h>
+#include <dirent.h>
 #include "../include/lexer.h"
 #include "../include/diag.h"
 #include "../include/parser.h"
 #include "../include/semantic.h"
+#include "../include/formatter.h"
+#include "../include/cache.h"
+#include "../include/tester.h"
+#include "../include/manifest.h"
+#include "../include/lsp.h"
 
 #define TIQ_VERSION "0.1.0-dev"
 
@@ -830,15 +837,197 @@ static int dump_typed_ast(const char *input, DiagContext *diag) {
     return diag->has_error ? 1 : 0;
 }
 
+// ============================================================================
+// Tooling commands (M5)
+// ============================================================================
+
+static int cmd_check(const char *input) {
+    DiagContext diag;
+    diag_init(&diag);
+    char *source = read_all(input);
+    Parser parser;
+    parser_init(&parser, source, input, &diag);
+    int count;
+    AstNode **stmts = parser_parse(&parser, &count);
+    if (diag.has_error) {
+        free(stmts);
+        parser_free(&parser);
+        free(source);
+        return 1;
+    }
+    semantic_check(stmts, count, input, &diag);
+    free(stmts);
+    parser_free(&parser);
+    free(source);
+    return diag.has_error ? 1 : 0;
+}
+
+static int cmd_fmt(int argc, char **argv) {
+    FormatterOptions opts;
+    formatter_init_options(&opts);
+    const char *output = NULL;
+    bool check_mode = false;
+
+    for (int i = 2; i < argc; i++) {
+        if (strcmp(argv[i], "--check") == 0) {
+            check_mode = true;
+        } else if (strcmp(argv[i], "--output") == 0 && i + 1 < argc) {
+            output = argv[++i];
+        } else if (strcmp(argv[i], "--use-tabs") == 0) {
+            opts.use_tabs = true;
+        } else if (strcmp(argv[i], "--indent-width") == 0 && i + 1 < argc) {
+            opts.indent_width = atoi(argv[++i]);
+        } else if (argv[i][0] != '-') {
+            // Input file
+            int result = format_file(argv[i], output, &opts);
+            if (check_mode) {
+                // TODO: Compare formatted output with original
+            }
+            return result;
+        }
+    }
+
+    // No input file, format stdin to stdout
+    return format_stdin_to_file(output, &opts);
+}
+
+static int cmd_test(int argc, char **argv) {
+    test_runner_init();
+    TestResults results = {0, 0, 0};
+    bool verbose = false;
+    bool list_only = false;
+    (void)list_only; // TODO: implement list mode
+
+    for (int i = 2; i < argc; i++) {
+        if (strcmp(argv[i], "--verbose") == 0 || strcmp(argv[i], "-v") == 0) {
+            verbose = true;
+        } else if (strcmp(argv[i], "--list") == 0 || strcmp(argv[i], "-l") == 0) {
+            list_only = true;
+        } else if (argv[i][0] != '-') {
+            struct stat st;
+            if (stat(argv[i], &st) == 0) {
+                if (S_ISDIR(st.st_mode)) {
+                    run_tests_in_dir(argv[i], &results);
+                } else {
+                    run_tests_in_file(argv[i], &results);
+                }
+            }
+        }
+    }
+
+    test_runner_shutdown();
+
+    if (verbose) {
+        printf("Tests: %d passed, %d failed, %d skipped\n",
+               results.passed, results.failed, results.skipped);
+    }
+
+    return results.failed > 0 ? 1 : 0;
+}
+
+static int cmd_init(const char *name) {
+    char manifest_path[256];
+    if (name) {
+        snprintf(manifest_path, sizeof(manifest_path), "%s.tiq.toml", name);
+    } else {
+        snprintf(manifest_path, sizeof(manifest_path), "tiq.toml");
+    }
+
+    FILE *f = fopen(manifest_path, "w");
+    if (!f) {
+        fprintf(stderr, "tiq: cannot create %s: %s\n", manifest_path, strerror(errno));
+        return 1;
+    }
+
+    fprintf(f, "# Tiq package manifest\n");
+    fprintf(f, "[package]\n");
+    fprintf(f, "name = \"%s\"\n", name ? name : "my-package");
+    fprintf(f, "version = \"0.1.0\"\n");
+    fprintf(f, "description = \"A Tiq package\"\n");
+    fprintf(f, "\n[tests]\n");
+    fprintf(f, "dir = \"tests\"\n");
+
+    fclose(f);
+    printf("Created %s\n", manifest_path);
+    return 0;
+}
+
+static int cmd_lsp(const char *root) {
+    cache_init(NULL);
+    return lsp_server_run(root ? root : ".", STDIN_FILENO, STDOUT_FILENO);
+}
+
+static int cmd_cache(int argc, char **argv) {
+    cache_init(NULL);
+
+    for (int i = 2; i < argc; i++) {
+        if (strcmp(argv[i], "clear") == 0) {
+            cache_clear();
+            printf("Cache cleared at %s\n", cache_get_path());
+        } else if (strcmp(argv[i], "path") == 0) {
+            printf("%s\n", cache_get_path());
+        }
+    }
+    return 0;
+}
+
 static void usage(FILE *out) {
-    fputs("usage:\n  tiq --version\n  tiq dump-tokens <file.tiq>\n  tiq dump-ast <file.tiq>\n"
-          "  tiq dump-typed-ast <file.tiq>\n  tiq emit-c <file.tiq>\n  tiq build <file.tiq> [-o output]\n", out);
+    fputs("tiq " TIQ_VERSION " - Tiq compiler and tools\n\n", out);
+    fputs("usage:\n", out);
+    fputs("  tiq --version\n", out);
+    fputs("  tiq dump-tokens <file.tiq>\n", out);
+    fputs("  tiq dump-ast <file.tiq>\n", out);
+    fputs("  tiq dump-typed-ast <file.tiq>\n", out);
+    fputs("  tiq emit-c <file.tiq>\n", out);
+    fputs("  tiq build <file.tiq> [-o output]\n", out);
+    fputs("  tiq check <file.tiq>...\n", out);
+    fputs("  tiq fmt [--check] [--output <file>] [--use-tabs] [--indent-width <n>] [file]\n", out);
+    fputs("  tiq test [--verbose] [--list] [dir|file...]\n", out);
+    fputs("  tiq init [name]\n", out);
+    fputs("  tiq lsp [--root <path>]\n", out);
+    fputs("  tiq cache [clear|path]\n", out);
 }
 
 int main(int argc, char **argv) {
+    if (argc == 2 && strcmp(argv[1], "--version") == 0) {
+        printf("tiq %s\n", TIQ_VERSION);
+        return 0;
+    }
+
+    if (argc >= 2) {
+        if (strcmp(argv[1], "check") == 0) {
+            if (argc < 3) { usage(stderr); return 2; }
+            int result = 0;
+            for (int i = 2; i < argc; i++) {
+                if (cmd_check(argv[i]) != 0) result = 1;
+            }
+            return result;
+        }
+        if (strcmp(argv[1], "fmt") == 0) {
+            return cmd_fmt(argc, argv);
+        }
+        if (strcmp(argv[1], "test") == 0) {
+            return cmd_test(argc, argv);
+        }
+        if (strcmp(argv[1], "init") == 0) {
+            return cmd_init(argc > 2 ? argv[2] : NULL);
+        }
+        if (strcmp(argv[1], "lsp") == 0) {
+            const char *root = NULL;
+            for (int i = 2; i < argc; i++) {
+                if (strcmp(argv[i], "--root") == 0 && i + 1 < argc) {
+                    root = argv[++i];
+                }
+            }
+            return cmd_lsp(root);
+        }
+        if (strcmp(argv[1], "cache") == 0) {
+            return cmd_cache(argc, argv);
+        }
+    }
+
     DiagContext diag;
     diag_init(&diag);
-    if (argc == 2 && strcmp(argv[1], "--version") == 0) { printf("tiq %s\n", TIQ_VERSION); return 0; }
     if (argc == 3 && strcmp(argv[1], "dump-tokens") == 0) return dump_tokens(argv[2], &diag);
     if (argc == 3 && strcmp(argv[1], "dump-ast") == 0) return dump_ast(argv[2], &diag);
     if (argc == 3 && strcmp(argv[1], "dump-typed-ast") == 0) return dump_typed_ast(argv[2], &diag);
