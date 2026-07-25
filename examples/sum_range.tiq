@@ -1,3 +1,8 @@
-sum = [0, ... s + i]
+// Sum of first n natural numbers
+sum n -> n <= 0 ? 0 : n + sum(n - 1)
 
-!sum[10]
+// Test
+!sum(10)   // 55
+!sum(100)  // 5050
+!sum(0)    // 0
+!sum(1)    // 1

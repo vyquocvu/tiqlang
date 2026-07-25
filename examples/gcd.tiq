@@ -1,0 +1,7 @@
+// GCD using recursion
+gcd a b -> b == 0 ? a : gcd(b, a % b)
+
+// Test
+!gcd(48, 18)    // 6
+!gcd(100, 25)   // 25
+!gcd(17, 13)    // 1

@@ -1,0 +1,7 @@
+// Even numbers using parameterized stream generator
+evens limit -> [0, ... x + 2]
+
+// Test
+!evens(10)[0]   // 0
+!evens(10)[1]   // 2
+!evens(10)[5]   // 10

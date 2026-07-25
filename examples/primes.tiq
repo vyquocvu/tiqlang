@@ -1,0 +1,7 @@
+// Simple prime check for small numbers
+is_prime n -> n > 1 && n % 2 != 0
+
+// Test
+!is_prime(3)    // 1
+!is_prime(4)    // 0
+!is_prime(17)   // 1

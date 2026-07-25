@@ -1,3 +1,5 @@
+// Fibonacci sequence: F[n] = F[n-1] + F[n-2]
 fib = [0, 1, ... a + b]
 
-!fib[10]
+// Print first 11 Fibonacci numbers
+[0..11 | !fib[i]]

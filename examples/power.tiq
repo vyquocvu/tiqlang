@@ -1,5 +1,9 @@
-pow b -> [1, ... x * b]
+// Power: base^exp using stream generator
+// Syntax: pow(base)[exp] returns base^exp
+pow base -> [1, ... x * base]
 
-!pow(2)[0]
-!pow(2)[10]
-!pow(3)[3]
+// Test - bracket call syntax
+!pow(2)[0]   // 1
+!pow(2)[1]   // 2
+!pow(2)[10]  // 1024
+!pow(3)[4]   // 81

@@ -1,0 +1,7 @@
+// Odd numbers using parameterized stream generator
+odds limit -> [1, ... x + 2]
+
+// Test
+!odds(10)[0]   // 1
+!odds(10)[1]   // 3
+!odds(10)[5]   // 11

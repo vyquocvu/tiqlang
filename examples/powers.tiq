@@ -1,0 +1,11 @@
+// Powers of 2: 2^n
+pow2 = [1, ... x * 2]
+
+// Powers of 3: 3^n
+pow3 = [1, ... x * 3]
+
+// Print powers of 2
+[0..10 | !pow2[i]]
+
+// Print powers of 3
+[0..5 | !pow3[i]]

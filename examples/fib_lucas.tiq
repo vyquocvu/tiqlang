@@ -1,0 +1,7 @@
+// Fibonacci and Lucas numbers side by side
+fib = [0, 1, ... a + b]
+lucas = [2, 1, ... a + b]
+
+// Print comparison
+[0..10 | !fib[i]]
+[0..10 | !lucas[i]]

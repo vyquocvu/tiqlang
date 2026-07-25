@@ -1,0 +1,19 @@
+// Arithmetic progression with step k
+// step 1: 0, 1, 2, 3, 4...
+step1 = [0, ... x + 1]
+
+// step 3: 0, 3, 6, 9, 12...
+step3 = [0, ... x + 3]
+
+// step 5: 1, 6, 11, 16, 21...
+step5 = [1, ... x + 5]
+
+// Arithmetic with parameter
+arith step -> [0, ... x + step]
+
+// Print arithmetic progressions
+[0..6 | !step1[i]]
+[0..6 | !step3[i]]
+[0..6 | !step5[i]]
+!arith(7)[0]
+!arith(7)[5]

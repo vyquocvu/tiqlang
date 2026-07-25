@@ -1,0 +1,17 @@
+// Multiple sequences
+fib = [0, 1, ... a + b]
+fact = [1, ... i * x]
+square = [0, 1, ... i * i]
+pow2 = [1, ... x * 2]
+
+// Fibonacci: 0, 1, 1, 2, 3, 5, 8...
+[0..7 | !fib[i]]
+
+// Factorial: 1, 1, 2, 6, 24, 120...
+[0..6 | !fact[i]]
+
+// Squares: 0, 1, 4, 9, 16, 25...
+[0..7 | !square[i]]
+
+// Powers of 2: 1, 2, 4, 8, 16, 32...
+[0..7 | !pow2[i]]
