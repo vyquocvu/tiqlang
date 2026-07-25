@@ -1,8 +1,27 @@
 // Sum of first n natural numbers
-sum n -> n <= 0 ? 0 : n + sum(n - 1)
 
-// Test
-!sum(10)   // 55
-!sum(100)  // 5050
-!sum(0)    // 0
-!sum(1)    // 1
+// 1. Recursive approach: O(n) call stack
+sum_rec n -> n <= 0 ? 0 : n + sum_rec(n - 1)
+
+// 2. Closed-form formula approach: O(1) time & space
+sum_formula n -> n <= 0 ? 0 : n * (n + 1) / 2
+
+// 3. Stream generator approach: sum_seq[n] computes sum of 0..n
+sum_seq = [0, ... x + i]
+
+// --- Tests ---
+!sum_rec(10)      // 55
+!sum_formula(10)  // 55
+!sum_seq[10]      // 55
+
+!sum_rec(100)     // 5050
+!sum_formula(100) // 5050
+!sum_seq[100]     // 5050
+
+!sum_rec(0)       // 0
+!sum_formula(0)   // 0
+!sum_seq[0]       // 0
+
+!sum_rec(1)       // 1
+!sum_formula(1)   // 1
+!sum_seq[1]       // 1

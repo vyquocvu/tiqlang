@@ -98,7 +98,7 @@ BRACKET_LOOP <TYPE_UNKNOWN>
   BINARY DOT_DOT <TYPE_INT>
     INT 0 <TYPE_INT>
     INT 3 <TYPE_INT>
-  ASSIGN x PLUS_EQ <TYPE_UNKNOWN>
+  ASSIGN x PLUS_EQ <TYPE_INT>
     IDENT i <TYPE_INT>'
 
 assert_semantic_ast "typed_bracket_expr" 'x = [1 + 2]' 'BINDING x <TYPE_INT>

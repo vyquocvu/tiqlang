@@ -1,17 +1,30 @@
 // LeetCode #1: Two Sum
-// Note: Without print statements, this compiles but doesn't output results.
-// The algorithm finds indices [0, 1] for target 9 in [2, 7, 11, 15].
+// Given an array of integers nums and an integer target,
+// return indices of the two numbers such that they add up to target.
 
-nums = [2, 7, 11, 15]
-target = 9
-idx1 <- -1
-idx2 <- -1
-j <- 0
-
-[0..len(nums) |
-    j <- i + 1,
-    [j < len(nums) |
-        [(nums[i] + nums[j] == target) | idx1 <- i, idx2 <- j, break],
-        j += 1
+two_sum nums target -> {
+    idx1 <- -1
+    idx2 <- -1
+    j <- 0
+    [0..len(nums) |
+        j <- i + 1,
+        [j < len(nums) |
+            [(nums[i] + nums[j] == target) | idx1 <- i, idx2 <- j, break],
+            j += 1
+        ],
+        [(idx1 != -1) | break]
     ]
-]
+    idx1 * 10 + idx2
+}
+
+// Test case 1: nums = [2, 7, 11, 15], target = 9 -> indices [0, 1] (01 = 1)
+nums1 = [2, 7, 11, 15]
+!two_sum(nums1, 9)
+
+// Test case 2: nums = [3, 2, 4], target = 6 -> indices [1, 2] (12)
+nums2 = [3, 2, 4]
+!two_sum(nums2, 6)
+
+// Test case 3: nums = [3, 3], target = 6 -> indices [0, 1] (01 = 1)
+nums3 = [3, 3]
+!two_sum(nums3, 6)

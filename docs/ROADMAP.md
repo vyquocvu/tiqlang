@@ -316,7 +316,6 @@ Status: done
 
 ## Explicitly deferred
 
-- self-hosting (until M11);
 - macros;
 - direct LLVM/native backend;
 - garbage-collected mode;

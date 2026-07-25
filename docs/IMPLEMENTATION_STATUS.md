@@ -105,7 +105,7 @@ M6 — Service-ready standard library (complete)
 
 ### M7 — M11: Complete Roadmap Features (complete)
 
-- M7: Array fill `[val; len]`, string character indexing `s[i]`, non-owning `TiqSlice` parameter decay, structured concurrency `chan`/`spawn`, `--target` flag compiler driver.
+- M7: Array fill `[val; len]`, string character indexing `s[i]`, non-owning `TiqSlice` parameter decay, reusable functions with block bodies and parameter type inference, structured concurrency `chan`/`spawn`, `--target` flag compiler driver.
 - M8: Record / struct type definitions, field access `point.x`, pattern matching `match expr { pattern => body }`, Option/Result type foundations.
 - M9: Non-owning borrow references `&x` and `&mut x` with lifetime validation.
 - M10: Non-blocking event loop & networking socket primitives.

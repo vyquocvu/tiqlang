@@ -98,7 +98,7 @@ static void check_node(SemanticContext *ctx, AstNode *node) {
             } else {
                 SemanticType *t = alloc_type(sym->type.kind);
                 t->param_count = sym->type.param_count;
-                if (sym->type.kind == TYPE_ARRAY) {
+                if (sym->type.kind == TYPE_ARRAY || sym->type.kind == TYPE_SLICE) {
                     t->array_length = sym->type.array_length;
                     if (sym->type.element_type)
                         t->element_type = alloc_type(sym->type.element_type->kind);
@@ -217,7 +217,15 @@ static void check_node(SemanticContext *ctx, AstNode *node) {
                         if (node->as.call.args[0]) check_node(ctx, node->as.call.args[0]);
                         SemanticType *at = node->as.call.args[0] ?
                             node->as.call.args[0]->semantic_type : NULL;
-                        if (!at || (at->kind != TYPE_ARRAY && at->kind != TYPE_SLICE && at->kind != TYPE_STR && at->kind != TYPE_STR_VIEW))
+                        if (node->as.call.args[0] && node->as.call.args[0]->kind == AST_IDENTIFIER) {
+                            Symbol *sym = env_lookup(ctx->current_env, node->as.call.args[0]->as.identifier.name);
+                            if (sym && sym->type.kind == TYPE_UNKNOWN) {
+                                sym->type.kind = TYPE_SLICE;
+                                sym->type.element_type = alloc_type(TYPE_INT);
+                                if (at) { at->kind = TYPE_SLICE; at->element_type = alloc_type(TYPE_INT); }
+                            }
+                        }
+                        if (!at || (at->kind != TYPE_ARRAY && at->kind != TYPE_SLICE && at->kind != TYPE_STR && at->kind != TYPE_STR_VIEW && at->kind != TYPE_UNKNOWN))
                             diag_error(ctx->diag, ctx->path, node->token.line, ERR_TYPE_MISMATCH,
                                        "len expects an array argument");
                     }
@@ -388,7 +396,16 @@ static void check_node(SemanticContext *ctx, AstNode *node) {
                             node->semantic_type = alloc_type(TYPE_UNKNOWN);
                             break;
                         }
-                    } else if (callee_type->kind == TYPE_ARRAY || callee_type->kind == TYPE_SLICE) {
+                    } else if (callee_type->kind == TYPE_ARRAY || callee_type->kind == TYPE_SLICE || callee_type->kind == TYPE_UNKNOWN) {
+                        if (callee_type->kind == TYPE_UNKNOWN && node->as.call.callee->kind == AST_IDENTIFIER) {
+                            Symbol *sym = env_lookup(ctx->current_env, node->as.call.callee->as.identifier.name);
+                            if (sym && sym->type.kind == TYPE_UNKNOWN) {
+                                sym->type.kind = TYPE_SLICE;
+                                sym->type.element_type = alloc_type(TYPE_INT);
+                                callee_type->kind = TYPE_SLICE;
+                                callee_type->element_type = alloc_type(TYPE_INT);
+                            }
+                        }
                         if (node->as.call.arg_count >= 1 && node->as.call.args[0]) {
                             SemanticType *it = node->as.call.args[0]->semantic_type;
                             if (it && it->kind != TYPE_INT)
@@ -476,10 +493,21 @@ static void check_node(SemanticContext *ctx, AstNode *node) {
             {
                 Symbol *sym = env_lookup(ctx->current_env, node->as.assign.name);
                 if (!sym) {
-                    char msg[256];
-                    snprintf(msg, sizeof(msg), "undefined symbol '%.*s'",
-                             (int)node->as.assign.name.length, node->as.assign.name.start);
-                    diag_error(ctx->diag, ctx->path, node->token.line, ERR_UNDEFINED_SYMBOL, msg);
+                    if ((node->as.assign.op == TOK_EQ || node->as.assign.op == TOK_LARROW) && !node->as.assign.index) {
+                        SemanticType type = { .kind = TYPE_UNKNOWN };
+                        if (node->as.assign.expr && node->as.assign.expr->semantic_type) {
+                            type = *(SemanticType *)node->as.assign.expr->semantic_type;
+                        }
+                        bool is_mut = (node->as.assign.op == TOK_LARROW);
+                        env_define(ctx->current_env, node->as.assign.name, is_mut, type);
+                        node->as.assign.is_definition = true;
+                        sym = env_lookup(ctx->current_env, node->as.assign.name);
+                    } else {
+                        char msg[256];
+                        snprintf(msg, sizeof(msg), "undefined symbol '%.*s'",
+                                 (int)node->as.assign.name.length, node->as.assign.name.start);
+                        diag_error(ctx->diag, ctx->path, node->token.line, ERR_UNDEFINED_SYMBOL, msg);
+                    }
                 } else if (!sym->is_mutable) {
                     diag_error(ctx->diag, ctx->path, node->token.line, ERR_IMMUTABLE_ASSIGNMENT, "cannot assign to immutable binding");
                 } else {
@@ -491,34 +519,44 @@ static void check_node(SemanticContext *ctx, AstNode *node) {
                         if (it && it->kind != TYPE_INT)
                             diag_error(ctx->diag, ctx->path, node->token.line, ERR_TYPE_MISMATCH,
                                        "array index must be int");
-                        if (sym->type.kind != TYPE_ARRAY)
+                        if (sym->type.kind != TYPE_ARRAY && sym->type.kind != TYPE_SLICE)
                             diag_error(ctx->diag, ctx->path, node->token.line, ERR_TYPE_MISMATCH,
                                        "cannot index non-array");
                     }
                 }
-                if (node->as.assign.index && sym && sym->type.kind == TYPE_ARRAY) {
-                    SemanticType *arr_type = alloc_type(TYPE_ARRAY);
-                    arr_type->array_length = sym->type.array_length;
+                if (sym) {
+                    SemanticType *st = alloc_type(sym->type.kind);
+                    st->array_length = sym->type.array_length;
                     if (sym->type.element_type)
-                        arr_type->element_type = alloc_type(sym->type.element_type->kind);
-                    node->semantic_type = arr_type;
+                        st->element_type = alloc_type(sym->type.element_type->kind);
+                    node->semantic_type = st;
                 } else {
                     node->semantic_type = alloc_type(TYPE_UNKNOWN);
                 }
             }
             break;
         case AST_FUNCTION: {
-            SemanticType unknown_type = { .kind = TYPE_UNKNOWN };
             SemanticType func_type = { .kind = TYPE_UNKNOWN };
             func_type.param_count = node->as.function.param_count;
             env_define(ctx->current_env, node->as.function.name, false, func_type);
             Environment func_env;
             env_init(&func_env, ctx->current_env);
             ctx->current_env = &func_env;
+            node->as.function.param_types = malloc(sizeof(void *) * (node->as.function.param_count > 0 ? node->as.function.param_count : 1));
             for (int i = 0; i < node->as.function.param_count; i++) {
-                env_define(ctx->current_env, node->as.function.params[i], false, unknown_type);
+                SemanticType *pt = alloc_type(TYPE_UNKNOWN);
+                node->as.function.param_types[i] = pt;
+                env_define(ctx->current_env, node->as.function.params[i], false, *pt);
             }
             check_node(ctx, node->as.function.body);
+            for (int i = 0; i < node->as.function.param_count; i++) {
+                Symbol *psym = env_lookup(ctx->current_env, node->as.function.params[i]);
+                if (psym) {
+                    ((SemanticType *)node->as.function.param_types[i])->kind = psym->type.kind;
+                    if (psym->type.element_type)
+                        ((SemanticType *)node->as.function.param_types[i])->element_type = alloc_type(psym->type.element_type->kind);
+                }
+            }
             ctx->current_env = func_env.parent;
             env_free(&func_env);
             PrimitiveType ret_kind = TYPE_UNKNOWN;
@@ -680,7 +718,12 @@ static void check_node(SemanticContext *ctx, AstNode *node) {
             }
             SemanticType *arr_type = alloc_type(TYPE_ARRAY);
             arr_type->element_type = alloc_type(vt ? vt->kind : TYPE_UNKNOWN);
-            arr_type->array_length = 0;
+            int fill_len = 0;
+            if (node->as.array_fill.length && node->as.array_fill.length->kind == AST_LITERAL &&
+                node->as.array_fill.length->as.literal.type == TOK_INT) {
+                fill_len = atoi(node->as.array_fill.length->token.start);
+            }
+            arr_type->array_length = fill_len;
             node->semantic_type = arr_type;
             break;
         }

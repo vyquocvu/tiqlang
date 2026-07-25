@@ -1,0 +1,16 @@
+// LeetCode #70: Climbing Stairs
+// You can climb 1 or 2 steps at a time.
+// How many distinct ways to reach the top of n stairs?
+// This is exactly the Fibonacci sequence: ways(n) = ways(n-1) + ways(n-2).
+
+// Use a stream generator: stairs[n] gives the answer for n stairs.
+// stairs[1] = 1, stairs[2] = 2, stairs[n] = stairs[n-1] + stairs[n-2]
+stairs = [1, 2, ... a + b]
+
+// Tests
+!stairs[0]   // 1  (n=1)
+!stairs[1]   // 2  (n=2)
+!stairs[2]   // 3  (n=3)
+!stairs[3]   // 5  (n=4)
+!stairs[4]   // 8  (n=5)
+!stairs[9]   // 89 (n=10)

@@ -72,6 +72,16 @@ static AstNode *block(Parser *parser) {
     while (!check(parser, TOK_RBRACE) && !check(parser, TOK_EOF)) {
         AstNode *stmt = statement(parser);
         if (parser->diag->fatal_error) break;
+        if (check(parser, TOK_RBRACE)) {
+            node->as.block.final_expr = stmt;
+            break;
+        }
+        if (match(parser, TOK_SEMICOLON) || parser->crossed_newline) {
+            if (check(parser, TOK_RBRACE)) {
+                node->as.block.final_expr = stmt;
+                break;
+            }
+        }
         if (stmt && stmt->kind == AST_DEFER) {
             if (node->as.block.defer_count + 1 > defer_capacity) {
                 defer_capacity = defer_capacity < 4 ? 4 : defer_capacity * 2;
@@ -505,8 +515,9 @@ static AstNode *statement(Parser *parser) {
         Lexer peek_lexer = parser->lexer;
         Token next = lexer_next(&peek_lexer);
         while (next.kind == TOK_NEWLINE) next = lexer_next(&peek_lexer);
-        if (next.kind == TOK_LARROW || next.kind == TOK_PLUS_EQ || next.kind == TOK_MINUS_EQ ||
-            next.kind == TOK_STAR_EQ || next.kind == TOK_SLASH_EQ || next.kind == TOK_PERCENT_EQ) {
+        if (next.kind == TOK_EQ || next.kind == TOK_LARROW || next.kind == TOK_PLUS_EQ ||
+            next.kind == TOK_MINUS_EQ || next.kind == TOK_STAR_EQ || next.kind == TOK_SLASH_EQ ||
+            next.kind == TOK_PERCENT_EQ) {
             advance(parser);
             advance(parser);
             return assign_statement(parser, name);

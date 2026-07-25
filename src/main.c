@@ -237,35 +237,46 @@ static void emit_expr(AstNode *node, FILE *out, DiagContext *diag, const char *p
             }
             if (node->as.call.is_bracket_call && node->as.call.callee) {
                 SemanticType *ct = node->as.call.callee->semantic_type;
-                if (ct && ct->kind == TYPE_ARRAY) {
-                    int len = ct->array_length;
-                    if (len > 0 && node->as.call.arg_count > 0 && node->as.call.args[0]) {
-                        fputs("((unsigned)(", out);
-                        emit_expr(node->as.call.args[0], out, diag, path);
-                        fprintf(out, ") < (unsigned)(%d) ? ", len);
-                        emit_expr(node->as.call.callee, out, diag, path);
-                        fputs("[", out);
-                        for (int i = 0; i < node->as.call.arg_count; i++) {
-                            if (i > 0) fputs("][", out);
-                            if (node->as.call.args[i]) emit_expr(node->as.call.args[i], out, diag, path);
+                if (ct && (ct->kind == TYPE_ARRAY || ct->kind == TYPE_SLICE)) {
+                    if (ct->kind == TYPE_ARRAY) {
+                        int len = ct->array_length;
+                        if (len > 0 && node->as.call.arg_count > 0 && node->as.call.args[0]) {
+                            fputs("((unsigned)(", out);
+                            emit_expr(node->as.call.args[0], out, diag, path);
+                            fprintf(out, ") < (unsigned)(%d) ? ", len);
+                            emit_expr(node->as.call.callee, out, diag, path);
+                            fputs("[", out);
+                            for (int i = 0; i < node->as.call.arg_count; i++) {
+                                if (i > 0) fputs("][", out);
+                                if (node->as.call.args[i]) emit_expr(node->as.call.args[i], out, diag, path);
+                            }
+                            fputs("] : (fprintf(stderr, \"tiq: index %d out of bounds for array of length %d\\n\", (int)(", out);
+                            emit_expr(node->as.call.args[0], out, diag, path);
+                            fprintf(out, "), %d), exit(1), ", len);
+                            emit_expr(node->as.call.callee, out, diag, path);
+                            fputs("[", out);
+                            for (int i = 0; i < node->as.call.arg_count; i++) {
+                                if (i > 0) fputs("][", out);
+                                if (node->as.call.args[i]) emit_expr(node->as.call.args[i], out, diag, path);
+                            }
+                            fputs("]))", out);
+                        } else {
+                            emit_expr(node->as.call.callee, out, diag, path);
+                            fputs("[", out);
+                            for (int i = 0; i < node->as.call.arg_count; i++) {
+                                if (i > 0) fputs("][", out);
+                                if (node->as.call.args[i]) emit_expr(node->as.call.args[i], out, diag, path);
+                            }
+                            fputs("]", out);
                         }
-                        fputs("] : (fprintf(stderr, \"tiq: index %d out of bounds for array of length %d\\n\", (int)(", out);
-                        emit_expr(node->as.call.args[0], out, diag, path);
-                        fprintf(out, "), %d), exit(1), ", len);
-                        emit_expr(node->as.call.callee, out, diag, path);
-                        fputs("[", out);
-                        for (int i = 0; i < node->as.call.arg_count; i++) {
-                            if (i > 0) fputs("][", out);
-                            if (node->as.call.args[i]) emit_expr(node->as.call.args[i], out, diag, path);
-                        }
-                        fputs("]))", out);
                     } else {
+                        fputs("((const int*)(((TiqSlice)(", out);
                         emit_expr(node->as.call.callee, out, diag, path);
-                        fputs("[", out);
-                        for (int i = 0; i < node->as.call.arg_count; i++) {
-                            if (i > 0) fputs("][", out);
-                            if (node->as.call.args[i]) emit_expr(node->as.call.args[i], out, diag, path);
-                        }
+                        fputs(")).ptr))[", out);
+                        if (node->as.call.arg_count > 0 && node->as.call.args[0])
+                            emit_expr(node->as.call.args[0], out, diag, path);
+                        else
+                            fputs("0", out);
                         fputs("]", out);
                     }
                     break;
@@ -301,7 +312,14 @@ static void emit_expr(AstNode *node, FILE *out, DiagContext *diag, const char *p
             }
             for (int i = 0; i < node->as.call.arg_count; i++) {
                 if (i > 0) fputs(", ", out);
-                if (node->as.call.args[i]) emit_expr(node->as.call.args[i], out, diag, path);
+                SemanticType *arg_t = node->as.call.args[i] ? node->as.call.args[i]->semantic_type : NULL;
+                if (arg_t && arg_t->kind == TYPE_ARRAY && !node->as.call.is_bracket_call) {
+                    fputs("(TiqSlice){ .ptr = ", out);
+                    emit_expr(node->as.call.args[i], out, diag, path);
+                    fprintf(out, ", .len = %d }", arg_t->array_length);
+                } else {
+                    if (node->as.call.args[i]) emit_expr(node->as.call.args[i], out, diag, path);
+                }
             }
             fputs(")", out);
             break;
@@ -414,6 +432,23 @@ static void emit_stmt(AstNode *node, FILE *out, DiagContext *diag, const char *p
         }
         case AST_ASSIGN:
             {
+                if (node->as.assign.is_definition) {
+                    SemanticType *st = node->semantic_type;
+                    if (st && st->kind == TYPE_ARRAY) {
+                        if (st->element_type) emit_type_name(st->element_type->kind, out);
+                        else fputs("int", out);
+                        int arr_len = st->array_length > 0 ? st->array_length : 0;
+                        fprintf(out, " %.*s[%d] = ", (int)node->as.assign.name.length, node->as.assign.name.start, arr_len);
+                        emit_expr(node->as.assign.expr, out, diag, path);
+                        fputs(";\n", out);
+                    } else {
+                        if (st) emit_type_name(st->kind, out); else fputs("int", out);
+                        fprintf(out, " %.*s = ", (int)node->as.assign.name.length, node->as.assign.name.start);
+                        emit_expr(node->as.assign.expr, out, diag, path);
+                        fputs(";\n", out);
+                    }
+                    break;
+                }
                 int arr_len = 0;
                 SemanticType *st = node->semantic_type;
                 if (st && st->kind == TYPE_ARRAY) arr_len = st->array_length;
@@ -795,7 +830,9 @@ static void compile_to_c(const char *source_path, const char *source, FILE *out,
                 fprintf(out, " %.*s(", (int)stmts[i]->as.function.name.length, stmts[i]->as.function.name.start);
                 for (int j = 0; j < stmts[i]->as.function.param_count; j++) {
                     if (j > 0) fputs(", ", out);
-                    fputs("int ", out);
+                    SemanticType *pt = (SemanticType *)(stmts[i]->as.function.param_types ? stmts[i]->as.function.param_types[j] : NULL);
+                    if (pt && pt->kind == TYPE_SLICE) fputs("TiqSlice ", out);
+                    else fputs("int ", out);
                     fprintf(out, "%.*s", (int)stmts[i]->as.function.params[j].length, stmts[i]->as.function.params[j].start);
                 }
                 fputs(");\n", out);
@@ -828,12 +865,33 @@ static void compile_to_c(const char *source_path, const char *source, FILE *out,
             fprintf(out, "\n%.*s(", (int)stmts[i]->as.function.name.length, stmts[i]->as.function.name.start);
             for (int j = 0; j < stmts[i]->as.function.param_count; j++) {
                 if (j > 0) fputs(", ", out);
-                fputs("int ", out);
+                SemanticType *pt = (SemanticType *)(stmts[i]->as.function.param_types ? stmts[i]->as.function.param_types[j] : NULL);
+                if (pt && pt->kind == TYPE_SLICE) fputs("TiqSlice ", out);
+                else fputs("int ", out);
                 fprintf(out, "%.*s", (int)stmts[i]->as.function.params[j].length, stmts[i]->as.function.params[j].start);
             }
-            fputs(") {\n    return ", out);
-            emit_expr(stmts[i]->as.function.body, out, diag, source_path);
-            fputs(";\n}\n\n", out);
+            if (stmts[i]->as.function.body && stmts[i]->as.function.body->kind == AST_BLOCK) {
+                fputs(") {\n", out);
+                AstNode *block = stmts[i]->as.function.body;
+                for (int s = 0; s < block->as.block.stmt_count; s++) {
+                    emit_stmt(block->as.block.statements[s], out, diag, source_path, 1);
+                }
+                for (int d = 0; d < block->as.block.defer_count; d++) {
+                    emit_stmt(block->as.block.deferred[d], out, diag, source_path, 1);
+                }
+                if (block->as.block.final_expr) {
+                    fputs("    return ", out);
+                    emit_expr(block->as.block.final_expr, out, diag, source_path);
+                    fputs(";\n", out);
+                } else {
+                    fputs("    return 0;\n", out);
+                }
+                fputs("}\n\n", out);
+            } else {
+                fputs(") {\n    return ", out);
+                emit_expr(stmts[i]->as.function.body, out, diag, source_path);
+                fputs(";\n}\n\n", out);
+            }
         }
     }
 

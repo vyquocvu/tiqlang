@@ -1,0 +1,14 @@
+// LeetCode #231: Power of Two
+// Given an integer n, return true if it is a power of two.
+// A power of two has exactly one bit set: n & (n-1) == 0.
+
+is_power_of_two n -> n > 0 && (n & (n - 1)) == 0
+
+// Tests
+!is_power_of_two(1)    // true  -> 1
+!is_power_of_two(2)    // true  -> 1
+!is_power_of_two(3)    // false -> 0
+!is_power_of_two(4)    // true  -> 1
+!is_power_of_two(16)   // true  -> 1
+!is_power_of_two(0)    // false -> 0
+!is_power_of_two(-4)   // false -> 0

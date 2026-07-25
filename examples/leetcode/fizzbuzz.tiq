@@ -1,0 +1,13 @@
+// LeetCode #412: FizzBuzz
+// For numbers 1 through 15:
+//   divisible by both 3 and 5 -> print 0 (representing "FizzBuzz")
+//   divisible by 3             -> print 1 (representing "Fizz")
+//   divisible by 5             -> print 2 (representing "Buzz")
+//   otherwise                  -> print the number i
+
+[1..16 |
+    [(i % 15 == 0) | !0, skip],
+    [(i % 3  == 0) | !1, skip],
+    [(i % 5  == 0) | !2, skip],
+    !i
+]

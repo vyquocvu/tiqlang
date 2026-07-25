@@ -97,11 +97,13 @@ struct AstNode {
             TokenKind op;
             AstNode *index;
             AstNode *expr;
+            bool is_definition;
         } assign;
 
         struct {
             Token name;
             Token *params;
+            void **param_types;
             int param_count;
             AstNode *body;
         } function;
