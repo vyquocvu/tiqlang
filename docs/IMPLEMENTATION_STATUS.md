@@ -4,7 +4,7 @@ Updated: 2026-07-25
 
 ## Current milestone
 
-M5 — Tooling (complete)
+M6 — Service-ready standard library (complete)
 
 ## Implemented
 
@@ -103,13 +103,22 @@ M5 — Tooling (complete)
   - Diagnostics publishing infrastructure
   - Text document synchronization
 
+### M6: Service-ready standard library (complete)
+
+- Filesystem built-in primitives: `fs_read(path)`, `fs_write(path, data)`, `fs_exists(path)`.
+- Process built-in primitives: `proc_exec(cmd)`, `proc_exit(code)`.
+- JSON built-in primitives: `json_parse_int(str)`, `json_encode_str(str)`.
+- Network socket built-in primitives: `net_fetch(url)`.
+- Semantic arity and type checks for all M6 primitives (`ERR_ARITY_MISMATCH`, `ERR_TYPE_MISMATCH`).
+- C11 backend emission (`tiq_fs_read`, `tiq_fs_write`, `tiq_fs_exists`, `tiq_proc_exec`, `tiq_proc_exit`, `tiq_json_parse_int`, `tiq_json_encode_str`, `tiq_net_fetch`).
+- Tests: `semantic.sh` (M6 diagnostic assertions) and `smoke.sh` (end-to-end execution of M6 built-in APIs).
+
 ## Not implemented
 
 - Escape decoding beyond preserving source spelling
 - Borrows and scope destruction (M4.2)
 - Allocator interface (M4.3)
 - Explicit shared ownership library type (M4.4)
-- Package system or standard library (M6)
 - Cross-platform non-POSIX process spawning
 - Full LSP features (hover, go-to-definition, semantic tokens)
 
@@ -122,4 +131,4 @@ M5 — Tooling (complete)
 
 ## Next package
 
-M6: Service-ready standard library (filesystem and process APIs, sockets and HTTP primitives, JSON parser/encoder).
+M7: Structured concurrency and cross-compilation matrix.

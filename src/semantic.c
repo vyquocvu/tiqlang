@@ -224,6 +224,104 @@ static void check_node(SemanticContext *ctx, AstNode *node) {
                     node->semantic_type = alloc_type(TYPE_INT);
                     break;
                 }
+                if (name.length == 7 && memcmp(name.start, "fs_read", 7) == 0) {
+                    if (node->as.call.arg_count != 1) {
+                        diag_error(ctx->diag, ctx->path, node->token.line, ERR_ARITY_MISMATCH, "fs_read expects exactly 1 argument");
+                    } else {
+                        if (node->as.call.args[0]) check_node(ctx, node->as.call.args[0]);
+                        SemanticType *at = node->as.call.args[0] ? node->as.call.args[0]->semantic_type : NULL;
+                        if (at && at->kind != TYPE_STR && at->kind != TYPE_STR_VIEW)
+                            diag_error(ctx->diag, ctx->path, node->token.line, ERR_TYPE_MISMATCH, "fs_read expects a string argument");
+                    }
+                    node->semantic_type = alloc_type(TYPE_STR);
+                    break;
+                }
+                if (name.length == 8 && memcmp(name.start, "fs_write", 8) == 0) {
+                    if (node->as.call.arg_count != 2) {
+                        diag_error(ctx->diag, ctx->path, node->token.line, ERR_ARITY_MISMATCH, "fs_write expects exactly 2 arguments");
+                    } else {
+                        for (int i = 0; i < 2; i++) {
+                            if (node->as.call.args[i]) check_node(ctx, node->as.call.args[i]);
+                            SemanticType *at = node->as.call.args[i] ? node->as.call.args[i]->semantic_type : NULL;
+                            if (at && at->kind != TYPE_STR && at->kind != TYPE_STR_VIEW)
+                                diag_error(ctx->diag, ctx->path, node->token.line, ERR_TYPE_MISMATCH, "fs_write expects string arguments");
+                        }
+                    }
+                    node->semantic_type = alloc_type(TYPE_INT);
+                    break;
+                }
+                if (name.length == 9 && memcmp(name.start, "fs_exists", 9) == 0) {
+                    if (node->as.call.arg_count != 1) {
+                        diag_error(ctx->diag, ctx->path, node->token.line, ERR_ARITY_MISMATCH, "fs_exists expects exactly 1 argument");
+                    } else {
+                        if (node->as.call.args[0]) check_node(ctx, node->as.call.args[0]);
+                        SemanticType *at = node->as.call.args[0] ? node->as.call.args[0]->semantic_type : NULL;
+                        if (at && at->kind != TYPE_STR && at->kind != TYPE_STR_VIEW)
+                            diag_error(ctx->diag, ctx->path, node->token.line, ERR_TYPE_MISMATCH, "fs_exists expects a string argument");
+                    }
+                    node->semantic_type = alloc_type(TYPE_BOOL);
+                    break;
+                }
+                if (name.length == 9 && memcmp(name.start, "proc_exec", 9) == 0) {
+                    if (node->as.call.arg_count != 1) {
+                        diag_error(ctx->diag, ctx->path, node->token.line, ERR_ARITY_MISMATCH, "proc_exec expects exactly 1 argument");
+                    } else {
+                        if (node->as.call.args[0]) check_node(ctx, node->as.call.args[0]);
+                        SemanticType *at = node->as.call.args[0] ? node->as.call.args[0]->semantic_type : NULL;
+                        if (at && at->kind != TYPE_STR && at->kind != TYPE_STR_VIEW)
+                            diag_error(ctx->diag, ctx->path, node->token.line, ERR_TYPE_MISMATCH, "proc_exec expects a string argument");
+                    }
+                    node->semantic_type = alloc_type(TYPE_INT);
+                    break;
+                }
+                if (name.length == 9 && memcmp(name.start, "proc_exit", 9) == 0) {
+                    if (node->as.call.arg_count != 1) {
+                        diag_error(ctx->diag, ctx->path, node->token.line, ERR_ARITY_MISMATCH, "proc_exit expects exactly 1 argument");
+                    } else {
+                        if (node->as.call.args[0]) check_node(ctx, node->as.call.args[0]);
+                        SemanticType *at = node->as.call.args[0] ? node->as.call.args[0]->semantic_type : NULL;
+                        if (at && at->kind != TYPE_INT)
+                            diag_error(ctx->diag, ctx->path, node->token.line, ERR_TYPE_MISMATCH, "proc_exit expects an int argument");
+                    }
+                    node->semantic_type = alloc_type(TYPE_INT);
+                    break;
+                }
+                if (name.length == 14 && memcmp(name.start, "json_parse_int", 14) == 0) {
+                    if (node->as.call.arg_count != 1) {
+                        diag_error(ctx->diag, ctx->path, node->token.line, ERR_ARITY_MISMATCH, "json_parse_int expects exactly 1 argument");
+                    } else {
+                        if (node->as.call.args[0]) check_node(ctx, node->as.call.args[0]);
+                        SemanticType *at = node->as.call.args[0] ? node->as.call.args[0]->semantic_type : NULL;
+                        if (at && at->kind != TYPE_STR && at->kind != TYPE_STR_VIEW)
+                            diag_error(ctx->diag, ctx->path, node->token.line, ERR_TYPE_MISMATCH, "json_parse_int expects a string argument");
+                    }
+                    node->semantic_type = alloc_type(TYPE_INT);
+                    break;
+                }
+                if (name.length == 15 && memcmp(name.start, "json_encode_str", 15) == 0) {
+                    if (node->as.call.arg_count != 1) {
+                        diag_error(ctx->diag, ctx->path, node->token.line, ERR_ARITY_MISMATCH, "json_encode_str expects exactly 1 argument");
+                    } else {
+                        if (node->as.call.args[0]) check_node(ctx, node->as.call.args[0]);
+                        SemanticType *at = node->as.call.args[0] ? node->as.call.args[0]->semantic_type : NULL;
+                        if (at && at->kind != TYPE_STR && at->kind != TYPE_STR_VIEW)
+                            diag_error(ctx->diag, ctx->path, node->token.line, ERR_TYPE_MISMATCH, "json_encode_str expects a string argument");
+                    }
+                    node->semantic_type = alloc_type(TYPE_STR);
+                    break;
+                }
+                if (name.length == 9 && memcmp(name.start, "net_fetch", 9) == 0) {
+                    if (node->as.call.arg_count != 1) {
+                        diag_error(ctx->diag, ctx->path, node->token.line, ERR_ARITY_MISMATCH, "net_fetch expects exactly 1 argument");
+                    } else {
+                        if (node->as.call.args[0]) check_node(ctx, node->as.call.args[0]);
+                        SemanticType *at = node->as.call.args[0] ? node->as.call.args[0]->semantic_type : NULL;
+                        if (at && at->kind != TYPE_STR && at->kind != TYPE_STR_VIEW)
+                            diag_error(ctx->diag, ctx->path, node->token.line, ERR_TYPE_MISMATCH, "net_fetch expects a string argument");
+                    }
+                    node->semantic_type = alloc_type(TYPE_STR);
+                    break;
+                }
                 if ((name.length == 2 && memcmp(name.start, "i8", 2) == 0) ||
                     (name.length == 3 && memcmp(name.start, "i16", 3) == 0) ||
                     (name.length == 3 && memcmp(name.start, "i32", 3) == 0) ||

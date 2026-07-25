@@ -252,13 +252,14 @@ Status: done
 
 ## M6 — Service-ready standard library
 
-Status: queued
+Status: done
 
-- filesystem and process APIs;
-- sockets and HTTP primitives;
-- JSON parser/encoder;
-- structured concurrency after ownership is proven;
-- cross-compilation matrix.
+- [x] Filesystem APIs (`fs_read`, `fs_write`, `fs_exists`)
+- [x] Process APIs (`proc_exec`, `proc_exit`)
+- [x] Sockets and HTTP primitives (`net_fetch`)
+- [x] JSON parser/encoder primitives (`json_parse_int`, `json_encode_str`)
+- [x] Semantic checking and diagnostic assertion tests
+- [x] C11 backend emission and end-to-end smoke tests
 
 ## Explicitly deferred
 

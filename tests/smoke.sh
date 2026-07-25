@@ -127,4 +127,14 @@ printf 'x <- 0\n{\ndefer 99\nx\n}\n' > "$TMP_DIR/defer_with_scope.tiq"
 ./build/tiq build "$TMP_DIR/defer_with_scope.tiq" -o "$TMP_DIR/defer_with_scope" 2>"$TMP_DIR/defer_with_scope.err"
 [ -x "$TMP_DIR/defer_with_scope" ]
 
+printf 'p = "%s/m6_test.txt"\nfs_write(p, "hello m6")\ne = fs_exists(p)\nr = fs_read(p)\nlen(r)\n' "$TMP_DIR" > "$TMP_DIR/m6_fs.tiq"
+./build/tiq build "$TMP_DIR/m6_fs.tiq" -o "$TMP_DIR/m6_fs" 2>"$TMP_DIR/m6_fs.err"
+[ -x "$TMP_DIR/m6_fs" ]
+"$TMP_DIR/m6_fs"
+
+printf 'cmd = "true"\nres = proc_exec(cmd)\nval = json_parse_int("42")\nenc = json_encode_str("test")\nnet = net_fetch("http://localhost")\n' > "$TMP_DIR/m6_sys.tiq"
+./build/tiq build "$TMP_DIR/m6_sys.tiq" -o "$TMP_DIR/m6_sys" 2>"$TMP_DIR/m6_sys.err"
+[ -x "$TMP_DIR/m6_sys" ]
+"$TMP_DIR/m6_sys"
+
 echo "smoke: ok"

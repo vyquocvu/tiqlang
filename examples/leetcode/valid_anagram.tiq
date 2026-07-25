@@ -1,0 +1,26 @@
+// LeetCode #242: Valid Anagram
+// Given two arrays of character codes s and t, determine if t is an anagram of s.
+
+s = [0, 1, 14] // 'a', 'b', 'o'
+t = [14, 0, 1] // 'o', 'a', 'b'
+
+is_anagram <- true
+
+[(len(s) != len(t)) |
+    is_anagram <- false
+]
+
+counts <- [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+
+[(is_anagram) |
+    [0..len(s) |
+        counts[s[i]] += 1,
+        counts[t[i]] -= 1
+    ],
+    [0..26 |
+        [(counts[i] != 0) |
+            is_anagram <- false,
+            break
+        ]
+    ]
+]

@@ -194,4 +194,31 @@ z <- move x
 assert_semantic "defer_outside_block" 'defer 1
 ' "$TMP_DIR/defer_outside_block.tiq:1: error: defer is not allowed outside a block"
 
+assert_semantic "fs_read_non_str" 'fs_read(123)
+' "$TMP_DIR/fs_read_non_str.tiq:1: error: fs_read expects a string argument"
+
+assert_semantic "fs_read_no_args" 'fs_read()
+' "$TMP_DIR/fs_read_no_args.tiq:1: error: fs_read expects exactly 1 argument"
+
+assert_semantic "fs_write_bad_args" 'fs_write("path")
+' "$TMP_DIR/fs_write_bad_args.tiq:1: error: fs_write expects exactly 2 arguments"
+
+assert_semantic "fs_write_type_mismatch" 'fs_write(123, "data")
+' "$TMP_DIR/fs_write_type_mismatch.tiq:1: error: fs_write expects string arguments"
+
+assert_semantic "proc_exec_bad_type" 'proc_exec(123)
+' "$TMP_DIR/proc_exec_bad_type.tiq:1: error: proc_exec expects a string argument"
+
+assert_semantic "proc_exit_bad_type" 'proc_exit("bad")
+' "$TMP_DIR/proc_exit_bad_type.tiq:1: error: proc_exit expects an int argument"
+
+assert_semantic "json_parse_int_bad_type" 'json_parse_int(123)
+' "$TMP_DIR/json_parse_int_bad_type.tiq:1: error: json_parse_int expects a string argument"
+
+assert_semantic "json_encode_str_bad_type" 'json_encode_str(123)
+' "$TMP_DIR/json_encode_str_bad_type.tiq:1: error: json_encode_str expects a string argument"
+
+assert_semantic "net_fetch_bad_type" 'net_fetch(123)
+' "$TMP_DIR/net_fetch_bad_type.tiq:1: error: net_fetch expects a string argument"
+
 echo "semantic: ok"

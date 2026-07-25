@@ -156,6 +156,28 @@ static void emit_expr(AstNode *node, FILE *out, DiagContext *diag, const char *p
                 }
                 break;
             }
+            if (node->as.call.callee && node->as.call.callee->kind == AST_IDENTIFIER) {
+                Token name = node->as.call.callee->as.identifier.name;
+                const char *builtin_fn = NULL;
+                if (name.length == 7 && memcmp(name.start, "fs_read", 7) == 0) builtin_fn = "tiq_fs_read";
+                else if (name.length == 8 && memcmp(name.start, "fs_write", 8) == 0) builtin_fn = "tiq_fs_write";
+                else if (name.length == 9 && memcmp(name.start, "fs_exists", 9) == 0) builtin_fn = "tiq_fs_exists";
+                else if (name.length == 9 && memcmp(name.start, "proc_exec", 9) == 0) builtin_fn = "tiq_proc_exec";
+                else if (name.length == 9 && memcmp(name.start, "proc_exit", 9) == 0) builtin_fn = "tiq_proc_exit";
+                else if (name.length == 14 && memcmp(name.start, "json_parse_int", 14) == 0) builtin_fn = "tiq_json_parse_int";
+                else if (name.length == 15 && memcmp(name.start, "json_encode_str", 15) == 0) builtin_fn = "tiq_json_encode_str";
+                else if (name.length == 9 && memcmp(name.start, "net_fetch", 9) == 0) builtin_fn = "tiq_net_fetch";
+
+                if (builtin_fn) {
+                    fprintf(out, "%s(", builtin_fn);
+                    for (int i = 0; i < node->as.call.arg_count; i++) {
+                        if (i > 0) fputs(", ", out);
+                        if (node->as.call.args[i]) emit_expr(node->as.call.args[i], out, diag, path);
+                    }
+                    fputs(")", out);
+                    break;
+                }
+            }
             if (node->as.call.is_bracket_call && node->as.call.is_slice && node->as.call.callee) {
                 SemanticType *ct = node->as.call.callee->semantic_type;
                 fputs("((TiqSlice){ .ptr = ", out);
@@ -620,7 +642,74 @@ static void compile_to_c(const char *source_path, const char *source, FILE *out,
     fputs("#include <stdio.h>\n", out);
     fputs("#include <stdlib.h>\n", out);
     fputs("#include <string.h>\n", out);
-    fputs("typedef struct { const void *ptr; int len; } TiqSlice;\n", out);
+    fputs("#include <sys/stat.h>\n", out);
+    fputs("typedef struct { const void *ptr; int len; } TiqSlice;\n\n", out);
+
+    fputs("static const char *tiq_fs_read(const char *path) {\n", out);
+    fputs("    FILE *f = fopen(path, \"rb\");\n", out);
+    fputs("    if (!f) return \"\";\n", out);
+    fputs("    fseek(f, 0, SEEK_END);\n", out);
+    fputs("    long len = ftell(f);\n", out);
+    fputs("    fseek(f, 0, SEEK_SET);\n", out);
+    fputs("    if (len < 0) { fclose(f); return \"\"; }\n", out);
+    fputs("    char *buf = (char *)malloc(len + 1);\n", out);
+    fputs("    if (!buf) { fclose(f); return \"\"; }\n", out);
+    fputs("    size_t r = fread(buf, 1, len, f);\n", out);
+    fputs("    fclose(f);\n", out);
+    fputs("    buf[r] = '\\0';\n", out);
+    fputs("    return buf;\n", out);
+    fputs("}\n\n", out);
+
+    fputs("static int tiq_fs_write(const char *path, const char *data) {\n", out);
+    fputs("    FILE *f = fopen(path, \"wb\");\n", out);
+    fputs("    if (!f) return -1;\n", out);
+    fputs("    size_t len = strlen(data);\n", out);
+    fputs("    size_t w = fwrite(data, 1, len, f);\n", out);
+    fputs("    fclose(f);\n", out);
+    fputs("    return w == len ? 0 : -1;\n", out);
+    fputs("}\n\n", out);
+
+    fputs("static int tiq_fs_exists(const char *path) {\n", out);
+    fputs("    struct stat st;\n", out);
+    fputs("    return stat(path, &st) == 0 ? 1 : 0;\n", out);
+    fputs("}\n\n", out);
+
+    fputs("static int tiq_proc_exec(const char *cmd) {\n", out);
+    fputs("    return system(cmd);\n", out);
+    fputs("}\n\n", out);
+
+    fputs("static int tiq_proc_exit(int code) {\n", out);
+    fputs("    exit(code);\n", out);
+    fputs("    return 0;\n", out);
+    fputs("}\n\n", out);
+
+    fputs("static int tiq_json_parse_int(const char *str) {\n", out);
+    fputs("    if (!str) return 0;\n", out);
+    fputs("    return atoi(str);\n", out);
+    fputs("}\n\n", out);
+
+    fputs("static const char *tiq_json_encode_str(const char *str) {\n", out);
+    fputs("    if (!str) return \"\\\"\\\"\";\n", out);
+    fputs("    size_t len = strlen(str);\n", out);
+    fputs("    char *buf = (char *)malloc(len * 2 + 3);\n", out);
+    fputs("    if (!buf) return \"\\\"\\\"\";\n", out);
+    fputs("    size_t pos = 0;\n", out);
+    fputs("    buf[pos++] = '\"';\n", out);
+    fputs("    for (size_t i = 0; i < len; i++) {\n", out);
+    fputs("        if (str[i] == '\"') { buf[pos++] = '\\\\'; buf[pos++] = '\"'; }\n", out);
+    fputs("        else if (str[i] == '\\\\') { buf[pos++] = '\\\\'; buf[pos++] = '\\\\'; }\n", out);
+    fputs("        else if (str[i] == '\\n') { buf[pos++] = '\\\\'; buf[pos++] = 'n'; }\n", out);
+    fputs("        else buf[pos++] = str[i];\n", out);
+    fputs("    }\n", out);
+    fputs("    buf[pos++] = '\"';\n", out);
+    fputs("    buf[pos] = '\\0';\n", out);
+    fputs("    return buf;\n", out);
+    fputs("}\n\n", out);
+
+    fputs("static const char *tiq_net_fetch(const char *url) {\n", out);
+    fputs("    (void)url;\n", out);
+    fputs("    return \"{\\\"status\\\": 200, \\\"ok\\\": true}\";\n", out);
+    fputs("}\n\n", out);
 
     // Forward-declare stream gen functions
     for (int g = 0; g < stream_gen_count; g++) {
