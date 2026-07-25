@@ -16,6 +16,7 @@ typedef enum {
     TOK_BREAK,
     TOK_SKIP,
     TOK_MOVE,
+    TOK_DEFER,
     TOK_UNTIL,
     TOK_DOT_DOT_DOT,
     TOK_PLUS,

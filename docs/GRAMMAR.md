@@ -25,10 +25,11 @@ top_item      = function_def | binding | statement ;
 
 function_def  = identifier, { identifier }, "=", expression ;
 binding       = identifier, ("=" | ":="), expression ;
-statement     = print_stmt | assign_stmt | bracket_loop | control_stmt | expression ;
+statement     = print_stmt | assign_stmt | bracket_loop | control_stmt | defer_stmt | expression ;
 print_stmt    = "!", expression ;
 assign_stmt   = identifier, ("<-" | "+=" | "-=" | "*=" | "/=" | "%="), expression ;
 control_stmt  = ("break" | "continue" | "skip"), [ "if", expression ] ;
+defer_stmt    = "defer", statement ;
 bracket_loop  = "[", loop_domain, "|", { statement, separator }, [ expression ], "]" ;
 loop_domain   = expression ;
 block         = "{", { statement, separator }, [ expression ], "}" ;

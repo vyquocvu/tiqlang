@@ -199,4 +199,7 @@ y := move x
 z := move x
 ' "$TMP_DIR/double_move.tiq:3: error: use of moved value 'x'"
 
+assert_semantic "defer_outside_block" 'defer 1
+' "$TMP_DIR/defer_outside_block.tiq:1: error: defer is not allowed outside a block"
+
 echo "semantic: ok"

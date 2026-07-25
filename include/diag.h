@@ -23,7 +23,8 @@ typedef enum {
     ERR_LOOP_VARIABLE,
     ERR_BREAK_OUTSIDE_LOOP,
     ERR_CANNOT_MOVE_IMMUTABLE,
-    ERR_USE_AFTER_MOVE
+    ERR_USE_AFTER_MOVE,
+    ERR_DEFER_OUTSIDE_BLOCK
 } ErrorCode;
 
 typedef struct {

@@ -166,4 +166,9 @@ assert_parser "move_expr" 'y := move x' 'MUT_BINDING y
   UNARY MOVE
     IDENT x'
 
+assert_parser "defer_stmt" '{defer !1}' 'BLOCK
+  DEFER
+    PRINT
+      INT 1'
+
 echo "parser: ok"

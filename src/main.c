@@ -291,6 +291,10 @@ static void emit_expr(AstNode *node, FILE *out, DiagContext *diag, const char *p
             diag_error(diag, path, node->token.line, ERR_UNEXPECTED_TOKEN,
                        "block expression not supported in this context");
             break;
+        case AST_DEFER:
+            if (node->as.defer.expr)
+                emit_expr(node->as.defer.expr, out, diag, path);
+            break;
         default:
             break;
     }
@@ -452,6 +456,8 @@ static void emit_stmt(AstNode *node, FILE *out, DiagContext *diag, const char *p
                 emit_stmt(node->as.block.statements[i], out, diag, path, indent + 1);
             if (node->as.block.final_expr)
                 emit_stmt(node->as.block.final_expr, out, diag, path, indent + 1);
+            for (int i = node->as.block.defer_count - 1; i >= 0; i--)
+                emit_stmt(node->as.block.deferred[i], out, diag, path, indent + 1);
             for (int i = 0; i < indent; i++) fputs("    ", out);
             fputs("}\n", out);
             break;
@@ -461,6 +467,9 @@ static void emit_stmt(AstNode *node, FILE *out, DiagContext *diag, const char *p
         case AST_STREAM_GEN: case AST_ARRAY:
             emit_expr(node, out, diag, path);
             fputs(";\n", out);
+            break;
+        case AST_DEFER:
+            emit_stmt(node->as.defer.expr, out, diag, path, indent);
             break;
         default:
             fputs(";\n", out);

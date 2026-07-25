@@ -359,6 +359,9 @@ static void check_node(SemanticContext *ctx, AstNode *node) {
             for (int i = 0; i < node->as.block.stmt_count; i++) {
                 check_node(ctx, node->as.block.statements[i]);
             }
+            for (int i = 0; i < node->as.block.defer_count; i++) {
+                check_node(ctx, node->as.block.deferred[i]);
+            }
             if (node->as.block.final_expr) {
                 check_node(ctx, node->as.block.final_expr);
             }
@@ -501,6 +504,10 @@ static void check_node(SemanticContext *ctx, AstNode *node) {
                 diag_error(ctx->diag, ctx->path, node->token.line, ERR_BREAK_OUTSIDE_LOOP,
                            "skip outside loop");
             }
+            node->semantic_type = alloc_type(TYPE_UNKNOWN);
+            break;
+        case AST_DEFER:
+            check_node(ctx, node->as.defer.expr);
             node->semantic_type = alloc_type(TYPE_UNKNOWN);
             break;
         case AST_STREAM_GEN:

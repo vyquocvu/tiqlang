@@ -69,6 +69,10 @@ M4 — Ownership.
 - M4: Move semantics semantic checking: immutable binding move rejected (ERR_CANNOT_MOVE_IMMUTABLE), use-after-move detection (ERR_USE_AFTER_MOVE), moved state reset on compound assignment.
 - M4: Move semantics C backend: `move x` emits identity (C has no move semantics); array move emits `memcpy` for correct C array copy.
 - M4: Tests: `semantic.sh` (move_immutable, use_after_move, double_move), `smoke.sh` (move_basic, move_reassign, move_compound).
+- M4: `defer` keyword for scope-bound cleanup actions.
+- M4: Defer semantic checking: defer outside block rejected (ERR_DEFER_OUTSIDE_BLOCK), defer inside bracket loops rejected.
+- M4: Defer C backend: deferred actions emitted in reverse order before block closing brace.
+- M4: Tests: `parser.sh` (defer AST golden test), `semantic.sh` (defer_outside_block), `smoke.sh` (defer_basic, defer_reverse, defer_with_scope).
 
 ## Not implemented
 

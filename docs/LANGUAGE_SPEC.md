@@ -271,6 +271,24 @@ x += 1   // x is valid again with a new value
 
 Heap allocation, borrowing, and shared ownership are specified in `MEMORY_MODEL.md` and are not part of the bootstrap slice.
 
+### 16.2 Deferred actions
+
+The `defer` keyword schedules an expression to run when the enclosing block exits:
+
+```tiq
+{
+    !1
+    defer !2
+    !3
+}
+// Output:
+// 1
+// 3
+// 2
+```
+
+Deferred actions execute in reverse declaration order. `defer` is only valid inside `{ }` blocks. A `defer` outside a block is a compile-time error.
+
 ## 17. Program entry
 
 Top-level executable statements form the implicit entry point. Libraries may contain definitions only. A future explicit `main` function may be supported but is not required for scripts and tools.

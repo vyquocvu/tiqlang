@@ -21,7 +21,8 @@ typedef enum {
     AST_SKIP,
     AST_STREAM_GEN,
     AST_BRACKET_EXPR,
-    AST_ARRAY
+    AST_ARRAY,
+    AST_DEFER
 } AstKind;
 
 typedef struct AstNode AstNode;
@@ -73,6 +74,8 @@ struct AstNode {
             AstNode **statements;
             int stmt_count;
             AstNode *final_expr;
+            AstNode **deferred;
+            int defer_count;
         } block;
 
         struct {
@@ -117,6 +120,10 @@ struct AstNode {
             AstNode **elements;
             int element_count;
         } array;
+
+        struct {
+            AstNode *expr;
+        } defer;
     } as;
 };
 

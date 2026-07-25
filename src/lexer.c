@@ -127,6 +127,7 @@ static TokenKind check_keyword(Lexer *lexer, const char *start, size_t start_off
 static TokenKind identifier_type(Lexer *lexer, const char *start) {
     switch (start[0]) {
         case 'b': return check_keyword(lexer, start, 1, 4, "reak", TOK_BREAK);
+        case 'd': return check_keyword(lexer, start, 1, 4, "efer", TOK_DEFER);
         case 'f':
             if (lexer->current - start > 1) {
                 switch (start[1]) {
@@ -243,6 +244,7 @@ const char *token_kind_name(TokenKind kind) {
         case TOK_FALSE: return "FALSE";
         case TOK_WHILE: return "WHILE";
         case TOK_BREAK: return "BREAK";
+        case TOK_DEFER: return "DEFER";
         case TOK_SKIP: return "SKIP";
         case TOK_MOVE: return "MOVE";
         case TOK_UNTIL: return "UNTIL";

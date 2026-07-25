@@ -171,6 +171,24 @@ Status: active
 - [x] Compound assignment resets moved state
 - [x] Array move emits correct C (memcpy)
 
+### M4.2 — `defer` keyword
+
+- [x] `defer` keyword in lexer (TOK_DEFER).
+- [x] `defer` parsed as statement taking a statement (in block context only).
+- [x] AST_DEFER node kind with deferred list on block variant.
+- [x] Semantic: defer outside block rejected (ERR_DEFER_OUTSIDE_BLOCK).
+- [x] Semantic: defer inside bracket loops rejected.
+- [x] C emitter: deferred actions emitted in reverse order before `}`.
+- [x] LANGUAGE_SPEC §16.2: Defer semantics documented.
+- [x] Tests: `parser.sh` (defer AST golden), `semantic.sh` (defer_outside_block), `smoke.sh` (defer_basic, defer_reverse, defer_with_scope).
+
+### Exit criteria
+
+- [x] `defer` keyword parsed and type-checked
+- [x] Deferred actions execute in reverse order
+- [x] `defer` outside block rejected at compile time
+- [x] `defer` inside bracket loops rejected
+
 ## M5 — Tooling
 
 Status: queued

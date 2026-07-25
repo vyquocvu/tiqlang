@@ -68,14 +68,23 @@ static AstNode *bit_xor(Parser *parser);
 static AstNode *block(Parser *parser) {
     AstNode *node = allocate_node(parser, AST_BLOCK);
     int capacity = 0;
+    int defer_capacity = 0;
     while (!check(parser, TOK_RBRACE) && !check(parser, TOK_EOF)) {
-        if (node->as.block.stmt_count + 1 > capacity) {
-            capacity = capacity < 4 ? 4 : capacity * 2;
-            node->as.block.statements = realloc(node->as.block.statements, sizeof(AstNode *) * capacity);
-        }
         AstNode *stmt = statement(parser);
         if (parser->diag->fatal_error) break;
-        node->as.block.statements[node->as.block.stmt_count++] = stmt;
+        if (stmt && stmt->kind == AST_DEFER) {
+            if (node->as.block.defer_count + 1 > defer_capacity) {
+                defer_capacity = defer_capacity < 4 ? 4 : defer_capacity * 2;
+                node->as.block.deferred = realloc(node->as.block.deferred, sizeof(AstNode *) * defer_capacity);
+            }
+            node->as.block.deferred[node->as.block.defer_count++] = stmt;
+        } else {
+            if (node->as.block.stmt_count + 1 > capacity) {
+                capacity = capacity < 4 ? 4 : capacity * 2;
+                node->as.block.statements = realloc(node->as.block.statements, sizeof(AstNode *) * capacity);
+            }
+            node->as.block.statements[node->as.block.stmt_count++] = stmt;
+        }
     }
     consume(parser, TOK_RBRACE, ERR_UNEXPECTED_TOKEN, "expected '}' after block");
     return node;
@@ -119,6 +128,10 @@ static AstNode *bracket_loop(Parser *parser) {
         }
         AstNode *stmt = statement(parser);
         if (parser->diag->fatal_error) break;
+        if (stmt && stmt->kind == AST_DEFER) {
+            diag_error(parser->diag, parser->lexer.path, stmt->token.line,
+                       ERR_DEFER_OUTSIDE_BLOCK, "defer is not allowed in bracket loops");
+        }
         node->as.bracket_loop.body_stmts[node->as.bracket_loop.body_count++] = stmt;
         if (!check(parser, TOK_RBRACKET) && !check(parser, TOK_EOF)) {
             consume(parser, TOK_COMMA, ERR_UNEXPECTED_TOKEN, "expected ',' or ']' after bracket loop body statement");
@@ -429,6 +442,12 @@ static AstNode *statement(Parser *parser) {
     AstNode *ctrl = control_statement(parser);
     if (ctrl) return ctrl;
 
+    if (match(parser, TOK_DEFER)) {
+        AstNode *node = allocate_node(parser, AST_DEFER);
+        node->as.defer.expr = statement(parser);
+        return node;
+    }
+
     if (match(parser, TOK_BANG)) {
         return print_statement(parser);
     }
@@ -500,7 +519,12 @@ static AstNode *declaration(Parser *parser) {
             return node;
         }
     }
-    return statement(parser);
+    AstNode *stmt = statement(parser);
+    if (stmt && stmt->kind == AST_DEFER) {
+        diag_error(parser->diag, parser->lexer.path, stmt->token.line,
+                   ERR_DEFER_OUTSIDE_BLOCK, "defer is not allowed outside a block");
+    }
+    return stmt;
 }
 
 AstNode **parser_parse(Parser *parser, int *out_count) {
@@ -527,6 +551,7 @@ void parser_free(Parser *parser) {
             free(parser->nodes[i]->as.call.args);
         } else if (parser->nodes[i]->kind == AST_BLOCK) {
             free(parser->nodes[i]->as.block.statements);
+            free(parser->nodes[i]->as.block.deferred);
         } else if (parser->nodes[i]->kind == AST_FUNCTION) {
             free(parser->nodes[i]->as.function.params);
         } else if (parser->nodes[i]->kind == AST_BRACKET_LOOP) {
@@ -618,6 +643,9 @@ void ast_print(AstNode *node, int indent) {
             for (int i = 0; i < node->as.block.stmt_count; i++) {
                 ast_print(node->as.block.statements[i], indent + 1);
             }
+            for (int i = 0; i < node->as.block.defer_count; i++) {
+                ast_print(node->as.block.deferred[i], indent + 1);
+            }
             if (node->as.block.final_expr) {
                 ast_print(node->as.block.final_expr, indent + 1);
             }
@@ -681,6 +709,10 @@ void ast_print(AstNode *node, int indent) {
             printf("ARRAY%s\n", t_str);
             for (int i = 0; i < node->as.array.element_count; i++)
                 ast_print(node->as.array.elements[i], indent + 1);
+            break;
+        case AST_DEFER:
+            printf("DEFER%s\n", t_str);
+            ast_print(node->as.defer.expr, indent + 1);
             break;
         default:
             printf("UNKNOWN%s\n", t_str);

@@ -154,4 +154,29 @@ printf 'x := 42\ny := move x + 1\n!y\n' > "$TMP_DIR/move_compound.tiq"
 MOVE_COMPOUND_OUTPUT="$($TMP_DIR/move_compound)"
 [ "$MOVE_COMPOUND_OUTPUT" = "43" ] || { echo "move_compound expected 43, got: $MOVE_COMPOUND_OUTPUT"; exit 1; }
 
+printf '{\n!1\ndefer !2\n!3\n}\n' > "$TMP_DIR/defer_basic.tiq"
+./build/tiq build "$TMP_DIR/defer_basic.tiq" -o "$TMP_DIR/defer_basic" 2>"$TMP_DIR/defer_basic.err"
+DEFER_OUTPUT="$($TMP_DIR/defer_basic)"
+DEFER_EXPECTED="1
+3
+2"
+[ "$DEFER_OUTPUT" = "$DEFER_EXPECTED" ] || { echo "defer_basic expected '$DEFER_EXPECTED', got '$DEFER_OUTPUT'"; exit 1; }
+
+printf '{\n!1\ndefer !2\ndefer !3\n!4\n}\n' > "$TMP_DIR/defer_reverse.tiq"
+./build/tiq build "$TMP_DIR/defer_reverse.tiq" -o "$TMP_DIR/defer_reverse" 2>"$TMP_DIR/defer_reverse.err"
+DEFER_REV_OUTPUT="$($TMP_DIR/defer_reverse)"
+DEFER_REV_EXPECTED="1
+4
+3
+2"
+[ "$DEFER_REV_OUTPUT" = "$DEFER_REV_EXPECTED" ] || { echo "defer_reverse expected '$DEFER_REV_EXPECTED', got '$DEFER_REV_OUTPUT'"; exit 1; }
+
+printf 'x := 0\n{\ndefer !99\n!x\n}\n!x\n' > "$TMP_DIR/defer_with_scope.tiq"
+./build/tiq build "$TMP_DIR/defer_with_scope.tiq" -o "$TMP_DIR/defer_with_scope" 2>"$TMP_DIR/defer_with_scope.err"
+DEFER_SCOPE_OUTPUT="$($TMP_DIR/defer_with_scope)"
+DEFER_SCOPE_EXPECTED="0
+99
+0"
+[ "$DEFER_SCOPE_OUTPUT" = "$DEFER_SCOPE_EXPECTED" ] || { echo "defer_with_scope expected '$DEFER_SCOPE_EXPECTED', got '$DEFER_SCOPE_OUTPUT'"; exit 1; }
+
 echo "smoke: ok"
