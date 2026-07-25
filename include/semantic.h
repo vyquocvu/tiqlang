@@ -20,7 +20,20 @@ typedef enum {
     TYPE_REF,
     TYPE_REF_MUT,
     TYPE_CHAN,
-    TYPE_UNIT
+    TYPE_UNIT,
+    TYPE_I8,
+    TYPE_I16,
+    TYPE_I32,
+    TYPE_U8,
+    TYPE_U16,
+    TYPE_U32,
+    TYPE_U64,
+    TYPE_F32,
+    TYPE_NEVER,
+    // Canonical aliases: the inference defaults TYPE_INT/TYPE_FLOAT are
+    // i64/f64 (LANGUAGE_SPEC §11); sharing values keeps pooled types unique.
+    TYPE_I64 = TYPE_INT,
+    TYPE_F64 = TYPE_FLOAT
 } PrimitiveType;
 
 typedef struct SemanticType {

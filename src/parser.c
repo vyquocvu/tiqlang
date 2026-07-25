@@ -633,6 +633,16 @@ static const char *type_kind_name(PrimitiveType kind) {
         case TYPE_SLICE: return "TYPE_SLICE";
         case TYPE_STR_VIEW: return "TYPE_STR_VIEW";
         case TYPE_STREAM: return "TYPE_STREAM";
+        case TYPE_UNIT: return "TYPE_UNIT";
+        case TYPE_I8: return "TYPE_I8";
+        case TYPE_I16: return "TYPE_I16";
+        case TYPE_I32: return "TYPE_I32";
+        case TYPE_U8: return "TYPE_U8";
+        case TYPE_U16: return "TYPE_U16";
+        case TYPE_U32: return "TYPE_U32";
+        case TYPE_U64: return "TYPE_U64";
+        case TYPE_F32: return "TYPE_F32";
+        case TYPE_NEVER: return "TYPE_NEVER";
         default: return "TYPE_UNKNOWN";
     }
 }

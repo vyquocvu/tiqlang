@@ -62,6 +62,12 @@ assert_semantic "function_arity_mismatch" 'f a -> a
 x = f(1, 2)
 ' "$TMP_DIR/function_arity_mismatch.tiq:2: error: arity mismatch"
 
+assert_semantic "int_literal_overflow" 'x = 9223372036854775808
+' "$TMP_DIR/int_literal_overflow.tiq:1: error: integer literal out of range for i64"
+
+assert_semantic "int_literal_overflow_expr" 'y = 1 + 99999999999999999999
+' "$TMP_DIR/int_literal_overflow_expr.tiq:1: error: integer literal out of range for i64"
+
 assert_semantic_ast() {
   name="$1"
   source="$2"

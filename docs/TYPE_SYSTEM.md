@@ -27,7 +27,7 @@ never
 
 ## Literal inference
 
-- integer literals choose the smallest compatible signed type, falling back to `i64`;
+- integer literals default to `i64` unless the context requires another integer type; literals that do not fit the resolved type are rejected at compile time;
 - decimal literals default to `f64`;
 - string literals have type `str`;
 - `true` and `false` have type `bool`.

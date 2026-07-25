@@ -169,7 +169,7 @@ unit
 never
 ```
 
-Integer literals default to the smallest compatible signed type, with `i64` as the fallback. Floating literals default to `f64`.
+Integer literals default to `i64` unless the context requires another integer type. Floating literals default to `f64`. Integer literals that do not fit the resolved type are rejected at compile time.
 
 ## 13. Arrays and Slices
 

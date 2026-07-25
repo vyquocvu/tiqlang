@@ -1,5 +1,6 @@
 #include "../include/semantic.h"
 #include "../include/type.h"
+#include <errno.h>
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
@@ -71,7 +72,18 @@ static void check_node(SemanticContext *ctx, AstNode *node) {
     switch (node->kind) {
         case AST_LITERAL: {
             PrimitiveType p = TYPE_UNKNOWN;
-            if (node->as.literal.type == TOK_INT) p = TYPE_INT;
+            if (node->as.literal.type == TOK_INT) {
+                p = TYPE_INT;
+                // Integer literals default to i64 (LANGUAGE_SPEC §11);
+                // out-of-range literals are rejected at compile time.
+                errno = 0;
+                char *end = NULL;
+                (void)strtoll(node->token.start, &end, 10);
+                if (errno == ERANGE || end != node->token.start + node->token.length) {
+                    diag_error(ctx->diag, ctx->path, node->token.line, ERR_LITERAL_RANGE,
+                               "integer literal out of range for i64");
+                }
+            }
             else if (node->as.literal.type == TOK_FLOAT) p = TYPE_FLOAT;
             else if (node->as.literal.type == TOK_STRING) p = TYPE_STR;
             else if (node->as.literal.type == TOK_TRUE || node->as.literal.type == TOK_FALSE) p = TYPE_BOOL;

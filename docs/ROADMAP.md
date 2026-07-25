@@ -346,10 +346,22 @@ first); `make test` and the ASan/UBSan build both green.
 
 ### M12.2 — Sized primitives and literal typing
 
-- [ ] `i8`–`i64`, `u8`–`u64`, `f32`, `f64`, `unit`, `never` kinds mapped to `stdint.h` C types
-- [ ] Amend LANGUAGE_SPEC §11 literal rule: context-constrained integer literals defaulting to `i64` (replaces "smallest compatible signed type")
-- [ ] Deterministic failing test for the `int` → `int64_t` backend migration (behavior change)
-- [ ] Compile-time literal range checks against resolved width (fail closed)
+- [x] `i8`–`i64`, `u8`–`u64`, `f32`, `f64`, `unit`, `never` kinds mapped to `stdint.h` C types
+- [x] Amend LANGUAGE_SPEC §11 literal rule: context-constrained integer literals defaulting to `i64` (replaces "smallest compatible signed type")
+- [x] Deterministic failing test for the `int` → `int64_t` backend migration (behavior change)
+- [x] Compile-time literal range checks against resolved width (fail closed)
+
+Evidence 2026-07-25: LANGUAGE_SPEC §11 and TYPE_SYSTEM.md literal rules amended to the
+`i64` default; emitter migrated `int` → `int64_t` throughout (`%lld` printing, `LL`
+literal suffix so C constant arithmetic stays 64-bit, `uint64_t` bounds checks,
+`sizeof(int64_t)` slice arithmetic) behind the failing-first `i64_values` runtime test
+in `tests/smoke.sh`; out-of-range literals fail closed via `ERR_LITERAL_RANGE`
+(`strtoll`/`ERANGE` in `src/semantic.c`) behind the failing-first `int_literal_overflow`
+/ `int_literal_overflow_expr` goldens in `tests/semantic.sh`; sized kinds `TYPE_I8`–
+`TYPE_U64`, `TYPE_F32`, `TYPE_NEVER` added with `stdint.h` mappings in `emit_type_name`
+(`TYPE_I64`/`TYPE_F64` alias the canonical `TYPE_INT`/`TYPE_FLOAT` so pooled types stay
+unique); no surface syntax constructs sized types until M12.3 conversions. `make test`
+and the ASan/UBSan build both green, including the examples suite.
 
 ### M12.3 — Explicit conversions
 

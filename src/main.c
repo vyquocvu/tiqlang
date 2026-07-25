@@ -95,7 +95,11 @@ static void emit_expr(AstNode *node, FILE *out, DiagContext *diag, const char *p
     if (!node) return;
     switch (node->kind) {
         case AST_LITERAL: {
-            if (node->as.literal.type == TOK_INT || node->as.literal.type == TOK_FLOAT)
+            if (node->as.literal.type == TOK_INT)
+                // Integer literals are i64 (LANGUAGE_SPEC §11); suffix keeps
+                // C constant arithmetic in 64-bit before any conversion.
+                fprintf(out, "%.*sLL", (int)node->token.length, node->token.start);
+            else if (node->as.literal.type == TOK_FLOAT)
                 fprintf(out, "%.*s", (int)node->token.length, node->token.start);
             else if (node->as.literal.type == TOK_STRING) emit_c_string(out, node->token.start + 1, node->token.length - 2);
             else if (node->as.literal.type == TOK_TRUE) fputs("1", out);
@@ -189,7 +193,7 @@ static void emit_expr(AstNode *node, FILE *out, DiagContext *diag, const char *p
                     if (node->as.call.args[0]) emit_expr(node->as.call.args[0], out, diag, path);
                     else fputs("0", out);
                     fputs(") * ", out);
-                    if (ct->kind == TYPE_SLICE) fputs("sizeof(int)", out);
+                    if (ct->kind == TYPE_SLICE) fputs("sizeof(int64_t)", out);
                     else fputs("1", out);
                     fputs("), .len = (", out);
                     if (node->as.call.args[1]) emit_expr(node->as.call.args[1], out, diag, path);
@@ -226,7 +230,7 @@ static void emit_expr(AstNode *node, FILE *out, DiagContext *diag, const char *p
                     fputs(") + (", out);
                     if (node->as.call.args[0]) emit_expr(node->as.call.args[0], out, diag, path);
                     else fputs("0", out);
-                    fputs(") * sizeof(int)), .len = (", out);
+                    fputs(") * sizeof(int64_t)), .len = (", out);
                     if (node->as.call.args[1]) emit_expr(node->as.call.args[1], out, diag, path);
                     else fprintf(out, "%d", arr_len);
                     fputs(") - (", out);
@@ -242,16 +246,16 @@ static void emit_expr(AstNode *node, FILE *out, DiagContext *diag, const char *p
                     if (ct->kind == TYPE_ARRAY) {
                         int len = ct->array_length;
                         if (len > 0 && node->as.call.arg_count > 0 && node->as.call.args[0]) {
-                            fputs("((unsigned)(", out);
+                            fputs("((uint64_t)(", out);
                             emit_expr(node->as.call.args[0], out, diag, path);
-                            fprintf(out, ") < (unsigned)(%d) ? ", len);
+                            fprintf(out, ") < (uint64_t)(%d) ? ", len);
                             emit_expr(node->as.call.callee, out, diag, path);
                             fputs("[", out);
                             for (int i = 0; i < node->as.call.arg_count; i++) {
                                 if (i > 0) fputs("][", out);
                                 if (node->as.call.args[i]) emit_expr(node->as.call.args[i], out, diag, path);
                             }
-                            fputs("] : (fprintf(stderr, \"tiq: index %d out of bounds for array of length %d\\n\", (int)(", out);
+                            fputs("] : (fprintf(stderr, \"tiq: index %lld out of bounds for array of length %d\\n\", (long long)(", out);
                             emit_expr(node->as.call.args[0], out, diag, path);
                             fprintf(out, "), %d), exit(1), ", len);
                             emit_expr(node->as.call.callee, out, diag, path);
@@ -271,7 +275,7 @@ static void emit_expr(AstNode *node, FILE *out, DiagContext *diag, const char *p
                             fputs("]", out);
                         }
                     } else {
-                        fputs("((const int*)(((TiqSlice)(", out);
+                        fputs("((const int64_t*)(((TiqSlice)(", out);
                         emit_expr(node->as.call.callee, out, diag, path);
                         fputs(")).ptr))[", out);
                         if (node->as.call.arg_count > 0 && node->as.call.args[0])
@@ -381,15 +385,27 @@ static void emit_expr(AstNode *node, FILE *out, DiagContext *diag, const char *p
 
 static void emit_type_name(PrimitiveType kind, FILE *out) {
     switch (kind) {
-        case TYPE_INT:      fputs("int", out); break;
+        case TYPE_INT:      fputs("int64_t", out); break;
         case TYPE_FLOAT:    fputs("double", out); break;
-        case TYPE_BOOL:     fputs("int", out); break;
+        case TYPE_BOOL:     fputs("int64_t", out); break;
         case TYPE_STR:      fputs("const char *", out); break;
-        case TYPE_ARRAY:    fputs("int", out); break;
+        case TYPE_ARRAY:    fputs("int64_t", out); break;
         case TYPE_SLICE:    fputs("TiqSlice", out); break;
         case TYPE_STR_VIEW: fputs("TiqSlice", out); break;
-        case TYPE_STREAM:   fputs("int", out); break;
-        default:           fputs("int", out); break;
+        case TYPE_STREAM:   fputs("int64_t", out); break;
+        // Sized kinds map to stdint.h types (M12.2); no surface syntax
+        // constructs them until explicit conversions land (M12.3).
+        case TYPE_I8:       fputs("int8_t", out); break;
+        case TYPE_I16:      fputs("int16_t", out); break;
+        case TYPE_I32:      fputs("int32_t", out); break;
+        case TYPE_U8:       fputs("uint8_t", out); break;
+        case TYPE_U16:      fputs("uint16_t", out); break;
+        case TYPE_U32:      fputs("uint32_t", out); break;
+        case TYPE_U64:      fputs("uint64_t", out); break;
+        case TYPE_F32:      fputs("float", out); break;
+        case TYPE_UNIT:     fputs("void", out); break;
+        case TYPE_NEVER:    fputs("void", out); break;
+        default:           fputs("int64_t", out); break;
     }
 }
 
@@ -403,7 +419,7 @@ static void emit_stmt(AstNode *node, FILE *out, DiagContext *diag, const char *p
                            node->as.binding.expr->as.unary.op == TOK_MOVE;
             if (t && t->kind == TYPE_ARRAY) {
                 if (t->element_type) emit_type_name(t->element_type->kind, out);
-                else fputs("int", out);
+                else fputs("int64_t", out);
                 int arr_len = t->array_length > 0 ? t->array_length : 0;
                 fprintf(out, " %.*s[%d]", (int)node->as.binding.name.length, node->as.binding.name.start,
                         arr_len);
@@ -414,7 +430,7 @@ static void emit_stmt(AstNode *node, FILE *out, DiagContext *diag, const char *p
                     fputs("memcpy(", out);
                     fprintf(out, "%.*s, ", (int)node->as.binding.name.length, node->as.binding.name.start);
                     AstNode *src = node->as.binding.expr->as.unary.right;
-                    fprintf(out, "%.*s, sizeof(int) * %d);\n",
+                    fprintf(out, "%.*s, sizeof(int64_t) * %d);\n",
                             (int)src->as.identifier.name.length, src->as.identifier.name.start, arr_len);
                 } else {
                     fputs(" = ", out);
@@ -423,7 +439,7 @@ static void emit_stmt(AstNode *node, FILE *out, DiagContext *diag, const char *p
                 }
             } else {
                 if (t) emit_type_name(t->kind, out);
-                else fputs("int", out);
+                else fputs("int64_t", out);
                 fprintf(out, " %.*s", (int)node->as.binding.name.length, node->as.binding.name.start);
                 fputs(" = ", out);
                 emit_expr(node->as.binding.expr, out, diag, path);
@@ -437,13 +453,13 @@ static void emit_stmt(AstNode *node, FILE *out, DiagContext *diag, const char *p
                     SemanticType *st = node->semantic_type;
                     if (st && st->kind == TYPE_ARRAY) {
                         if (st->element_type) emit_type_name(st->element_type->kind, out);
-                        else fputs("int", out);
+                        else fputs("int64_t", out);
                         int arr_len = st->array_length > 0 ? st->array_length : 0;
                         fprintf(out, " %.*s[%d] = ", (int)node->as.assign.name.length, node->as.assign.name.start, arr_len);
                         emit_expr(node->as.assign.expr, out, diag, path);
                         fputs(";\n", out);
                     } else {
-                        if (st) emit_type_name(st->kind, out); else fputs("int", out);
+                        if (st) emit_type_name(st->kind, out); else fputs("int64_t", out);
                         fprintf(out, " %.*s = ", (int)node->as.assign.name.length, node->as.assign.name.start);
                         emit_expr(node->as.assign.expr, out, diag, path);
                         fputs(";\n", out);
@@ -454,9 +470,9 @@ static void emit_stmt(AstNode *node, FILE *out, DiagContext *diag, const char *p
                 SemanticType *st = node->semantic_type;
                 if (st && st->kind == TYPE_ARRAY) arr_len = st->array_length;
                 if (node->as.assign.index && arr_len > 0) {
-                    fputs("if ((unsigned)(", out);
+                    fputs("if ((uint64_t)(", out);
                     emit_expr(node->as.assign.index, out, diag, path);
-                    fprintf(out, ") >= (unsigned)(%d)) { ", arr_len);
+                    fprintf(out, ") >= (uint64_t)(%d)) { ", arr_len);
                     fprintf(out, "fprintf(stderr, \"tiq: index out of bounds for array of length %d\\n\"); exit(1); }\n", arr_len);
                     for (int j = 0; j < indent; j++) fputs("    ", out);
                 }
@@ -494,7 +510,7 @@ static void emit_stmt(AstNode *node, FILE *out, DiagContext *diag, const char *p
             AstNode *domain = node->as.bracket_loop.domain;
             bool is_range = domain && domain->kind == AST_BINARY && domain->as.binary.op == TOK_DOT_DOT;
             if (is_range) {
-                fprintf(out, "for (int i = ");
+                fprintf(out, "for (int64_t i = ");
                 emit_expr(domain->as.binary.left, out, diag, path);
                 fprintf(out, "; i < ");
                 emit_expr(domain->as.binary.right, out, diag, path);
@@ -557,7 +573,7 @@ static void emit_stmt(AstNode *node, FILE *out, DiagContext *diag, const char *p
                     emit_expr(expr, out, diag, path);
                     fputs(")).ptr));\n", out);
                 } else {
-                    fputs("printf(\"%d\\n\", (int)(", out);
+                    fputs("printf(\"%lld\\n\", (long long)(", out);
                     emit_expr(expr, out, diag, path);
                     fputs("));\n", out);
                 }
@@ -629,20 +645,20 @@ static void emit_check_node(AstNode *node, DiagContext *diag, const char *path) 
 static void emit_stream_gen_def(FILE *out, const char *name, AstNode *node, Token *params, int param_count, DiagContext *diag, const char *path) {
     int sc = node->as.stream_gen.seed_count;
     if (sc == 1) {
-        fprintf(out, "int tiq_gen_%s(", name);
+        fprintf(out, "int64_t tiq_gen_%s(", name);
         for (int p = 0; p < param_count; p++) {
             if (p > 0) fputs(", ", out);
-            fprintf(out, "int %.*s", (int)params[p].length, params[p].start);
+            fprintf(out, "int64_t %.*s", (int)params[p].length, params[p].start);
         }
         if (param_count > 0) fputs(", ", out);
-        fputs("int n) {\n", out);
+        fputs("int64_t n) {\n", out);
         fputs("    if (n < 0) return 0;\n", out);
-        fputs("    int x = ", out);
+        fputs("    int64_t x = ", out);
         emit_expr(node->as.stream_gen.seeds[0], out, diag, path);
         fputs(";\n", out);
         fputs("    if (n == 0) return x;\n", out);
-        fputs("    int s = x;\n", out);
-        fputs("    for (int i = 1; i <= n; i++) {\n", out);
+        fputs("    int64_t s = x;\n", out);
+        fputs("    for (int64_t i = 1; i <= n; i++) {\n", out);
         fputs("        x = (", out);
         emit_expr(node->as.stream_gen.gen_expr, out, diag, path);
         fputs(");\n", out);
@@ -651,13 +667,13 @@ static void emit_stream_gen_def(FILE *out, const char *name, AstNode *node, Toke
         fputs("    return x;\n", out);
         fputs("}\n\n", out);
     } else if (sc >= 2) {
-        fprintf(out, "int tiq_gen_%s(", name);
+        fprintf(out, "int64_t tiq_gen_%s(", name);
         for (int p = 0; p < param_count; p++) {
             if (p > 0) fputs(", ", out);
-            fprintf(out, "int %.*s", (int)params[p].length, params[p].start);
+            fprintf(out, "int64_t %.*s", (int)params[p].length, params[p].start);
         }
         if (param_count > 0) fputs(", ", out);
-        fputs("int n) {\n", out);
+        fputs("int64_t n) {\n", out);
         fputs("    if (n < 0) return 0;\n", out);
         fputs("    if (n == 0) return ", out);
         emit_expr(node->as.stream_gen.seeds[0], out, diag, path);
@@ -665,13 +681,13 @@ static void emit_stream_gen_def(FILE *out, const char *name, AstNode *node, Toke
         fputs("    if (n == 1) return ", out);
         emit_expr(node->as.stream_gen.seeds[1], out, diag, path);
         fputs(";\n", out);
-        fputs("    int a = ", out);
+        fputs("    int64_t a = ", out);
         emit_expr(node->as.stream_gen.seeds[1], out, diag, path);
-        fputs(";\n    int b = ", out);
+        fputs(";\n    int64_t b = ", out);
         emit_expr(node->as.stream_gen.seeds[0], out, diag, path);
         fputs(";\n", out);
-        fputs("    for (int i = 2; i <= n; i++) {\n", out);
-        fputs("        int t = (", out);
+        fputs("    for (int64_t i = 2; i <= n; i++) {\n", out);
+        fputs("        int64_t t = (", out);
         emit_expr(node->as.stream_gen.gen_expr, out, diag, path);
         fputs(");\n", out);
         fputs("        b = a;\n", out);
@@ -744,6 +760,7 @@ static void compile_to_c(const char *source_path, const char *source, FILE *out,
     fputs("#include <stdio.h>\n", out);
     fputs("#include <stdlib.h>\n", out);
     fputs("#include <string.h>\n", out);
+    fputs("#include <stdint.h>\n", out);
     fputs("#include <sys/stat.h>\n", out);
     fputs("typedef struct { const void *ptr; int len; } TiqSlice;\n\n", out);
 
@@ -815,13 +832,13 @@ static void compile_to_c(const char *source_path, const char *source, FILE *out,
 
     // Forward-declare stream gen functions
     for (int g = 0; g < stream_gen_count; g++) {
-        fprintf(out, "int tiq_gen_%s(", stream_gens[g].name);
+        fprintf(out, "int64_t tiq_gen_%s(", stream_gens[g].name);
         for (int p = 0; p < stream_gens[g].param_count; p++) {
             if (p > 0) fputs(", ", out);
-            fprintf(out, "int %.*s", (int)stream_gens[g].params[p].length, stream_gens[g].params[p].start);
+            fprintf(out, "int64_t %.*s", (int)stream_gens[g].params[p].length, stream_gens[g].params[p].start);
         }
         if (stream_gens[g].param_count > 0) fputs(", ", out);
-        fputs("int n);\n", out);
+        fputs("int64_t n);\n", out);
     }
 
     if (has_function) {
@@ -829,13 +846,13 @@ static void compile_to_c(const char *source_path, const char *source, FILE *out,
             if (stmts[i] && stmts[i]->kind == AST_FUNCTION &&
                 !(stmts[i]->as.function.body && stmts[i]->as.function.body->kind == AST_STREAM_GEN)) {
                 SemanticType *t = stmts[i]->semantic_type;
-                if (t) emit_type_name(t->kind, out); else fputs("int", out);
+                if (t) emit_type_name(t->kind, out); else fputs("int64_t", out);
                 fprintf(out, " %.*s(", (int)stmts[i]->as.function.name.length, stmts[i]->as.function.name.start);
                 for (int j = 0; j < stmts[i]->as.function.param_count; j++) {
                     if (j > 0) fputs(", ", out);
                     SemanticType *pt = (SemanticType *)(stmts[i]->as.function.param_types ? stmts[i]->as.function.param_types[j] : NULL);
                     if (pt && pt->kind == TYPE_SLICE) fputs("TiqSlice ", out);
-                    else fputs("int ", out);
+                    else fputs("int64_t ", out);
                     fprintf(out, "%.*s", (int)stmts[i]->as.function.params[j].length, stmts[i]->as.function.params[j].start);
                 }
                 fputs(");\n", out);
@@ -864,13 +881,13 @@ static void compile_to_c(const char *source_path, const char *source, FILE *out,
     for (int i = 0; i < count; i++) {
         if (stmts[i] && stmts[i]->kind == AST_FUNCTION && stmts[i]->as.function.body->kind != AST_STREAM_GEN) {
             SemanticType *t = stmts[i]->semantic_type;
-            if (t) emit_type_name(t->kind, out); else fputs("int", out);
+            if (t) emit_type_name(t->kind, out); else fputs("int64_t", out);
             fprintf(out, "\n%.*s(", (int)stmts[i]->as.function.name.length, stmts[i]->as.function.name.start);
             for (int j = 0; j < stmts[i]->as.function.param_count; j++) {
                 if (j > 0) fputs(", ", out);
                 SemanticType *pt = (SemanticType *)(stmts[i]->as.function.param_types ? stmts[i]->as.function.param_types[j] : NULL);
                 if (pt && pt->kind == TYPE_SLICE) fputs("TiqSlice ", out);
-                else fputs("int ", out);
+                else fputs("int64_t ", out);
                 fprintf(out, "%.*s", (int)stmts[i]->as.function.params[j].length, stmts[i]->as.function.params[j].start);
             }
             if (stmts[i]->as.function.body && stmts[i]->as.function.body->kind == AST_BLOCK) {

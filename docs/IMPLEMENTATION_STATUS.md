@@ -119,10 +119,16 @@ M6 — Service-ready standard library (complete)
   - `type_display()` renders nested composite types in `dump-typed-ast` (`TYPE_ARRAY[3]:TYPE_INT`, `TYPE_SLICE:TYPE_INT`).
   - Fixes latent uninitialized `field_count` read (pool zero-initializes types) and `param_types` leak (freed in `parser_free`).
   - Tests: `semantic.sh` (`typed_array_nested`, `typed_slice_nested` goldens, added failing first); full suite green under ASan/UBSan.
+- M12.2: Sized primitives and literal typing (complete, 2026-07-25):
+  - Integer values are 64-bit end to end: backend emits `int64_t` bindings, params, returns, and loop counters, `%lld` printing, `LL` literal suffixes (keeps C constant arithmetic 64-bit), `uint64_t` bounds checks, and `sizeof(int64_t)` slice arithmetic.
+  - Integer literals outside `i64` are rejected at compile time (`ERR_LITERAL_RANGE`, `strtoll`/`ERANGE` in `src/semantic.c`); no executable is produced (fail closed).
+  - Sized kinds `TYPE_I8`–`TYPE_U64`, `TYPE_F32`, `TYPE_NEVER` exist with `stdint.h` mappings in the emitter; `TYPE_I64`/`TYPE_F64` alias `TYPE_INT`/`TYPE_FLOAT` to keep pooled types unique. No surface syntax constructs sized types until M12.3 explicit conversions.
+  - Spec: LANGUAGE_SPEC §11 and TYPE_SYSTEM.md literal rules amended to the `i64` default.
+  - Tests: `smoke.sh` `i64_values` runtime test and `semantic.sh` `int_literal_overflow` / `int_literal_overflow_expr` goldens, all added failing first; full suite green under ASan/UBSan.
 
 ## Current milestone
 
-M12 — Type system implementation (in progress; M12.1 complete)
+M12 — Type system implementation (in progress; M12.1–M12.2 complete)
 
 ## Known bootstrap limitations
 

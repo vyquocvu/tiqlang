@@ -152,4 +152,19 @@ printf 'x <- 42\nb = &x\n' > "$TMP_DIR/m9_borrow.tiq"
 [ -x "$TMP_DIR/m9_borrow" ]
 "$TMP_DIR/m9_borrow"
 
+# M12.2: integer values are 64-bit (i64 default, LANGUAGE_SPEC §11)
+printf 'x = 5000000000\n!x\n!(2147483647 + 1)\ny <- 1000000000\ny *= 5\n!y\n' > "$TMP_DIR/i64_values.tiq"
+./build/tiq build "$TMP_DIR/i64_values.tiq" -o "$TMP_DIR/i64_values" 2>"$TMP_DIR/i64_values.err"
+[ -x "$TMP_DIR/i64_values" ]
+"$TMP_DIR/i64_values" > "$TMP_DIR/i64_values.out"
+printf '5000000000\n2147483648\n5000000000\n' > "$TMP_DIR/i64_values.expected"
+if ! cmp -s "$TMP_DIR/i64_values.expected" "$TMP_DIR/i64_values.out"; then
+  echo "i64 value output mismatch" >&2
+  echo "expected:" >&2
+  cat "$TMP_DIR/i64_values.expected" >&2
+  echo "actual:" >&2
+  cat "$TMP_DIR/i64_values.out" >&2
+  exit 1
+fi
+
 echo "smoke: ok"
