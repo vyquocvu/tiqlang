@@ -348,9 +348,6 @@ static void collect_decls(LspDeclList *list, const AstNode *node) {
             collect_decls(list, node->as.stream_gen.gen_expr);
             collect_decls(list, node->as.stream_gen.bound);
             break;
-        case AST_BRACKET_EXPR:
-            collect_decls(list, node->as.bracket_expr.expr);
-            break;
         case AST_ARRAY:
             for (int i = 0; i < node->as.array.element_count; i++)
                 collect_decls(list, node->as.array.elements[i]);

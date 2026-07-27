@@ -345,9 +345,6 @@ static void emit_expr(AstNode *node, EmitContext *ctx) {
             }
             fputs(")", ctx->out);
             break;
-        case AST_BRACKET_EXPR:
-            emit_expr(node->as.bracket_expr.expr, ctx);
-            break;
         case AST_ARRAY: {
             fputs("{", ctx->out);
             for (int i = 0; i < node->as.array.element_count; i++) {
@@ -565,7 +562,7 @@ static void emit_stmt(AstNode *node, EmitContext *ctx, int indent) {
             break;
         }
         case AST_LITERAL: case AST_IDENTIFIER: case AST_BINARY:
-        case AST_CONDITIONAL: case AST_CALL: case AST_BRACKET_EXPR:
+        case AST_CONDITIONAL: case AST_CALL:
         case AST_STREAM_GEN: case AST_ARRAY: case AST_ARRAY_FILL:
         case AST_FIELD_ACCESS: case AST_SPAWN: case AST_CHAN: case AST_MATCH:
         case AST_UNARY:
@@ -587,7 +584,7 @@ static void emit_check_node(AstNode *node, EmitContext *ctx) {
     switch (node->kind) {
         case AST_LITERAL: case AST_IDENTIFIER: case AST_BINDING:
         case AST_ASSIGN: case AST_FUNCTION: case AST_BREAK: case AST_SKIP:
-        case AST_BRACKET_EXPR: case AST_ARRAY:
+        case AST_ARRAY:
             break;
         case AST_BINARY:
             emit_check_node(node->as.binary.left, ctx);

@@ -125,8 +125,8 @@ BRACKET_LOOP <TYPE_UNKNOWN>
   ASSIGN x PLUS_EQ <TYPE_INT>
     IDENT i <TYPE_INT>'
 
-assert_semantic_ast "typed_bracket_expr" 'x = [1 + 2]' 'BINDING x <TYPE_INT>
-  BRACKET_EXPR <TYPE_INT>
+assert_semantic_ast "typed_singleton_array" 'x = [1 + 2]' 'BINDING x <TYPE_ARRAY[1]:TYPE_INT>
+  ARRAY <TYPE_ARRAY[1]:TYPE_INT>
     BINARY PLUS <TYPE_INT>
       INT 1 <TYPE_INT>
       INT 2 <TYPE_INT>'
@@ -214,6 +214,10 @@ y = len(x)
 
 assert_semantic "len_no_args" 'y = len()
 ' "$TMP_DIR/len_no_args.tiq:1: error[E12]: len expects exactly 1 argument"
+
+# M12.7.1: empty arrays are rejected with cannot-infer-element-type
+assert_semantic "empty_array" 'x = []
+' "$TMP_DIR/empty_array.tiq:1: error[E21]: cannot infer element type for empty array"
 
 assert_semantic_ast "typed_print_call" 'x = print(42)' 'BINDING x <TYPE_INT>
   CALL <TYPE_INT>

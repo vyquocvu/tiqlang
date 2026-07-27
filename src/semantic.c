@@ -671,19 +671,13 @@ static void check_node(SemanticContext *ctx, AstNode *node) {
                 check_node(ctx, node->as.stream_gen.bound);
             }
             break;
-        case AST_BRACKET_EXPR:
-            check_node(ctx, node->as.bracket_expr.expr);
-            {
-                SemanticType *et = node->as.bracket_expr.expr ?
-                    node->as.bracket_expr.expr->semantic_type : NULL;
-                if (et) {
-                    node->semantic_type = ty(ctx, et->kind);
-                } else {
-                    node->semantic_type = ty(ctx, TYPE_UNKNOWN);
-                }
-            }
-            break;
         case AST_ARRAY: {
+            if (node->as.array.element_count == 0) {
+                diag_error(ctx->diag, ctx->path, node->token.line, ERR_EMPTY_ARRAY,
+                           "cannot infer element type for empty array");
+                node->semantic_type = ty(ctx, TYPE_UNKNOWN);
+                break;
+            }
             SemanticType *elem = NULL;
             for (int i = 0; i < node->as.array.element_count; i++) {
                 check_node(ctx, node->as.array.elements[i]);

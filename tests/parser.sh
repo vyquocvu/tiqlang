@@ -152,8 +152,8 @@ BRACKET_LOOP j
         IDENT j
         IDENT k'
 
-assert_parser "bracket_expr" 'x = [1 + 2]' 'BINDING x
-  BRACKET_EXPR
+assert_parser "singleton_array" 'x = [1 + 2]' 'BINDING x
+  ARRAY
     BINARY PLUS
       INT 1
       INT 2'

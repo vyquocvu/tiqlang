@@ -278,25 +278,16 @@ static AstNode *primary(Parser *parser) {
     if (match(parser, TOK_LBRACKET)) {
         AstNode *node = stream_gen(parser);
         if (node->kind == AST_ARRAY_FILL) return node;
-        if (node->as.stream_gen.seed_count == 0 && !node->as.stream_gen.gen_expr && !node->as.stream_gen.bound) {
-            return node;
-        }
         consume(parser, TOK_RBRACKET, ERR_UNEXPECTED_TOKEN, "expected ']' after bracket expression");
-        if (node->as.stream_gen.seed_count > 0 && !node->as.stream_gen.gen_expr) {
-            if (node->as.stream_gen.seed_count == 1) {
-                AstNode *inner = node->as.stream_gen.seeds[0];
-                node->kind = AST_BRACKET_EXPR;
-                node->as.bracket_expr.expr = inner;
-                // The seeds array stays in the arena until parser_free.
-                return node;
-            } else {
-                AstNode **saved = node->as.stream_gen.seeds;
-                int count = node->as.stream_gen.seed_count;
-                node->kind = AST_ARRAY;
-                node->as.array.elements = saved;
-                node->as.array.element_count = count;
-                return node;
-            }
+        // Convert stream_gen to array: 0 or more seeds, no gen_expr
+        if (!node->as.stream_gen.gen_expr && !node->as.stream_gen.bound) {
+            // All bracket expressions (empty or with seeds) become arrays
+            AstNode **saved = node->as.stream_gen.seeds;
+            int count = node->as.stream_gen.seed_count;
+            node->kind = AST_ARRAY;
+            node->as.array.elements = saved;
+            node->as.array.element_count = count;
+            return node;
         }
         return node;
     }
@@ -848,10 +839,6 @@ void ast_print(AstNode *node, int indent) {
             if (node->as.stream_gen.bound) {
                 ast_print(node->as.stream_gen.bound, indent + 1);
             }
-            break;
-        case AST_BRACKET_EXPR:
-            printf("BRACKET_EXPR%s\n", t_str);
-            ast_print(node->as.bracket_expr.expr, indent + 1);
             break;
         case AST_ARRAY:
             printf("ARRAY%s\n", t_str);

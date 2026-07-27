@@ -19,7 +19,6 @@ typedef enum {
     AST_BREAK,
     AST_SKIP,
     AST_STREAM_GEN,
-    AST_BRACKET_EXPR,
     AST_ARRAY,
     AST_DEFER,
     AST_ARRAY_FILL,
@@ -123,10 +122,6 @@ struct AstNode {
             AstNode *gen_expr;
             AstNode *bound;
         } stream_gen;
-
-        struct {
-            AstNode *expr;
-        } bracket_expr;
 
         struct {
             AstNode **elements;

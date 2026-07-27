@@ -218,7 +218,7 @@ Array literals are written with square brackets and comma-separated elements:
 xs = [1, 2, 3]
 ```
 
-All elements must have the same type. The element type is inferred from the literal. Array access uses indexing syntax:
+All elements must have the same type. The element type is inferred from the literal. A single-element array `[x]` is a valid array of length one. An empty array `[]` is rejected at compile time because the element type cannot be inferred. Array access uses indexing syntax:
 
 ```tiq
 first = xs[0]
