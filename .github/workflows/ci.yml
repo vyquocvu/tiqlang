@@ -26,3 +26,5 @@ jobs:
           make clean
           make CFLAGS='-std=c11 -Wall -Wextra -Wpedantic -Werror -O1 -g -fsanitize=address,undefined'
           make test
+      - name: Fuzz (deterministic, sanitizer build)
+        run: make test-fuzz
