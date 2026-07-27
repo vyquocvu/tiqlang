@@ -354,11 +354,33 @@ static void emit_expr(AstNode *node, EmitContext *ctx) {
             fputs("}", ctx->out);
             break;
         }
-        case AST_ARRAY_FILL:
-            fputs("{ ", ctx->out);
-            emit_expr(node->as.array_fill.value, ctx);
-            fputs(" }", ctx->out);
+        case AST_ARRAY_FILL: {
+            // For array fill [value; length], we need to emit all elements explicitly
+            // because C initializers only zero-initialize the rest.
+            // Check if we can determine the length at compile time.
+            int len = 0;
+            SemanticType *t = node->semantic_type;
+            if (t && t->kind == TYPE_ARRAY) {
+                len = t->array_length;
+            }
+            if (len > 0) {
+                // We know the length: emit explicit element list
+                fputs("{ ", ctx->out);
+                emit_expr(node->as.array_fill.value, ctx);
+                for (int i = 1; i < len; i++) {
+                    fputs(", ", ctx->out);
+                    emit_expr(node->as.array_fill.value, ctx);
+                }
+                fputs(" }", ctx->out);
+            } else {
+                // Unknown length: emit just the first element (defensive)
+                // This case shouldn't normally occur with proper type inference
+                fputs("{ ", ctx->out);
+                emit_expr(node->as.array_fill.value, ctx);
+                fputs(" }", ctx->out);
+            }
             break;
+        }
         case AST_FIELD_ACCESS:
             emit_expr(node->as.field_access.target, ctx);
             fputs(".", ctx->out);
