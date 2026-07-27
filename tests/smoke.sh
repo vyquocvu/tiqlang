@@ -10,7 +10,7 @@ trap 'rm -rf "$TMP_DIR"' EXIT INT TERM
 ./build/tiq build examples/hello.tiq -o "$TMP_DIR/hello"
 
 # Runtime helpers must use int64_t in an i64 world (plan 1.3)
-printf 'fs_write("p", "d")\nx = json_parse_int("42")\n!x\n' > "$TMP_DIR/rt_i64.tiq"
+printf 'fs_write("p", "d")\nx = json_parse_int("42")\nprint(x)\n' > "$TMP_DIR/rt_i64.tiq"
 ./build/tiq emit-c "$TMP_DIR/rt_i64.tiq" > "$TMP_DIR/rt_i64.c"
 if ! grep -q 'static int64_t tiq_fs_write' "$TMP_DIR/rt_i64.c"; then
   echo "tiq_fs_write does not return int64_t" >&2
@@ -23,7 +23,7 @@ if grep -qE 'static int tiq_' "$TMP_DIR/rt_i64.c"; then
 fi
 
 # json_parse_int must not truncate 64-bit values
-printf 'big = json_parse_int("5000000000")\n!big\n' > "$TMP_DIR/rt_i64_parse.tiq"
+printf 'big = json_parse_int("5000000000")\nprint(big)\n' > "$TMP_DIR/rt_i64_parse.tiq"
 ./build/tiq build "$TMP_DIR/rt_i64_parse.tiq" -o "$TMP_DIR/rt_i64_parse"
 [ "$("$TMP_DIR/rt_i64_parse")" = "5000000000" ]
 
@@ -179,13 +179,47 @@ printf 'x = 10\nres = match x { 10 => 100, 20 => 200 }\n' > "$TMP_DIR/m8_match.t
 [ -x "$TMP_DIR/m8_match" ]
 "$TMP_DIR/m8_match"
 
+# M9 borrow checking does not exist yet: borrows must fail closed instead
+# of silently emitting a value copy (DOC_REVIEW D).
 printf 'x <- 42\nb = &x\n' > "$TMP_DIR/m9_borrow.tiq"
-./build/tiq build "$TMP_DIR/m9_borrow.tiq" -o "$TMP_DIR/m9_borrow" 2>"$TMP_DIR/m9_borrow.err"
-[ -x "$TMP_DIR/m9_borrow" ]
-"$TMP_DIR/m9_borrow"
+if ./build/tiq build "$TMP_DIR/m9_borrow.tiq" -o "$TMP_DIR/m9_borrow" 2>"$TMP_DIR/m9_borrow.err"; then
+    echo "borrow unexpectedly compiled" >&2
+    exit 1
+fi
+[ ! -e "$TMP_DIR/m9_borrow" ]
+
+# '!' is logical negation only; print is the print builtin (LANGUAGE_SPEC §12)
+printf 'flag = !false\nprint(flag)\nprint(!flag ? 10 : 20)\n' > "$TMP_DIR/not_bool.tiq"
+./build/tiq build "$TMP_DIR/not_bool.tiq" -o "$TMP_DIR/not_bool" 2>"$TMP_DIR/not_bool.err"
+[ -x "$TMP_DIR/not_bool" ]
+"$TMP_DIR/not_bool" > "$TMP_DIR/not_bool.out"
+printf 'true\n20\n' > "$TMP_DIR/not_bool.expected"
+if ! cmp -s "$TMP_DIR/not_bool.expected" "$TMP_DIR/not_bool.out"; then
+  echo "unary not output mismatch" >&2
+  echo "expected:" >&2
+  cat "$TMP_DIR/not_bool.expected" >&2
+  echo "actual:" >&2
+  cat "$TMP_DIR/not_bool.out" >&2
+  exit 1
+fi
+
+# print builtin formats each type deterministically (LANGUAGE_SPEC §12)
+printf 'print(7)\nprint("hi")\nprint(3.5)\nprint(1 < 2)\ns = "Hello World"\nprint(s[0..5])\n' > "$TMP_DIR/print_builtin.tiq"
+./build/tiq build "$TMP_DIR/print_builtin.tiq" -o "$TMP_DIR/print_builtin" 2>"$TMP_DIR/print_builtin.err"
+[ -x "$TMP_DIR/print_builtin" ]
+"$TMP_DIR/print_builtin" > "$TMP_DIR/print_builtin.out"
+printf '7\nhi\n3.5\ntrue\nHello\n' > "$TMP_DIR/print_builtin.expected"
+if ! cmp -s "$TMP_DIR/print_builtin.expected" "$TMP_DIR/print_builtin.out"; then
+  echo "print builtin output mismatch" >&2
+  echo "expected:" >&2
+  cat "$TMP_DIR/print_builtin.expected" >&2
+  echo "actual:" >&2
+  cat "$TMP_DIR/print_builtin.out" >&2
+  exit 1
+fi
 
 # M12.2: integer values are 64-bit (i64 default, LANGUAGE_SPEC §11)
-printf 'x = 5000000000\n!x\n!(2147483647 + 1)\ny <- 1000000000\ny *= 5\n!y\n' > "$TMP_DIR/i64_values.tiq"
+printf 'x = 5000000000\nprint(x)\nprint(2147483647 + 1)\ny <- 1000000000\ny *= 5\nprint(y)\n' > "$TMP_DIR/i64_values.tiq"
 ./build/tiq build "$TMP_DIR/i64_values.tiq" -o "$TMP_DIR/i64_values" 2>"$TMP_DIR/i64_values.err"
 [ -x "$TMP_DIR/i64_values" ]
 "$TMP_DIR/i64_values" > "$TMP_DIR/i64_values.out"

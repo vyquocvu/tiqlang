@@ -186,9 +186,30 @@ static void check_node(SemanticContext *ctx, AstNode *node) {
                 } else {
                     node->semantic_type = ty(ctx, TYPE_UNKNOWN);
                 }
+            } else if (node->as.unary.op == TOK_AMP) {
+                // Fail closed: M9 borrow checking does not exist yet, so a
+                // borrow must be rejected instead of compiling to a value copy.
+                check_node(ctx, node->as.unary.right);
+                diag_error(ctx->diag, ctx->path, node->token.line,
+                           ERR_UNSUPPORTED_STATEMENT, "borrow is not supported yet");
+                node->semantic_type = ty(ctx, TYPE_UNKNOWN);
             } else {
                 check_node(ctx, node->as.unary.right);
-                if (node->as.unary.right && node->as.unary.right->semantic_type) {
+                if (node->as.unary.op == TOK_BANG) {
+                    // '!' is logical negation only (print is the print
+                    // builtin, LANGUAGE_SPEC §12). Tiq has no truthiness,
+                    // so the operand must already be bool.
+                    SemanticType *rt = node->as.unary.right ?
+                        node->as.unary.right->semantic_type : NULL;
+                    if (rt && rt->kind != TYPE_BOOL && rt->kind != TYPE_UNKNOWN) {
+                        char disp[96];
+                        char msg[160];
+                        type_display(rt, disp, sizeof disp);
+                        snprintf(msg, sizeof msg, "operand of '!' must be bool, found %s", disp);
+                        diag_error(ctx->diag, ctx->path, node->token.line, ERR_TYPE_MISMATCH, msg);
+                    }
+                    node->semantic_type = ty(ctx, TYPE_BOOL);
+                } else if (node->as.unary.right && node->as.unary.right->semantic_type) {
                     node->semantic_type = node->as.unary.right->semantic_type;
                 } else {
                     node->semantic_type = ty(ctx, TYPE_UNKNOWN);
@@ -223,6 +244,29 @@ static void check_node(SemanticContext *ctx, AstNode *node) {
         case AST_CALL:
             if (node->as.call.callee && node->as.call.callee->kind == AST_IDENTIFIER) {
                 Token name = node->as.call.callee->as.identifier.name;
+                if (name.length == 5 && memcmp(name.start, "print", 5) == 0) {
+                    // print builtin (LANGUAGE_SPEC §12): one argument of a
+                    // printable type; returns the number of bytes written.
+                    if (node->as.call.arg_count != 1) {
+                        diag_error(ctx->diag, ctx->path, node->token.line, ERR_ARITY_MISMATCH, "print expects exactly 1 argument");
+                    } else {
+                        if (node->as.call.args[0]) check_node(ctx, node->as.call.args[0]);
+                        SemanticType *at = node->as.call.args[0] ?
+                            node->as.call.args[0]->semantic_type : NULL;
+                        if (at && at->kind != TYPE_INT && at->kind != TYPE_FLOAT &&
+                            at->kind != TYPE_BOOL && at->kind != TYPE_STR &&
+                            at->kind != TYPE_STR_VIEW && at->kind != TYPE_SLICE &&
+                            at->kind != TYPE_UNKNOWN) {
+                            char disp[96];
+                            char msg[160];
+                            type_display(at, disp, sizeof disp);
+                            snprintf(msg, sizeof msg, "print cannot print %s", disp);
+                            diag_error(ctx->diag, ctx->path, node->token.line, ERR_TYPE_MISMATCH, msg);
+                        }
+                    }
+                    node->semantic_type = ty(ctx, TYPE_INT);
+                    break;
+                }
                 if (name.length == 3 && memcmp(name.start, "len", 3) == 0) {
                     if (node->as.call.arg_count != 1) {
                         diag_error(ctx->diag, ctx->path, node->token.line, ERR_ARITY_MISMATCH, "len expects exactly 1 argument");
@@ -604,11 +648,9 @@ static void check_node(SemanticContext *ctx, AstNode *node) {
                     env_define(ctx->current_env, atoken, false, ty(ctx, TYPE_INT));
                     env_define(ctx->current_env, btoken, false, ty(ctx, TYPE_INT));
                 }
-                Token itoken, stoken;
+                Token itoken;
                 itoken.start = "i"; itoken.length = 1;
-                stoken.start = "s"; stoken.length = 1;
                 env_define(ctx->current_env, itoken, false, ty(ctx, TYPE_INT));
-                env_define(ctx->current_env, stoken, false, ty(ctx, TYPE_INT));
                 check_node(ctx, node->as.stream_gen.gen_expr);
                 ctx->current_env = gen_env.parent;
                 env_free(&gen_env);

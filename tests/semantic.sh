@@ -131,6 +131,13 @@ assert_semantic_ast "typed_bracket_expr" 'x = [1 + 2]' 'BINDING x <TYPE_INT>
       INT 1 <TYPE_INT>
       INT 2 <TYPE_INT>'
 
+assert_semantic_ast "typed_unary_not" 'x = !false' 'BINDING x <TYPE_BOOL>
+  UNARY BANG <TYPE_BOOL>
+    LITERAL <TYPE_BOOL>'
+
+assert_semantic "bang_requires_bool" 'x = !5
+' "$TMP_DIR/bang_requires_bool.tiq:1: error[E09]: operand of '!' must be bool, found int"
+
 assert_semantic_ast "typed_break_bracket" '[0..3 | break]' 'BRACKET_LOOP <TYPE_UNKNOWN>
   BINARY DOT_DOT <TYPE_INT>
     INT 0 <TYPE_INT>
@@ -185,6 +192,21 @@ y = len(x)
 assert_semantic "len_no_args" 'y = len()
 ' "$TMP_DIR/len_no_args.tiq:1: error[E12]: len expects exactly 1 argument"
 
+assert_semantic_ast "typed_print_call" 'x = print(42)' 'BINDING x <TYPE_INT>
+  CALL <TYPE_INT>
+    IDENT print
+    INT 42 <TYPE_INT>'
+
+assert_semantic "print_no_args" 'print()
+' "$TMP_DIR/print_no_args.tiq:1: error[E12]: print expects exactly 1 argument"
+
+assert_semantic "print_two_args" 'print(1, 2)
+' "$TMP_DIR/print_two_args.tiq:1: error[E12]: print expects exactly 1 argument"
+
+assert_semantic "print_unprintable" 'xs = [1, 2, 3]
+print(xs)
+' "$TMP_DIR/print_unprintable.tiq:2: error[E09]: print cannot print [3]int"
+
 assert_semantic "slice_non_int" 'x = [1, 2, 3]
 y = x["bad"..2]
 ' "$TMP_DIR/slice_non_int.tiq:2: error[E09]: slice index must be int"
@@ -200,6 +222,11 @@ x = fib[0..5]
 assert_semantic "stream_index_non_int" 'fib = [0, 1, ... a + b]
 x = fib["bad"]
 ' "$TMP_DIR/stream_index_non_int.tiq:2: error[E09]: stream index must be int"
+
+# Stream generator context binds a/b (two seeds), x (one seed), and i only;
+# the undocumented 's' name is not part of the language (DOC_REVIEW E).
+assert_semantic "stream_state_undefined" 'fib = [0, 1, ... a + s]
+' "$TMP_DIR/stream_state_undefined.tiq:1: error[E08]: undefined symbol 's'"
 
 assert_semantic "move_immutable" 'x = [1, 2, 3]
 y <- move x
@@ -268,5 +295,15 @@ assert_semantic "chan_unsupported" 'ch = chan int
 assert_semantic "spawn_unsupported_line" 'x = 1
 sp = spawn x
 ' "$TMP_DIR/spawn_unsupported_line.tiq:2: error[E07]: spawn is not supported yet"
+
+# M9 borrow checking does not exist yet: unary borrows must fail closed
+# instead of silently emitting a value copy (DOC_REVIEW D).
+assert_semantic "borrow_unsupported" 'x <- 42
+b = &x
+' "$TMP_DIR/borrow_unsupported.tiq:2: error[E07]: borrow is not supported yet"
+
+assert_semantic "mut_borrow_unsupported" 'x <- 42
+b = &mut x
+' "$TMP_DIR/mut_borrow_unsupported.tiq:2: error[E07]: borrow is not supported yet"
 
 echo "semantic: ok"

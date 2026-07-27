@@ -22,7 +22,7 @@ source bytes
 The first implementation intentionally collapses the pipeline for one construct:
 
 ```tiq
-!"text"
+print("text")
 ```
 
 It validates source, emits a C program using `fputs`, and optionally invokes the host `cc`. Unsupported syntax fails closed.

@@ -2,4 +2,4 @@
 cube = [0, 1, ... i * i * i]
 
 // Print first 11 cube numbers
-[0..11 | !cube[i]]
+[0..11 | print(cube[i])]

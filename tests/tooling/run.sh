@@ -24,7 +24,7 @@ fi
 
 # Test run arithmetic
 cat > "$TMP/arith.tiq" << 'EOF'
-!(1 + 2)
+print(1 + 2)
 EOF
 OUTPUT=$($TIQ run "$TMP/arith.tiq")
 EXPECTED="3"
@@ -40,7 +40,7 @@ fi
 # Test run with variables
 cat > "$TMP/vars.tiq" << 'EOF'
 x <- 42
-!x
+print(x)
 EOF
 OUTPUT=$($TIQ run "$TMP/vars.tiq")
 EXPECTED="42"
@@ -57,7 +57,7 @@ fi
 cat > "$TMP/loop.tiq" << 'EOF'
 x <- 0
 [0..5 | x += i]
-!x
+print(x)
 EOF
 OUTPUT=$($TIQ run "$TMP/loop.tiq")
 EXPECTED="10"
@@ -73,7 +73,7 @@ fi
 # Test run with function
 cat > "$TMP/fn.tiq" << 'EOF'
 add a b -> a + b
-!add(3, 4)
+print(add(3, 4))
 EOF
 OUTPUT=$($TIQ run "$TMP/fn.tiq")
 EXPECTED="7"
@@ -89,7 +89,7 @@ fi
 # Test run with stream generator
 cat > "$TMP/stream.tiq" << 'EOF'
 fib = [0, 1, ... a + b]
-!fib[10]
+print(fib[10])
 EOF
 OUTPUT=$($TIQ run "$TMP/stream.tiq")
 EXPECTED="55"
@@ -105,7 +105,7 @@ fi
 # Test run with array
 cat > "$TMP/array.tiq" << 'EOF'
 xs <- [1, 2, 3]
-!xs[0]
+print(xs[0])
 EOF
 OUTPUT=$($TIQ run "$TMP/array.tiq")
 EXPECTED="1"
@@ -122,7 +122,7 @@ fi
 cat > "$TMP/cond.tiq" << 'EOF'
 x <- 5
 y <- x > 3 ? 10 : 20
-!y
+print(y)
 EOF
 OUTPUT=$($TIQ run "$TMP/cond.tiq")
 EXPECTED="10"

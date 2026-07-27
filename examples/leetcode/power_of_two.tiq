@@ -5,10 +5,10 @@
 is_power_of_two n -> n > 0 && (n & (n - 1)) == 0
 
 // Tests
-!is_power_of_two(1)    // true  -> 1
-!is_power_of_two(2)    // true  -> 1
-!is_power_of_two(3)    // false -> 0
-!is_power_of_two(4)    // true  -> 1
-!is_power_of_two(16)   // true  -> 1
-!is_power_of_two(0)    // false -> 0
-!is_power_of_two(-4)   // false -> 0
+print(is_power_of_two(1))   // true  -> 1
+print(is_power_of_two(2))   // true  -> 1
+print(is_power_of_two(3))   // false -> 0
+print(is_power_of_two(4))   // true  -> 1
+print(is_power_of_two(16))   // true  -> 1
+print(is_power_of_two(0))   // false -> 0
+print(is_power_of_two(-4))   // false -> 0

@@ -6,17 +6,25 @@ Canonical executable: `tiq`.
 
 ```text
 tiq --version
-tiq emit-c <file.tiq>
+tiq run <file.tiq>
 tiq build <file.tiq> [-o output]
+tiq check <file.tiq>
+tiq emit-c <file.tiq>
+tiq fmt [paths...] [--check] [--output file] [--use-tabs] [--indent-width n]
+tiq test [-v] [-l] [path]
+tiq bench [-v] [-q] [-i n] <paths...>
+tiq init [name]
+tiq cache (path | clear)
+tiq lsp [--root dir]
+tiq dump-tokens <file.tiq>
+tiq dump-ast <file.tiq>
+tiq dump-typed-ast <file.tiq>
 ```
 
 ## Planned
 
 ```text
 tiq run <file.tiq> [-- program-args]
-tiq check <file.tiq>
-tiq fmt <paths...>
-tiq test [path]
 tiq build <package> --release
 tiq build <package> --target <triple>
 ```

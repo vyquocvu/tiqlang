@@ -64,7 +64,7 @@ echo "check move immutable rejected: passed"
 cat > "$TMP/use_after_move.tiq" << 'EOF'
 x <- 1
 y <- move x
-!x
+print(x)
 EOF
 if $TIQ check "$TMP/use_after_move.tiq" 2>/dev/null; then
     echo "check should have failed for use after move"
@@ -84,7 +84,7 @@ echo "check break outside loop rejected: passed"
 
 # Test check on defer outside block
 cat > "$TMP/defer_outside.tiq" << 'EOF'
-defer !1
+defer print(1)
 EOF
 if $TIQ check "$TMP/defer_outside.tiq" 2>/dev/null; then
     echo "check should have failed for defer outside block"

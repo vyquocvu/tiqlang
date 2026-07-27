@@ -299,7 +299,7 @@ Status: active
 
 Status audit 2026-07-25: previously marked done; corrected after source review.
 
-- [x] Borrow reference syntax (`&x`, `&mut x`) parsed into the AST
+- [x] Borrow reference syntax (`&x`, `&mut x`) parsed into the AST — since 2026-07-27 rejected during semantic analysis ("borrow is not supported yet", fail closed, tested in `tests/semantic.sh` / `tests/smoke.sh`) instead of silently emitting a value copy; stays rejected until borrow checking exists
 - [ ] Borrow lifetime validation — no lifetime or aliasing checks exist in `semantic.c`
 - [ ] Scope-bound destruction and reverse declaration order cleanup for heap values — no destructor emission; only `defer` exists
 - [ ] Explicit arena / scope allocator interfaces (`Allocator`) — not present in source

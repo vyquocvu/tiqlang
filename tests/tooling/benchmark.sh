@@ -12,12 +12,12 @@ echo "=== Testing benchmark ==="
 
 # Create test files (valid Tiq code only)
 cat > "$TMP/small.tiq" << 'EOF'
-! "Hello"
+print("Hello")
 EOF
 
 cat > "$TMP/medium.tiq" << 'EOF'
 fib = [0, 1, ... a + b]
-[0..10 | !fib[i]]
+[0..10 | print(fib[i])]
 EOF
 
 # Test benchmark on single file

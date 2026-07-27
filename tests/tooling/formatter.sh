@@ -10,7 +10,7 @@ mkdir -p "$TMP"
 echo "=== Testing formatter ==="
 
 # Test basic formatting
-echo '! "Hello"' > "$TMP/basic.tiq"
+echo 'print( "Hello" )' > "$TMP/basic.tiq"
 $TIQ fmt "$TMP/basic.tiq" > "$TMP/basic_out.tiq"
 
 # Test formatter with stdin
@@ -59,7 +59,7 @@ x = 1 // trailing
 {
     y = add(x, 2)
 }
-[0..3 | !y]
+[0..3 | print(y)]
 EOF
 $TIQ fmt "$TMP/equiv.tiq" > "$TMP/equiv_file.tiq"
 $TIQ fmt < "$TMP/equiv.tiq" > "$TMP/equiv_stdin.tiq"
@@ -81,7 +81,7 @@ $TIQ fmt < "$TMP/boundary.tiq" > "$TMP/boundary_out.tiq"
 echo "stdin 4096-byte boundary: passed"
 
 # Test --check mode (should exit 0 for valid code)
-echo '! "valid"' > "$TMP/valid.tiq"
+echo 'print("valid")' > "$TMP/valid.tiq"
 if $TIQ fmt --check "$TMP/valid.tiq" 2>&1; then
     echo "check mode: passed"
 else
@@ -89,8 +89,18 @@ else
     exit 1
 fi
 
+# Call syntax must stay tight: no space between callee and '('
+printf 'add a b -> a + b\nprint(add(1, 2))\n' > "$TMP/call_tight.tiq"
+$TIQ fmt "$TMP/call_tight.tiq" > "$TMP/call_tight_out.tiq"
+if ! grep -qF 'print(add(1, 2))' "$TMP/call_tight_out.tiq"; then
+    echo "formatter split a call from its argument list" >&2
+    cat "$TMP/call_tight_out.tiq" >&2
+    exit 1
+fi
+echo "formatter keeps calls tight: passed"
+
 # Test formatter preserves strings correctly
-echo '!"test string"' > "$TMP/string.tiq"
+echo 'print("test string")' > "$TMP/string.tiq"
 $TIQ fmt "$TMP/string.tiq" > "$TMP/string_out.tiq"
 if grep -q '"test string"' "$TMP/string_out.tiq"; then
     echo "formatter preserves strings: passed"
@@ -103,7 +113,7 @@ fi
 cat > "$TMP/loop.tiq" << 'EOF'
 x <- 0
 [0..10 | x += i]
-!x
+print(x)
 EOF
 $TIQ fmt "$TMP/loop.tiq" > "$TMP/loop_out.tiq"
 echo "formatter handles loops: passed"
@@ -111,7 +121,7 @@ echo "formatter handles loops: passed"
 # Test formatter with functions
 cat > "$TMP/fn.tiq" << 'EOF'
 add a b -> a + b
-!add(1, 2)
+print(add(1, 2))
 EOF
 $TIQ fmt "$TMP/fn.tiq" > "$TMP/fn_out.tiq"
 echo "formatter handles functions: passed"
@@ -119,7 +129,7 @@ echo "formatter handles functions: passed"
 # Test formatter with stream generators
 cat > "$TMP/stream.tiq" << 'EOF'
 fib = [0, 1, ... a + b]
-!fib[10]
+print(fib[10])
 EOF
 $TIQ fmt "$TMP/stream.tiq" > "$TMP/stream_out.tiq"
 echo "formatter handles streams: passed"

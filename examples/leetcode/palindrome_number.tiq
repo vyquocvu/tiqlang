@@ -17,13 +17,13 @@ is_palindrome x -> {
 }
 
 // Test 1: 121 -> true (1)
-!is_palindrome(121)
+print(is_palindrome(121))
 
 // Test 2: -121 -> false (0)
-!is_palindrome(-121)
+print(is_palindrome(-121))
 
 // Test 3: 10 -> false (0)
-!is_palindrome(10)
+print(is_palindrome(10))
 
 // Test 4: 1221 -> true (1)
-!is_palindrome(1221)
+print(is_palindrome(1221))

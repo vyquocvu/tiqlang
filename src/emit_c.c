@@ -121,6 +121,40 @@ static void emit_expr(AstNode *node, EmitContext *ctx) {
             break;
         case AST_CALL:
             if (node->as.call.callee && node->as.call.callee->kind == AST_IDENTIFIER &&
+                node->as.call.callee->as.identifier.name.length == 5 &&
+                memcmp(node->as.call.callee->as.identifier.name.start, "print", 5) == 0 &&
+                node->as.call.arg_count == 1) {
+                // print builtin: one printf call per printable type; the
+                // expression value is printf's return (bytes written).
+                AstNode *arg = node->as.call.args[0];
+                SemanticType *st = arg ? arg->semantic_type : NULL;
+                PrimitiveType kind = st ? st->kind : TYPE_INT;
+                if (kind == TYPE_STR) {
+                    fputs("printf(\"%s\\n\", ", ctx->out);
+                    emit_expr(arg, ctx);
+                    fputs(")", ctx->out);
+                } else if (kind == TYPE_FLOAT) {
+                    fputs("printf(\"%g\\n\", (double)(", ctx->out);
+                    emit_expr(arg, ctx);
+                    fputs("))", ctx->out);
+                } else if (kind == TYPE_BOOL) {
+                    fputs("printf(\"%s\\n\", (", ctx->out);
+                    emit_expr(arg, ctx);
+                    fputs(") ? \"true\" : \"false\")", ctx->out);
+                } else if (kind == TYPE_STR_VIEW || kind == TYPE_SLICE) {
+                    fputs("printf(\"%.*s\\n\", ((TiqSlice)(", ctx->out);
+                    emit_expr(arg, ctx);
+                    fputs(")).len, (const char*)(((TiqSlice)(", ctx->out);
+                    emit_expr(arg, ctx);
+                    fputs(")).ptr))", ctx->out);
+                } else {
+                    fputs("printf(\"%lld\\n\", (long long)(", ctx->out);
+                    emit_expr(arg, ctx);
+                    fputs("))", ctx->out);
+                }
+                break;
+            }
+            if (node->as.call.callee && node->as.call.callee->kind == AST_IDENTIFIER &&
                 node->as.call.callee->as.identifier.name.length == 3 &&
                 memcmp(node->as.call.callee->as.identifier.name.start, "len", 3) == 0) {
                 SemanticType *ct = node->as.call.args[0] ?
@@ -530,41 +564,9 @@ static void emit_stmt(AstNode *node, EmitContext *ctx, int indent) {
         case AST_CONDITIONAL: case AST_CALL: case AST_BRACKET_EXPR:
         case AST_STREAM_GEN: case AST_ARRAY: case AST_ARRAY_FILL:
         case AST_FIELD_ACCESS: case AST_SPAWN: case AST_CHAN: case AST_MATCH:
+        case AST_UNARY:
             emit_expr(node, ctx);
             fputs(";\n", ctx->out);
-            break;
-        case AST_UNARY:
-            if (node->as.unary.op == TOK_BANG) {
-                AstNode *expr = node->as.unary.right;
-                SemanticType *st = expr ? expr->semantic_type : NULL;
-                PrimitiveType kind = st ? st->kind : TYPE_INT;
-                if (kind == TYPE_STR) {
-                    fputs("printf(\"%s\\n\", ", ctx->out);
-                    emit_expr(expr, ctx);
-                    fputs(");\n", ctx->out);
-                } else if (kind == TYPE_FLOAT) {
-                    fputs("printf(\"%g\\n\", (double)(", ctx->out);
-                    emit_expr(expr, ctx);
-                    fputs("));\n", ctx->out);
-                } else if (kind == TYPE_BOOL) {
-                    fputs("printf(\"%s\\n\", (", ctx->out);
-                    emit_expr(expr, ctx);
-                    fputs(") ? \"true\" : \"false\");\n", ctx->out);
-                } else if (kind == TYPE_STR_VIEW || kind == TYPE_SLICE) {
-                    fputs("printf(\"%.*s\\n\", ((TiqSlice)(", ctx->out);
-                    emit_expr(expr, ctx);
-                    fputs(")).len, (const char*)(((TiqSlice)(", ctx->out);
-                    emit_expr(expr, ctx);
-                    fputs(")).ptr));\n", ctx->out);
-                } else {
-                    fputs("printf(\"%lld\\n\", (long long)(", ctx->out);
-                    emit_expr(expr, ctx);
-                    fputs("));\n", ctx->out);
-                }
-            } else {
-                emit_expr(node, ctx);
-                fputs(";\n", ctx->out);
-            }
             break;
         case AST_DEFER:
             emit_stmt(node->as.defer.expr, ctx, indent);
@@ -641,12 +643,10 @@ static void emit_stream_gen_def(const char *name, AstNode *node, Token *params, 
         emit_expr(node->as.stream_gen.seeds[0], ctx);
         fputs(";\n", ctx->out);
         fputs("    if (n == 0) return x;\n", ctx->out);
-        fputs("    int64_t s = x;\n", ctx->out);
         fputs("    for (int64_t i = 1; i <= n; i++) {\n", ctx->out);
         fputs("        x = (", ctx->out);
         emit_expr(node->as.stream_gen.gen_expr, ctx);
         fputs(");\n", ctx->out);
-        fputs("        s = x;\n", ctx->out);
         fputs("    }\n", ctx->out);
         fputs("    return x;\n", ctx->out);
         fputs("}\n\n", ctx->out);

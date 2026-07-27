@@ -182,15 +182,16 @@ static void format_stream(FmtSink *sink, Lexer *lexer, FormatterOptions *opts) {
             if (peek.kind != TOK_NEWLINE && peek.kind != TOK_EOF &&
                 peek.kind != TOK_RBRACE && peek.kind != TOK_RBRACKET &&
                 peek.kind != TOK_RPAREN && peek.kind != TOK_COMMA &&
+                peek.kind != TOK_LPAREN &&
                 !is_binary_op(peek.kind) && peek.kind != TOK_QUESTION &&
                 peek.kind != TOK_COLON) {
                 emit_space(&fmt);
             }
         }
 
-        // Space after keywords, print/move, and range/ellipsis operators
+        // Space after keywords, move, and range/ellipsis operators
         if (token_is_keyword(token.kind)) emit_space(&fmt);
-        if (token.kind == TOK_BANG || token.kind == TOK_MOVE) emit_space(&fmt);
+        if (token.kind == TOK_MOVE) emit_space(&fmt);
         if (token.kind == TOK_DOT_DOT_DOT) emit_space(&fmt);
         if (token.kind == TOK_DOT_DOT) emit_space(&fmt);
     }

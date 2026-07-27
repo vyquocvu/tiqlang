@@ -5,7 +5,7 @@ pow2 = [1, ... x * 2]
 pow3 = [1, ... x * 3]
 
 // Print powers of 2
-[0..10 | !pow2[i]]
+[0..10 | print(pow2[i])]
 
 // Print powers of 3
-[0..5 | !pow3[i]]
+[0..5 | print(pow3[i])]

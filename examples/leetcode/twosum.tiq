@@ -19,12 +19,12 @@ two_sum nums target -> {
 
 // Test case 1: nums = [2, 7, 11, 15], target = 9 -> indices [0, 1] (01 = 1)
 nums1 = [2, 7, 11, 15]
-!two_sum(nums1, 9)
+print(two_sum(nums1, 9))
 
 // Test case 2: nums = [3, 2, 4], target = 6 -> indices [1, 2] (12)
 nums2 = [3, 2, 4]
-!two_sum(nums2, 6)
+print(two_sum(nums2, 6))
 
 // Test case 3: nums = [3, 3], target = 6 -> indices [0, 1] (01 = 1)
 nums3 = [3, 3]
-!two_sum(nums3, 6)
+print(two_sum(nums3, 6))

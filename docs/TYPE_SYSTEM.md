@@ -1,6 +1,6 @@
 # Tiq Type System
 
-Status: design target; only string print programs are implemented by the bootstrap slice.
+Status: partially implemented. The bootstrap slice checks `bool`/`i64`/`f64`/`str`, arrays, slices, string views, and stream generators with local inference and unification-based diagnostics (M12.1–M12.2, M12.5 in progress). Sized primitives, explicit conversions, annotations, and Option/Result remain design targets.
 
 ## Goals
 
@@ -24,6 +24,8 @@ never
 ```
 
 `str` is an immutable UTF-8 view represented by pointer and byte length. It is not NUL-terminated by language contract.
+
+Bootstrap deviation: the current C backend represents `str` as a NUL-terminated `const char *` and uses `strlen()`; only slices and string views (`TiqSlice`) honor the pointer+length model. The committed end state is the pointer+length model — `str` becomes a view over immutable bytes, `len()` reads a stored length, and NUL termination becomes an FFI boundary concern only. The backend migration is scheduled with the M12 type-system work.
 
 ## Literal inference
 
@@ -60,6 +62,8 @@ add a:i32 b:i32 -> i32 -> a + b
 ## Conditional typing
 
 The condition of `?:` must be `bool`. Both branches must unify to one type. There is no truthiness conversion.
+
+Unary `!` is logical negation: its operand must be `bool` and its type is `bool` (LANGUAGE_SPEC §5). Printing is the `print` builtin (LANGUAGE_SPEC §12); it accepts one argument of a printable type and returns `int`.
 
 ## Composite types
 

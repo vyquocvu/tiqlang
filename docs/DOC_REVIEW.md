@@ -153,3 +153,22 @@ The current middle state — spec says one thing, backend does another — is th
 | 4 | F (`str` endgame) | spec decision, then backend migration | medium; do with M12 work |
 
 Items in priority 1 require no test changes and can land immediately. Item C should land before M12.6 so that Option/Result are designed on paper before they are constructed in code.
+
+---
+
+## Resolution log (2026-07-27)
+
+| # / Item | Resolution |
+|---|---|
+| 1 / A | Option 3 implemented. LANGUAGE_SPEC §12 specifies the print statement; GRAMMAR gains `print_stmt`; expression-position `!` now types as `bool` in `semantic.c` (goldens `typed_unary_not`, smoke `not_bool`, added failing first). **Superseded later the same day:** the overload was removed entirely — printing is now the `print(expr)` builtin, `print_stmt` was dropped from GRAMMAR, and `!` is logical negation only with a mandatory `bool` operand (see IMPLEMENTATION_STATUS "Print builtin replaces the `!expr` print statement"). |
+| 2 | `^value` early return removed from README (also removed the equally unimplemented `_` placeholder line); `^` remains bit-xor only. |
+| 3 | LANGUAGE_SPEC §4 now lists the lexer-exact reserved words; `while`/`until` documented as clause keywords; `for`/`in`/`continue` dropped. |
+| 4 | MEMORY_MODEL rewritten: "Assignment copies; `move` transfers ownership and invalidates the source." Explicit `move` (§16.1) is the single normative model. |
+| 5 | `continue` and inline guards removed from GRAMMAR `control_stmt`; §10 marks inline guards planned-not-implemented (parser already fails closed on them). |
+| 6 / D | Match, field access, array fill, string indexing, block-body functions specced (LANGUAGE_SPEC §13, §13.1, §7, §17; GRAMMAR `array_fill`, `match_expr`, `field`). chan/spawn were already rejected fail-closed (2026-07-27); borrows `&x`/`&mut x` now also rejected at semantic time instead of emitting a silent value copy (tests added failing first). |
+| 7 / F | Option 2 committed in TYPE_SYSTEM: `str` endgame is pointer+length; current NUL-terminated backend documented as a deviation; migration scheduled with M12 work. |
+| 8 | Missing §12 filled by the print spec (now the `print` builtin); §9 `clamp` fixed to `->`; generator context names documented in §14 (`a`/`b`, `x`, `i`) and the unused `s` binding removed from the compiler (failing test first). |
+| 9 | Status headers refreshed: TYPE_SYSTEM, CLI.md (14 implemented commands), MEMORY_MODEL bootstrap note. |
+| C | LANGUAGE_SPEC §15.1 design sketch: `T?`/`T!E` are postfix type constructors; `??` short-circuits with precedence between `\|\|` and `?:`; `expr?` is expression-level propagation; `T!E` destructures via `match`. Not implemented; compiler keeps failing closed. |
+
+Evidence: `docs/IMPLEMENTATION_STATUS.md` ("Doc/design review resolution", 2026-07-27); behavior changes covered by `tests/semantic.sh` and `tests/smoke.sh` additions, all landed test-first.

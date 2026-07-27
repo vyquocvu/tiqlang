@@ -10,18 +10,18 @@ sum_formula n -> n <= 0 ? 0 : n * (n + 1) / 2
 sum_seq = [0, ... x + i]
 
 // --- Tests ---
-!sum_rec(10)      // 55
-!sum_formula(10)  // 55
-!sum_seq[10]      // 55
+print(sum_rec(10))   // 55
+print(sum_formula(10))   // 55
+print(sum_seq[10])   // 55
 
-!sum_rec(100)     // 5050
-!sum_formula(100) // 5050
-!sum_seq[100]     // 5050
+print(sum_rec(100))   // 5050
+print(sum_formula(100))   // 5050
+print(sum_seq[100])   // 5050
 
-!sum_rec(0)       // 0
-!sum_formula(0)   // 0
-!sum_seq[0]       // 0
+print(sum_rec(0))   // 0
+print(sum_formula(0))   // 0
+print(sum_seq[0])   // 0
 
-!sum_rec(1)       // 1
-!sum_formula(1)   // 1
-!sum_seq[1]       // 1
+print(sum_rec(1))   // 1
+print(sum_formula(1))   // 1
+print(sum_seq[1])   // 1

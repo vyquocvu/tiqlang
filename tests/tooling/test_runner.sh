@@ -46,7 +46,7 @@ echo "test examples dir: passed"
 cat > "$TMP/cwd.tiq" << 'EOF'
 //! 7
 x = 3 + 4
-!x
+print(x)
 EOF
 TIQ_ABS="$(cd "$(dirname "$TIQ")" && pwd)/$(basename "$TIQ")"
 ( cd "$TMP" && "$TIQ_ABS" test cwd.tiq > "$TMP/cwd_out.txt" 2>&1 )

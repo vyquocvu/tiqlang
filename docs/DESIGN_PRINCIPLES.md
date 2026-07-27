@@ -24,7 +24,7 @@ Tiq removes repeated ceremony:
 ```tiq
 add a b -> a + b
 fib = [0, 1, ... a + b]
-[0..10 | !i]
+[0..10 | print(i)]
 ```
 
 It does not redefine familiar operators merely to save characters. These keep conventional meanings:

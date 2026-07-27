@@ -12,8 +12,8 @@ step5 = [1, ... x + 5]
 arith step -> [0, ... x + step]
 
 // Print arithmetic progressions
-[0..6 | !step1[i]]
-[0..6 | !step3[i]]
-[0..6 | !step5[i]]
-!arith(7)[0]
-!arith(7)[5]
+[0..6 | print(step1[i])]
+[0..6 | print(step3[i])]
+[0..6 | print(step5[i])]
+print(arith(7)[0])
+print(arith(7)[5])

@@ -6,7 +6,7 @@ Tiq aims for deterministic memory management without a mandatory garbage collect
 
 - Scalars and small aggregates use value semantics.
 - Owned heap values are destroyed at the end of their scope.
-- Assignment moves owned values unless the type is explicitly copyable.
+- Assignment copies; `move` transfers ownership and invalidates the source (LANGUAGE_SPEC §16.1). Use of a moved binding is a compile-time error.
 - Borrowed views cannot outlive their owner.
 - Shared ownership is opt-in and implemented by library types.
 - Allocation is never inserted merely to satisfy an interface or closure.
@@ -27,7 +27,7 @@ Destruction order is reverse declaration order within a scope. Early return and 
 
 ## Strings
 
-`str` is an immutable UTF-8 byte view. Owned strings will use a separate type or ownership qualifier. String operations must not assume NUL termination.
+`str` is an immutable UTF-8 byte view. Owned strings will use a separate type or ownership qualifier. String operations must not assume NUL termination by language contract; the bootstrap backend currently deviates (see `TYPE_SYSTEM.md`).
 
 ## Concurrency
 
@@ -35,4 +35,4 @@ No value is implicitly thread-safe. Transfer across tasks requires move, copy, o
 
 ## Bootstrap
 
-The current compiler slice emits C string literals only and performs no heap allocation. Ownership checking begins after the typed AST milestone.
+The current compiler slice implements the explicit `move` keyword with use-after-move detection, `defer`, stack arrays, and non-owning `TiqSlice` views; there is still no heap allocation, borrow checking (borrows are rejected fail-closed), or shared ownership. Full ownership checking begins after the M12 type-system milestones.

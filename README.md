@@ -12,7 +12,7 @@ Tiq is an experimental, statically typed, ahead-of-time compiled language design
 ```tiq
 fib = [0, 1, ... a + b]
 
-!fib[10]
+print(fib[10])
 ```
 
 Tiq keeps familiar operators:
@@ -31,15 +31,13 @@ Language-specific syntax is intentionally small:
 name = value       immutable binding
 name <- value     mutable binding or reassignment
 f a b -> expression function
-[0..10 | !i]       bracket loop iteration
+[0..10 | print(i)]  bracket loop iteration
 [0, 1, ... a + b]  stream generator sequence
 [1, ... x * 2 while x < 100]  bounded stream generator
 skip               continue iteration shorthand
 condition ? a : b  conditional expression
 0..n               half-open range
-_                  placeholder in collection expressions
-^value             early return
-
+print(expression)  print builtin
 ```
 
 ## Status

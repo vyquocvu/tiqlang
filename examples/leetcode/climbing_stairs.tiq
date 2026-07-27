@@ -8,9 +8,9 @@
 stairs = [1, 2, ... a + b]
 
 // Tests
-!stairs[0]   // 1  (n=1)
-!stairs[1]   // 2  (n=2)
-!stairs[2]   // 3  (n=3)
-!stairs[3]   // 5  (n=4)
-!stairs[4]   // 8  (n=5)
-!stairs[9]   // 89 (n=10)
+print(stairs[0])   // 1  (n=1)
+print(stairs[1])   // 2  (n=2)
+print(stairs[2])   // 3  (n=3)
+print(stairs[3])   // 5  (n=4)
+print(stairs[4])   // 8  (n=5)
+print(stairs[9])   // 89 (n=10)

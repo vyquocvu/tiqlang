@@ -456,7 +456,7 @@ static char *emit_c_capture(const char *source, int *had_error) {
 
 static void test_emit_c_basic_program(void) {
     int had_error = 1;
-    char *c = emit_c_capture("x = 1 + 2\n!x\n", &had_error);
+    char *c = emit_c_capture("x = 1 + 2\nprint(x)\n", &had_error);
     ASSERT(c != NULL);
     ASSERT(!had_error);
     ASSERT(strstr(c, "int main(void)") != NULL);
@@ -477,11 +477,11 @@ static void test_emit_c_is_reentrant(void) {
     // Two consecutive compilations must not leak state (stream gen table
     // used to be a mutable file-static global).
     int err1 = 1, err2 = 1;
-    char *first = emit_c_capture("fib = [0, 1, ... a + b]\n!fib[5]\n", &err1);
+    char *first = emit_c_capture("fib = [0, 1, ... a + b]\nprint(fib[5])\n", &err1);
     ASSERT(first != NULL);
     ASSERT(!err1);
     ASSERT(strstr(first, "tiq_gen_fib") != NULL);
-    char *second = emit_c_capture("x = 1\n!x\n", &err2);
+    char *second = emit_c_capture("x = 1\nprint(x)\n", &err2);
     ASSERT(second != NULL);
     ASSERT(!err2);
     ASSERT(strstr(second, "tiq_gen_") == NULL);
