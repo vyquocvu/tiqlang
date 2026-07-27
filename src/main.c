@@ -19,6 +19,7 @@
 #include "../include/manifest.h"
 #include "../include/lsp.h"
 #include "../include/benchmark.h"
+#include "../include/emit_c.h"
 
 #define TIQ_VERSION "0.1.0-dev"
 
@@ -40,888 +41,6 @@ static char *read_all(const char *path) {
     return data;
 }
 
-static void emit_c_string(FILE *out, const char *start, size_t length) {
-    size_t i;
-    fputc('"', out);
-    for (i = 0; i < length; i++) {
-        unsigned char ch = (unsigned char)start[i];
-        switch (ch) {
-            case '\\': fputs("\\\\", out); break;
-            case '"': fputs("\\\"", out); break;
-            case '\n': fputs("\\n", out); break;
-            case '\r': fputs("\\r", out); break;
-            case '\t': fputs("\\t", out); break;
-            default:
-                if (ch < 32U || ch == 127U) fprintf(out, "\\x%02x", ch);
-                else fputc((int)ch, out);
-        }
-    }
-    fputc('"', out);
-}
-
-static void emit_expr(AstNode *node, FILE *out, DiagContext *diag, const char *path);
-static void emit_stmt(AstNode *node, FILE *out, DiagContext *diag, const char *path, int indent);
-
-typedef struct { const char *name; Token *params; int param_count; } EmitStreamGenInfo;
-static EmitStreamGenInfo emit_stream_gen_table[64];
-static int emit_stream_gen_table_count = 0;
-
-static bool is_stream_gen_name(const char *name, int len, int *out_params, int *out_param_count) {
-    for (int i = 0; i < emit_stream_gen_table_count; i++) {
-        if ((int)strlen(emit_stream_gen_table[i].name) == len &&
-            memcmp(emit_stream_gen_table[i].name, name, len) == 0) {
-            *out_params = 0;
-            *out_param_count = emit_stream_gen_table[i].param_count;
-            return true;
-        }
-    }
-    return false;
-}
-
-static const char *binary_op_c_str(TokenKind op) {
-    switch (op) {
-        case TOK_PLUS: return "+"; case TOK_MINUS: return "-"; case TOK_STAR: return "*";
-        case TOK_SLASH: return "/"; case TOK_PERCENT: return "%";
-        case TOK_EQ_EQ: return "=="; case TOK_BANG_EQ: return "!=";
-        case TOK_LT: return "<"; case TOK_LTE: return "<="; case TOK_GT: return ">"; case TOK_GTE: return ">=";
-        case TOK_AND_AND: return "&&"; case TOK_OR_OR: return "||";
-        case TOK_AMP: return "&"; case TOK_PIPE: return "|"; case TOK_CARET: return "^";
-        case TOK_LSHIFT: return "<<"; case TOK_RSHIFT: return ">>";
-        default: return "?";
-    }
-}
-
-static void emit_expr(AstNode *node, FILE *out, DiagContext *diag, const char *path) {
-    if (!node) return;
-    switch (node->kind) {
-        case AST_LITERAL: {
-            if (node->as.literal.type == TOK_INT)
-                // Integer literals are i64 (LANGUAGE_SPEC §11); suffix keeps
-                // C constant arithmetic in 64-bit before any conversion.
-                fprintf(out, "%.*sLL", (int)node->token.length, node->token.start);
-            else if (node->as.literal.type == TOK_FLOAT)
-                fprintf(out, "%.*s", (int)node->token.length, node->token.start);
-            else if (node->as.literal.type == TOK_STRING) emit_c_string(out, node->token.start + 1, node->token.length - 2);
-            else if (node->as.literal.type == TOK_TRUE) fputs("1", out);
-            else if (node->as.literal.type == TOK_FALSE) fputs("0", out);
-            break;
-        }
-        case AST_IDENTIFIER:
-            fprintf(out, "%.*s", (int)node->as.identifier.name.length, node->as.identifier.name.start);
-            break;
-        case AST_BINARY: {
-            fputs("(", out);
-            emit_expr(node->as.binary.left, out, diag, path);
-            fputs(" ", out);
-            fputs(binary_op_c_str(node->as.binary.op), out);
-            fputs(" ", out);
-            emit_expr(node->as.binary.right, out, diag, path);
-            fputs(")", out);
-            break;
-        }
-        case AST_UNARY: {
-            if (node->as.unary.op == TOK_MOVE) {
-                emit_expr(node->as.unary.right, out, diag, path);
-            } else {
-                const char *op = "";
-                if (node->as.unary.op == TOK_BANG) op = "!";
-                else if (node->as.unary.op == TOK_MINUS) op = "-";
-                else if (node->as.unary.op == TOK_PLUS) op = "+";
-                fputs(op, out); fputs("(", out);
-                emit_expr(node->as.unary.right, out, diag, path);
-                fputs(")", out);
-            }
-            break;
-        }
-        case AST_CONDITIONAL:
-            emit_expr(node->as.conditional.cond, out, diag, path);
-            fputs(" ? ", out);
-            emit_expr(node->as.conditional.then_branch, out, diag, path);
-            fputs(" : ", out);
-            emit_expr(node->as.conditional.else_branch, out, diag, path);
-            break;
-        case AST_CALL:
-            if (node->as.call.callee && node->as.call.callee->kind == AST_IDENTIFIER &&
-                node->as.call.callee->as.identifier.name.length == 3 &&
-                memcmp(node->as.call.callee->as.identifier.name.start, "len", 3) == 0) {
-                SemanticType *ct = node->as.call.args[0] ?
-                    node->as.call.args[0]->semantic_type : NULL;
-                if (ct && ct->kind == TYPE_ARRAY) {
-                    fprintf(out, "%d", ct->array_length);
-                } else if (ct && (ct->kind == TYPE_SLICE || ct->kind == TYPE_STR_VIEW)) {
-                    fputs("(((TiqSlice)", out);
-                    emit_expr(node->as.call.args[0], out, diag, path);
-                    fputs(").len)", out);
-                } else if (ct && ct->kind == TYPE_STR) {
-                    fputs("((int)strlen(", out);
-                    emit_expr(node->as.call.args[0], out, diag, path);
-                    fputs("))", out);
-                } else {
-                    fprintf(out, "0");
-                }
-                break;
-            }
-            if (node->as.call.callee && node->as.call.callee->kind == AST_IDENTIFIER) {
-                Token name = node->as.call.callee->as.identifier.name;
-                const char *builtin_fn = NULL;
-                if (name.length == 7 && memcmp(name.start, "fs_read", 7) == 0) builtin_fn = "tiq_fs_read";
-                else if (name.length == 8 && memcmp(name.start, "fs_write", 8) == 0) builtin_fn = "tiq_fs_write";
-                else if (name.length == 9 && memcmp(name.start, "fs_exists", 9) == 0) builtin_fn = "tiq_fs_exists";
-                else if (name.length == 9 && memcmp(name.start, "proc_exec", 9) == 0) builtin_fn = "tiq_proc_exec";
-                else if (name.length == 9 && memcmp(name.start, "proc_exit", 9) == 0) builtin_fn = "tiq_proc_exit";
-                else if (name.length == 14 && memcmp(name.start, "json_parse_int", 14) == 0) builtin_fn = "tiq_json_parse_int";
-                else if (name.length == 15 && memcmp(name.start, "json_encode_str", 15) == 0) builtin_fn = "tiq_json_encode_str";
-                else if (name.length == 9 && memcmp(name.start, "net_fetch", 9) == 0) builtin_fn = "tiq_net_fetch";
-
-                if (builtin_fn) {
-                    fprintf(out, "%s(", builtin_fn);
-                    for (int i = 0; i < node->as.call.arg_count; i++) {
-                        if (i > 0) fputs(", ", out);
-                        if (node->as.call.args[i]) emit_expr(node->as.call.args[i], out, diag, path);
-                    }
-                    fputs(")", out);
-                    break;
-                }
-            }
-            if (node->as.call.is_bracket_call && node->as.call.is_slice && node->as.call.callee) {
-                SemanticType *ct = node->as.call.callee->semantic_type;
-                fputs("((TiqSlice){ .ptr = ", out);
-                if (ct && (ct->kind == TYPE_SLICE || ct->kind == TYPE_STR_VIEW)) {
-                    fputs("((const char*)(((TiqSlice)", out);
-                    emit_expr(node->as.call.callee, out, diag, path);
-                    fputs(").ptr) + (", out);
-                    if (node->as.call.args[0]) emit_expr(node->as.call.args[0], out, diag, path);
-                    else fputs("0", out);
-                    fputs(") * ", out);
-                    if (ct->kind == TYPE_SLICE) fputs("sizeof(int64_t)", out);
-                    else fputs("1", out);
-                    fputs("), .len = (", out);
-                    if (node->as.call.args[1]) emit_expr(node->as.call.args[1], out, diag, path);
-                    else {
-                        fputs("(((TiqSlice)", out);
-                        emit_expr(node->as.call.callee, out, diag, path);
-                        fputs(").len)", out);
-                    }
-                    fputs(") - (", out);
-                    if (node->as.call.args[0]) emit_expr(node->as.call.args[0], out, diag, path);
-                    else fputs("0", out);
-                    fputs(") })", out);
-                } else if (ct && ct->kind == TYPE_STR) {
-                    fputs("((const char*)(", out);
-                    emit_expr(node->as.call.callee, out, diag, path);
-                    fputs(") + (", out);
-                    if (node->as.call.args[0]) emit_expr(node->as.call.args[0], out, diag, path);
-                    else fputs("0", out);
-                    fputs(")), .len = (", out);
-                    if (node->as.call.args[1]) emit_expr(node->as.call.args[1], out, diag, path);
-                    else {
-                        fputs("((int)strlen(", out);
-                        emit_expr(node->as.call.callee, out, diag, path);
-                        fputs("))", out);
-                    }
-                    fputs(") - (", out);
-                    if (node->as.call.args[0]) emit_expr(node->as.call.args[0], out, diag, path);
-                    else fputs("0", out);
-                    fputs(") })", out);
-                } else {
-                    int arr_len = ct ? ct->array_length : 0;
-                    fputs("((const char*)(", out);
-                    emit_expr(node->as.call.callee, out, diag, path);
-                    fputs(") + (", out);
-                    if (node->as.call.args[0]) emit_expr(node->as.call.args[0], out, diag, path);
-                    else fputs("0", out);
-                    fputs(") * sizeof(int64_t)), .len = (", out);
-                    if (node->as.call.args[1]) emit_expr(node->as.call.args[1], out, diag, path);
-                    else fprintf(out, "%d", arr_len);
-                    fputs(") - (", out);
-                    if (node->as.call.args[0]) emit_expr(node->as.call.args[0], out, diag, path);
-                    else fputs("0", out);
-                    fputs(") })", out);
-                }
-                break;
-            }
-            if (node->as.call.is_bracket_call && node->as.call.callee) {
-                SemanticType *ct = node->as.call.callee->semantic_type;
-                if (ct && (ct->kind == TYPE_ARRAY || ct->kind == TYPE_SLICE)) {
-                    if (ct->kind == TYPE_ARRAY) {
-                        int len = ct->array_length;
-                        if (len > 0 && node->as.call.arg_count > 0 && node->as.call.args[0]) {
-                            fputs("((uint64_t)(", out);
-                            emit_expr(node->as.call.args[0], out, diag, path);
-                            fprintf(out, ") < (uint64_t)(%d) ? ", len);
-                            emit_expr(node->as.call.callee, out, diag, path);
-                            fputs("[", out);
-                            for (int i = 0; i < node->as.call.arg_count; i++) {
-                                if (i > 0) fputs("][", out);
-                                if (node->as.call.args[i]) emit_expr(node->as.call.args[i], out, diag, path);
-                            }
-                            fputs("] : (fprintf(stderr, \"tiq: index %lld out of bounds for array of length %d\\n\", (long long)(", out);
-                            emit_expr(node->as.call.args[0], out, diag, path);
-                            fprintf(out, "), %d), exit(1), ", len);
-                            emit_expr(node->as.call.callee, out, diag, path);
-                            fputs("[", out);
-                            for (int i = 0; i < node->as.call.arg_count; i++) {
-                                if (i > 0) fputs("][", out);
-                                if (node->as.call.args[i]) emit_expr(node->as.call.args[i], out, diag, path);
-                            }
-                            fputs("]))", out);
-                        } else {
-                            emit_expr(node->as.call.callee, out, diag, path);
-                            fputs("[", out);
-                            for (int i = 0; i < node->as.call.arg_count; i++) {
-                                if (i > 0) fputs("][", out);
-                                if (node->as.call.args[i]) emit_expr(node->as.call.args[i], out, diag, path);
-                            }
-                            fputs("]", out);
-                        }
-                    } else {
-                        fputs("((const int64_t*)(((TiqSlice)(", out);
-                        emit_expr(node->as.call.callee, out, diag, path);
-                        fputs(")).ptr))[", out);
-                        if (node->as.call.arg_count > 0 && node->as.call.args[0])
-                            emit_expr(node->as.call.args[0], out, diag, path);
-                        else
-                            fputs("0", out);
-                        fputs("]", out);
-                    }
-                    break;
-                }
-                if (node->as.call.callee->kind == AST_IDENTIFIER) {
-                    fprintf(out, "tiq_gen_%.*s(", (int)node->as.call.callee->as.identifier.name.length, node->as.call.callee->as.identifier.name.start);
-                } else if (node->as.call.callee->kind == AST_CALL &&
-                           node->as.call.callee->as.call.callee &&
-                           node->as.call.callee->as.call.callee->kind == AST_IDENTIFIER) {
-                    AstNode *inner_fn = node->as.call.callee->as.call.callee;
-                    int dummy1, fn_param_count;
-                    if (is_stream_gen_name(inner_fn->as.identifier.name.start,
-                                           (int)inner_fn->as.identifier.name.length,
-                                           &dummy1, &fn_param_count)) {
-                        fprintf(out, "tiq_gen_%.*s(", (int)inner_fn->as.identifier.name.length, inner_fn->as.identifier.name.start);
-                        for (int ai = 0; ai < node->as.call.callee->as.call.arg_count; ai++) {
-                            if (ai > 0) fputs(", ", out);
-                            if (node->as.call.callee->as.call.args[ai])
-                                emit_expr(node->as.call.callee->as.call.args[ai], out, diag, path);
-                        }
-                        if (node->as.call.arg_count > 0) fputs(", ", out);
-                    } else {
-                        emit_expr(node->as.call.callee, out, diag, path);
-                        fputs("(", out);
-                    }
-                } else {
-                    emit_expr(node->as.call.callee, out, diag, path);
-                    fputs("(", out);
-                }
-            } else {
-                emit_expr(node->as.call.callee, out, diag, path);
-                fputs("(", out);
-            }
-            for (int i = 0; i < node->as.call.arg_count; i++) {
-                if (i > 0) fputs(", ", out);
-                SemanticType *arg_t = node->as.call.args[i] ? node->as.call.args[i]->semantic_type : NULL;
-                if (arg_t && arg_t->kind == TYPE_ARRAY && !node->as.call.is_bracket_call) {
-                    fputs("(TiqSlice){ .ptr = ", out);
-                    emit_expr(node->as.call.args[i], out, diag, path);
-                    fprintf(out, ", .len = %d }", arg_t->array_length);
-                } else {
-                    if (node->as.call.args[i]) emit_expr(node->as.call.args[i], out, diag, path);
-                }
-            }
-            fputs(")", out);
-            break;
-        case AST_BRACKET_EXPR:
-            emit_expr(node->as.bracket_expr.expr, out, diag, path);
-            break;
-        case AST_ARRAY: {
-            fputs("{", out);
-            for (int i = 0; i < node->as.array.element_count; i++) {
-                if (i > 0) fputs(", ", out);
-                emit_expr(node->as.array.elements[i], out, diag, path);
-            }
-            fputs("}", out);
-            break;
-        }
-        case AST_ARRAY_FILL:
-            fputs("{ ", out);
-            emit_expr(node->as.array_fill.value, out, diag, path);
-            fputs(" }", out);
-            break;
-        case AST_FIELD_ACCESS:
-            emit_expr(node->as.field_access.target, out, diag, path);
-            fputs(".", out);
-            fprintf(out, "%.*s", (int)node->as.field_access.field.length, node->as.field_access.field.start);
-            break;
-        case AST_SPAWN:
-            fputs("/* spawn thread */ 0", out);
-            break;
-        case AST_CHAN:
-            fputs("/* channel */ 0", out);
-            break;
-        case AST_MATCH: {
-            fputs("(", out);
-            for (int i = 0; i < node->as.match_expr.arm_count; i++) {
-                fputs("(", out);
-                emit_expr(node->as.match_expr.expr, out, diag, path);
-                fputs(" == ", out);
-                emit_expr(node->as.match_expr.arms[i].pattern, out, diag, path);
-                fputs(") ? (", out);
-                emit_expr(node->as.match_expr.arms[i].body, out, diag, path);
-                fputs(") : ", out);
-            }
-            fputs("0)", out);
-            break;
-        }
-        case AST_BLOCK:
-            diag_error(diag, path, node->token.line, ERR_UNEXPECTED_TOKEN,
-                       "block expression not supported in this context");
-            break;
-        case AST_DEFER:
-            if (node->as.defer.expr)
-                emit_expr(node->as.defer.expr, out, diag, path);
-            break;
-        default:
-            break;
-    }
-}
-
-static void emit_type_name(PrimitiveType kind, FILE *out) {
-    switch (kind) {
-        case TYPE_INT:      fputs("int64_t", out); break;
-        case TYPE_FLOAT:    fputs("double", out); break;
-        case TYPE_BOOL:     fputs("int64_t", out); break;
-        case TYPE_STR:      fputs("const char *", out); break;
-        case TYPE_ARRAY:    fputs("int64_t", out); break;
-        case TYPE_SLICE:    fputs("TiqSlice", out); break;
-        case TYPE_STR_VIEW: fputs("TiqSlice", out); break;
-        case TYPE_STREAM:   fputs("int64_t", out); break;
-        // Sized kinds map to stdint.h types (M12.2); no surface syntax
-        // constructs them until explicit conversions land (M12.3).
-        case TYPE_I8:       fputs("int8_t", out); break;
-        case TYPE_I16:      fputs("int16_t", out); break;
-        case TYPE_I32:      fputs("int32_t", out); break;
-        case TYPE_U8:       fputs("uint8_t", out); break;
-        case TYPE_U16:      fputs("uint16_t", out); break;
-        case TYPE_U32:      fputs("uint32_t", out); break;
-        case TYPE_U64:      fputs("uint64_t", out); break;
-        case TYPE_F32:      fputs("float", out); break;
-        case TYPE_UNIT:     fputs("void", out); break;
-        case TYPE_NEVER:    fputs("void", out); break;
-        default:           fputs("int64_t", out); break;
-    }
-}
-
-static void emit_stmt(AstNode *node, FILE *out, DiagContext *diag, const char *path, int indent) {
-    if (!node) return;
-    for (int i = 0; i < indent; i++) fputs("    ", out);
-    switch (node->kind) {
-        case AST_BINDING: {
-            SemanticType *t = node->semantic_type;
-            bool is_move = node->as.binding.expr && node->as.binding.expr->kind == AST_UNARY &&
-                           node->as.binding.expr->as.unary.op == TOK_MOVE;
-            if (t && t->kind == TYPE_ARRAY) {
-                if (t->element_type) emit_type_name(t->element_type->kind, out);
-                else fputs("int64_t", out);
-                int arr_len = t->array_length > 0 ? t->array_length : 0;
-                fprintf(out, " %.*s[%d]", (int)node->as.binding.name.length, node->as.binding.name.start,
-                        arr_len);
-                if (is_move && node->as.binding.expr->as.unary.right &&
-                    node->as.binding.expr->as.unary.right->kind == AST_IDENTIFIER) {
-                    fputs(";\n", out);
-                    for (int j = 0; j < indent; j++) fputs("    ", out);
-                    fputs("memcpy(", out);
-                    fprintf(out, "%.*s, ", (int)node->as.binding.name.length, node->as.binding.name.start);
-                    AstNode *src = node->as.binding.expr->as.unary.right;
-                    fprintf(out, "%.*s, sizeof(int64_t) * %d);\n",
-                            (int)src->as.identifier.name.length, src->as.identifier.name.start, arr_len);
-                } else {
-                    fputs(" = ", out);
-                    emit_expr(node->as.binding.expr, out, diag, path);
-                    fputs(";\n", out);
-                }
-            } else {
-                if (t) emit_type_name(t->kind, out);
-                else fputs("int64_t", out);
-                fprintf(out, " %.*s", (int)node->as.binding.name.length, node->as.binding.name.start);
-                fputs(" = ", out);
-                emit_expr(node->as.binding.expr, out, diag, path);
-                fputs(";\n", out);
-            }
-            break;
-        }
-        case AST_ASSIGN:
-            {
-                if (node->as.assign.is_definition) {
-                    SemanticType *st = node->semantic_type;
-                    if (st && st->kind == TYPE_ARRAY) {
-                        if (st->element_type) emit_type_name(st->element_type->kind, out);
-                        else fputs("int64_t", out);
-                        int arr_len = st->array_length > 0 ? st->array_length : 0;
-                        fprintf(out, " %.*s[%d] = ", (int)node->as.assign.name.length, node->as.assign.name.start, arr_len);
-                        emit_expr(node->as.assign.expr, out, diag, path);
-                        fputs(";\n", out);
-                    } else {
-                        if (st) emit_type_name(st->kind, out); else fputs("int64_t", out);
-                        fprintf(out, " %.*s = ", (int)node->as.assign.name.length, node->as.assign.name.start);
-                        emit_expr(node->as.assign.expr, out, diag, path);
-                        fputs(";\n", out);
-                    }
-                    break;
-                }
-                int arr_len = 0;
-                SemanticType *st = node->semantic_type;
-                if (st && st->kind == TYPE_ARRAY) arr_len = st->array_length;
-                if (node->as.assign.index && arr_len > 0) {
-                    fputs("if ((uint64_t)(", out);
-                    emit_expr(node->as.assign.index, out, diag, path);
-                    fprintf(out, ") >= (uint64_t)(%d)) { ", arr_len);
-                    fprintf(out, "fprintf(stderr, \"tiq: index out of bounds for array of length %d\\n\"); exit(1); }\n", arr_len);
-                    for (int j = 0; j < indent; j++) fputs("    ", out);
-                }
-                fprintf(out, "%.*s", (int)node->as.assign.name.length, node->as.assign.name.start);
-                if (node->as.assign.index) {
-                    fputs("[", out);
-                    emit_expr(node->as.assign.index, out, diag, path);
-                    fputs("]", out);
-                }
-            }
-            fputs(" ", out);
-            {
-                TokenKind op = node->as.assign.op;
-                if (op == TOK_LARROW) fputs("=", out);
-                else if (op == TOK_PLUS_EQ) fputs("+=", out);
-                else if (op == TOK_MINUS_EQ) fputs("-=", out);
-                else if (op == TOK_STAR_EQ) fputs("*=", out);
-                else if (op == TOK_SLASH_EQ) fputs("/=", out);
-                else if (op == TOK_PERCENT_EQ) fputs("%=", out);
-                else fputs("=", out);
-            }
-            fputs(" ", out);
-            emit_expr(node->as.assign.expr, out, diag, path);
-            fputs(";\n", out);
-            break;
-        case AST_FUNCTION:
-            break;
-        case AST_BREAK:
-            fputs("break;\n", out);
-            break;
-        case AST_SKIP:
-            fputs("continue;\n", out);
-            break;
-        case AST_BRACKET_LOOP: {
-            AstNode *domain = node->as.bracket_loop.domain;
-            bool is_range = domain && domain->kind == AST_BINARY && domain->as.binary.op == TOK_DOT_DOT;
-            if (is_range) {
-                fprintf(out, "for (int64_t i = ");
-                emit_expr(domain->as.binary.left, out, diag, path);
-                fprintf(out, "; i < ");
-                emit_expr(domain->as.binary.right, out, diag, path);
-                fputs("; i++) {\n", out);
-            } else {
-                fputs("while (", out);
-                emit_expr(domain, out, diag, path);
-                fputs(") {\n", out);
-            }
-            for (int i = 0; i < node->as.bracket_loop.body_count; i++) {
-                emit_stmt(node->as.bracket_loop.body_stmts[i], out, diag, path, indent + 1);
-            }
-            if (node->as.bracket_loop.body_final) {
-                emit_stmt(node->as.bracket_loop.body_final, out, diag, path, indent + 1);
-            }
-            for (int i = 0; i < indent; i++) fputs("    ", out);
-            fputs("}\n", out);
-            break;
-        }
-        case AST_BLOCK: {
-            fputs("{\n", out);
-            for (int i = 0; i < node->as.block.stmt_count; i++)
-                emit_stmt(node->as.block.statements[i], out, diag, path, indent + 1);
-            if (node->as.block.final_expr)
-                emit_stmt(node->as.block.final_expr, out, diag, path, indent + 1);
-            for (int i = node->as.block.defer_count - 1; i >= 0; i--)
-                emit_stmt(node->as.block.deferred[i], out, diag, path, indent + 1);
-            for (int i = 0; i < indent; i++) fputs("    ", out);
-            fputs("}\n", out);
-            break;
-        }
-        case AST_LITERAL: case AST_IDENTIFIER: case AST_BINARY:
-        case AST_CONDITIONAL: case AST_CALL: case AST_BRACKET_EXPR:
-        case AST_STREAM_GEN: case AST_ARRAY: case AST_ARRAY_FILL:
-        case AST_FIELD_ACCESS: case AST_SPAWN: case AST_CHAN: case AST_MATCH:
-            emit_expr(node, out, diag, path);
-            fputs(";\n", out);
-            break;
-        case AST_UNARY:
-            if (node->as.unary.op == TOK_BANG) {
-                AstNode *expr = node->as.unary.right;
-                SemanticType *st = expr ? expr->semantic_type : NULL;
-                PrimitiveType kind = st ? st->kind : TYPE_INT;
-                if (kind == TYPE_STR) {
-                    fputs("printf(\"%s\\n\", ", out);
-                    emit_expr(expr, out, diag, path);
-                    fputs(");\n", out);
-                } else if (kind == TYPE_FLOAT) {
-                    fputs("printf(\"%g\\n\", (double)(", out);
-                    emit_expr(expr, out, diag, path);
-                    fputs("));\n", out);
-                } else if (kind == TYPE_BOOL) {
-                    fputs("printf(\"%s\\n\", (", out);
-                    emit_expr(expr, out, diag, path);
-                    fputs(") ? \"true\" : \"false\");\n", out);
-                } else if (kind == TYPE_STR_VIEW || kind == TYPE_SLICE) {
-                    fputs("printf(\"%.*s\\n\", ((TiqSlice)(", out);
-                    emit_expr(expr, out, diag, path);
-                    fputs(")).len, (const char*)(((TiqSlice)(", out);
-                    emit_expr(expr, out, diag, path);
-                    fputs(")).ptr));\n", out);
-                } else {
-                    fputs("printf(\"%lld\\n\", (long long)(", out);
-                    emit_expr(expr, out, diag, path);
-                    fputs("));\n", out);
-                }
-            } else {
-                emit_expr(node, out, diag, path);
-                fputs(";\n", out);
-            }
-            break;
-        case AST_DEFER:
-            emit_stmt(node->as.defer.expr, out, diag, path, indent);
-            break;
-        default:
-            fputs(";\n", out);
-            break;
-    }
-}
-
-static void emit_check_node(AstNode *node, DiagContext *diag, const char *path);
-static void emit_check_node(AstNode *node, DiagContext *diag, const char *path) {
-    if (!node || diag->fatal_error) return;
-    switch (node->kind) {
-        case AST_LITERAL: case AST_IDENTIFIER: case AST_BINDING:
-        case AST_ASSIGN: case AST_FUNCTION: case AST_BREAK: case AST_SKIP:
-        case AST_BRACKET_EXPR: case AST_ARRAY:
-            break;
-        case AST_BINARY:
-            emit_check_node(node->as.binary.left, diag, path);
-            emit_check_node(node->as.binary.right, diag, path);
-            break;
-        case AST_UNARY:
-            emit_check_node(node->as.unary.right, diag, path);
-            break;
-        case AST_CONDITIONAL:
-            emit_check_node(node->as.conditional.cond, diag, path);
-            emit_check_node(node->as.conditional.then_branch, diag, path);
-            emit_check_node(node->as.conditional.else_branch, diag, path);
-            break;
-        case AST_CALL:
-            emit_check_node(node->as.call.callee, diag, path);
-            for (int i = 0; i < node->as.call.arg_count; i++)
-                emit_check_node(node->as.call.args[i], diag, path);
-            break;
-        case AST_BLOCK:
-            for (int i = 0; i < node->as.block.stmt_count; i++)
-                emit_check_node(node->as.block.statements[i], diag, path);
-            if (node->as.block.final_expr)
-                emit_check_node(node->as.block.final_expr, diag, path);
-            break;
-        case AST_BRACKET_LOOP:
-            emit_check_node(node->as.bracket_loop.domain, diag, path);
-            for (int i = 0; i < node->as.bracket_loop.body_count; i++)
-                emit_check_node(node->as.bracket_loop.body_stmts[i], diag, path);
-            if (node->as.bracket_loop.body_final)
-                emit_check_node(node->as.bracket_loop.body_final, diag, path);
-            break;
-        case AST_STREAM_GEN:
-            for (int i = 0; i < node->as.stream_gen.seed_count; i++)
-                emit_check_node(node->as.stream_gen.seeds[i], diag, path);
-            if (node->as.stream_gen.gen_expr)
-                emit_check_node(node->as.stream_gen.gen_expr, diag, path);
-            if (node->as.stream_gen.bound)
-                emit_check_node(node->as.stream_gen.bound, diag, path);
-            break;
-        default:
-            break;
-    }
-}
-
-static void emit_stream_gen_def(FILE *out, const char *name, AstNode *node, Token *params, int param_count, DiagContext *diag, const char *path) {
-    int sc = node->as.stream_gen.seed_count;
-    if (sc == 1) {
-        fprintf(out, "int64_t tiq_gen_%s(", name);
-        for (int p = 0; p < param_count; p++) {
-            if (p > 0) fputs(", ", out);
-            fprintf(out, "int64_t %.*s", (int)params[p].length, params[p].start);
-        }
-        if (param_count > 0) fputs(", ", out);
-        fputs("int64_t n) {\n", out);
-        fputs("    if (n < 0) return 0;\n", out);
-        fputs("    int64_t x = ", out);
-        emit_expr(node->as.stream_gen.seeds[0], out, diag, path);
-        fputs(";\n", out);
-        fputs("    if (n == 0) return x;\n", out);
-        fputs("    int64_t s = x;\n", out);
-        fputs("    for (int64_t i = 1; i <= n; i++) {\n", out);
-        fputs("        x = (", out);
-        emit_expr(node->as.stream_gen.gen_expr, out, diag, path);
-        fputs(");\n", out);
-        fputs("        s = x;\n", out);
-        fputs("    }\n", out);
-        fputs("    return x;\n", out);
-        fputs("}\n\n", out);
-    } else if (sc >= 2) {
-        fprintf(out, "int64_t tiq_gen_%s(", name);
-        for (int p = 0; p < param_count; p++) {
-            if (p > 0) fputs(", ", out);
-            fprintf(out, "int64_t %.*s", (int)params[p].length, params[p].start);
-        }
-        if (param_count > 0) fputs(", ", out);
-        fputs("int64_t n) {\n", out);
-        fputs("    if (n < 0) return 0;\n", out);
-        fputs("    if (n == 0) return ", out);
-        emit_expr(node->as.stream_gen.seeds[0], out, diag, path);
-        fputs(";\n", out);
-        fputs("    if (n == 1) return ", out);
-        emit_expr(node->as.stream_gen.seeds[1], out, diag, path);
-        fputs(";\n", out);
-        fputs("    int64_t a = ", out);
-        emit_expr(node->as.stream_gen.seeds[1], out, diag, path);
-        fputs(";\n    int64_t b = ", out);
-        emit_expr(node->as.stream_gen.seeds[0], out, diag, path);
-        fputs(";\n", out);
-        fputs("    for (int64_t i = 2; i <= n; i++) {\n", out);
-        fputs("        int64_t t = (", out);
-        emit_expr(node->as.stream_gen.gen_expr, out, diag, path);
-        fputs(");\n", out);
-        fputs("        b = a;\n", out);
-        fputs("        a = t;\n", out);
-        fputs("    }\n", out);
-        fputs("    return a;\n", out);
-        fputs("}\n\n", out);
-    }
-}
-
-static void compile_to_c(const char *source_path, const char *source, FILE *out, DiagContext *diag) {
-    Parser parser;
-    parser_init(&parser, source, source_path, diag);
-    int count;
-    AstNode **stmts = parser_parse(&parser, &count);
-    if (diag->has_error) { free(stmts); parser_free(&parser); return; }
-
-    TypePool pool;
-    type_pool_init(&pool);
-    semantic_check(stmts, count, source_path, diag, &pool);
-    if (diag->has_error) { free(stmts); parser_free(&parser); type_pool_free(&pool); return; }
-
-    for (int i = 0; i < count && !diag->fatal_error; i++)
-        emit_check_node(stmts[i], diag, source_path);
-    if (diag->has_error) { free(stmts); parser_free(&parser); type_pool_free(&pool); return; }
-
-    // Collect stream gen bindings
-    typedef struct { const char *name; AstNode *gen; Token *params; int param_count; } StreamGenDef;
-    StreamGenDef stream_gens[64];
-    int stream_gen_count = 0;
-    for (int i = 0; i < count; i++) {
-        if (stmts[i] && stmts[i]->kind == AST_BINDING &&
-            stmts[i]->as.binding.expr && stmts[i]->as.binding.expr->kind == AST_STREAM_GEN) {
-            Token n = stmts[i]->as.binding.name;
-            char *sname = malloc(n.length + 1);
-            memcpy(sname, n.start, n.length); sname[n.length] = '\0';
-            stream_gens[stream_gen_count].name = sname;
-            stream_gens[stream_gen_count].gen = stmts[i]->as.binding.expr;
-            stream_gens[stream_gen_count].params = NULL;
-            stream_gens[stream_gen_count].param_count = 0;
-            stream_gen_count++;
-        }
-        // Also handle function-level streams
-        if (stmts[i] && stmts[i]->kind == AST_FUNCTION &&
-            stmts[i]->as.function.body && stmts[i]->as.function.body->kind == AST_STREAM_GEN) {
-            Token n = stmts[i]->as.function.name;
-            char *sname = malloc(n.length + 1);
-            memcpy(sname, n.start, n.length); sname[n.length] = '\0';
-            stream_gens[stream_gen_count].name = sname;
-            stream_gens[stream_gen_count].gen = stmts[i]->as.function.body;
-            stream_gens[stream_gen_count].params = stmts[i]->as.function.params;
-            stream_gens[stream_gen_count].param_count = stmts[i]->as.function.param_count;
-            stream_gen_count++;
-        }
-    }
-
-    int has_function = 0;
-    for (int i = 0; i < count; i++)
-        if (stmts[i] && stmts[i]->kind == AST_FUNCTION) has_function = 1;
-
-    // Populate emit-time stream gen lookup table
-    emit_stream_gen_table_count = 0;
-    for (int g = 0; g < stream_gen_count; g++) {
-        emit_stream_gen_table[g].name = stream_gens[g].name;
-        emit_stream_gen_table[g].params = stream_gens[g].params;
-        emit_stream_gen_table[g].param_count = stream_gens[g].param_count;
-        emit_stream_gen_table_count++;
-    }
-
-    fputs("#include <stdio.h>\n", out);
-    fputs("#include <stdlib.h>\n", out);
-    fputs("#include <string.h>\n", out);
-    fputs("#include <stdint.h>\n", out);
-    fputs("#include <sys/stat.h>\n", out);
-    fputs("typedef struct { const void *ptr; int len; } TiqSlice;\n\n", out);
-
-    fputs("static const char *tiq_fs_read(const char *path) {\n", out);
-    fputs("    FILE *f = fopen(path, \"rb\");\n", out);
-    fputs("    if (!f) return \"\";\n", out);
-    fputs("    fseek(f, 0, SEEK_END);\n", out);
-    fputs("    long len = ftell(f);\n", out);
-    fputs("    fseek(f, 0, SEEK_SET);\n", out);
-    fputs("    if (len < 0) { fclose(f); return \"\"; }\n", out);
-    fputs("    char *buf = (char *)malloc(len + 1);\n", out);
-    fputs("    if (!buf) { fclose(f); return \"\"; }\n", out);
-    fputs("    size_t r = fread(buf, 1, len, f);\n", out);
-    fputs("    fclose(f);\n", out);
-    fputs("    buf[r] = '\\0';\n", out);
-    fputs("    return buf;\n", out);
-    fputs("}\n\n", out);
-
-    fputs("static int tiq_fs_write(const char *path, const char *data) {\n", out);
-    fputs("    FILE *f = fopen(path, \"wb\");\n", out);
-    fputs("    if (!f) return -1;\n", out);
-    fputs("    size_t len = strlen(data);\n", out);
-    fputs("    size_t w = fwrite(data, 1, len, f);\n", out);
-    fputs("    fclose(f);\n", out);
-    fputs("    return w == len ? 0 : -1;\n", out);
-    fputs("}\n\n", out);
-
-    fputs("static int tiq_fs_exists(const char *path) {\n", out);
-    fputs("    struct stat st;\n", out);
-    fputs("    return stat(path, &st) == 0 ? 1 : 0;\n", out);
-    fputs("}\n\n", out);
-
-    fputs("static int tiq_proc_exec(const char *cmd) {\n", out);
-    fputs("    return system(cmd);\n", out);
-    fputs("}\n\n", out);
-
-    fputs("static int tiq_proc_exit(int code) {\n", out);
-    fputs("    exit(code);\n", out);
-    fputs("    return 0;\n", out);
-    fputs("}\n\n", out);
-
-    fputs("static int tiq_json_parse_int(const char *str) {\n", out);
-    fputs("    if (!str) return 0;\n", out);
-    fputs("    return atoi(str);\n", out);
-    fputs("}\n\n", out);
-
-    fputs("static const char *tiq_json_encode_str(const char *str) {\n", out);
-    fputs("    if (!str) return \"\\\"\\\"\";\n", out);
-    fputs("    size_t len = strlen(str);\n", out);
-    fputs("    char *buf = (char *)malloc(len * 2 + 3);\n", out);
-    fputs("    if (!buf) return \"\\\"\\\"\";\n", out);
-    fputs("    size_t pos = 0;\n", out);
-    fputs("    buf[pos++] = '\"';\n", out);
-    fputs("    for (size_t i = 0; i < len; i++) {\n", out);
-    fputs("        if (str[i] == '\"') { buf[pos++] = '\\\\'; buf[pos++] = '\"'; }\n", out);
-    fputs("        else if (str[i] == '\\\\') { buf[pos++] = '\\\\'; buf[pos++] = '\\\\'; }\n", out);
-    fputs("        else if (str[i] == '\\n') { buf[pos++] = '\\\\'; buf[pos++] = 'n'; }\n", out);
-    fputs("        else buf[pos++] = str[i];\n", out);
-    fputs("    }\n", out);
-    fputs("    buf[pos++] = '\"';\n", out);
-    fputs("    buf[pos] = '\\0';\n", out);
-    fputs("    return buf;\n", out);
-    fputs("}\n\n", out);
-
-    fputs("static const char *tiq_net_fetch(const char *url) {\n", out);
-    fputs("    (void)url;\n", out);
-    fputs("    return \"{\\\"status\\\": 200, \\\"ok\\\": true}\";\n", out);
-    fputs("}\n\n", out);
-
-    // Forward-declare stream gen functions
-    for (int g = 0; g < stream_gen_count; g++) {
-        fprintf(out, "int64_t tiq_gen_%s(", stream_gens[g].name);
-        for (int p = 0; p < stream_gens[g].param_count; p++) {
-            if (p > 0) fputs(", ", out);
-            fprintf(out, "int64_t %.*s", (int)stream_gens[g].params[p].length, stream_gens[g].params[p].start);
-        }
-        if (stream_gens[g].param_count > 0) fputs(", ", out);
-        fputs("int64_t n);\n", out);
-    }
-
-    if (has_function) {
-        for (int i = 0; i < count; i++) {
-            if (stmts[i] && stmts[i]->kind == AST_FUNCTION &&
-                !(stmts[i]->as.function.body && stmts[i]->as.function.body->kind == AST_STREAM_GEN)) {
-                SemanticType *t = stmts[i]->semantic_type;
-                if (t) emit_type_name(t->kind, out); else fputs("int64_t", out);
-                fprintf(out, " %.*s(", (int)stmts[i]->as.function.name.length, stmts[i]->as.function.name.start);
-                for (int j = 0; j < stmts[i]->as.function.param_count; j++) {
-                    if (j > 0) fputs(", ", out);
-                    SemanticType *pt = (SemanticType *)(stmts[i]->as.function.param_types ? stmts[i]->as.function.param_types[j] : NULL);
-                    if (pt && pt->kind == TYPE_SLICE) fputs("TiqSlice ", out);
-                    else fputs("int64_t ", out);
-                    fprintf(out, "%.*s", (int)stmts[i]->as.function.params[j].length, stmts[i]->as.function.params[j].start);
-                }
-                fputs(");\n", out);
-            }
-        }
-    }
-    fputs("\nint main(void) {\n", out);
-
-    for (int i = 0; i < count; i++) {
-        if (stmts[i] && stmts[i]->kind != AST_FUNCTION) {
-            if (stmts[i]->kind == AST_BINDING && stmts[i]->as.binding.expr &&
-                stmts[i]->as.binding.expr->kind == AST_STREAM_GEN) {
-                // stream gen bindings are emitted via tiq_gen_* functions below
-                continue;
-            }
-            emit_stmt(stmts[i], out, diag, source_path, 1);
-        }
-    }
-    fputs("    return 0;\n}\n\n", out);
-
-    // Emit stream gen definitions
-    for (int g = 0; g < stream_gen_count; g++)
-        emit_stream_gen_def(out, stream_gens[g].name, stream_gens[g].gen, stream_gens[g].params, stream_gens[g].param_count, diag, source_path);
-
-    // Emit function definitions
-    for (int i = 0; i < count; i++) {
-        if (stmts[i] && stmts[i]->kind == AST_FUNCTION && stmts[i]->as.function.body->kind != AST_STREAM_GEN) {
-            SemanticType *t = stmts[i]->semantic_type;
-            if (t) emit_type_name(t->kind, out); else fputs("int64_t", out);
-            fprintf(out, "\n%.*s(", (int)stmts[i]->as.function.name.length, stmts[i]->as.function.name.start);
-            for (int j = 0; j < stmts[i]->as.function.param_count; j++) {
-                if (j > 0) fputs(", ", out);
-                SemanticType *pt = (SemanticType *)(stmts[i]->as.function.param_types ? stmts[i]->as.function.param_types[j] : NULL);
-                if (pt && pt->kind == TYPE_SLICE) fputs("TiqSlice ", out);
-                else fputs("int64_t ", out);
-                fprintf(out, "%.*s", (int)stmts[i]->as.function.params[j].length, stmts[i]->as.function.params[j].start);
-            }
-            if (stmts[i]->as.function.body && stmts[i]->as.function.body->kind == AST_BLOCK) {
-                fputs(") {\n", out);
-                AstNode *block = stmts[i]->as.function.body;
-                for (int s = 0; s < block->as.block.stmt_count; s++) {
-                    emit_stmt(block->as.block.statements[s], out, diag, source_path, 1);
-                }
-                for (int d = 0; d < block->as.block.defer_count; d++) {
-                    emit_stmt(block->as.block.deferred[d], out, diag, source_path, 1);
-                }
-                if (block->as.block.final_expr) {
-                    fputs("    return ", out);
-                    emit_expr(block->as.block.final_expr, out, diag, source_path);
-                    fputs(";\n", out);
-                } else {
-                    fputs("    return 0;\n", out);
-                }
-                fputs("}\n\n", out);
-            } else {
-                fputs(") {\n    return ", out);
-                emit_expr(stmts[i]->as.function.body, out, diag, source_path);
-                fputs(";\n}\n\n", out);
-            }
-        }
-    }
-
-    // Free stream gen names
-    for (int g = 0; g < stream_gen_count; g++) free((void*)stream_gens[g].name);
-
-    free(stmts);
-    parser_free(&parser);
-    type_pool_free(&pool);
-}
 
 static int compile_file_to_c_stream(const char *input, FILE *out, DiagContext *diag) {
     char *source = read_all(input);
@@ -1040,7 +159,7 @@ static int dump_ast(const char *input, DiagContext *diag) {
     int count;
     AstNode **stmts = parser_parse(&parser, &count);
     for (int i = 0; i < count; i++) ast_print(stmts[i], 0);
-    free(stmts); parser_free(&parser); free(source);
+    parser_free(&parser); free(source);
     return diag->has_error ? 1 : 0;
 }
 
@@ -1054,7 +173,7 @@ static int dump_typed_ast(const char *input, DiagContext *diag) {
     type_pool_init(&pool);
     if (!diag->has_error) semantic_check(stmts, count, input, diag, &pool);
     for (int i = 0; i < count; i++) ast_print(stmts[i], 0);
-    free(stmts); parser_free(&parser); type_pool_free(&pool); free(source);
+    parser_free(&parser); type_pool_free(&pool); free(source);
     return diag->has_error ? 1 : 0;
 }
 
@@ -1071,7 +190,6 @@ static int cmd_check(const char *input) {
     int count;
     AstNode **stmts = parser_parse(&parser, &count);
     if (diag.has_error) {
-        free(stmts);
         parser_free(&parser);
         free(source);
         return 1;
@@ -1079,7 +197,6 @@ static int cmd_check(const char *input) {
     TypePool pool;
     type_pool_init(&pool);
     semantic_check(stmts, count, input, &diag, &pool);
-    free(stmts);
     parser_free(&parser);
     type_pool_free(&pool);
     free(source);
@@ -1109,11 +226,20 @@ static int cmd_fmt(int argc, char **argv) {
     }
 
     if (input_file) {
-        int result = format_file(input_file, output, &opts);
         if (check_mode) {
-            // TODO: Compare formatted output with original
+            char *source = read_all(input_file);
+            if (!source) return 1;
+            char *formatted = format_source(source, input_file, &opts);
+            int changed = (strcmp(source, formatted) != 0);
+            free(formatted);
+            free(source);
+            if (changed) {
+                fprintf(stderr, "%s: not formatted\n", input_file);
+                return 1;
+            }
+            return 0;
         }
-        return result;
+        return format_file(input_file, output, &opts);
     }
 
     // No input file, format stdin to stdout
@@ -1124,20 +250,23 @@ static int cmd_test(int argc, char **argv) {
     test_runner_init();
     TestResults results = {0, 0, 0};
     bool verbose = false;
+    bool list_mode = false;
 
     for (int i = 2; i < argc; i++) {
         if (strcmp(argv[i], "--verbose") == 0 || strcmp(argv[i], "-v") == 0) {
             verbose = true;
         } else if (strcmp(argv[i], "--list") == 0 || strcmp(argv[i], "-l") == 0) {
-            // List mode - show files without running
-            printf("Listing tests in: %s\n", argv[i]);
-            // TODO: implement list mode
+            list_mode = true;
         } else if (argv[i][0] != '-') {
             struct stat st;
             if (stat(argv[i], &st) == 0) {
-                if (S_ISDIR(st.st_mode)) {
+                if (list_mode) {
+                    printf("%s\n", argv[i]);
+                } else if (S_ISDIR(st.st_mode)) {
+                    if (verbose) printf("running tests in %s\n", argv[i]);
                     run_tests_in_dir(argv[i], &results);
                 } else {
+                    if (verbose) printf("running test %s\n", argv[i]);
                     run_tests_in_file(argv[i], &results);
                 }
             }
@@ -1146,14 +275,15 @@ static int cmd_test(int argc, char **argv) {
 
     test_runner_shutdown();
 
-    printf("Tests: %d passed, %d failed, %d skipped\n",
-           results.passed, results.failed, results.skipped);
+    if (!list_mode) {
+        printf("Tests: %d passed, %d failed, %d skipped\n",
+               results.passed, results.failed, results.skipped);
 
-    if (results.passed == 0 && results.failed == 0) {
-        printf("Note: Test files should contain '//! expected_output' comments\n");
+        if (results.passed == 0 && results.failed == 0) {
+            printf("Note: Test files should contain '//! expected_output' comments\n");
+        }
     }
 
-    (void)verbose; // Reserved for future use
     return results.failed > 0 ? 1 : 0;
 }
 
@@ -1185,19 +315,21 @@ static int cmd_init(const char *name) {
 }
 
 static int cmd_lsp(const char *root) {
-    cache_init(NULL);
+    Cache cache;
+    cache_init(&cache, NULL); // ensure the cache directory exists
     return lsp_server_run(root ? root : ".", STDIN_FILENO, STDOUT_FILENO);
 }
 
 static int cmd_cache(int argc, char **argv) {
-    cache_init(NULL);
+    Cache cache;
+    cache_init(&cache, NULL);
 
     for (int i = 2; i < argc; i++) {
         if (strcmp(argv[i], "clear") == 0) {
-            cache_clear();
-            printf("Cache cleared at %s\n", cache_get_path());
+            cache_clear(&cache);
+            printf("Cache cleared at %s\n", cache_get_path(&cache));
         } else if (strcmp(argv[i], "path") == 0) {
-            printf("%s\n", cache_get_path());
+            printf("%s\n", cache_get_path(&cache));
         }
     }
     return 0;

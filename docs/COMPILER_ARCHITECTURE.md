@@ -36,21 +36,25 @@ It validates source, emits a C program using `fputs`, and optionally invokes the
 - Shell arguments derived from user paths must be quoted or passed without shell interpretation in a future process abstraction.
 - Each milestone adds syntax only after lexer, parser, diagnostics, and tests agree on its behavior.
 
-## Planned modules
+## Modules (actual, 2026-07-27)
 
 ```text
-src/main.c        CLI orchestration
-src/source.c      source loading and positions
+src/main.c        CLI orchestration and build driver
 src/lexer.c       tokenization
 src/parser.c      AST construction
-src/resolve.c     scopes and symbols
-src/type.c        inference and checking
-src/ir.c          typed lower-level representation
-src/emit_c.c      portable C backend
+src/semantic.c    scopes, symbols, and type checking
+src/type.c        type pool (interned primitive and struct types)
+src/emit_c.c      portable C backend (EmitContext, re-entrant)
 src/diag.c        structured diagnostics
+src/formatter.c   canonical source formatter
+src/cache.c       build cache
+src/tester.c      test runner
+src/manifest.c    project manifest
+src/lsp.c         language server scaffold
+src/benchmark.c   compile benchmark harness
 ```
 
-The bootstrap starts in one file to keep the first slice auditable. It must be split by milestone M1.2 before expression parsing expands.
+There is no separate `src/source.c`, `src/resolve.c`, or `src/ir.c`: source loading lives in `main.c`, resolution and checking are combined in `semantic.c`, and the emitter walks the typed AST directly without a lower-level IR. The C backend was split out of `main.c` into `src/emit_c.c` in 2026-07-27; all emitter state is carried in an `EmitContext` (no mutable globals), so `compile_to_c` is re-entrant and unit-tested in `tests/unit/test_main.c`.
 
 ## Backend strategy
 

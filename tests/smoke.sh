@@ -9,6 +9,24 @@ trap 'rm -rf "$TMP_DIR"' EXIT INT TERM
 ./build/tiq emit-c examples/hello.tiq > "$TMP_DIR/hello.c"
 ./build/tiq build examples/hello.tiq -o "$TMP_DIR/hello"
 
+# Runtime helpers must use int64_t in an i64 world (plan 1.3)
+printf 'fs_write("p", "d")\nx = json_parse_int("42")\n!x\n' > "$TMP_DIR/rt_i64.tiq"
+./build/tiq emit-c "$TMP_DIR/rt_i64.tiq" > "$TMP_DIR/rt_i64.c"
+if ! grep -q 'static int64_t tiq_fs_write' "$TMP_DIR/rt_i64.c"; then
+  echo "tiq_fs_write does not return int64_t" >&2
+  exit 1
+fi
+if grep -qE 'static int tiq_' "$TMP_DIR/rt_i64.c"; then
+  echo "runtime helper still returns narrow int:" >&2
+  grep -E 'static int tiq_' "$TMP_DIR/rt_i64.c" >&2
+  exit 1
+fi
+
+# json_parse_int must not truncate 64-bit values
+printf 'big = json_parse_int("5000000000")\n!big\n' > "$TMP_DIR/rt_i64_parse.tiq"
+./build/tiq build "$TMP_DIR/rt_i64_parse.tiq" -o "$TMP_DIR/rt_i64_parse"
+[ "$("$TMP_DIR/rt_i64_parse")" = "5000000000" ]
+
 # Just verify compilation succeeds
 [ -x "$TMP_DIR/hello" ]
 
@@ -137,10 +155,24 @@ printf 'cmd = "true"\nres = proc_exec(cmd)\nval = json_parse_int("42")\nenc = js
 [ -x "$TMP_DIR/m6_sys" ]
 "$TMP_DIR/m6_sys"
 
-printf 'arr = [0; 5]\ns = "hello"\nch = chan int\nsp = spawn 10\n' > "$TMP_DIR/m7_features.tiq"
+printf 'arr = [0; 5]\ns = "hello"\n' > "$TMP_DIR/m7_features.tiq"
 ./build/tiq build "$TMP_DIR/m7_features.tiq" -o "$TMP_DIR/m7_features" 2>"$TMP_DIR/m7_features.err"
 [ -x "$TMP_DIR/m7_features" ]
 "$TMP_DIR/m7_features"
+
+# spawn/chan have no runtime yet: builds must fail closed (plan 1.2)
+printf 'sp = spawn 10\n' > "$TMP_DIR/m7_spawn.tiq"
+if ./build/tiq build "$TMP_DIR/m7_spawn.tiq" -o "$TMP_DIR/m7_spawn" 2>"$TMP_DIR/m7_spawn.err"; then
+    echo "spawn unexpectedly compiled" >&2
+    exit 1
+fi
+[ ! -e "$TMP_DIR/m7_spawn" ]
+printf 'ch = chan int\n' > "$TMP_DIR/m7_chan.tiq"
+if ./build/tiq build "$TMP_DIR/m7_chan.tiq" -o "$TMP_DIR/m7_chan" 2>"$TMP_DIR/m7_chan.err"; then
+    echo "chan unexpectedly compiled" >&2
+    exit 1
+fi
+[ ! -e "$TMP_DIR/m7_chan" ]
 
 printf 'x = 10\nres = match x { 10 => 100, 20 => 200 }\n' > "$TMP_DIR/m8_match.tiq"
 ./build/tiq build "$TMP_DIR/m8_match.tiq" -o "$TMP_DIR/m8_match" 2>"$TMP_DIR/m8_match.err"
