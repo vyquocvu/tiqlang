@@ -35,4 +35,31 @@ assert_diagnostic "unterminated_string" 'x = \"hello' "unterminated string liter
 assert_diagnostic "bracket_loop_no_pipe" '[0..10' "expected '|' in bracket loop"
 assert_diagnostic "bracket_loop_no_rbracket" '[0..10 | i' "expected ']' after bracket loop body"
 
+# Regression: parser must terminate on invalid input (fuzz findings 0.4).
+# Each case previously looped forever because errors neither consumed a
+# token nor stopped parsing. 10s alarm converts a hang into a failure.
+assert_parser_terminates() {
+  name="$1"
+  source="$2"
+  input="$TMP_DIR/$name.tiq"
+  printf '%s' "$source" > "$input"
+  set +e
+  perl -e 'alarm 10; exec @ARGV' ./build/tiq check "$input" >/dev/null 2>&1
+  code=$?
+  set -e
+  if [ "$code" -eq 0 ]; then
+    echo "expected $name to fail" >&2
+    exit 1
+  fi
+  if [ "$code" -gt 1 ]; then
+    echo "$name crashed or hung (exit $code)" >&2
+    exit 1
+  fi
+}
+
+assert_parser_terminates "fuzz_bad_index" '[0..10 | !alt[,]]'
+assert_parser_terminates "fuzz_bad_domain" '[0(.10 | !i, break]'
+assert_parser_terminates "fuzz_bad_args" 'f(1,,,'
+assert_parser_terminates "fuzz_bad_match" 'match x { , => 1 }'
+
 echo "diagnostics: ok"

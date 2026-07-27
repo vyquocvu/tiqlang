@@ -3,30 +3,34 @@
 
 #include <stdbool.h>
 
+// Stable, printed error codes (plan 2.4). Values are part of the observable
+// diagnostic format (`error[E0x]:`), so they are pinned explicitly and must
+// never be renumbered; retire a code by removing it, not by reusing its value.
 typedef enum {
-    ERR_UNEXPECTED_CHAR,
-    ERR_UNTERMINATED_STRING,
-    ERR_NEWLINE_IN_STRING,
-    ERR_EXPECTED_PRINT,
-    ERR_EXPECTED_STRING,
-    ERR_UNEXPECTED_TOKEN,
-    ERR_EXPECTED_EXPRESSION,
-    ERR_EXPECTED_IDENTIFIER,
-    ERR_UNSUPPORTED_STATEMENT,
-    ERR_UNDEFINED_SYMBOL,
-    ERR_TYPE_MISMATCH,
-    ERR_UNSUPPORTED_CONVERSION,
-    ERR_IMMUTABLE_ASSIGNMENT,
-    ERR_ARITY_MISMATCH,
-    ERR_EXPECTED_BLOCK,
-    ERR_CONDITION_TYPE,
-    ERR_LOOP_VARIABLE,
-    ERR_BREAK_OUTSIDE_LOOP,
-    ERR_CANNOT_MOVE_IMMUTABLE,
-    ERR_USE_AFTER_MOVE,
-    ERR_DEFER_OUTSIDE_BLOCK,
-    ERR_LITERAL_RANGE
+    ERR_UNEXPECTED_CHAR = 1,
+    ERR_UNTERMINATED_STRING = 2,
+    ERR_NEWLINE_IN_STRING = 3,
+    ERR_UNEXPECTED_TOKEN = 4,
+    ERR_EXPECTED_EXPRESSION = 5,
+    ERR_EXPECTED_IDENTIFIER = 6,
+    ERR_UNSUPPORTED_STATEMENT = 7,
+    ERR_UNDEFINED_SYMBOL = 8,
+    ERR_TYPE_MISMATCH = 9,
+    ERR_UNSUPPORTED_CONVERSION = 10,
+    ERR_IMMUTABLE_ASSIGNMENT = 11,
+    ERR_ARITY_MISMATCH = 12,
+    ERR_EXPECTED_BLOCK = 13,
+    ERR_CONDITION_TYPE = 14,
+    ERR_LOOP_VARIABLE = 15,
+    ERR_BREAK_OUTSIDE_LOOP = 16,
+    ERR_CANNOT_MOVE_IMMUTABLE = 17,
+    ERR_USE_AFTER_MOVE = 18,
+    ERR_DEFER_OUTSIDE_BLOCK = 19,
+    ERR_LITERAL_RANGE = 20
 } ErrorCode;
+// ERR_EXPECTED_PRINT/ERR_EXPECTED_STRING (dead since the print statement was
+// removed) were retired before this numbering was first pinned and printed,
+// so no published value was ever reused.
 
 typedef struct {
     bool has_error;
