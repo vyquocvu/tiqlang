@@ -1,10 +1,10 @@
 # Tiq Implementation Status
 
-Updated: 2026-07-25
+Updated: 2026-07-27
 
 ## Current milestone
 
-M6 — Service-ready standard library (complete)
+M12 — Type system implementation (in progress; M12.1–M12.2 complete)
 
 ## Implemented
 
@@ -22,7 +22,7 @@ M6 — Service-ready standard library (complete)
 - Golden diagnostic tests for bootstrap malformed-input boundaries
 - Linux and macOS CI workflow running required build, test, and sanitizer checks
 - M1.1: Source and lexer (tokens, positions, comments, strings, integers, identifiers, reserved operators).
-- M1.3: Diagnostics (stable error codes, source spans, expected/found messages).
+- M1.3: Diagnostics (stable error codes `E01`-`E20` printed as `error[E0x]:`, source spans, expected/found messages).
 - M1.2: Parser and AST (expressions, bindings, conditional expressions, function definitions, calls, and blocks).
 - M2: Lexical scopes and symbols.
 - M2: Primitive types.
@@ -75,6 +75,11 @@ M6 — Service-ready standard library (complete)
 
 - Formatter (`tiq fmt`):
   - Token-based source formatting preserving language semantics
+  - Comments preserved as trivia tokens attached to the following token;
+    re-emitted at their original line positions (comment-only lines,
+    trailing comments, comments inside blocks — golden-tested in
+    `tests/tooling/formatter.sh`). `make test-fmt` runs `fmt --check`
+    unmasked.
   - Configurable indentation (spaces or tabs, variable width)
   - Proper handling of braces, brackets, operators, keywords
   - Options for check mode and output file specification
@@ -103,20 +108,23 @@ M6 — Service-ready standard library (complete)
   - Diagnostics publishing infrastructure
   - Text document synchronization
 
-### M7 — M11: Complete Roadmap Features (complete)
+### M7 — M11: Partial roadmap features (per ROADMAP status audit 2026-07-25)
 
-- M7: Array fill `[val; len]`, string character indexing `s[i]`, non-owning `TiqSlice` parameter decay, reusable functions with block bodies and parameter type inference, structured concurrency `chan`/`spawn`, `--target` flag compiler driver.
-- M8: Record / struct type definitions, field access `point.x`, pattern matching `match expr { pattern => body }`, Option/Result type foundations.
-- M9: Non-owning borrow references `&x` and `&mut x` with lifetime validation.
-- M10: Non-blocking event loop & networking socket primitives.
-- M11: LSP server capabilities (`hover`, `go-to-definition`, `semanticTokens/full`), platform abstraction layer structure.
+ROADMAP is the source of truth for M7–M11 item status; the summary below mirrors its
+corrected audits. None of these milestones is complete.
+
+- M7 (active): array fill `[val; len]`, string character indexing `s[i]`, non-owning `TiqSlice` parameter decay, and block-body functions work. `chan`/`spawn` are parsed but rejected at semantic time (fail-closed, no concurrency runtime; former placeholder emission removed 2026-07-27). No `--target` flag or wasm support exists.
+- M8 (active): field access (`expr.field`) and `match` parse and check; match arm types are unified since 2026-07-27 (plan 3.1). Struct definitions and record literals do NOT parse — `struct` lexes but `AST_STRUCT_DEF`/`AST_RECORD_LIT` are never constructed, so such programs fail closed with E05 (corrected 2026-07-27; blocked on M12.4 spec-and-grammar-first syntax). No Option/Result syntax exists.
+- M9 (active): borrow syntax `&x` / `&mut x` parses into the AST only; no lifetime or aliasing validation, destructors, allocator interfaces, or `Shared<T>`.
+- M10 (queued): `net_fetch` is a hardcoded stub; no event loop, sockets, or HTTP code exists. `json_parse_int`/`json_encode_str` are minimal helpers.
+- M11 (queued): LSP `hover`/`definition`/`semanticTokens` answer with real front-end data since 2026-07-27 (plan 5.1): hover shows the declared symbol's inferred type, definition returns the declaration token's range, semantic tokens are delta-encoded real lexer token kinds. Responses are deterministic per stored `(uri, version)`; unknown uris/positions and unsupported methods fail closed with `null`. Structured in-protocol diagnostics, Windows platform layer, wasm playground, and self-hosted compiler remain open.
 
 ### M12: Type system implementation (in progress)
 
 - M12.1: Type representation core (complete, 2026-07-25):
   - Interned type arena (`TypePool` in `include/type.h` / `src/type.c`): structurally identical types share one canonical `SemanticType`, so pointer equality implies type equality; pool lifetime owned by `semantic_check` callers.
   - `src/semantic.c` migrated to pooled immutable `SemanticType *`; inference propagates by swapping node type pointers instead of mutating types in place.
-  - `type_display()` renders nested composite types in `dump-typed-ast` (`TYPE_ARRAY[3]:TYPE_INT`, `TYPE_SLICE:TYPE_INT`).
+  - `dump_type_display()` (`src/parser.c`) renders nested composite types in `dump-typed-ast` (`TYPE_ARRAY[3]:TYPE_INT`, `TYPE_SLICE:TYPE_INT`).
   - Fixes latent uninitialized `field_count` read (pool zero-initializes types) and `param_types` leak (freed in `parser_free`).
   - Tests: `semantic.sh` (`typed_array_nested`, `typed_slice_nested` goldens, added failing first); full suite green under ASan/UBSan.
 - M12.2: Sized primitives and literal typing (complete, 2026-07-25):
@@ -125,10 +133,33 @@ M6 — Service-ready standard library (complete)
   - Sized kinds `TYPE_I8`–`TYPE_U64`, `TYPE_F32`, `TYPE_NEVER` exist with `stdint.h` mappings in the emitter; `TYPE_I64`/`TYPE_F64` alias `TYPE_INT`/`TYPE_FLOAT` to keep pooled types unique. No surface syntax constructs sized types until M12.3 explicit conversions.
   - Spec: LANGUAGE_SPEC §11 and TYPE_SYSTEM.md literal rules amended to the `i64` default.
   - Tests: `smoke.sh` `i64_values` runtime test and `semantic.sh` `int_literal_overflow` / `int_literal_overflow_expr` goldens, all added failing first; full suite green under ASan/UBSan.
-
-## Current milestone
-
-M12 — Type system implementation (in progress; M12.1–M12.2 complete)
+- Runtime helper hygiene (2026-07-27): emitted runtime helpers (`tiq_fs_write`, `tiq_fs_exists`, `tiq_proc_exec`, `tiq_proc_exit`, `tiq_json_parse_int`) return `int64_t`; `json_parse_int` uses `strtoll` so 64-bit values are not truncated (`smoke.sh` `rt_i64` goldens, added failing first).
+- M12.5: Unification-based local checking (in progress, 2026-07-27):
+  - Single `unify(expected, found)` in `src/semantic.c` used by binary ops, `?:` branches, builtin call args, array elements, match arms, and function return re-pointing; unknown-propagation is one rule inside it.
+  - Type mismatch diagnostics print `expected <T>, found <U>` with user-facing names from `type_display()` in `src/type.c` (`int`, `str`, `[3]int`, `[]int`, ...).
+  - Non-first match arms and conflicting function redefinitions are now rejected (fail closed).
+  - Tests: `semantic.sh` goldens updated failing first (11 reshaped messages plus new `conditional_branch_mismatch`, `match_arm_mismatch`, `function_redefinition_mismatch`); full suite green under ASan/UBSan.
+  - Remaining: retire the retroactive `len(x)`/index slice-inference symbol re-pointing (tracked in ROADMAP M12.5).
+- M12.6 groundwork — nominal struct interning (2026-07-27, plan 3.2/3.3):
+  - `type_get_struct(pool, name, field_names, field_types, field_count)` in `src/type.c`: struct types intern nominally by declared name (same name → same instance; same fields under a different name → distinct type); named structs are excluded from the structural intern scan.
+  - `SemanticType` fixed arrays (`struct_name[64]`, `field_names[16][32]`, `field_types[16]`) replaced by pool-owned pointers; field-name strings are copied into and freed by the pool.
+  - `type_display()` renders the nominal struct name in diagnostics.
+  - Tests: `tests/unit/test_main.c` `test_type_pool_struct_interning` (added failing first); full suite green under ASan/UBSan (pool ownership leak-checked).
+  - Not included: struct/record surface syntax, declaration-site wiring, and record-literal checking — blocked on M12.4 (spec and grammar first); the plan 3.2 record-literal goldens are unreachable until then.
+- AST arena allocator (2026-07-27, plan 4.1):
+  - `src/arena.c` / `include/arena.h`: bump allocator (64 KiB blocks, max-aligned, in-place growth for the newest allocation); the `Parser` owns one `Arena` that holds every `AstNode`, aux array (`call.args`, `block.statements`/`deferred`, `function.params`/`param_types`, `bracket_loop.body_stmts`, `stream_gen.seeds`, `match_expr.arms`), and the top-level statements array.
+  - `parser_free` is now a single `arena_free`; the per-node partial-free switch (the source of the earlier fuzz-found leaks) is gone. Callers no longer `free(stmts)` — the parse result is arena-owned.
+  - `param_types` is pre-allocated by the parser (same arena as its node); `semantic.c` only fills it in.
+  - Tests: `tests/unit/test_main.c` arena growth/realloc/reset tests (added failing first, 123 assertions total); full suite + tooling + fuzz (272 inputs) green under ASan/UBSan.
+  - Bench (same machine/procedure as the 0.3 baseline): total front-end time for `tiq bench -i 10 examples/` 0.208 ms → 0.126–0.137 ms (~35% faster); details in `OPTIMIZATION_PLAN.md` 4.1.
+- Cache context (2026-07-27, plan 5.3):
+  - `Cache` is a caller-owned struct; the `cache.c` module statics (`cache_dir`, `manifest_path`, the static path-helper buffers) are gone. `cache_entry_path` writes into a caller-provided buffer and fails closed when it would not fit.
+  - Entry keys flatten path separators, fixing silent no-op `cache_put` for paths containing `/`. Dead `cache_shutdown` removed.
+  - Tests: `tests/unit/test_main.c` cache context/roundtrip tests (added failing first, 138 assertions total); full suite + tooling + fuzz green under ASan/UBSan.
+- LSP real symbol data (2026-07-27, plan 5.1):
+  - `tiq lsp` runs the library front end (lexer+parser+semantic) on the stored `didOpen` text: hover answers `name: type` via `type_display` (functions as `fn(N) -> ret`), definition returns the declaration token's 0-based range, `semanticTokens/full` delta-encodes real lexer token kinds over the legend `[keyword, variable, number, string, operator]` declared in `initialize`.
+  - Document store keyed by uri with version; requests against unopened uris, non-identifier positions, or malformed params answer `null` (fail closed). The non-protocol unsolicited startup message was removed, and header parsing now accepts `\r\n` framing (previously untested and broken). `lsp_root_path` module static replaced by a run-scoped `LspServer` context; dead `lsp_server_init`/`lsp_server_shutdown` removed from the public header.
+  - Tests: golden JSON-RPC transcript `tests/tooling/lsp.sh` (added failing first, byte-exact framing compare) wired into `tests/tooling.sh`; full suite + tooling + fuzz green under ASan/UBSan.
 
 ## Known bootstrap limitations
 

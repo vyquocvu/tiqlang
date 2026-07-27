@@ -36,6 +36,8 @@ Immutable bindings, mutable bindings, reassignment, arithmetic expressions, comp
 
 Stable error codes, source spans, expected/found messages, and no cascading diagnostics after a fatal structural error.
 
+Status audit (2026-07-27): error codes are pinned (`E01`-`E20`, `diag.h`) and printed as `path:line: error[E0x]: message` since plan 2.4; the dead `ERR_EXPECTED_PRINT`/`ERR_EXPECTED_STRING` codes were retired before the numbering was first published. Type mismatches print `expected <T>, found <U>` via `type_display()` since plan 3.1 (same day).
+
 Exit gate: parser golden tests cover every grammar production and malformed boundary.
 
 ## M2 — Static semantics
@@ -58,26 +60,26 @@ Status: done
 
 ### Completed
 
-- while loops (expression condition, block body, C emission as `while`):
-  - Parsing: `while_statement()` in `parser.c` handles `while` keyword, parses condition, expects block body.
+- while-style loops (bracket loop with bool condition, C emission as `while`):
+  - Parsing: `bracket_loop()` in `parser.c` handles `[cond | body]`.
   - Semantic: checks condition is `bool`, allocates block scope for body.
   - C emission: `while (cond) { body }`.
   - Tests: `parser.sh` (AST golden), `semantic.sh` (typed AST, condition type error), `smoke.sh` (while count 0→3).
-  - Diagnostics: missing block body reports error.
+  - Diagnostics: missing loop body reports error.
 
-- range (for-in) loops:
-  - Parsing: `for_statement()` in `parser.c` handles `for var in range { body }`.
-  - Validates iterable is a `..` binary expression at parse time.
-  - Semantic: creates loop variable in dedicated scope, type-checks body.
-  - C emission: desugared to `for (int var = start; var < end; var++) { body }`.
+- range loops:
+  - Parsing: `bracket_loop()` in `parser.c` handles `[start..end | body]`.
+  - Validates the domain is a `..` binary expression during semantic analysis.
+  - Semantic: creates loop variable `i` in dedicated scope, type-checks body, requires int bounds.
+  - C emission: desugared to `for (int64_t i = start; i < end; i++) { body }`.
   - Tests: `parser.sh` (AST golden), `semantic.sh` (typed AST), `smoke.sh` (sum 0..4).
-  - Diagnostics: missing `in`, missing range, missing block all report errors.
+  - Diagnostics: non-int range bounds and malformed loop bodies report errors.
 
-- break and continue:
-  - Parsing: `TOK_BREAK` → `AST_BREAK`, `TOK_CONTINUE` → `AST_CONTINUE` in `statement()`.
-  - Semantic: tracked via `loop_depth` in `SemanticContext`; reject break/continue outside loop.
+- break and skip:
+  - Parsing: `TOK_BREAK` → `AST_BREAK`, `TOK_SKIP` → `AST_SKIP` in bracket loop bodies.
+  - Semantic: tracked via `loop_depth` in `SemanticContext`; reject break/skip outside loop.
   - C emission: `break;` and `continue;` emit directly.
-  - Tests: `parser.sh` (AST golden), `semantic.sh` (typed AST, outside-loop rejection), `smoke.sh` (break exits immediately, continue skips rest).
+  - Tests: `parser.sh` (AST golden), `semantic.sh` (typed AST, outside-loop rejection), `smoke.sh` (break exits immediately, skip skips rest).
 
 - Expression C emitter (foundation):
   - All AST nodes now emit valid C11: `AST_LITERAL`, `AST_IDENTIFIER`, `AST_BINARY` (arithmetic, comparison, logical, bitwise), `AST_UNARY`, `AST_CONDITIONAL`, `AST_CALL`, `AST_BLOCK`, `AST_BINDING`, `AST_ASSIGN`, `AST_FUNCTION`.
@@ -274,7 +276,7 @@ Status audit 2026-07-25: previously marked done; corrected after source review. 
 - [x] Array fill / repeated initialization syntax (`[val; len]`)
 - [x] Implicit array/string decay to non-owning slice parameters (`TiqSlice`)
 - [x] Block body return value emission for non-stream functions
-- [ ] Structured concurrency primitives (`chan`, `spawn`) — parsed only; the backend emits placeholder comments (`/* spawn thread */ 0`), no thread or channel runtime exists
+- [ ] Structured concurrency primitives (`chan`, `spawn`) — parsed only; semantic analysis rejects them fail-closed ("spawn/chan is not supported yet", tested in `tests/semantic.sh`) until a thread/channel runtime exists. The former placeholder emission (`/* spawn thread */ 0`) was removed 2026-07-27.
 - [ ] WebAssembly / WASI compilation target support (`tiq build --target wasm32-wasi`) — no `--target` flag exists in the CLI
 - [ ] WebAssembly JS host bindings generator (`--target wasm32-unknown-unknown`) — not implemented
 - [ ] Cross-compilation matrix — not implemented
@@ -284,11 +286,12 @@ Status audit 2026-07-25: previously marked done; corrected after source review. 
 Status: active
 
 Status audit 2026-07-25: previously marked done; corrected after source review.
+Status audit 2026-07-27 (plan 3.2): struct rows corrected again — no struct/record grammar or parse path exists.
 
-- [x] Record / struct type definitions and field access — AST, parsing, and basic field-type lookup exist; field types are stored as raw tokens and never resolved against declared types
+- [ ] Record / struct type definitions and field access — `struct` lexes and `expr.field` parses, but `struct Point { ... }` and record literals fail closed with E05: `AST_STRUCT_DEF`/`AST_RECORD_LIT` are never constructed by the parser (blocked on M12.4 spec-and-grammar-first syntax)
 - [ ] Explicit Result & Option types (`T?` / `T!E`) — only reserved `TYPE_OPTION`/`TYPE_RESULT` enum kinds exist; no syntax, construction, or checking (blocked on M12 type representation)
-- [x] Pattern matching (`match expr { pattern => body }`) — parsed and checked; arm types are not unified, only the first arm's type is taken
-- [x] Direct C struct emission in backend without vtables or dynamic dispatch
+- [x] Pattern matching (`match expr { pattern => body }`) — parsed and checked; arm types unified via `unify()` since plan 3.1 (2026-07-27)
+- [ ] Direct C struct emission in backend — `src/emit_c.c` has no struct emission; only field-access expressions emit
 
 ## M9 — Memory ownership & borrow checker (M4 completion)
 
@@ -317,11 +320,11 @@ Status audit 2026-07-25: previously marked done; corrected after source review. 
 
 Status: queued
 
-Status audit 2026-07-25: previously marked done; corrected after source review. `src/platform.c` does not exist; LSP `hover`/`definition`/`semanticTokens` handlers are protocol stubs returning static responses; there is no wasm playground or self-hosted compiler.
+Status audit 2026-07-25: previously marked done; corrected after source review. `src/platform.c` does not exist; there is no wasm playground or self-hosted compiler. Update 2026-07-27 (plan 5.1): LSP `hover`/`definition`/`semanticTokens` now answer with real symbol data from the lexer+parser+semantic front end, pinned by the golden JSON-RPC transcript `tests/tooling/lsp.sh`.
 
 - [ ] Native Windows platform abstraction layer (`src/platform.c` using Win32 API)
 - [ ] WebAssembly-compiled in-browser Tiq compiler & interactive web playground
-- [ ] Full LSP server capabilities (`hover`, `go-to-definition`, `semanticTokens` with real symbol data)
+- [x] Full LSP server capabilities (`hover`, `go-to-definition`, `semanticTokens` with real symbol data) — 2026-07-27, evidence: `src/lsp.c` runs the front end on stored `didOpen` text; golden transcript `tests/tooling/lsp.sh`
 - [ ] Self-hosting Tiq compiler written in Tiq
 
 ## M12 — Type system implementation
@@ -378,15 +381,19 @@ and the ASan/UBSan build both green, including the examples suite.
 
 ### M12.5 — Unification-based local checking
 
-- [ ] Single `unify(expected, found)` used by binary ops, `?:` branches, call args, array elements, match arms, returns
+- [x] Single `unify(expected, found)` used by binary ops, `?:` branches, call args, array elements, match arms, returns
 - [ ] Remove ad hoc `TYPE_UNKNOWN` in-place mutation (e.g. `len(x)` retroactively assigning slice-of-int)
-- [ ] Diagnostics upgraded to `expected <T>, found <U>` with source location; golden tests per error shape
+- [x] Diagnostics upgraded to `expected <T>, found <U>` with source location; golden tests per error shape
+
+Status (2026-07-27, plan 3.1): `unify()` lives in `src/semantic.c` with a user-facing `type_display()` in `src/type.c`. Non-first match arms and conflicting function redefinitions are now rejected (`match_arm_mismatch`, `function_redefinition_mismatch` goldens added failing first). The `len(x)`/index retroactive slice inference still re-points symbol types (pool-sanctioned pointer swap, not type mutation); removing it is the remaining box.
 
 ### M12.6 — Composite types on the new core
 
 - [ ] Rebase array/slice/struct types onto the arena with real nested `Type *`
 - [ ] Nominal identity for named types by declaration site
 - [ ] Option (`T?`) and Result (`T!E`) become constructible (unblocks M8)
+
+Status (2026-07-27, plan 3.2/3.3): `type_get_struct()` interns struct types nominally by name with pool-owned field metadata (`src/type.c`); the fixed `struct_name[64]`/`field_names[16][32]` arrays in `SemanticType` were replaced by pool-owned pointers (unit-tested failing first, ASan/UBSan green). Declaration-site wiring and record-literal checking remain blocked on M12.4 struct/record syntax (spec and grammar first).
 
 ### Exit criteria
 
