@@ -12,67 +12,66 @@
 #define DT_REG 8
 #endif
 
-static char cache_dir[1024] = {0};
-static bool cache_initialized = false;
-
-static int ensure_cache_dir(void) {
-    if (!cache_initialized) return -1;
-    if (mkdir(cache_dir, 0755) != 0 && errno != EEXIST) {
+static int ensure_cache_dir(const Cache *cache) {
+    if (!cache->initialized) return -1;
+    if (mkdir(cache->dir, 0755) != 0 && errno != EEXIST) {
         return -1;
     }
     return 0;
 }
 
-static char *get_source_key(const char *source_path) {
-    // Simple hash: just use the absolute path for now
-    // In production, would use file mtime and content hash
-    static char key[256];
-    snprintf(key, sizeof(key), "%s", source_path);
-    return key;
+// Flatten a source path into a single cache file name: every path
+// separator becomes '_', so entries always land inside the cache dir.
+bool cache_entry_path(const Cache *cache, const char *source_path, char *buf, size_t cap) {
+    if (!cache->initialized) return false;
+    size_t dir_len = strlen(cache->dir);
+    size_t key_len = strlen(source_path);
+    // dir + '/' + key + ".c" + NUL must fit: fail closed, never truncate.
+    if (dir_len + 1 + key_len + 2 + 1 > cap) return false;
+    memcpy(buf, cache->dir, dir_len);
+    buf[dir_len] = '/';
+    for (size_t i = 0; i < key_len; i++) {
+        char c = source_path[i];
+        buf[dir_len + 1 + i] = (c == '/') ? '_' : c;
+    }
+    memcpy(buf + dir_len + 1 + key_len, ".c", 3);
+    return true;
 }
 
-static char *get_cache_entry_path(const char *source_path) {
-    static char path[1024];
-    char *key = get_source_key(source_path);
-    snprintf(path, sizeof(path), "%s/%s.c", cache_dir, key);
-    return path;
-}
-
-int cache_init(const char *cache_dir_arg) {
+int cache_init(Cache *cache, const char *cache_dir_arg) {
+    cache->initialized = false;
+    cache->manifest_path[0] = '\0';
     const char *dir = cache_dir_arg;
     if (dir == NULL || *dir == '\0') {
         const char *xdg = getenv("XDG_CACHE_HOME");
         if (xdg && *xdg) {
-            snprintf(cache_dir, sizeof(cache_dir), "%s/tiq", xdg);
+            snprintf(cache->dir, sizeof(cache->dir), "%s/tiq", xdg);
         } else {
             const char *home = getenv("HOME");
             if (home && *home) {
-                snprintf(cache_dir, sizeof(cache_dir), "%s/.cache/tiq", home);
+                snprintf(cache->dir, sizeof(cache->dir), "%s/.cache/tiq", home);
             } else {
-                snprintf(cache_dir, sizeof(cache_dir), "/tmp/.tiq-cache");
+                snprintf(cache->dir, sizeof(cache->dir), "/tmp/.tiq-cache");
             }
         }
     } else {
-        snprintf(cache_dir, sizeof(cache_dir), "%s", dir);
+        snprintf(cache->dir, sizeof(cache->dir), "%s", dir);
     }
-    cache_initialized = true;
-    return ensure_cache_dir();
+    cache->initialized = true;
+    return ensure_cache_dir(cache);
 }
 
-void cache_shutdown(void) {
-    // Nothing to clean up for now
+const char *cache_get_path(const Cache *cache) {
+    return cache->dir;
 }
 
-const char *cache_get_path(void) {
-    return cache_dir;
-}
-
-bool cache_has(const char *source_path, const char *c_path) {
+bool cache_has(Cache *cache, const char *source_path, const char *c_path) {
     (void)c_path; // TODO: implement proper cache with c file path
-    if (!cache_initialized) return false;
-    if (ensure_cache_dir() != 0) return false;
+    if (!cache->initialized) return false;
+    if (ensure_cache_dir(cache) != 0) return false;
 
-    char *cached = get_cache_entry_path(source_path);
+    char cached[1024];
+    if (!cache_entry_path(cache, source_path, cached, sizeof(cached))) return false;
     FILE *f = fopen(cached, "rb");
     if (!f) return false;
 
@@ -97,11 +96,12 @@ bool cache_has(const char *source_path, const char *c_path) {
     return true;
 }
 
-void cache_put(const char *source_path, const char *c_path) {
-    if (!cache_initialized) return;
-    if (ensure_cache_dir() != 0) return;
+void cache_put(Cache *cache, const char *source_path, const char *c_path) {
+    if (!cache->initialized) return;
+    if (ensure_cache_dir(cache) != 0) return;
 
-    char *cached = get_cache_entry_path(source_path);
+    char cached[1024];
+    if (!cache_entry_path(cache, source_path, cached, sizeof(cached))) return;
 
     // Copy c_path to cached location
     FILE *src = fopen(c_path, "rb");
@@ -127,45 +127,44 @@ void cache_put(const char *source_path, const char *c_path) {
     fclose(dst);
 }
 
-void cache_remove(const char *source_path) {
-    if (!cache_initialized) return;
-    char *cached = get_cache_entry_path(source_path);
+void cache_remove(Cache *cache, const char *source_path) {
+    if (!cache->initialized) return;
+    char cached[1024];
+    if (!cache_entry_path(cache, source_path, cached, sizeof(cached))) return;
     remove(cached);
 }
 
-void cache_clear(void) {
-    if (!cache_initialized) return;
-    DIR *dir = opendir(cache_dir);
+void cache_clear(Cache *cache) {
+    if (!cache->initialized) return;
+    DIR *dir = opendir(cache->dir);
     if (!dir) return;
 
     struct dirent *entry;
     while ((entry = readdir(dir)) != NULL) {
         if (entry->d_type == DT_REG) {
             char path[1024];
-            snprintf(path, sizeof(path), "%s/%s", cache_dir, entry->d_name);
+            snprintf(path, sizeof(path), "%s/%s", cache->dir, entry->d_name);
             remove(path);
         }
     }
     closedir(dir);
 }
 
-static char manifest_path[1024] = {0};
-
-int cache_load_manifest(const char *manifest_path_arg) {
+int cache_load_manifest(Cache *cache, const char *manifest_path_arg) {
     if (manifest_path_arg) {
-        snprintf(manifest_path, sizeof(manifest_path), "%s", manifest_path_arg);
+        snprintf(cache->manifest_path, sizeof(cache->manifest_path), "%s", manifest_path_arg);
         return 0;
     }
-    snprintf(manifest_path, sizeof(manifest_path), "%s/manifest.json", cache_dir);
-    FILE *f = fopen(manifest_path, "r");
+    snprintf(cache->manifest_path, sizeof(cache->manifest_path), "%s/manifest.json", cache->dir);
+    FILE *f = fopen(cache->manifest_path, "r");
     if (!f) return -1;
     fclose(f);
     return 0;
 }
 
-int cache_save_manifest(const char *manifest_path_arg) {
+int cache_save_manifest(Cache *cache, const char *manifest_path_arg) {
     if (manifest_path_arg) {
-        snprintf(manifest_path, sizeof(manifest_path), "%s", manifest_path_arg);
+        snprintf(cache->manifest_path, sizeof(cache->manifest_path), "%s", manifest_path_arg);
     }
     return 0;
 }
