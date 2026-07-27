@@ -395,6 +395,42 @@ Status (2026-07-27, plan 3.1): `unify()` lives in `src/semantic.c` with a user-f
 
 Status (2026-07-27, plan 3.2/3.3): `type_get_struct()` interns struct types nominally by name with pool-owned field metadata (`src/type.c`); the fixed `struct_name[64]`/`field_names[16][32]` arrays in `SemanticType` were replaced by pool-owned pointers (unit-tested failing first, ASan/UBSan green). Declaration-site wiring and record-literal checking remain blocked on M12.4 struct/record syntax (spec and grammar first).
 
+### M12.7 — Syntax coherence and safety audit
+
+Status: in progress
+
+Keep Tiq syntax compact while removing context-dependent rules that are easy to misread. Every accepted decision must update LANGUAGE_SPEC, GRAMMAR, examples, formatter behavior, diagnostics, and deterministic tests before implementation.
+
+#### M12.7.1 — Close existing syntax-contract gaps (P0)
+
+- [x] Singleton arrays and bracket grouping:
+  - `[x]` now parses as AST_ARRAY with 1 element (not AST_BRACKET_EXPR).
+  - Empty arrays `[]` rejected with ERR_EMPTY_ARRAY (E21).
+  - Ordinary grouping remains `(x)`.
+- [x] Array fill correctness:
+  - `[x; n]` now emits explicit element list `{ x, x, ..., x }` with n copies.
+  - Before: `[5; 4]` emitted `{ 5 }` which C zero-initializes the rest, producing `[5, 0, 0, 0]`.
+  - After: `[5; 4]` emits `{ 5LL, 5LL, 5LL, 5LL }` which correctly initializes all elements.
+- [ ] Stream seed arity honesty: parser accepts any seed count; emitter ignores seeds beyond first two.
+- [ ] Stream bounds and predicate slicing honesty: parser stores `while`/`until` bounds but emitter ignores them.
+- [ ] Block-expression contract: block bodies may not work in all expression positions.
+
+#### M12.7.2 — Compact syntax decisions
+
+- [ ] Stream generator window parameters (explicit parameter names vs implicit `a`, `b`, `x`).
+- [ ] Range-context boundary: `a..b` in non-loop/slice contexts.
+- [ ] Safe partial-match policy: unmatched `match` behavior.
+- [ ] Typed function header decision: explicit type annotations.
+- [ ] Loop compactness audit: implicit `i` and named binders.
+
+#### M12.7.3 — Terminology and documentation surface audit
+
+- [ ] String indexing terminology: byte indexing vs character indexing.
+- [ ] `str` representation alignment with NUL-terminated backend deviation.
+- [ ] Implemented-versus-reserved surface separation.
+- [ ] Command/documentation consistency.
+- [ ] Syntax inventory check.
+
 ### Exit criteria
 
 - [ ] `TYPE_SYSTEM.md` examples (`small = i8(value)`, `ratio = f64(count) / f64(total)`) compile and run
