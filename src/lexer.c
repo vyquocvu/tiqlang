@@ -9,6 +9,8 @@ void lexer_init(Lexer *lexer, const char *source, const char *path, DiagContext 
     lexer->line = 1;
     lexer->path = path;
     lexer->diag = diag;
+    lexer->pending_comment = NULL;
+    lexer->pending_comment_length = 0;
 }
 
 static bool is_at_end(Lexer *lexer) {
@@ -42,6 +44,10 @@ static Token make_token(Lexer *lexer, TokenKind kind, const char *start) {
     token.start = start;
     token.length = (size_t)(lexer->current - start);
     token.line = lexer->line;
+    token.comment_start = lexer->pending_comment;
+    token.comment_length = lexer->pending_comment_length;
+    lexer->pending_comment = NULL;
+    lexer->pending_comment_length = 0;
     return token;
 }
 
@@ -56,9 +62,13 @@ static void skip_whitespace(Lexer *lexer) {
                 break;
             case '/':
                 if (peek_next(lexer) == '/') {
+                    const char *comment_start = lexer->current;
                     while (peek(lexer) != '\n' && !is_at_end(lexer)) {
                         advance(lexer);
                     }
+                    // Keep the comment as trivia for the next token.
+                    lexer->pending_comment = comment_start;
+                    lexer->pending_comment_length = (size_t)(lexer->current - comment_start);
                 } else {
                     return;
                 }

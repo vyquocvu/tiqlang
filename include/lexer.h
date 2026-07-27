@@ -74,6 +74,12 @@ typedef struct {
     const char *start;
     size_t length;
     int line;
+    // Comment trivia preceding this token (NULL/0 when absent). Comments
+    // never enter the main token stream; they attach to the following
+    // token so the parser is undisturbed and the formatter can re-emit
+    // them at their original positions.
+    const char *comment_start;
+    size_t comment_length;
 } Token;
 
 #include "diag.h"
@@ -84,6 +90,10 @@ typedef struct {
     int line;
     const char *path;
     DiagContext *diag;
+    // Pending comment trivia collected while skipping whitespace,
+    // attached to the next token produced.
+    const char *pending_comment;
+    size_t pending_comment_length;
 } Lexer;
 
 void lexer_init(Lexer *lexer, const char *source, const char *path, DiagContext *diag);

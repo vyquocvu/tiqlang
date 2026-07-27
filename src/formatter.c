@@ -2,7 +2,6 @@
 #include "../include/formatter.h"
 #include "../include/lexer.h"
 #include "../include/diag.h"
-#include <ctype.h>
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -15,8 +14,17 @@ void formatter_init_options(FormatterOptions *opts) {
     opts->insert_final_newline = true;
 }
 
+// One formatting engine writing through a two-function sink (plan 2.3);
+// the growable-buffer and FILE * outputs are thin adapters below, so the
+// stdin and file code paths can no longer diverge.
+typedef struct FmtSink FmtSink;
+struct FmtSink {
+    void (*write_bytes)(FmtSink *sink, const char *bytes, size_t len);
+    void (*write_char)(FmtSink *sink, char c);
+};
+
 typedef struct {
-    FILE *out;
+    FmtSink *sink;
     FormatterOptions *opts;
     int line;
     int col;
@@ -28,45 +36,55 @@ static void ensure_indent(Formatter *fmt) {
     if (!fmt->at_line_start) return;
     if (fmt->opts->use_tabs) {
         for (int i = 0; i < fmt->pending_indent; i++) {
-            fputc('\t', fmt->out);
+            fmt->sink->write_char(fmt->sink, '\t');
         }
     } else {
         for (int i = 0; i < fmt->pending_indent * fmt->opts->indent_width; i++) {
-            fputc(' ', fmt->out);
+            fmt->sink->write_char(fmt->sink, ' ');
         }
     }
     fmt->at_line_start = false;
 }
 
-static void emit_token(Formatter *fmt, Token token) {
-    if (token.kind == TOK_NEWLINE) {
-        fputc('\n', fmt->out);
-        fmt->line++;
-        fmt->col = 0;
-        fmt->at_line_start = true;
-        return;
-    }
-    ensure_indent(fmt);
-    for (size_t i = 0; i < token.length; i++) {
-        fputc(token.start[i], fmt->out);
-        fmt->col++;
-    }
-}
-
 static void emit_space(Formatter *fmt) {
     if (!fmt->at_line_start) {
-        fputc(' ', fmt->out);
+        fmt->sink->write_char(fmt->sink, ' ');
         fmt->col++;
     }
 }
 
 static void emit_newline(Formatter *fmt) {
     if (!fmt->at_line_start) {
-        fputc('\n', fmt->out);
+        fmt->sink->write_char(fmt->sink, '\n');
         fmt->line++;
         fmt->col = 0;
         fmt->at_line_start = true;
     }
+}
+
+static void emit_comment(Formatter *fmt, Token token) {
+    if (token.comment_length == 0) return;
+    if (fmt->at_line_start) {
+        ensure_indent(fmt);
+    } else {
+        emit_space(fmt);
+    }
+    fmt->sink->write_bytes(fmt->sink, token.comment_start, token.comment_length);
+    fmt->col += (int)token.comment_length;
+}
+
+static void emit_token(Formatter *fmt, Token token) {
+    emit_comment(fmt, token);
+    if (token.kind == TOK_NEWLINE) {
+        fmt->sink->write_char(fmt->sink, '\n');
+        fmt->line++;
+        fmt->col = 0;
+        fmt->at_line_start = true;
+        return;
+    }
+    ensure_indent(fmt);
+    fmt->sink->write_bytes(fmt->sink, token.start, token.length);
+    fmt->col += (int)token.length;
 }
 
 static bool is_binary_op(TokenKind kind) {
@@ -84,78 +102,80 @@ static bool token_is_keyword(TokenKind kind) {
            kind == TOK_TRUE || kind == TOK_FALSE;
 }
 
-static void format_with_lexer(Formatter *fmt, Lexer *lexer) {
+static void format_stream(FmtSink *sink, Lexer *lexer, FormatterOptions *opts) {
+    Formatter fmt = {0};
+    fmt.sink = sink;
+    fmt.opts = opts;
+    fmt.line = 1;
+    fmt.at_line_start = true;
+
     Token current = lexer_next(lexer);
     Token next = lexer_next(lexer);
 
     while (current.kind != TOK_EOF) {
         Token token = current;
-        Token peek = next;
-
-        // Advance lexer for next iteration
+        Token peek = next; // token's immediate successor (lookahead)
         current = next;
         next = lexer_next(lexer);
 
-        // Handle spacing around operators
+        // Spacing around operators
         if (is_binary_op(token.kind) || token.kind == TOK_EQ ||
             token.kind == TOK_PLUS_EQ || token.kind == TOK_MINUS_EQ ||
             token.kind == TOK_STAR_EQ || token.kind == TOK_SLASH_EQ ||
             token.kind == TOK_PERCENT_EQ || token.kind == TOK_COLON_EQ ||
             token.kind == TOK_LARROW || token.kind == TOK_RARROW ||
             token.kind == TOK_QUESTION || token.kind == TOK_COLON) {
-            emit_token(fmt, token);
-            emit_space(fmt);
+            emit_token(&fmt, token);
+            emit_space(&fmt);
             continue;
         }
 
-        // Handle braces
+        // Braces open/close their own lines and adjust indentation
         if (token.kind == TOK_LBRACE) {
-            emit_newline(fmt);
-            fmt->pending_indent++;
-            emit_token(fmt, token);
-            emit_newline(fmt);
+            emit_newline(&fmt);
+            fmt.pending_indent++;
+            emit_token(&fmt, token);
+            emit_newline(&fmt);
             continue;
         }
         if (token.kind == TOK_RBRACE) {
-            emit_newline(fmt);
-            fmt->pending_indent--;
-            emit_token(fmt, token);
-            emit_newline(fmt);
+            emit_newline(&fmt);
+            fmt.pending_indent--;
+            emit_token(&fmt, token);
+            emit_newline(&fmt);
             continue;
         }
 
-        // Handle brackets - newlines after [ and before ]
+        // Brackets - newline after [ and before ]
         if (token.kind == TOK_LBRACKET) {
-            emit_token(fmt, token);
-            emit_newline(fmt);
-            fmt->pending_indent++;
+            emit_token(&fmt, token);
+            emit_newline(&fmt);
+            fmt.pending_indent++;
             continue;
         }
         if (token.kind == TOK_RBRACKET) {
-            emit_newline(fmt);
-            fmt->pending_indent--;
-            emit_token(fmt, token);
-            emit_newline(fmt);
+            emit_newline(&fmt);
+            fmt.pending_indent--;
+            emit_token(&fmt, token);
+            emit_newline(&fmt);
             continue;
         }
 
-        // Handle commas - space after, newline before
+        // Commas - space after
         if (token.kind == TOK_COMMA) {
-            emit_token(fmt, token);
-            emit_space(fmt);
+            emit_token(&fmt, token);
+            emit_space(&fmt);
             continue;
         }
 
-        // Handle newlines
         if (token.kind == TOK_NEWLINE) {
-            emit_token(fmt, token);
+            emit_token(&fmt, token);
             continue;
         }
 
-        // Default: emit token with space after if needed
-        emit_token(fmt, token);
+        emit_token(&fmt, token);
 
-        // Add space after identifiers and literals before non-punctuation
+        // Space after identifiers and literals before non-punctuation
         if (token.kind == TOK_IDENT || token.kind == TOK_INT ||
             token.kind == TOK_FLOAT || token.kind == TOK_STRING ||
             token.kind == TOK_TRUE || token.kind == TOK_FALSE) {
@@ -164,34 +184,88 @@ static void format_with_lexer(Formatter *fmt, Lexer *lexer) {
                 peek.kind != TOK_RPAREN && peek.kind != TOK_COMMA &&
                 !is_binary_op(peek.kind) && peek.kind != TOK_QUESTION &&
                 peek.kind != TOK_COLON) {
-                emit_space(fmt);
+                emit_space(&fmt);
             }
         }
 
-        // Add space after keywords
-        if (token_is_keyword(token.kind)) {
-            emit_space(fmt);
-        }
+        // Space after keywords, print/move, and range/ellipsis operators
+        if (token_is_keyword(token.kind)) emit_space(&fmt);
+        if (token.kind == TOK_BANG || token.kind == TOK_MOVE) emit_space(&fmt);
+        if (token.kind == TOK_DOT_DOT_DOT) emit_space(&fmt);
+        if (token.kind == TOK_DOT_DOT) emit_space(&fmt);
+    }
 
-        // Add space after print and move
-        if ((token.kind == TOK_BANG) || (token.kind == TOK_MOVE)) {
-            emit_space(fmt);
-        }
+    // A comment before EOF (no trailing newline) attaches to the EOF token.
+    emit_comment(&fmt, current);
 
-        // Handle DOT_DOT_DOT specially (stream generator ellipsis)
-        if (token.kind == TOK_DOT_DOT_DOT) {
-            emit_space(fmt);
-        }
-
-        // Handle DOT_DOT (range operator)
-        if (token.kind == TOK_DOT_DOT) {
-            emit_space(fmt);
-        }
+    if (opts->insert_final_newline && !fmt.at_line_start) {
+        fmt.sink->write_char(fmt.sink, '\n');
     }
 }
 
+// ---------------------------------------------------------------- buffer sink
+
+typedef struct {
+    FmtSink sink;
+    char *data;
+    size_t cap;
+    size_t len;
+} BufSink;
+
+static void buf_ensure(BufSink *bs, size_t extra) {
+    if (bs->len + extra > bs->cap) {
+        size_t need = bs->len + extra;
+        bs->cap = bs->cap < 4096 ? 4096 : bs->cap * 2;
+        while (bs->cap < need) bs->cap *= 2;
+        bs->data = realloc(bs->data, bs->cap);
+        if (!bs->data) { fprintf(stderr, "out of memory\n"); exit(1); }
+    }
+}
+
+static void buf_write_bytes(FmtSink *sink, const char *bytes, size_t len) {
+    BufSink *bs = (BufSink *)sink;
+    buf_ensure(bs, len);
+    memcpy(bs->data + bs->len, bytes, len);
+    bs->len += len;
+}
+
+static void buf_write_char(FmtSink *sink, char c) {
+    BufSink *bs = (BufSink *)sink;
+    buf_ensure(bs, 1);
+    bs->data[bs->len++] = c;
+}
+
+char *format_source(const char *source, const char *path, FormatterOptions *opts) {
+    DiagContext diag;
+    diag_init(&diag);
+    Lexer lexer;
+    lexer_init(&lexer, source, path, &diag);
+
+    BufSink bs = { { buf_write_bytes, buf_write_char }, NULL, 0, 0 };
+    format_stream(&bs.sink, &lexer, opts);
+    buf_ensure(&bs, 1);
+    bs.data[bs.len] = '\0';
+    return bs.data;
+}
+
+// ---------------------------------------------------------------- FILE sink
+
+typedef struct {
+    FmtSink sink;
+    FILE *out;
+} FileSink;
+
+static void file_write_bytes(FmtSink *sink, const char *bytes, size_t len) {
+    fwrite(bytes, 1, len, ((FileSink *)sink)->out);
+}
+
+static void file_write_char(FmtSink *sink, char c) {
+    fputc(c, ((FileSink *)sink)->out);
+}
+
+// ---------------------------------------------------------------- entry points
+
 int format_file(const char *input, const char *output, FormatterOptions *opts) {
-    // Read input file
     FILE *in = fopen(input, "rb");
     if (!in) {
         fprintf(stderr, "tiq: cannot open %s: %s\n", input, strerror(errno));
@@ -208,41 +282,18 @@ int format_file(const char *input, const char *output, FormatterOptions *opts) {
     source[size] = '\0';
     fclose(in);
 
-    // Open output file
-    FILE *out;
+    char *formatted = format_source(source, input, opts);
+    int result = 0;
     if (output == NULL) {
-        out = stdout;
+        fputs(formatted, stdout);
     } else {
-        out = fopen(output, "wb");
-        if (!out) { free(source); return 1; }
+        FILE *out = fopen(output, "wb");
+        if (!out) { result = 1; }
+        else { fputs(formatted, out); fclose(out); }
     }
-
-    // Format
-    DiagContext diag;
-    diag_init(&diag);
-    Lexer lexer;
-    lexer_init(&lexer, source, input, &diag);
-
-    Formatter fmt = {0};
-    fmt.out = out;
-    fmt.opts = opts;
-    fmt.line = 1;
-    fmt.col = 0;
-    fmt.pending_indent = 0;
-    fmt.at_line_start = true;
-
-    format_with_lexer(&fmt, &lexer);
-
-    // Ensure final newline
-    if (opts->insert_final_newline) {
-        if (!fmt.at_line_start) {
-            fputc('\n', out);
-        }
-    }
-
-    if (output != NULL) fclose(out);
+    free(formatted);
     free(source);
-    return diag.has_error ? 1 : 0;
+    return result;
 }
 
 int format_stdin_to_file(const char *output, FormatterOptions *opts) {
@@ -253,7 +304,7 @@ int format_stdin_to_file(const char *output, FormatterOptions *opts) {
     int c;
 
     while ((c = fgetc(stdin)) != EOF) {
-        if (size >= capacity) {
+        if (size + 1 >= capacity) {
             capacity = capacity == 0 ? 4096 : capacity * 2;
             char *new_source = realloc(source, capacity);
             if (!new_source) { free(source); return 1; }
@@ -264,7 +315,6 @@ int format_stdin_to_file(const char *output, FormatterOptions *opts) {
     if (ferror(stdin)) { free(source); return 1; }
     if (source) source[size] = '\0';
 
-    // Open output file
     FILE *out;
     if (output == NULL) {
         out = stdout;
@@ -273,28 +323,13 @@ int format_stdin_to_file(const char *output, FormatterOptions *opts) {
         if (!out) { free(source); return 1; }
     }
 
-    // Format
     DiagContext diag;
     diag_init(&diag);
     Lexer lexer;
     lexer_init(&lexer, source ? source : "", "(stdin)", &diag);
 
-    Formatter fmt = {0};
-    fmt.out = out;
-    fmt.opts = opts;
-    fmt.line = 1;
-    fmt.col = 0;
-    fmt.pending_indent = 0;
-    fmt.at_line_start = true;
-
-    format_with_lexer(&fmt, &lexer);
-
-    // Ensure final newline
-    if (opts->insert_final_newline) {
-        if (!fmt.at_line_start) {
-            fputc('\n', out);
-        }
-    }
+    FileSink fs = { { file_write_bytes, file_write_char }, out };
+    format_stream(&fs.sink, &lexer, opts);
 
     if (output != NULL) fclose(out);
     free(source);

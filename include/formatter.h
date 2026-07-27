@@ -13,5 +13,6 @@ typedef struct {
 void formatter_init_options(FormatterOptions *opts);
 int format_file(const char *input, const char *output, FormatterOptions *opts);
 int format_stdin_to_file(const char *output, FormatterOptions *opts);
+char *format_source(const char *source, const char *path, FormatterOptions *opts);
 
 #endif
