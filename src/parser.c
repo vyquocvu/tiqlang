@@ -7,26 +7,17 @@
 void parser_init(Parser *parser, const char *source, const char *path, DiagContext *diag) {
     lexer_init(&parser->lexer, source, path, diag);
     parser->diag = diag;
-    parser->nodes = NULL;
-    parser->node_count = 0;
-    parser->node_capacity = 0;
+    arena_init(&parser->arena);
     do {
         parser->current = lexer_next(&parser->lexer);
     } while (parser->current.kind == TOK_NEWLINE);
 }
 
 static AstNode *allocate_node(Parser *parser, AstKind kind) {
-    AstNode *node = malloc(sizeof(AstNode));
-    if (!node) { fprintf(stderr, "out of memory\n"); exit(1); }
+    AstNode *node = arena_alloc(&parser->arena, sizeof(AstNode));
     memset(node, 0, sizeof(AstNode));
     node->kind = kind;
     node->token = parser->previous;
-    if (parser->node_count + 1 > parser->node_capacity) {
-        parser->node_capacity = parser->node_capacity < 8 ? 8 : parser->node_capacity * 2;
-        parser->nodes = realloc(parser->nodes, sizeof(AstNode *) * parser->node_capacity);
-        if (!parser->nodes) { fprintf(stderr, "out of memory\n"); exit(1); }
-    }
-    parser->nodes[parser->node_count++] = node;
     return node;
 }
 
@@ -53,6 +44,9 @@ static bool match(Parser *parser, TokenKind kind) {
 static void error_at_current(Parser *parser, ErrorCode code, const char *message) {
     if (parser->diag->fatal_error) return;
     diag_error(parser->diag, parser->lexer.path, parser->current.line, code, message);
+    // Minimal panic recovery: consume the offending token so parse loops
+    // always make progress and cannot spin on the same input (fuzz 0.4).
+    if (!check(parser, TOK_EOF)) advance(parser);
 }
 
 static void consume(Parser *parser, TokenKind kind, ErrorCode code, const char *message) {
@@ -84,14 +78,20 @@ static AstNode *block(Parser *parser) {
         }
         if (stmt && stmt->kind == AST_DEFER) {
             if (node->as.block.defer_count + 1 > defer_capacity) {
-                defer_capacity = defer_capacity < 4 ? 4 : defer_capacity * 2;
-                node->as.block.deferred = realloc(node->as.block.deferred, sizeof(AstNode *) * defer_capacity);
+                int new_cap = defer_capacity < 4 ? 4 : defer_capacity * 2;
+                node->as.block.deferred = arena_realloc(&parser->arena, node->as.block.deferred,
+                                                        sizeof(AstNode *) * defer_capacity,
+                                                        sizeof(AstNode *) * new_cap);
+                defer_capacity = new_cap;
             }
             node->as.block.deferred[node->as.block.defer_count++] = stmt;
         } else {
             if (node->as.block.stmt_count + 1 > capacity) {
-                capacity = capacity < 4 ? 4 : capacity * 2;
-                node->as.block.statements = realloc(node->as.block.statements, sizeof(AstNode *) * capacity);
+                int new_cap = capacity < 4 ? 4 : capacity * 2;
+                node->as.block.statements = arena_realloc(&parser->arena, node->as.block.statements,
+                                                          sizeof(AstNode *) * capacity,
+                                                          sizeof(AstNode *) * new_cap);
+                capacity = new_cap;
             }
             node->as.block.statements[node->as.block.stmt_count++] = stmt;
         }
@@ -105,6 +105,7 @@ static AstNode *stream_gen(Parser *parser) {
     int cap = 0;
     while (!check(parser, TOK_DOT_DOT_DOT) && !check(parser, TOK_RBRACKET) && !check(parser, TOK_EOF)) {
         AstNode *elem = expression(parser);
+        if (parser->diag->fatal_error) break;
         if (check(parser, TOK_SEMICOLON) && node->as.stream_gen.seed_count == 0) {
             advance(parser);
             AstNode *len_expr = expression(parser);
@@ -115,8 +116,11 @@ static AstNode *stream_gen(Parser *parser) {
             return node;
         }
         if (node->as.stream_gen.seed_count + 1 > cap) {
-            cap = cap < 4 ? 4 : cap * 2;
-            node->as.stream_gen.seeds = realloc(node->as.stream_gen.seeds, sizeof(AstNode *) * cap);
+            int new_cap = cap < 4 ? 4 : cap * 2;
+            node->as.stream_gen.seeds = arena_realloc(&parser->arena, node->as.stream_gen.seeds,
+                                                      sizeof(AstNode *) * cap,
+                                                      sizeof(AstNode *) * new_cap);
+            cap = new_cap;
         }
         node->as.stream_gen.seeds[node->as.stream_gen.seed_count++] = elem;
         if (!check(parser, TOK_DOT_DOT_DOT) && !check(parser, TOK_RBRACKET)) {
@@ -143,8 +147,11 @@ static AstNode *bracket_loop(Parser *parser) {
     int capacity = 0;
     while (!check(parser, TOK_RBRACKET) && !check(parser, TOK_EOF)) {
         if (node->as.bracket_loop.body_count + 1 > capacity) {
-            capacity = capacity < 4 ? 4 : capacity * 2;
-            node->as.bracket_loop.body_stmts = realloc(node->as.bracket_loop.body_stmts, sizeof(AstNode *) * capacity);
+            int new_cap = capacity < 4 ? 4 : capacity * 2;
+            node->as.bracket_loop.body_stmts = arena_realloc(&parser->arena, node->as.bracket_loop.body_stmts,
+                                                             sizeof(AstNode *) * capacity,
+                                                             sizeof(AstNode *) * new_cap);
+            capacity = new_cap;
         }
         AstNode *stmt = statement(parser);
         if (parser->diag->fatal_error) break;
@@ -187,11 +194,16 @@ static AstNode *primary(Parser *parser) {
         int cap = 0;
         while (!check(parser, TOK_RBRACE) && !check(parser, TOK_EOF)) {
             AstNode *pat = expression(parser);
+            if (parser->diag->fatal_error) break;
             consume(parser, TOK_FAT_ARROW, ERR_UNEXPECTED_TOKEN, "expected '=>' in match arm");
             AstNode *arm_body = expression(parser);
+            if (parser->diag->fatal_error) break;
             if (node->as.match_expr.arm_count + 1 > cap) {
-                cap = cap < 4 ? 4 : cap * 2;
-                node->as.match_expr.arms = realloc(node->as.match_expr.arms, sizeof(MatchArm) * cap);
+                int new_cap = cap < 4 ? 4 : cap * 2;
+                node->as.match_expr.arms = arena_realloc(&parser->arena, node->as.match_expr.arms,
+                                                         sizeof(MatchArm) * cap,
+                                                         sizeof(MatchArm) * new_cap);
+                cap = new_cap;
             }
             node->as.match_expr.arms[node->as.match_expr.arm_count].pattern = pat;
             node->as.match_expr.arms[node->as.match_expr.arm_count].body = arm_body;
@@ -223,11 +235,10 @@ static AstNode *primary(Parser *parser) {
         consume(parser, TOK_RBRACKET, ERR_UNEXPECTED_TOKEN, "expected ']' after bracket expression");
         if (node->as.stream_gen.seed_count > 0 && !node->as.stream_gen.gen_expr) {
             if (node->as.stream_gen.seed_count == 1) {
-                AstNode **saved_seeds = node->as.stream_gen.seeds;
-                AstNode *inner = saved_seeds[0];
+                AstNode *inner = node->as.stream_gen.seeds[0];
                 node->kind = AST_BRACKET_EXPR;
                 node->as.bracket_expr.expr = inner;
-                free(saved_seeds);
+                // The seeds array stays in the arena until parser_free.
                 return node;
             } else {
                 AstNode **saved = node->as.stream_gen.seeds;
@@ -247,7 +258,7 @@ static AstNode *primary(Parser *parser) {
 static AstNode *call_or_index(Parser *parser) {
     AstNode *expr = primary(parser);
     while (true) {
-        if (parser->crossed_newline) break;
+        if (parser->crossed_newline || parser->diag->fatal_error) break;
         if (match(parser, TOK_LPAREN)) {
             AstNode *node = allocate_node(parser, AST_CALL);
             node->as.call.callee = expr;
@@ -255,11 +266,14 @@ static AstNode *call_or_index(Parser *parser) {
             if (!check(parser, TOK_RPAREN)) {
                 do {
                     if (node->as.call.arg_count + 1 > capacity) {
-                        capacity = capacity < 4 ? 4 : capacity * 2;
-                        node->as.call.args = realloc(node->as.call.args, sizeof(AstNode *) * capacity);
+                        int new_cap = capacity < 4 ? 4 : capacity * 2;
+                        node->as.call.args = arena_realloc(&parser->arena, node->as.call.args,
+                                                           sizeof(AstNode *) * capacity,
+                                                           sizeof(AstNode *) * new_cap);
+                        capacity = new_cap;
                     }
                     node->as.call.args[node->as.call.arg_count++] = expression(parser);
-                } while (match(parser, TOK_COMMA));
+                } while (!parser->diag->fatal_error && match(parser, TOK_COMMA));
             }
             consume(parser, TOK_RPAREN, ERR_UNEXPECTED_TOKEN, "expected ')' after arguments");
             expr = node;
@@ -278,13 +292,13 @@ static AstNode *call_or_index(Parser *parser) {
                 advance(parser);
                 AstNode *idx_expr = expression(parser);
                 node->as.call.arg_count = 1;
-                node->as.call.args = malloc(sizeof(AstNode *));
+                node->as.call.args = arena_alloc(&parser->arena, sizeof(AstNode *));
                 node->as.call.args[0] = idx_expr;
             } else if (match(parser, TOK_DOT_DOT)) {
                 AstNode *end = check(parser, TOK_RBRACKET) ? NULL : expression(parser);
                 node->as.call.is_slice = true;
                 node->as.call.arg_count = 2;
-                node->as.call.args = malloc(sizeof(AstNode *) * 2);
+                node->as.call.args = arena_alloc(&parser->arena, sizeof(AstNode *) * 2);
                 node->as.call.args[0] = NULL;
                 node->as.call.args[1] = end;
             } else {
@@ -292,12 +306,12 @@ static AstNode *call_or_index(Parser *parser) {
                 if (idx_expr && idx_expr->kind == AST_BINARY && idx_expr->as.binary.op == TOK_DOT_DOT) {
                     node->as.call.is_slice = true;
                     node->as.call.arg_count = 2;
-                    node->as.call.args = malloc(sizeof(AstNode *) * 2);
+                    node->as.call.args = arena_alloc(&parser->arena, sizeof(AstNode *) * 2);
                     node->as.call.args[0] = idx_expr->as.binary.left;
                     node->as.call.args[1] = idx_expr->as.binary.right;
                 } else {
                     node->as.call.arg_count = 1;
-                    node->as.call.args = malloc(sizeof(AstNode *));
+                    node->as.call.args = arena_alloc(&parser->arena, sizeof(AstNode *));
                     node->as.call.args[0] = idx_expr;
                 }
             }
@@ -525,6 +539,7 @@ static AstNode *statement(Parser *parser) {
     }
 
     AstNode *expr = expression(parser);
+    if (!expr) return NULL;
 
     if (expr->kind == AST_CALL && expr->as.call.is_bracket_call &&
         (check(parser, TOK_LARROW) || check(parser, TOK_PLUS_EQ) ||
@@ -563,12 +578,21 @@ static AstNode *declaration(Parser *parser) {
             int capacity = 0;
             while (check(parser, TOK_IDENT)) {
                 if (node->as.function.param_count + 1 > capacity) {
-                    capacity = capacity < 4 ? 4 : capacity * 2;
-                    node->as.function.params = realloc(node->as.function.params, sizeof(Token) * capacity);
+                    int new_cap = capacity < 4 ? 4 : capacity * 2;
+                    node->as.function.params = arena_realloc(&parser->arena, node->as.function.params,
+                                                             sizeof(Token) * capacity,
+                                                             sizeof(Token) * new_cap);
+                    capacity = new_cap;
                 }
                 node->as.function.params[node->as.function.param_count++] = parser->current;
                 advance(parser);
             }
+            // param_types is filled in by semantic analysis; it must live
+            // in the same arena as the node it annotates (plan 4.1).
+            node->as.function.param_types = arena_alloc(&parser->arena,
+                sizeof(void *) * (node->as.function.param_count > 0 ? node->as.function.param_count : 1));
+            memset(node->as.function.param_types, 0,
+                   sizeof(void *) * (node->as.function.param_count > 0 ? node->as.function.param_count : 1));
             consume(parser, TOK_RARROW, ERR_UNEXPECTED_TOKEN, "expected '->' after function parameters");
             node->as.function.body = expression(parser);
             return node;
@@ -582,6 +606,8 @@ static AstNode *declaration(Parser *parser) {
     return stmt;
 }
 
+// The returned statements array (and every node it references) lives in
+// the parser's arena: callers must not free it, only call parser_free.
 AstNode **parser_parse(Parser *parser, int *out_count) {
     AstNode **statements = NULL;
     int count = 0;
@@ -591,8 +617,11 @@ AstNode **parser_parse(Parser *parser, int *out_count) {
         AstNode *decl = declaration(parser);
         if (parser->diag->fatal_error) break;
         if (count + 1 > capacity) {
-            capacity = capacity < 8 ? 8 : capacity * 2;
-            statements = realloc(statements, sizeof(AstNode *) * capacity);
+            int new_cap = capacity < 8 ? 8 : capacity * 2;
+            statements = arena_realloc(&parser->arena, statements,
+                                       sizeof(AstNode *) * capacity,
+                                       sizeof(AstNode *) * new_cap);
+            capacity = new_cap;
         }
         statements[count++] = decl;
     }
@@ -601,26 +630,10 @@ AstNode **parser_parse(Parser *parser, int *out_count) {
 }
 
 void parser_free(Parser *parser) {
-    for (int i = 0; i < parser->node_count; i++) {
-        if (parser->nodes[i]->kind == AST_CALL) {
-            free(parser->nodes[i]->as.call.args);
-        } else if (parser->nodes[i]->kind == AST_BLOCK) {
-            free(parser->nodes[i]->as.block.statements);
-            free(parser->nodes[i]->as.block.deferred);
-        } else if (parser->nodes[i]->kind == AST_FUNCTION) {
-            free(parser->nodes[i]->as.function.params);
-            free(parser->nodes[i]->as.function.param_types);
-        } else if (parser->nodes[i]->kind == AST_BRACKET_LOOP) {
-            free(parser->nodes[i]->as.bracket_loop.body_stmts);
-        } else if (parser->nodes[i]->kind == AST_STREAM_GEN) {
-            free(parser->nodes[i]->as.stream_gen.seeds);
-        } else if (parser->nodes[i]->kind == AST_ARRAY) {
-            free(parser->nodes[i]->as.array.elements);
-        }
-        // semantic_type instances are owned by the TypePool, not the AST
-        free(parser->nodes[i]);
-    }
-    free(parser->nodes);
+    // Every AstNode and node-owned aux array lives in the arena: one
+    // release replaces the per-node partial-free bookkeeping (plan 4.1).
+    // semantic_type instances are owned by the TypePool, not the AST.
+    arena_free(&parser->arena);
 }
 
 static const char *type_kind_name(PrimitiveType kind) {
@@ -647,16 +660,16 @@ static const char *type_kind_name(PrimitiveType kind) {
     }
 }
 
-static void type_display(SemanticType *t, char *buf, size_t cap) {
+static void dump_type_display(SemanticType *t, char *buf, size_t cap) {
     if (!t || cap == 0) { if (cap) buf[0] = '\0'; return; }
     if (t->kind == TYPE_ARRAY) {
         char elem[96] = "";
-        type_display(t->element_type, elem, sizeof elem);
+        dump_type_display(t->element_type, elem, sizeof elem);
         snprintf(buf, cap, "TYPE_ARRAY[%d]%s%s", t->array_length,
                  elem[0] ? ":" : "", elem);
     } else if (t->kind == TYPE_SLICE) {
         char elem[96] = "";
-        type_display(t->element_type, elem, sizeof elem);
+        dump_type_display(t->element_type, elem, sizeof elem);
         snprintf(buf, cap, "TYPE_SLICE%s%s", elem[0] ? ":" : "", elem);
     } else {
         snprintf(buf, cap, "%s", type_kind_name(t->kind));
@@ -666,7 +679,7 @@ static void type_display(SemanticType *t, char *buf, size_t cap) {
 static void format_type(SemanticType *t, char *buf, size_t cap) {
     if (!t) { buf[0] = '\0'; return; }
     char body[128];
-    type_display(t, body, sizeof body);
+    dump_type_display(t, body, sizeof body);
     snprintf(buf, cap, " <%s>", body);
 }
 

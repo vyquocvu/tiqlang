@@ -4,28 +4,43 @@ CFLAGS ?= -std=c11 -Wall -Wextra -Wpedantic -Werror -O2
 BUILD := build
 TIQ := $(BUILD)/tiq
 
-.PHONY: all clean test example bench
+.PHONY: all clean test test-unit test-fuzz example bench
 
 all: $(TIQ)
 
-SRCS = src/main.c src/lexer.c src/diag.c src/parser.c src/semantic.c \
-       src/type.c \
+SRCS = src/main.c src/emit_c.c src/lexer.c src/diag.c src/parser.c src/semantic.c \
+       src/type.c src/arena.c \
        src/formatter.c src/cache.c src/tester.c src/manifest.c src/lsp.c \
        src/benchmark.c
 OBJS = $(SRCS:src/%.c=$(BUILD)/%.o)
 
-$(BUILD)/%.o: src/%.c
+# Rebuild everything when any public header changes (ABI safety).
+HDRS = $(wildcard include/*.h)
+
+$(BUILD)/%.o: src/%.c $(HDRS)
 	mkdir -p $(BUILD)
 	$(CC) $(CFLAGS) -c $< -o $@
 
 $(TIQ): $(OBJS)
 	$(CC) $(CFLAGS) $(OBJS) -o $(TIQ)
 
+# Unit test harness (tests/unit): links against all objects except main.o
+UNIT_OBJS = $(filter-out $(BUILD)/main.o,$(OBJS))
+$(BUILD)/unit_tests: tests/unit/test_main.c $(UNIT_OBJS)
+	$(CC) $(CFLAGS) tests/unit/test_main.c $(UNIT_OBJS) -o $@
+
+test-unit: $(BUILD)/unit_tests
+	$(BUILD)/unit_tests
+
+# Deterministic seed-driven fuzz of lexer/parser via `tiq check`
+test-fuzz: $(TIQ)
+	sh tests/fuzz.sh
+
 example: $(TIQ)
 	$(TIQ) build examples/hello.tiq -o $(BUILD)/hello
 	$(BUILD)/hello
 
-test: $(TIQ)
+test: $(TIQ) test-unit
 	sh tests/smoke.sh
 	sh tests/diagnostics.sh
 	sh tests/lexer.sh
@@ -35,8 +50,8 @@ test: $(TIQ)
 
 # Tooling tests
 test-fmt: $(TIQ)
-	@# Test formatter on examples
-	$(TIQ) fmt --check examples/hello.tiq || true
+	@# Test formatter on examples (--check unmasked since fmt preserves comments)
+	$(TIQ) fmt --check examples/hello.tiq
 	$(TIQ) fmt examples/fib.tiq > /dev/null
 	@echo "fmt: ok"
 

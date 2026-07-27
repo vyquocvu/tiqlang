@@ -4,15 +4,16 @@
 #include "lexer.h"
 #include "ast.h"
 #include "diag.h"
+#include "arena.h"
 
 typedef struct {
     Lexer lexer;
     Token current;
     Token previous;
     DiagContext *diag;
-    AstNode **nodes;
-    int node_count;
-    int node_capacity;
+    // Owns every AstNode and node-owned aux array (plan 4.1); released
+    // wholesale by parser_free.
+    Arena arena;
     bool crossed_newline;
 } Parser;
 
