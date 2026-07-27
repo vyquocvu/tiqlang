@@ -41,10 +41,12 @@ typedef struct SemanticType {
     int param_count;
     struct SemanticType *element_type;
     int array_length;
-    char struct_name[64];
+    // Nominal struct metadata (plan 3.2/3.3): NULL for non-struct types.
+    // The strings and arrays are owned by the TypePool, not the AST.
+    const char *struct_name;
     int field_count;
-    char field_names[16][32];
-    struct SemanticType *field_types[16];
+    const char **field_names;
+    struct SemanticType **field_types;
 } SemanticType;
 
 typedef struct Symbol {
@@ -64,5 +66,11 @@ typedef struct Environment {
 typedef struct TypePool TypePool;
 
 void semantic_check(AstNode **stmts, int count, const char *path, DiagContext *diag, TypePool *pool);
+
+// Environment primitives, exposed for the unit test harness (tests/unit/).
+void env_init(Environment *env, Environment *parent);
+void env_free(Environment *env);
+bool env_define(Environment *env, Token name, bool is_mutable, SemanticType *type);
+Symbol *env_lookup(Environment *env, Token name);
 
 #endif

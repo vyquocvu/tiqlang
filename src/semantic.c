@@ -5,21 +5,26 @@
 #include <string.h>
 #include <stdio.h>
 
-static void env_init(Environment *env, Environment *parent) {
+static void die_oom(void) {
+    fprintf(stderr, "out of memory\n");
+    exit(1);
+}
+
+void env_init(Environment *env, Environment *parent) {
     env->parent = parent;
     env->symbols = NULL;
     env->count = 0;
     env->capacity = 0;
 }
 
-static void env_free(Environment *env) {
+void env_free(Environment *env) {
     free(env->symbols);
     env->symbols = NULL;
     env->count = 0;
     env->capacity = 0;
 }
 
-static bool env_define(Environment *env, Token name, bool is_mutable, SemanticType *type) {
+bool env_define(Environment *env, Token name, bool is_mutable, SemanticType *type) {
     for (int i = 0; i < env->count; i++) {
         if (env->symbols[i].name.length == name.length &&
             memcmp(env->symbols[i].name.start, name.start, name.length) == 0) {
@@ -27,8 +32,11 @@ static bool env_define(Environment *env, Token name, bool is_mutable, SemanticTy
         }
     }
     if (env->count + 1 > env->capacity) {
-        env->capacity = env->capacity < 8 ? 8 : env->capacity * 2;
-        env->symbols = realloc(env->symbols, sizeof(Symbol) * env->capacity);
+        int new_cap = env->capacity < 8 ? 8 : env->capacity * 2;
+        Symbol *new_sym = realloc(env->symbols, sizeof(Symbol) * new_cap);
+        if (!new_sym) die_oom();
+        env->symbols = new_sym;
+        env->capacity = new_cap;
     }
     env->symbols[env->count].name = name;
     env->symbols[env->count].is_mutable = is_mutable;
@@ -38,7 +46,7 @@ static bool env_define(Environment *env, Token name, bool is_mutable, SemanticTy
     return true;
 }
 
-static Symbol *env_lookup(Environment *env, Token name) {
+Symbol *env_lookup(Environment *env, Token name) {
     Environment *current = env;
     while (current) {
         for (int i = 0; i < current->count; i++) {
@@ -62,6 +70,28 @@ typedef struct {
 
 static SemanticType *ty(SemanticContext *ctx, PrimitiveType kind) {
     return type_get(ctx->pool, kind);
+}
+
+// The single kind-level compatibility rule (OPTIMIZATION_PLAN 3.1).
+// Unknown unifies with anything and takes the known side; otherwise the
+// kinds must match exactly. On mismatch this emits
+// "<context>: expected <T>, found <U>" and returns NULL.
+static SemanticType *unify(SemanticContext *ctx, int line,
+                           SemanticType *expected, SemanticType *found,
+                           const char *context) {
+    if (!expected) return found;
+    if (!found) return expected;
+    if (expected->kind == TYPE_UNKNOWN) return found;
+    if (found->kind == TYPE_UNKNOWN) return expected;
+    if (expected->kind == found->kind) return expected;
+    char want[96];
+    char got[96];
+    char msg[320];
+    type_display(expected, want, sizeof want);
+    type_display(found, got, sizeof got);
+    snprintf(msg, sizeof msg, "%s: expected %s, found %s", context, want, got);
+    diag_error(ctx->diag, ctx->path, line, ERR_TYPE_MISMATCH, msg);
+    return NULL;
 }
 
 static void check_node(SemanticContext *ctx, AstNode *node);
@@ -115,25 +145,21 @@ static void check_node(SemanticContext *ctx, AstNode *node) {
             SemanticType *lt = node->as.binary.left ? node->as.binary.left->semantic_type : NULL;
             SemanticType *rt = node->as.binary.right ? node->as.binary.right->semantic_type : NULL;
             if (lt && rt) {
-                // Pooled types are immutable: propagate inference by
+                // Pooled types are immutable: unify() propagates inference by
                 // swapping node type pointers, never by mutating types.
-                if (lt->kind == TYPE_UNKNOWN && rt->kind != TYPE_UNKNOWN) {
-                    node->as.binary.left->semantic_type = rt;
-                    lt = rt;
-                } else if (rt->kind == TYPE_UNKNOWN && lt->kind != TYPE_UNKNOWN) {
-                    node->as.binary.right->semantic_type = lt;
-                    rt = lt;
-                }
-                if (lt->kind != rt->kind) {
-                    diag_error(ctx->diag, ctx->path, node->token.line, ERR_TYPE_MISMATCH, "type mismatch");
-                } else {
+                SemanticType *u = unify(ctx, node->token.line, lt, rt, "type mismatch");
+                if (u) {
+                    if (lt->kind == TYPE_UNKNOWN) node->as.binary.left->semantic_type = u;
+                    if (rt->kind == TYPE_UNKNOWN) node->as.binary.right->semantic_type = u;
                     if (node->as.binary.op == TOK_EQ_EQ || node->as.binary.op == TOK_BANG_EQ ||
                         node->as.binary.op == TOK_LT || node->as.binary.op == TOK_LTE ||
                         node->as.binary.op == TOK_GT || node->as.binary.op == TOK_GTE) {
                         node->semantic_type = ty(ctx, TYPE_BOOL);
                     } else {
-                        node->semantic_type = ty(ctx, lt->kind);
+                        node->semantic_type = ty(ctx, u->kind);
                     }
+                } else {
+                    node->semantic_type = ty(ctx, TYPE_UNKNOWN);
                 }
             } else {
                 node->semantic_type = ty(ctx, TYPE_UNKNOWN);
@@ -185,15 +211,10 @@ static void check_node(SemanticContext *ctx, AstNode *node) {
                 SemanticType *et = node->as.conditional.else_branch ?
                     node->as.conditional.else_branch->semantic_type : NULL;
                 if (tt && et) {
-                    if (tt->kind == TYPE_UNKNOWN && et->kind != TYPE_UNKNOWN) {
-                        node->as.conditional.then_branch->semantic_type = et;
-                        tt = et;
-                    } else if (et->kind == TYPE_UNKNOWN && tt->kind != TYPE_UNKNOWN) {
-                        node->as.conditional.else_branch->semantic_type = tt;
-                        et = tt;
-                    }
-                    if (tt->kind != et->kind) {
-                        diag_error(ctx->diag, ctx->path, node->token.line, ERR_TYPE_MISMATCH, "type mismatch");
+                    SemanticType *u = unify(ctx, node->token.line, tt, et, "type mismatch");
+                    if (u) {
+                        if (tt->kind == TYPE_UNKNOWN) node->as.conditional.then_branch->semantic_type = u;
+                        if (et->kind == TYPE_UNKNOWN) node->as.conditional.else_branch->semantic_type = u;
                     }
                 }
                 node->semantic_type = ty(ctx, TYPE_UNKNOWN);
@@ -224,103 +245,53 @@ static void check_node(SemanticContext *ctx, AstNode *node) {
                     node->semantic_type = ty(ctx, TYPE_INT);
                     break;
                 }
-                if (name.length == 7 && memcmp(name.start, "fs_read", 7) == 0) {
-                    if (node->as.call.arg_count != 1) {
-                        diag_error(ctx->diag, ctx->path, node->token.line, ERR_ARITY_MISMATCH, "fs_read expects exactly 1 argument");
-                    } else {
-                        if (node->as.call.args[0]) check_node(ctx, node->as.call.args[0]);
-                        SemanticType *at = node->as.call.args[0] ? node->as.call.args[0]->semantic_type : NULL;
-                        if (at && at->kind != TYPE_STR && at->kind != TYPE_STR_VIEW)
-                            diag_error(ctx->diag, ctx->path, node->token.line, ERR_TYPE_MISMATCH, "fs_read expects a string argument");
-                    }
-                    node->semantic_type = ty(ctx, TYPE_STR);
-                    break;
-                }
-                if (name.length == 8 && memcmp(name.start, "fs_write", 8) == 0) {
-                    if (node->as.call.arg_count != 2) {
-                        diag_error(ctx->diag, ctx->path, node->token.line, ERR_ARITY_MISMATCH, "fs_write expects exactly 2 arguments");
-                    } else {
-                        for (int i = 0; i < 2; i++) {
-                            if (node->as.call.args[i]) check_node(ctx, node->as.call.args[i]);
-                            SemanticType *at = node->as.call.args[i] ? node->as.call.args[i]->semantic_type : NULL;
-                            if (at && at->kind != TYPE_STR && at->kind != TYPE_STR_VIEW)
-                                diag_error(ctx->diag, ctx->path, node->token.line, ERR_TYPE_MISMATCH, "fs_write expects string arguments");
+                {
+                    typedef struct {
+                        const char *name; int name_len; int arity;
+                        PrimitiveType expected; PrimitiveType ret;
+                    } Builtin;
+                    static const Builtin builtins[] = {
+                        {"fs_read",        7, 1, TYPE_STR, TYPE_STR},
+                        {"fs_write",       8, 2, TYPE_STR, TYPE_INT},
+                        {"fs_exists",      9, 1, TYPE_STR, TYPE_BOOL},
+                        {"proc_exec",      9, 1, TYPE_STR, TYPE_INT},
+                        {"proc_exit",      9, 1, TYPE_INT, TYPE_INT},
+                        {"json_parse_int",14, 1, TYPE_STR, TYPE_INT},
+                        {"json_encode_str",15,1, TYPE_STR, TYPE_STR},
+                        {"net_fetch",      9, 1, TYPE_STR, TYPE_STR},
+                    };
+                    bool matched = false;
+                    for (int bi = 0; bi < (int)(sizeof builtins / sizeof builtins[0]); bi++) {
+                        if ((int)name.length != builtins[bi].name_len ||
+                            memcmp(name.start, builtins[bi].name, name.length) != 0)
+                            continue;
+                        matched = true;
+                        if (node->as.call.arg_count != builtins[bi].arity) {
+                            char msg[128];
+                            snprintf(msg, sizeof msg, "%s expects exactly %d argument%s",
+                                     builtins[bi].name, builtins[bi].arity,
+                                     builtins[bi].arity == 1 ? "" : "s");
+                            diag_error(ctx->diag, ctx->path, node->token.line, ERR_ARITY_MISMATCH, msg);
+                        } else {
+                            for (int ai = 0; ai < node->as.call.arg_count; ai++) {
+                                if (node->as.call.args[ai]) check_node(ctx, node->as.call.args[ai]);
+                            }
+                            for (int ai = 0; ai < node->as.call.arg_count; ai++) {
+                                if (!node->as.call.args[ai]) continue;
+                                SemanticType *at = node->as.call.args[ai]->semantic_type;
+                                if (!at) continue;
+                                // str parameters also accept borrowed str_view slices.
+                                if (builtins[bi].expected == TYPE_STR && at->kind == TYPE_STR_VIEW)
+                                    continue;
+                                char where[64];
+                                snprintf(where, sizeof where, "%s argument", builtins[bi].name);
+                                unify(ctx, node->token.line, ty(ctx, builtins[bi].expected), at, where);
+                            }
                         }
+                        node->semantic_type = ty(ctx, builtins[bi].ret);
+                        break;
                     }
-                    node->semantic_type = ty(ctx, TYPE_INT);
-                    break;
-                }
-                if (name.length == 9 && memcmp(name.start, "fs_exists", 9) == 0) {
-                    if (node->as.call.arg_count != 1) {
-                        diag_error(ctx->diag, ctx->path, node->token.line, ERR_ARITY_MISMATCH, "fs_exists expects exactly 1 argument");
-                    } else {
-                        if (node->as.call.args[0]) check_node(ctx, node->as.call.args[0]);
-                        SemanticType *at = node->as.call.args[0] ? node->as.call.args[0]->semantic_type : NULL;
-                        if (at && at->kind != TYPE_STR && at->kind != TYPE_STR_VIEW)
-                            diag_error(ctx->diag, ctx->path, node->token.line, ERR_TYPE_MISMATCH, "fs_exists expects a string argument");
-                    }
-                    node->semantic_type = ty(ctx, TYPE_BOOL);
-                    break;
-                }
-                if (name.length == 9 && memcmp(name.start, "proc_exec", 9) == 0) {
-                    if (node->as.call.arg_count != 1) {
-                        diag_error(ctx->diag, ctx->path, node->token.line, ERR_ARITY_MISMATCH, "proc_exec expects exactly 1 argument");
-                    } else {
-                        if (node->as.call.args[0]) check_node(ctx, node->as.call.args[0]);
-                        SemanticType *at = node->as.call.args[0] ? node->as.call.args[0]->semantic_type : NULL;
-                        if (at && at->kind != TYPE_STR && at->kind != TYPE_STR_VIEW)
-                            diag_error(ctx->diag, ctx->path, node->token.line, ERR_TYPE_MISMATCH, "proc_exec expects a string argument");
-                    }
-                    node->semantic_type = ty(ctx, TYPE_INT);
-                    break;
-                }
-                if (name.length == 9 && memcmp(name.start, "proc_exit", 9) == 0) {
-                    if (node->as.call.arg_count != 1) {
-                        diag_error(ctx->diag, ctx->path, node->token.line, ERR_ARITY_MISMATCH, "proc_exit expects exactly 1 argument");
-                    } else {
-                        if (node->as.call.args[0]) check_node(ctx, node->as.call.args[0]);
-                        SemanticType *at = node->as.call.args[0] ? node->as.call.args[0]->semantic_type : NULL;
-                        if (at && at->kind != TYPE_INT)
-                            diag_error(ctx->diag, ctx->path, node->token.line, ERR_TYPE_MISMATCH, "proc_exit expects an int argument");
-                    }
-                    node->semantic_type = ty(ctx, TYPE_INT);
-                    break;
-                }
-                if (name.length == 14 && memcmp(name.start, "json_parse_int", 14) == 0) {
-                    if (node->as.call.arg_count != 1) {
-                        diag_error(ctx->diag, ctx->path, node->token.line, ERR_ARITY_MISMATCH, "json_parse_int expects exactly 1 argument");
-                    } else {
-                        if (node->as.call.args[0]) check_node(ctx, node->as.call.args[0]);
-                        SemanticType *at = node->as.call.args[0] ? node->as.call.args[0]->semantic_type : NULL;
-                        if (at && at->kind != TYPE_STR && at->kind != TYPE_STR_VIEW)
-                            diag_error(ctx->diag, ctx->path, node->token.line, ERR_TYPE_MISMATCH, "json_parse_int expects a string argument");
-                    }
-                    node->semantic_type = ty(ctx, TYPE_INT);
-                    break;
-                }
-                if (name.length == 15 && memcmp(name.start, "json_encode_str", 15) == 0) {
-                    if (node->as.call.arg_count != 1) {
-                        diag_error(ctx->diag, ctx->path, node->token.line, ERR_ARITY_MISMATCH, "json_encode_str expects exactly 1 argument");
-                    } else {
-                        if (node->as.call.args[0]) check_node(ctx, node->as.call.args[0]);
-                        SemanticType *at = node->as.call.args[0] ? node->as.call.args[0]->semantic_type : NULL;
-                        if (at && at->kind != TYPE_STR && at->kind != TYPE_STR_VIEW)
-                            diag_error(ctx->diag, ctx->path, node->token.line, ERR_TYPE_MISMATCH, "json_encode_str expects a string argument");
-                    }
-                    node->semantic_type = ty(ctx, TYPE_STR);
-                    break;
-                }
-                if (name.length == 9 && memcmp(name.start, "net_fetch", 9) == 0) {
-                    if (node->as.call.arg_count != 1) {
-                        diag_error(ctx->diag, ctx->path, node->token.line, ERR_ARITY_MISMATCH, "net_fetch expects exactly 1 argument");
-                    } else {
-                        if (node->as.call.args[0]) check_node(ctx, node->as.call.args[0]);
-                        SemanticType *at = node->as.call.args[0] ? node->as.call.args[0]->semantic_type : NULL;
-                        if (at && at->kind != TYPE_STR && at->kind != TYPE_STR_VIEW)
-                            diag_error(ctx->diag, ctx->path, node->token.line, ERR_TYPE_MISMATCH, "net_fetch expects a string argument");
-                    }
-                    node->semantic_type = ty(ctx, TYPE_STR);
-                    break;
+                    if (matched) break;
                 }
                 if ((name.length == 2 && memcmp(name.start, "i8", 2) == 0) ||
                     (name.length == 3 && memcmp(name.start, "i16", 3) == 0) ||
@@ -518,16 +489,17 @@ static void check_node(SemanticContext *ctx, AstNode *node) {
             Environment func_env;
             env_init(&func_env, ctx->current_env);
             ctx->current_env = &func_env;
-            node->as.function.param_types = malloc(sizeof(void *) * (node->as.function.param_count > 0 ? node->as.function.param_count : 1));
+            // param_types is arena-allocated by the parser (plan 4.1);
+            // semantic analysis only fills in the inferred types.
             for (int i = 0; i < node->as.function.param_count; i++) {
                 SemanticType *pt = ty(ctx, TYPE_UNKNOWN);
-                node->as.function.param_types[i] = pt;
+                if (node->as.function.param_types) node->as.function.param_types[i] = pt;
                 env_define(ctx->current_env, node->as.function.params[i], false, pt);
             }
             check_node(ctx, node->as.function.body);
             for (int i = 0; i < node->as.function.param_count; i++) {
                 Symbol *psym = env_lookup(ctx->current_env, node->as.function.params[i]);
-                if (psym) {
+                if (psym && node->as.function.param_types) {
                     node->as.function.param_types[i] = psym->type;
                 }
             }
@@ -539,8 +511,15 @@ static void check_node(SemanticContext *ctx, AstNode *node) {
                 ret_kind = bt->kind;
             }
             Symbol *sym = env_lookup(ctx->current_env, node->as.function.name);
-            if (sym && ret_kind != TYPE_UNKNOWN) {
-                sym->type = type_get_func(ctx->pool, ret_kind, node->as.function.param_count);
+            if (sym) {
+                // Unify the previously recorded return type (unknown for a
+                // fresh definition) with the body type before re-pointing.
+                SemanticType *u = unify(ctx, node->token.line,
+                                        ty(ctx, sym->type ? sym->type->kind : TYPE_UNKNOWN),
+                                        ty(ctx, ret_kind), "type mismatch");
+                if (u && u->kind != TYPE_UNKNOWN) {
+                    sym->type = type_get_func(ctx->pool, u->kind, node->as.function.param_count);
+                }
             }
             node->semantic_type = ty(ctx, ret_kind);
             break;
@@ -654,25 +633,17 @@ static void check_node(SemanticContext *ctx, AstNode *node) {
             }
             break;
         case AST_ARRAY: {
-            PrimitiveType elem_kind = TYPE_UNKNOWN;
-            bool uniform = true;
+            SemanticType *elem = NULL;
             for (int i = 0; i < node->as.array.element_count; i++) {
                 check_node(ctx, node->as.array.elements[i]);
                 SemanticType *et = node->as.array.elements[i] ?
                     node->as.array.elements[i]->semantic_type : NULL;
-                if (et) {
-                    if (i == 0) {
-                        elem_kind = et->kind;
-                    } else if (et->kind != elem_kind) {
-                        if (et->kind != TYPE_UNKNOWN) uniform = false;
-                    }
-                }
+                SemanticType *u = unify(ctx, node->token.line, elem, et,
+                                        "array elements must have the same type");
+                if (u) elem = u;
             }
-            if (!uniform) {
-                diag_error(ctx->diag, ctx->path, node->token.line, ERR_TYPE_MISMATCH,
-                           "array elements must have the same type");
-            }
-            node->semantic_type = type_get_array(ctx->pool, ty(ctx, elem_kind),
+            node->semantic_type = type_get_array(ctx->pool,
+                                                 ty(ctx, elem ? elem->kind : TYPE_UNKNOWN),
                                                  node->as.array.element_count);
             break;
         }
@@ -710,24 +681,30 @@ static void check_node(SemanticContext *ctx, AstNode *node) {
             break;
         }
         case AST_SPAWN:
-            check_node(ctx, node->as.spawn.expr);
-            node->semantic_type = ty(ctx, TYPE_INT);
+            // Fail closed: no concurrency runtime exists yet (M7), so spawn
+            // must be rejected instead of compiling to a placeholder value.
+            diag_error(ctx->diag, ctx->path, node->token.line, ERR_UNSUPPORTED_STATEMENT, "spawn is not supported yet");
+            node->semantic_type = ty(ctx, TYPE_UNKNOWN);
             break;
         case AST_CHAN:
-            node->semantic_type = ty(ctx, TYPE_CHAN);
+            diag_error(ctx->diag, ctx->path, node->token.line, ERR_UNSUPPORTED_STATEMENT, "chan is not supported yet");
+            node->semantic_type = ty(ctx, TYPE_UNKNOWN);
             break;
         case AST_MATCH: {
             check_node(ctx, node->as.match_expr.expr);
-            PrimitiveType result_kind = TYPE_UNKNOWN;
+            SemanticType *result = NULL;
             for (int i = 0; i < node->as.match_expr.arm_count; i++) {
                 check_node(ctx, node->as.match_expr.arms[i].pattern);
                 check_node(ctx, node->as.match_expr.arms[i].body);
-                if (node->as.match_expr.arms[i].body && node->as.match_expr.arms[i].body->semantic_type) {
-                    SemanticType *at = (SemanticType *)node->as.match_expr.arms[i].body->semantic_type;
-                    if (result_kind == TYPE_UNKNOWN) result_kind = at->kind;
+                AstNode *body = node->as.match_expr.arms[i].body;
+                if (body && body->semantic_type) {
+                    SemanticType *u = unify(ctx, body->token.line, result,
+                                            body->semantic_type,
+                                            "match arms must have the same type");
+                    if (u) result = u;
                 }
             }
-            node->semantic_type = ty(ctx, result_kind);
+            node->semantic_type = ty(ctx, result ? result->kind : TYPE_UNKNOWN);
             break;
         }
         case AST_STRUCT_DEF:

@@ -2,6 +2,7 @@
 #define TIQ_TYPE_H
 
 #include "semantic.h"
+#include <stddef.h>
 
 // Interned type pool. Structurally identical types share one canonical
 // SemanticType instance, so pointer equality implies type equality.
@@ -20,5 +21,18 @@ SemanticType *type_get(TypePool *pool, PrimitiveType kind);
 SemanticType *type_get_func(TypePool *pool, PrimitiveType ret, int param_count);
 SemanticType *type_get_array(TypePool *pool, SemanticType *element, int length);
 SemanticType *type_get_slice(TypePool *pool, SemanticType *element);
+
+// Nominal struct interning (plan 3.2/3.3): identity is the declared name,
+// so the same name always returns the same instance regardless of fields.
+// Field name strings and the type array are copied into pool ownership.
+SemanticType *type_get_struct(TypePool *pool, Token name,
+                              const Token *field_names,
+                              SemanticType **field_types,
+                              int field_count);
+
+// User-facing type name for diagnostics ("expected <T>, found <U>"),
+// e.g. "int", "str", "[3]int", "[]int". The parser keeps its own
+// TYPE_* dump format for golden ASTs.
+void type_display(const SemanticType *t, char *buf, size_t cap);
 
 #endif
