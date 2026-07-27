@@ -13,8 +13,30 @@
 #include <unistd.h>
 #include <dirent.h>
 #include <errno.h>
+#if defined(__APPLE__)
+#include <mach-o/dyld.h> // _NSGetExecutablePath, documented platform API
+#endif
 
 static char test_cache_dir[1024] = {0};
+
+// Resolve the running tiq binary so `tiq test` works from any CWD
+// (plan 2.5): /proc/self/exe on Linux, _NSGetExecutablePath on macOS,
+// falling back to a PATH lookup of "tiq" via execvp.
+static char tiq_exe_path[4096] = {0};
+
+static const char *resolve_tiq_exe(void) {
+    if (tiq_exe_path[0]) return tiq_exe_path;
+#if defined(__APPLE__)
+    uint32_t size = (uint32_t)sizeof(tiq_exe_path);
+    if (_NSGetExecutablePath(tiq_exe_path, &size) != 0) tiq_exe_path[0] = '\0';
+#elif defined(__linux__)
+    ssize_t n = readlink("/proc/self/exe", tiq_exe_path, sizeof(tiq_exe_path) - 1);
+    if (n > 0) tiq_exe_path[n] = '\0';
+    else tiq_exe_path[0] = '\0';
+#endif
+    if (!tiq_exe_path[0]) snprintf(tiq_exe_path, sizeof(tiq_exe_path), "tiq");
+    return tiq_exe_path;
+}
 
 void test_runner_init(void) {
     const char *xdg = getenv("XDG_CACHE_HOME");
@@ -109,7 +131,6 @@ static int compile_and_run(const char *source_path, const char *expected_output,
     AstNode **stmts = parser_parse(&parser, &count);
     if (diag.has_error) {
         fprintf(stderr, "tiq: parse error in %s\n", source_path);
-        free(stmts);
         parser_free(&parser);
         free(source);
         fclose(temp_file);
@@ -122,7 +143,6 @@ static int compile_and_run(const char *source_path, const char *expected_output,
     semantic_check(stmts, count, source_path, &diag, &pool);
     if (diag.has_error) {
         fprintf(stderr, "tiq: semantic error in %s\n", source_path);
-        free(stmts);
         parser_free(&parser);
         type_pool_free(&pool);
         free(source);
@@ -137,7 +157,6 @@ static int compile_and_run(const char *source_path, const char *expected_output,
     fclose(temp_file);
     remove(temp_name);
     free(temp_name);
-    free(stmts);
     parser_free(&parser);
     type_pool_free(&pool);
     free(source);
@@ -147,6 +166,7 @@ static int compile_and_run(const char *source_path, const char *expected_output,
     sprintf(exe_path, "%s/test-%d", test_cache_dir, (int)(intptr_t)source_path % 100000);
 
     // Build using host compiler
+    const char *tiq_path = resolve_tiq_exe();
     pid_t pid = fork();
     if (pid < 0) {
         free(exe_path);
@@ -154,8 +174,7 @@ static int compile_and_run(const char *source_path, const char *expected_output,
     }
     if (pid == 0) {
         // Child: use tiq build
-        char *tiq_path = "./build/tiq";
-        char *args[] = { tiq_path, "build", (char*)source_path, "-o", exe_path, NULL };
+        char *args[] = { (char *)tiq_path, "build", (char*)source_path, "-o", exe_path, NULL };
         execvp(tiq_path, args);
         _exit(127);
     }

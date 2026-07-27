@@ -41,4 +41,20 @@ echo "test list: passed"
 $TIQ test examples/ || true
 echo "test examples dir: passed"
 
+# tiq test must work from any CWD: the child compiler is resolved from the
+# running executable, not "./build/tiq" (plan 2.5).
+cat > "$TMP/cwd.tiq" << 'EOF'
+//! 7
+x = 3 + 4
+!x
+EOF
+TIQ_ABS="$(cd "$(dirname "$TIQ")" && pwd)/$(basename "$TIQ")"
+( cd "$TMP" && "$TIQ_ABS" test cwd.tiq > "$TMP/cwd_out.txt" 2>&1 )
+if ! grep -q "Tests: 1 passed, 0 failed" "$TMP/cwd_out.txt"; then
+    echo "tiq test from another CWD did not run the test" >&2
+    cat "$TMP/cwd_out.txt" >&2
+    exit 1
+fi
+echo "test from another cwd: passed"
+
 echo "test runner tests: ok"
