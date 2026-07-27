@@ -182,6 +182,10 @@ corrected audits. None of these milestones is complete.
   - Tests (added failing first): `bracket_loop_binder` AST golden in `tests/parser.sh`; `typed_loop_binder`, `loop_binder_non_range`, `loop_index_immutable`, `loop_binder_immutable`, `loop_binder_hides_default_index` in `tests/semantic.sh`; `loop_binder` runtime test (sum + nested binders seeing outer ones) in `tests/smoke.sh`.
   - Migration: `examples/continue_skip.tiq` no longer assigns to `i` after `skip`.
   - Docs: GRAMMAR `bracket_loop` production, LANGUAGE_SPEC §10 binder + immutability rules.
+- Multi-binder loops `[j <- 0..3, k <- 0..j] { body }` (2026-07-27):
+  - Behavior: comma-separated binder clauses desugar in the parser to nested `AST_BRACKET_LOOP` nodes (Cartesian product), so semantic checking and C emission are unchanged; later binders see earlier ones, `break`/`skip` bind to the innermost loop. Clauses after `,` must be `name <- range` (`expected loop binder after ','`, E04) and duplicate binder names are rejected (`duplicate loop binder`, E15). No guards/filters and no zip semantics (kept out deliberately).
+  - Tests (added failing first): `bracket_loop_multi_binder` desugaring golden in `tests/parser.sh`; `bracket_loop_binder_missing` and `bracket_loop_dup_binder` in `tests/diagnostics.sh`; `loop_multi_binder` runtime test (dependent ranges, sum 51) in `tests/smoke.sh`.
+  - Docs: GRAMMAR `binder_clauses` production, LANGUAGE_SPEC §10 multi-binder rules.
 
 ## Known bootstrap limitations
 

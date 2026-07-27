@@ -154,16 +154,54 @@ static AstNode *bracket_loop(Parser *parser) {
         }
     }
     node->as.bracket_loop.domain = expression(parser);
+    // Multi-binder headers desugar to nested loops (Cartesian product):
+    // [j <- 0..3, k <- 0..j] { body } becomes a k-loop inside the j-loop,
+    // so later binders see earlier ones and break/skip stay innermost.
+    AstNode *innermost = node;
+    while (innermost->as.bracket_loop.has_binder && check(parser, TOK_COMMA)) {
+        advance(parser);
+        bool clause_ok = false;
+        if (check(parser, TOK_IDENT)) {
+            Lexer peek_lexer = parser->lexer;
+            Token next = lexer_next(&peek_lexer);
+            while (next.kind == TOK_NEWLINE) next = lexer_next(&peek_lexer);
+            clause_ok = next.kind == TOK_LARROW;
+        }
+        if (!clause_ok) {
+            error_at_current(parser, ERR_UNEXPECTED_TOKEN, "expected loop binder after ','");
+            break;
+        }
+        AstNode *inner = allocate_node(parser, AST_BRACKET_LOOP);
+        advance(parser);
+        inner->as.bracket_loop.binder = parser->previous;
+        inner->as.bracket_loop.has_binder = true;
+        advance(parser);
+        for (AstNode *outer = node; ; outer = outer->as.bracket_loop.body_stmts[0]) {
+            if (outer->as.bracket_loop.binder.length == inner->as.bracket_loop.binder.length &&
+                memcmp(outer->as.bracket_loop.binder.start, inner->as.bracket_loop.binder.start,
+                       inner->as.bracket_loop.binder.length) == 0) {
+                diag_error(parser->diag, parser->lexer.path, inner->token.line,
+                           ERR_LOOP_VARIABLE, "duplicate loop binder");
+                break;
+            }
+            if (outer == innermost) break;
+        }
+        inner->as.bracket_loop.domain = expression(parser);
+        innermost->as.bracket_loop.body_stmts = arena_alloc(&parser->arena, sizeof(AstNode *));
+        innermost->as.bracket_loop.body_stmts[0] = inner;
+        innermost->as.bracket_loop.body_count = 1;
+        innermost = inner;
+    }
     consume(parser, TOK_RBRACKET, ERR_UNEXPECTED_TOKEN, "expected ']' after loop header");
     consume(parser, TOK_LBRACE, ERR_UNEXPECTED_TOKEN, "expected '{' to open loop body");
     if (parser->diag->fatal_error) return node;
     int capacity = 0;
     while (!check(parser, TOK_RBRACE) && !check(parser, TOK_EOF)) {
-        if (node->as.bracket_loop.body_count + 1 > capacity) {
+        if (innermost->as.bracket_loop.body_count + 1 > capacity) {
             int new_cap = capacity < 4 ? 4 : capacity * 2;
-            node->as.bracket_loop.body_stmts = arena_realloc(&parser->arena, node->as.bracket_loop.body_stmts,
-                                                             sizeof(AstNode *) * capacity,
-                                                             sizeof(AstNode *) * new_cap);
+            innermost->as.bracket_loop.body_stmts = arena_realloc(&parser->arena, innermost->as.bracket_loop.body_stmts,
+                                                                  sizeof(AstNode *) * capacity,
+                                                                  sizeof(AstNode *) * new_cap);
             capacity = new_cap;
         }
         AstNode *stmt = statement(parser);
@@ -172,7 +210,7 @@ static AstNode *bracket_loop(Parser *parser) {
             diag_error(parser->diag, parser->lexer.path, stmt->token.line,
                        ERR_DEFER_OUTSIDE_BLOCK, "defer is not allowed in bracket loops");
         }
-        node->as.bracket_loop.body_stmts[node->as.bracket_loop.body_count++] = stmt;
+        innermost->as.bracket_loop.body_stmts[innermost->as.bracket_loop.body_count++] = stmt;
         match(parser, TOK_SEMICOLON);
     }
     consume(parser, TOK_RBRACE, ERR_UNEXPECTED_TOKEN, "expected '}' after loop body");

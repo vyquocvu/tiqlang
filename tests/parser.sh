@@ -134,6 +134,24 @@ BRACKET_LOOP j
   ASSIGN x PLUS_EQ
     IDENT j'
 
+# Multi-binder headers desugar to nested loops (Cartesian product);
+# later binders see earlier ones.
+assert_parser "bracket_loop_multi_binder" 'x <- 0
+[j <- 0..3, k <- 0..j] { x += j * k }' 'MUT_BINDING x
+  INT 0
+BRACKET_LOOP j
+  BINARY DOT_DOT
+    INT 0
+    INT 3
+  BRACKET_LOOP k
+    BINARY DOT_DOT
+      INT 0
+      IDENT j
+    ASSIGN x PLUS_EQ
+      BINARY STAR
+        IDENT j
+        IDENT k'
+
 assert_parser "bracket_expr" 'x = [1 + 2]' 'BINDING x
   BRACKET_EXPR
     BINARY PLUS

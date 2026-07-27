@@ -38,6 +38,10 @@ assert_diagnostic "bracket_loop_no_rbrace" '[0..10] { i' "expected '}' after loo
 # The pre-2026-07-27 separator form must fail closed: '|' inside the
 # header is bitwise OR now, so the loop is missing its '{' body.
 assert_diagnostic "bracket_loop_old_pipe" '[0..10 | i]' "expected '{' to open loop body"
+# Multi-binder headers: every clause after ',' must be 'name <- range',
+# and binder names must be distinct.
+assert_diagnostic "bracket_loop_binder_missing" '[j <- 0..3, 0..2] { 0 }' "expected loop binder after ','"
+assert_diagnostic "bracket_loop_dup_binder" '[j <- 0..3, j <- 0..2] { 0 }' "duplicate loop binder"
 
 # Regression: parser must terminate on invalid input (fuzz findings 0.4).
 # Each case previously looped forever because errors neither consumed a

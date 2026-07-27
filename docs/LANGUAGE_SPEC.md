@@ -162,6 +162,12 @@ Range loops bind an implicit index `i`. An optional binder names the loop variab
 
 Loop variables are immutable inside the body; assigning to them is an error (E11). Binders are only valid for range domains; `[j <- condition]` is rejected with `loop binder requires a range domain` (E15).
 
+Multiple binders iterate the Cartesian product as nested loops; later binders may reference earlier ones, `break`/`skip` apply to the innermost loop, and duplicate binder names are rejected (`duplicate loop binder`, E15):
+
+```tiq
+[j <- 0..3, k <- 0..j] { print(j * 10 + k) }
+```
+
 Conditional iteration:
 
 ```tiq

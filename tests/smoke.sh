@@ -250,6 +250,22 @@ if ! cmp -s "$TMP_DIR/loop_binder.expected" "$TMP_DIR/loop_binder.out"; then
   exit 1
 fi
 
+# Multi-binder loops iterate the Cartesian product; later binders see
+# earlier ones ([j <- 0..3, k <- 0..j] nests k inside j).
+printf 'total <- 0\n[j <- 0..3, k <- 0..j] { total += j * 10 + k }\nprint(total)\n' > "$TMP_DIR/loop_multi_binder.tiq"
+./build/tiq build "$TMP_DIR/loop_multi_binder.tiq" -o "$TMP_DIR/loop_multi_binder" 2>"$TMP_DIR/loop_multi_binder.err"
+[ -x "$TMP_DIR/loop_multi_binder" ]
+"$TMP_DIR/loop_multi_binder" > "$TMP_DIR/loop_multi_binder.out"
+printf '51\n' > "$TMP_DIR/loop_multi_binder.expected"
+if ! cmp -s "$TMP_DIR/loop_multi_binder.expected" "$TMP_DIR/loop_multi_binder.out"; then
+  echo "multi-binder loop output mismatch" >&2
+  echo "expected:" >&2
+  cat "$TMP_DIR/loop_multi_binder.expected" >&2
+  echo "actual:" >&2
+  cat "$TMP_DIR/loop_multi_binder.out" >&2
+  exit 1
+fi
+
 # M12.2: integer values are 64-bit (i64 default, LANGUAGE_SPEC §11)
 printf 'x = 5000000000\nprint(x)\nprint(2147483647 + 1)\ny <- 1000000000\ny *= 5\nprint(y)\n' > "$TMP_DIR/i64_values.tiq"
 ./build/tiq build "$TMP_DIR/i64_values.tiq" -o "$TMP_DIR/i64_values" 2>"$TMP_DIR/i64_values.err"
