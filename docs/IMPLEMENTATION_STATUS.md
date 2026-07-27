@@ -177,6 +177,11 @@ corrected audits. None of these milestones is complete.
   - Tests (added failing first): migrated goldens plus new `bracket_loop_and_domain` in `tests/parser.sh`; `bracket_loop_no_rbracket`/`bracket_loop_no_lbrace`/`bracket_loop_no_rbrace`/`bracket_loop_old_pipe` in `tests/diagnostics.sh`; `loop_domain_expr` runtime test (`&&`/`||` headers) in `tests/smoke.sh`; `] {` same-line assertion in `tests/tooling/formatter.sh` (formatter glues the body brace to the header).
   - Migration: all loops in `examples/*.tiq`, `examples/leetcode/*.tiq`, `tests/tiq/*.tiq`, and embedded programs in `tests/tooling/*.sh` rewritten; comma body separators became `;`/newlines.
   - Docs: GRAMMAR `bracket_loop` production, LANGUAGE_SPEC §10, README, DESIGN_PRINCIPLES, ROADMAP M3 evidence updated.
+- Named loop binders `[j <- 0..10] { body }` and immutable loop variables (2026-07-27):
+  - Behavior: an optional `identifier <-` before a range domain names the loop variable, replacing the implicit index `i` (`IDENT '<-'` is unambiguous in header position since `<-` cannot occur inside an expression). Binders on non-range domains are rejected (`loop binder requires a range domain`, E15 — first use of the pinned code). Loop variables (binder or implicit `i`) are now immutable inside the body (E11 on assignment; previously `i` was accidentally mutable). C emission uses the binder name in the `for` header.
+  - Tests (added failing first): `bracket_loop_binder` AST golden in `tests/parser.sh`; `typed_loop_binder`, `loop_binder_non_range`, `loop_index_immutable`, `loop_binder_immutable`, `loop_binder_hides_default_index` in `tests/semantic.sh`; `loop_binder` runtime test (sum + nested binders seeing outer ones) in `tests/smoke.sh`.
+  - Migration: `examples/continue_skip.tiq` no longer assigns to `i` after `skip`.
+  - Docs: GRAMMAR `bracket_loop` production, LANGUAGE_SPEC §10 binder + immutability rules.
 
 ## Known bootstrap limitations
 

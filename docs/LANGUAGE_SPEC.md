@@ -154,6 +154,14 @@ Range iteration:
 [0..10] { print(i) }
 ```
 
+Range loops bind an implicit index `i`. An optional binder names the loop variable instead (the binder replaces `i`):
+
+```tiq
+[j <- 0..10] { print(j) }
+```
+
+Loop variables are immutable inside the body; assigning to them is an error (E11). Binders are only valid for range domains; `[j <- condition]` is rejected with `loop binder requires a range domain` (E15).
+
 Conditional iteration:
 
 ```tiq

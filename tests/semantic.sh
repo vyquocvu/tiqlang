@@ -170,6 +170,29 @@ $TMP_DIR/loop_range_mixed_type.tiq:1: error[E09]: range bounds must be int"
 assert_semantic "loop_cond_float" '[1.0] { 0 }
 ' "$TMP_DIR/loop_cond_float.tiq:1: error[E14]: loop condition must be bool"
 
+assert_semantic_ast "typed_loop_binder" 'x <- 0
+[j <- 0..3] { x += j }' 'MUT_BINDING x <TYPE_INT>
+  INT 0 <TYPE_INT>
+BRACKET_LOOP j <TYPE_UNKNOWN>
+  BINARY DOT_DOT <TYPE_INT>
+    INT 0 <TYPE_INT>
+    INT 3 <TYPE_INT>
+  ASSIGN x PLUS_EQ <TYPE_INT>
+    IDENT j <TYPE_INT>'
+
+assert_semantic "loop_binder_non_range" 'x <- 0
+[j <- x < 3] { x += 1 }
+' "$TMP_DIR/loop_binder_non_range.tiq:2: error[E15]: loop binder requires a range domain"
+
+assert_semantic "loop_index_immutable" '[0..3] { i <- 1 }
+' "$TMP_DIR/loop_index_immutable.tiq:1: error[E11]: cannot assign to immutable binding"
+
+assert_semantic "loop_binder_immutable" '[j <- 0..3] { j += 1 }
+' "$TMP_DIR/loop_binder_immutable.tiq:1: error[E11]: cannot assign to immutable binding"
+
+assert_semantic "loop_binder_hides_default_index" '[j <- 0..3] { print(i) }
+' "$TMP_DIR/loop_binder_hides_default_index.tiq:1: error[E08]: undefined symbol 'i'"
+
 assert_semantic "array_mixed_types" 'x = [1, "foo"]
 ' "$TMP_DIR/array_mixed_types.tiq:1: error[E09]: array elements must have the same type: expected int, found str"
 

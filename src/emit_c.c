@@ -528,11 +528,15 @@ static void emit_stmt(AstNode *node, EmitContext *ctx, int indent) {
             AstNode *domain = node->as.bracket_loop.domain;
             bool is_range = domain && domain->kind == AST_BINARY && domain->as.binary.op == TOK_DOT_DOT;
             if (is_range) {
-                fprintf(ctx->out, "for (int64_t i = ");
+                const char *var = node->as.bracket_loop.has_binder ?
+                    node->as.bracket_loop.binder.start : "i";
+                int var_len = node->as.bracket_loop.has_binder ?
+                    (int)node->as.bracket_loop.binder.length : 1;
+                fprintf(ctx->out, "for (int64_t %.*s = ", var_len, var);
                 emit_expr(domain->as.binary.left, ctx);
-                fprintf(ctx->out, "; i < ");
+                fprintf(ctx->out, "; %.*s < ", var_len, var);
                 emit_expr(domain->as.binary.right, ctx);
-                fputs("; i++) {\n", ctx->out);
+                fprintf(ctx->out, "; %.*s++) {\n", var_len, var);
             } else {
                 fputs("while (", ctx->out);
                 emit_expr(domain, ctx);

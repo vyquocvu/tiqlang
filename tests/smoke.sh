@@ -234,6 +234,22 @@ if ! cmp -s "$TMP_DIR/loop_domain_expr.expected" "$TMP_DIR/loop_domain_expr.out"
   exit 1
 fi
 
+# Named loop binders: [j <- 0..5] iterates j over the range; nested
+# loops can pick distinct names and see enclosing binders.
+printf 'total <- 0\n[j <- 0..5] { total += j }\nprint(total)\nnested <- 0\n[j <- 0..3] { [k <- 0..2] { nested += j * 10 + k } }\nprint(nested)\n' > "$TMP_DIR/loop_binder.tiq"
+./build/tiq build "$TMP_DIR/loop_binder.tiq" -o "$TMP_DIR/loop_binder" 2>"$TMP_DIR/loop_binder.err"
+[ -x "$TMP_DIR/loop_binder" ]
+"$TMP_DIR/loop_binder" > "$TMP_DIR/loop_binder.out"
+printf '10\n63\n' > "$TMP_DIR/loop_binder.expected"
+if ! cmp -s "$TMP_DIR/loop_binder.expected" "$TMP_DIR/loop_binder.out"; then
+  echo "loop binder output mismatch" >&2
+  echo "expected:" >&2
+  cat "$TMP_DIR/loop_binder.expected" >&2
+  echo "actual:" >&2
+  cat "$TMP_DIR/loop_binder.out" >&2
+  exit 1
+fi
+
 # M12.2: integer values are 64-bit (i64 default, LANGUAGE_SPEC §11)
 printf 'x = 5000000000\nprint(x)\nprint(2147483647 + 1)\ny <- 1000000000\ny *= 5\nprint(y)\n' > "$TMP_DIR/i64_values.tiq"
 ./build/tiq build "$TMP_DIR/i64_values.tiq" -o "$TMP_DIR/i64_values" 2>"$TMP_DIR/i64_values.err"

@@ -589,14 +589,23 @@ static void check_node(SemanticContext *ctx, AstNode *node) {
                     diag_error(ctx->diag, ctx->path, node->token.line, ERR_CONDITION_TYPE,
                                "loop condition must be bool");
             }
+            if (node->as.bracket_loop.has_binder && !is_range) {
+                diag_error(ctx->diag, ctx->path, node->token.line, ERR_LOOP_VARIABLE,
+                           "loop binder requires a range domain");
+            }
             Environment loop_env;
             env_init(&loop_env, ctx->current_env);
             ctx->current_env = &loop_env;
-            if (is_range) {
+            if (node->as.bracket_loop.has_binder) {
+                // The binder replaces the implicit index; loop variables
+                // are immutable inside the body.
+                env_define(ctx->current_env, node->as.bracket_loop.binder, false,
+                           ty(ctx, TYPE_INT));
+            } else if (is_range) {
                 Token itoken;
                 itoken.start = "i";
                 itoken.length = 1;
-                env_define(ctx->current_env, itoken, true, ty(ctx, TYPE_INT));
+                env_define(ctx->current_env, itoken, false, ty(ctx, TYPE_INT));
             }
             for (int i = 0; i < node->as.bracket_loop.body_count; i++) {
                 check_node(ctx, node->as.bracket_loop.body_stmts[i]);

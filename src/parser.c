@@ -139,6 +139,20 @@ static AstNode *stream_gen(Parser *parser) {
 
 static AstNode *bracket_loop(Parser *parser) {
     AstNode *node = allocate_node(parser, AST_BRACKET_LOOP);
+    // Optional binder names the loop variable: [j <- 0..10] { ... }.
+    // '<-' cannot appear inside a header expression, so IDENT '<-' is
+    // unambiguous here.
+    if (check(parser, TOK_IDENT)) {
+        Lexer peek_lexer = parser->lexer;
+        Token next = lexer_next(&peek_lexer);
+        while (next.kind == TOK_NEWLINE) next = lexer_next(&peek_lexer);
+        if (next.kind == TOK_LARROW) {
+            advance(parser);
+            node->as.bracket_loop.binder = parser->previous;
+            node->as.bracket_loop.has_binder = true;
+            advance(parser);
+        }
+    }
     node->as.bracket_loop.domain = expression(parser);
     consume(parser, TOK_RBRACKET, ERR_UNEXPECTED_TOKEN, "expected ']' after loop header");
     consume(parser, TOK_LBRACE, ERR_UNEXPECTED_TOKEN, "expected '{' to open loop body");
@@ -765,7 +779,12 @@ void ast_print(AstNode *node, int indent) {
             ast_print(node->as.function.body, indent + 1);
             break;
         case AST_BRACKET_LOOP:
-            printf("BRACKET_LOOP%s\n", t_str);
+            if (node->as.bracket_loop.has_binder) {
+                printf("BRACKET_LOOP %.*s%s\n", (int)node->as.bracket_loop.binder.length,
+                       node->as.bracket_loop.binder.start, t_str);
+            } else {
+                printf("BRACKET_LOOP%s\n", t_str);
+            }
             ast_print(node->as.bracket_loop.domain, indent + 1);
             for (int i = 0; i < node->as.bracket_loop.body_count; i++) {
                 ast_print(node->as.bracket_loop.body_stmts[i], indent + 1);

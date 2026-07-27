@@ -1,1 +1,2 @@
-[1..4] { print(i); skip; i += 100 }
+// 'skip' ends the iteration early: the print after it never runs.
+[1..4] { print(i); skip; print(999) }

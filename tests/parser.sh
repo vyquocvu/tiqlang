@@ -124,6 +124,16 @@ BRACKET_LOOP
   ASSIGN x PLUS_EQ
     INT 1'
 
+assert_parser "bracket_loop_binder" 'x <- 0
+[j <- 0..3] { x += j }' 'MUT_BINDING x
+  INT 0
+BRACKET_LOOP j
+  BINARY DOT_DOT
+    INT 0
+    INT 3
+  ASSIGN x PLUS_EQ
+    IDENT j'
+
 assert_parser "bracket_expr" 'x = [1 + 2]' 'BINDING x
   BRACKET_EXPR
     BINARY PLUS

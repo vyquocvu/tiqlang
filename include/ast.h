@@ -110,6 +110,8 @@ struct AstNode {
 
         struct {
             AstNode *domain;
+            Token binder;      // optional loop variable name: [j <- 0..10] { ... }
+            bool has_binder;   // false = implicit index 'i' for range domains
             AstNode **body_stmts;
             int body_count;
             AstNode *body_final;
