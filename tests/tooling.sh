@@ -41,6 +41,7 @@ run_test "test runner" sh tests/tooling/test_runner.sh
 run_test "run" sh tests/tooling/run.sh
 run_test "benchmark" sh tests/tooling/benchmark.sh
 run_test "init and cache" sh tests/tooling/init_cache.sh
+run_test "lsp" sh tests/tooling/lsp.sh
 
 echo ""
 echo "========================================"
