@@ -3,4 +3,4 @@
 tri = [0, ... x + i]
 
 // Print first 11 triangular numbers
-[0..11 | print(tri[i])]
+[0..11] { print(tri[i]) }

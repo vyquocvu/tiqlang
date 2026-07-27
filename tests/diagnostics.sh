@@ -32,8 +32,12 @@ assert_diagnostic() {
 }
 
 assert_diagnostic "unterminated_string" 'x = \"hello' "unterminated string literal"
-assert_diagnostic "bracket_loop_no_pipe" '[0..10' "expected '|' in bracket loop"
-assert_diagnostic "bracket_loop_no_rbracket" '[0..10 | i' "expected ']' after bracket loop body"
+assert_diagnostic "bracket_loop_no_rbracket" '[0..10' "expected ']' after loop header"
+assert_diagnostic "bracket_loop_no_lbrace" '[0..10] i' "expected '{' to open loop body"
+assert_diagnostic "bracket_loop_no_rbrace" '[0..10] { i' "expected '}' after loop body"
+# The pre-2026-07-27 separator form must fail closed: '|' inside the
+# header is bitwise OR now, so the loop is missing its '{' body.
+assert_diagnostic "bracket_loop_old_pipe" '[0..10 | i]' "expected '{' to open loop body"
 
 # Regression: parser must terminate on invalid input (fuzz findings 0.4).
 # Each case previously looped forever because errors neither consumed a

@@ -3,4 +3,4 @@
 lucas = [2, 1, ... a + b]
 
 // Print first 11 Lucas numbers
-[0..11 | print(lucas[i])]
+[0..11] { print(lucas[i]) }

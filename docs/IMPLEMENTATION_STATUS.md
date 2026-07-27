@@ -172,6 +172,11 @@ corrected audits. None of these milestones is complete.
   - Tests (added failing first): `typed_print_call`, `print_no_args`, `print_two_args`, `print_unprintable`, `bang_requires_bool` goldens and the retyped `typed_unary_not` in `tests/semantic.sh`; `print_builtin` runtime output test and migrated `not_bool`/`i64_values`/`rt_i64*` in `tests/smoke.sh`; formatter call-tightness test in `tests/tooling/formatter.sh` (the formatter no longer spaces `ident (` apart and drops the dead `!`-space rule).
   - Migration: all `examples/*.tiq`, embedded programs in `tests/unit/test_main.c` and `tests/tooling/*.sh` rewritten from `!expr` to `print(expr)`.
   - Docs: LANGUAGE_SPEC §5 (`!` negation only, bool operand) and §12 (print builtin) rewritten; GRAMMAR `print_stmt` production removed; README, DESIGN_PRINCIPLES, COMPILER_ARCHITECTURE, TYPE_SYSTEM examples updated; DOC_REVIEW resolution log amended.
+- Bracket loop body syntax `[domain] { body }` replaces `[domain | body]` (2026-07-27):
+  - Behavior: the loop header in `[ ]` now parses a full expression (previously `bit_xor`-level, so `&&`, `||`, and bitwise `|` in the domain were parse errors despite GRAMMAR declaring `loop_domain = expression`); the body is a standard `{ }` block with newline/`;` separators (commas no longer separate body statements). `|` has no loop meaning anymore and is bitwise OR everywhere; the old form fails closed at "expected '{' to open loop body". Defer remains rejected inside loop bodies.
+  - Tests (added failing first): migrated goldens plus new `bracket_loop_and_domain` in `tests/parser.sh`; `bracket_loop_no_rbracket`/`bracket_loop_no_lbrace`/`bracket_loop_no_rbrace`/`bracket_loop_old_pipe` in `tests/diagnostics.sh`; `loop_domain_expr` runtime test (`&&`/`||` headers) in `tests/smoke.sh`; `] {` same-line assertion in `tests/tooling/formatter.sh` (formatter glues the body brace to the header).
+  - Migration: all loops in `examples/*.tiq`, `examples/leetcode/*.tiq`, `tests/tiq/*.tiq`, and embedded programs in `tests/tooling/*.sh` rewritten; comma body separators became `;`/newlines.
+  - Docs: GRAMMAR `bracket_loop` production, LANGUAGE_SPEC §10, README, DESIGN_PRINCIPLES, ROADMAP M3 evidence updated.
 
 ## Known bootstrap limitations
 

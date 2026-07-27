@@ -3,16 +3,16 @@
 
 is_palindrome x -> {
     is_pal <- x >= 0
-    [(is_pal) |
-        rev <- 0,
-        tmp <- x,
-        [tmp > 0 |
-            rev <- rev * 10 + tmp % 10,
+    [(is_pal)] {
+        rev <- 0
+        tmp <- x
+        [tmp > 0] {
+            rev <- rev * 10 + tmp % 10
             tmp <- tmp / 10
-        ],
-        is_pal <- rev == x,
+        }
+        is_pal <- rev == x
         break
-    ]
+    }
     is_pal
 }
 

@@ -116,7 +116,7 @@ BINDING y <TYPE_SLICE:TYPE_INT>
     INT 3 <TYPE_INT>'
 
 assert_semantic_ast "typed_bracket_loop" 'x <- 0
-[0..3 | x += i]' 'MUT_BINDING x <TYPE_INT>
+[0..3] { x += i }' 'MUT_BINDING x <TYPE_INT>
   INT 0 <TYPE_INT>
 BRACKET_LOOP <TYPE_UNKNOWN>
   BINARY DOT_DOT <TYPE_INT>
@@ -138,13 +138,13 @@ assert_semantic_ast "typed_unary_not" 'x = !false' 'BINDING x <TYPE_BOOL>
 assert_semantic "bang_requires_bool" 'x = !5
 ' "$TMP_DIR/bang_requires_bool.tiq:1: error[E09]: operand of '!' must be bool, found int"
 
-assert_semantic_ast "typed_break_bracket" '[0..3 | break]' 'BRACKET_LOOP <TYPE_UNKNOWN>
+assert_semantic_ast "typed_break_bracket" '[0..3] { break }' 'BRACKET_LOOP <TYPE_UNKNOWN>
   BINARY DOT_DOT <TYPE_INT>
     INT 0 <TYPE_INT>
     INT 3 <TYPE_INT>
   BREAK <TYPE_UNKNOWN>'
 
-assert_semantic_ast "typed_skip_bracket" '[0..3 | skip]' 'BRACKET_LOOP <TYPE_UNKNOWN>
+assert_semantic_ast "typed_skip_bracket" '[0..3] { skip }' 'BRACKET_LOOP <TYPE_UNKNOWN>
   BINARY DOT_DOT <TYPE_INT>
     INT 0 <TYPE_INT>
     INT 3 <TYPE_INT>
@@ -157,17 +157,17 @@ assert_semantic "skip_outside_loop" 'skip
 ' "$TMP_DIR/skip_outside_loop.tiq:1: error[E16]: skip outside loop"
 
 assert_semantic "loop_cond_type" 'x <- 0
-[1 | x += 1]
+[1] { x += 1 }
 ' "$TMP_DIR/loop_cond_type.tiq:2: error[E14]: loop condition must be bool"
 
-assert_semantic "loop_range_type" '["a".."b" | 0]
+assert_semantic "loop_range_type" '["a".."b"] { 0 }
 ' "$TMP_DIR/loop_range_type.tiq:1: error[E09]: range bounds must be int"
 
-assert_semantic "loop_range_mixed_type" '[0.."b" | 0]
+assert_semantic "loop_range_mixed_type" '[0.."b"] { 0 }
 ' "$TMP_DIR/loop_range_mixed_type.tiq:1: error[E09]: type mismatch: expected int, found str
 $TMP_DIR/loop_range_mixed_type.tiq:1: error[E09]: range bounds must be int"
 
-assert_semantic "loop_cond_float" '[1.0 | 0]
+assert_semantic "loop_cond_float" '[1.0] { 0 }
 ' "$TMP_DIR/loop_cond_float.tiq:1: error[E14]: loop condition must be bool"
 
 assert_semantic "array_mixed_types" 'x = [1, "foo"]

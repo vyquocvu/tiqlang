@@ -56,7 +56,7 @@ fi
 # Test run with loops
 cat > "$TMP/loop.tiq" << 'EOF'
 x <- 0
-[0..5 | x += i]
+[0..5] { x += i }
 print(x)
 EOF
 OUTPUT=$($TIQ run "$TMP/loop.tiq")

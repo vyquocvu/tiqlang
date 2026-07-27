@@ -30,7 +30,7 @@ statement     = assign_stmt | bracket_loop | control_stmt | defer_stmt | express
 assign_stmt   = identifier, ("<-" | "+=" | "-=" | "*=" | "/=" | "%="), expression ;
 control_stmt  = "break" | "skip" ;
 defer_stmt    = "defer", statement ;
-bracket_loop  = "[", loop_domain, "|", { statement, separator }, [ expression ], "]" ;
+bracket_loop  = "[", loop_domain, "]", "{", { statement, separator }, "}" ;
 loop_domain   = expression ;
 block         = "{", { statement, separator }, [ expression ], "}" ;
 separator     = newline | ";" ;

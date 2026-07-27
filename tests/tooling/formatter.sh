@@ -59,7 +59,7 @@ x = 1 // trailing
 {
     y = add(x, 2)
 }
-[0..3 | print(y)]
+[0..3] { print(y) }
 EOF
 $TIQ fmt "$TMP/equiv.tiq" > "$TMP/equiv_file.tiq"
 $TIQ fmt < "$TMP/equiv.tiq" > "$TMP/equiv_stdin.tiq"
@@ -109,13 +109,18 @@ else
     exit 1
 fi
 
-# Test formatter with loops
+# Test formatter with loops: "] {" must stay glued on one line
 cat > "$TMP/loop.tiq" << 'EOF'
 x <- 0
-[0..10 | x += i]
+[0..10] { x += i }
 print(x)
 EOF
 $TIQ fmt "$TMP/loop.tiq" > "$TMP/loop_out.tiq"
+if ! grep -qF '] {' "$TMP/loop_out.tiq"; then
+    echo "formatter split loop header from its body brace" >&2
+    cat "$TMP/loop_out.tiq" >&2
+    exit 1
+fi
 echo "formatter handles loops: passed"
 
 # Test formatter with functions

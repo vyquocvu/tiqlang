@@ -111,6 +111,7 @@ static void format_stream(FmtSink *sink, Lexer *lexer, FormatterOptions *opts) {
 
     Token current = lexer_next(lexer);
     Token next = lexer_next(lexer);
+    bool glue_next_lbrace = false; // "] {" of a bracket loop stays on one line
 
     while (current.kind != TOK_EOF) {
         Token token = current;
@@ -132,7 +133,8 @@ static void format_stream(FmtSink *sink, Lexer *lexer, FormatterOptions *opts) {
 
         // Braces open/close their own lines and adjust indentation
         if (token.kind == TOK_LBRACE) {
-            emit_newline(&fmt);
+            if (!glue_next_lbrace) emit_newline(&fmt);
+            glue_next_lbrace = false;
             fmt.pending_indent++;
             emit_token(&fmt, token);
             emit_newline(&fmt);
@@ -157,7 +159,12 @@ static void format_stream(FmtSink *sink, Lexer *lexer, FormatterOptions *opts) {
             emit_newline(&fmt);
             fmt.pending_indent--;
             emit_token(&fmt, token);
-            emit_newline(&fmt);
+            if (peek.kind == TOK_LBRACE) {
+                emit_space(&fmt);
+                glue_next_lbrace = true;
+            } else {
+                emit_newline(&fmt);
+            }
             continue;
         }
 

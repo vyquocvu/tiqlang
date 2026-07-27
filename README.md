@@ -31,7 +31,7 @@ Language-specific syntax is intentionally small:
 name = value       immutable binding
 name <- value     mutable binding or reassignment
 f a b -> expression function
-[0..10 | print(i)]  bracket loop iteration
+[0..10] { print(i) }  bracket loop iteration
 [0, 1, ... a + b]  stream generator sequence
 [1, ... x * 2 while x < 100]  bounded stream generator
 skip               continue iteration shorthand
@@ -142,7 +142,7 @@ a = 1 + 2
 
 // Test loop
 total <- 0
-[0..5 | total += i]
+[0..5] { total += i }
 
 // Test fibonacci
 fib = [0, 1, ... a + b]

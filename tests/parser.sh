@@ -81,7 +81,7 @@ ASSIGN val PLUS_EQ
   INT 3'
 
 assert_parser "bracket_loop" 'x <- 0
-[0..3 | x += i]' 'MUT_BINDING x
+[0..3] { x += i }' 'MUT_BINDING x
   INT 0
 BRACKET_LOOP
   BINARY DOT_DOT
@@ -90,25 +90,39 @@ BRACKET_LOOP
   ASSIGN x PLUS_EQ
     IDENT i'
 
-assert_parser "bracket_loop_print" '[0..3 | i]' 'BRACKET_LOOP
+assert_parser "bracket_loop_print" '[0..3] { i }' 'BRACKET_LOOP
   BINARY DOT_DOT
     INT 0
     INT 3
   IDENT i'
 
-assert_parser "bracket_loop_break" '[0..3 | i, break]' 'BRACKET_LOOP
+assert_parser "bracket_loop_break" '[0..3] { i; break }' 'BRACKET_LOOP
   BINARY DOT_DOT
     INT 0
     INT 3
   IDENT i
   BREAK'
 
-assert_parser "bracket_loop_skip" '[0..3 | i, skip]' 'BRACKET_LOOP
+assert_parser "bracket_loop_skip" '[0..3] { i; skip }' 'BRACKET_LOOP
   BINARY DOT_DOT
     INT 0
     INT 3
   IDENT i
   SKIP'
+
+assert_parser "bracket_loop_and_domain" 'x <- 0
+[x < 3 && x >= 0] { x += 1 }' 'MUT_BINDING x
+  INT 0
+BRACKET_LOOP
+  BINARY AND_AND
+    BINARY LT
+      IDENT x
+      INT 3
+    BINARY GTE
+      IDENT x
+      INT 0
+  ASSIGN x PLUS_EQ
+    INT 1'
 
 assert_parser "bracket_expr" 'x = [1 + 2]' 'BINDING x
   BRACKET_EXPR

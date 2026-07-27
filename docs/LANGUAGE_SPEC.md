@@ -146,23 +146,23 @@ A block evaluates to its final expression. Statements before the final expressio
 
 ## 10. Loops
 
-Tiq uses unified **Bracket Loops (`[domain | body]`)** for iteration; there are no `for` or `while` statement forms.
+Tiq uses unified **Bracket Loops (`[domain] { body }`)** for iteration; there are no `for` or `while` statement forms. The loop header in `[ ]` takes a full expression; the body is a `{ }` block whose statements are separated by newlines or `;`.
 
 Range iteration:
 
 ```tiq
-[0..10 | print(i)]
+[0..10] { print(i) }
 ```
 
 Conditional iteration:
 
 ```tiq
-[count < 10 | count += 1]
+[count < 10] { count += 1 }
 ```
 
 Loop control statements:
-- `break`: Terminate loop execution immediately (`[0..10 | print(i), break]`).
-- `skip`: Skip the remainder of the current iteration (`[1..4 | print(x), skip, x += 100]`).
+- `break`: Terminate loop execution immediately (`[0..10] { print(i); break }`).
+- `skip`: Skip the remainder of the current iteration (`[1..4] { print(x); skip; x += 100 }`).
 
 Inline guards (`break if condition`, `skip if condition`) are planned but not implemented; the bootstrap compiler rejects them (fail closed).
 

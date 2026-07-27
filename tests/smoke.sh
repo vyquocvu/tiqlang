@@ -53,27 +53,27 @@ if [ -e "$TMP_DIR/no-compiler" ]; then
 fi
 grep 'cannot execute host C compiler' "$TMP_DIR/missing-cc.err" >/dev/null
 
-printf 'x <- 0\n[0..5 | x += 1]\n' > "$TMP_DIR/bracket_loop_count.tiq"
+printf 'x <- 0\n[0..5] { x += 1 }\n' > "$TMP_DIR/bracket_loop_count.tiq"
 ./build/tiq build "$TMP_DIR/bracket_loop_count.tiq" -o "$TMP_DIR/bracket_loop_count" 2>"$TMP_DIR/bracket_loop_count.err"
 [ -x "$TMP_DIR/bracket_loop_count" ]
 
-printf 'total <- 0\n[0..5 | total += i]\n' > "$TMP_DIR/bracket_sum.tiq"
+printf 'total <- 0\n[0..5] { total += i }\n' > "$TMP_DIR/bracket_sum.tiq"
 ./build/tiq build "$TMP_DIR/bracket_sum.tiq" -o "$TMP_DIR/bracket_sum" 2>"$TMP_DIR/bracket_sum.err"
 [ -x "$TMP_DIR/bracket_sum" ]
 
-printf '[0..3 | i]\n' > "$TMP_DIR/bracket_loop.tiq"
+printf '[0..3] { i }\n' > "$TMP_DIR/bracket_loop.tiq"
 ./build/tiq build "$TMP_DIR/bracket_loop.tiq" -o "$TMP_DIR/bracket_loop" 2>"$TMP_DIR/bracket_loop.err"
 [ -x "$TMP_DIR/bracket_loop" ]
 
-printf '[0..3 | i, break]\n' > "$TMP_DIR/bracket_break.tiq"
+printf '[0..3] { i; break }\n' > "$TMP_DIR/bracket_break.tiq"
 ./build/tiq build "$TMP_DIR/bracket_break.tiq" -o "$TMP_DIR/bracket_break" 2>"$TMP_DIR/bracket_break.err"
 [ -x "$TMP_DIR/bracket_break" ]
 
-printf 'x <- 0\n[0..3 | x += 1, skip, x += 100]\n' > "$TMP_DIR/bracket_skip.tiq"
+printf 'x <- 0\n[0..3] { x += 1; skip; x += 100 }\n' > "$TMP_DIR/bracket_skip.tiq"
 ./build/tiq build "$TMP_DIR/bracket_skip.tiq" -o "$TMP_DIR/bracket_skip" 2>"$TMP_DIR/bracket_skip.err"
 [ -x "$TMP_DIR/bracket_skip" ]
 
-printf 'x <- 0\n[x < 5 | x += 1]\n' > "$TMP_DIR/while_loop.tiq"
+printf 'x <- 0\n[x < 5] { x += 1 }\n' > "$TMP_DIR/while_loop.tiq"
 ./build/tiq build "$TMP_DIR/while_loop.tiq" -o "$TMP_DIR/while_loop" 2>"$TMP_DIR/while_loop.err"
 [ -x "$TMP_DIR/while_loop" ]
 
@@ -117,7 +117,7 @@ printf 'pow b -> [1, ... x * b]\npow(2)[0]\npow(2)[10]\npow(3)[3]\n' > "$TMP_DIR
 ./build/tiq build "$TMP_DIR/stream_func.tiq" -o "$TMP_DIR/stream_func" 2>"$TMP_DIR/stream_func.err"
 [ -x "$TMP_DIR/stream_func" ]
 
-printf 'evens = [0, ... x + 2]\n[0..5 | evens[i]]\n' > "$TMP_DIR/stream_bracket_loop.tiq"
+printf 'evens = [0, ... x + 2]\n[0..5] { evens[i] }\n' > "$TMP_DIR/stream_bracket_loop.tiq"
 ./build/tiq build "$TMP_DIR/stream_bracket_loop.tiq" -o "$TMP_DIR/stream_bracket_loop" 2>"$TMP_DIR/stream_bracket_loop.err"
 [ -x "$TMP_DIR/stream_bracket_loop" ]
 
@@ -215,6 +215,22 @@ if ! cmp -s "$TMP_DIR/print_builtin.expected" "$TMP_DIR/print_builtin.out"; then
   cat "$TMP_DIR/print_builtin.expected" >&2
   echo "actual:" >&2
   cat "$TMP_DIR/print_builtin.out" >&2
+  exit 1
+fi
+
+# Loop headers take a full expression: '&&' and '||' parse without
+# extra parentheses now that '|' is no longer the body separator.
+printf 'a <- 0\n[a < 3 && a >= 0] { a += 1 }\nprint(a)\nb <- 0\n[b < 2 || false] { b += 1 }\nprint(b)\n' > "$TMP_DIR/loop_domain_expr.tiq"
+./build/tiq build "$TMP_DIR/loop_domain_expr.tiq" -o "$TMP_DIR/loop_domain_expr" 2>"$TMP_DIR/loop_domain_expr.err"
+[ -x "$TMP_DIR/loop_domain_expr" ]
+"$TMP_DIR/loop_domain_expr" > "$TMP_DIR/loop_domain_expr.out"
+printf '3\n2\n' > "$TMP_DIR/loop_domain_expr.expected"
+if ! cmp -s "$TMP_DIR/loop_domain_expr.expected" "$TMP_DIR/loop_domain_expr.out"; then
+  echo "loop domain expression output mismatch" >&2
+  echo "expected:" >&2
+  cat "$TMP_DIR/loop_domain_expr.expected" >&2
+  echo "actual:" >&2
+  cat "$TMP_DIR/loop_domain_expr.out" >&2
   exit 1
 fi
 

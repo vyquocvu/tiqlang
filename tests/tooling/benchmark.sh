@@ -17,7 +17,7 @@ EOF
 
 cat > "$TMP/medium.tiq" << 'EOF'
 fib = [0, 1, ... a + b]
-[0..10 | print(fib[i])]
+[0..10] { print(fib[i]) }
 EOF
 
 # Test benchmark on single file

@@ -139,13 +139,12 @@ static AstNode *stream_gen(Parser *parser) {
 
 static AstNode *bracket_loop(Parser *parser) {
     AstNode *node = allocate_node(parser, AST_BRACKET_LOOP);
-    node->as.bracket_loop.domain = bit_xor(parser);
-    if (!match(parser, TOK_PIPE)) {
-        error_at_current(parser, ERR_UNEXPECTED_TOKEN, "expected '|' in bracket loop");
-        return node;
-    }
+    node->as.bracket_loop.domain = expression(parser);
+    consume(parser, TOK_RBRACKET, ERR_UNEXPECTED_TOKEN, "expected ']' after loop header");
+    consume(parser, TOK_LBRACE, ERR_UNEXPECTED_TOKEN, "expected '{' to open loop body");
+    if (parser->diag->fatal_error) return node;
     int capacity = 0;
-    while (!check(parser, TOK_RBRACKET) && !check(parser, TOK_EOF)) {
+    while (!check(parser, TOK_RBRACE) && !check(parser, TOK_EOF)) {
         if (node->as.bracket_loop.body_count + 1 > capacity) {
             int new_cap = capacity < 4 ? 4 : capacity * 2;
             node->as.bracket_loop.body_stmts = arena_realloc(&parser->arena, node->as.bracket_loop.body_stmts,
@@ -160,11 +159,9 @@ static AstNode *bracket_loop(Parser *parser) {
                        ERR_DEFER_OUTSIDE_BLOCK, "defer is not allowed in bracket loops");
         }
         node->as.bracket_loop.body_stmts[node->as.bracket_loop.body_count++] = stmt;
-        if (!check(parser, TOK_RBRACKET) && !check(parser, TOK_EOF)) {
-            consume(parser, TOK_COMMA, ERR_UNEXPECTED_TOKEN, "expected ',' or ']' after bracket loop body statement");
-        }
+        match(parser, TOK_SEMICOLON);
     }
-    consume(parser, TOK_RBRACKET, ERR_UNEXPECTED_TOKEN, "expected ']' after bracket loop body");
+    consume(parser, TOK_RBRACE, ERR_UNEXPECTED_TOKEN, "expected '}' after loop body");
     return node;
 }
 

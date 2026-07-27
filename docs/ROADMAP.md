@@ -61,14 +61,14 @@ Status: done
 ### Completed
 
 - while-style loops (bracket loop with bool condition, C emission as `while`):
-  - Parsing: `bracket_loop()` in `parser.c` handles `[cond | body]`.
+  - Parsing: `bracket_loop()` in `parser.c` handles `[cond] { body }`.
   - Semantic: checks condition is `bool`, allocates block scope for body.
   - C emission: `while (cond) { body }`.
   - Tests: `parser.sh` (AST golden), `semantic.sh` (typed AST, condition type error), `smoke.sh` (while count 0→3).
   - Diagnostics: missing loop body reports error.
 
 - range loops:
-  - Parsing: `bracket_loop()` in `parser.c` handles `[start..end | body]`.
+  - Parsing: `bracket_loop()` in `parser.c` handles `[start..end] { body }`.
   - Validates the domain is a `..` binary expression during semantic analysis.
   - Semantic: creates loop variable `i` in dedicated scope, type-checks body, requires int bounds.
   - C emission: desugared to `for (int64_t i = start; i < end; i++) { body }`.

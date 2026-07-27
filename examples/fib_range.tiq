@@ -2,4 +2,4 @@
 fib = [0, 1, ... a + b]
 
 // Print first 11 numbers using bracket loop
-[0..11 | print(fib[i])]
+[0..11] { print(fib[i]) }
