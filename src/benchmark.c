@@ -26,6 +26,7 @@ static double get_time_ms(void) {
 
 typedef struct {
     const char *name;
+    char *owned_name; // set when the result owns the heap-allocated path
     double lexer_time;
     double parse_time;
     double semantic_time;
@@ -89,7 +90,6 @@ static void benchmark_file(const char *path, BenchmarkResult *result) {
             // Walk the AST to ensure full parsing
             (void)stmts[i];
         }
-        free(stmts);
         parser_free(&parser);
     }
     end = get_time_ms();
@@ -108,7 +108,6 @@ static void benchmark_file(const char *path, BenchmarkResult *result) {
         if (!diag.has_error) {
             semantic_check(stmts, stmt_count, path, &diag, &pool);
         }
-        free(stmts);
         parser_free(&parser);
         type_pool_free(&pool);
     }
@@ -157,7 +156,7 @@ static void benchmark_file_repeatedly(const char *path, int iterations, Benchmar
             int stmt_cnt;
             AstNode **stmts = parser_parse(&parser, &stmt_cnt);
             (void)stmt_cnt;
-            free(stmts);
+            (void)stmts;
             parser_free(&parser);
         }
         result->parse_time += get_time_ms() - start;
@@ -175,7 +174,6 @@ static void benchmark_file_repeatedly(const char *path, int iterations, Benchmar
             if (!diag.has_error) {
                 semantic_check(stmts, stmt_cnt, path, &diag, &pool);
             }
-            free(stmts);
             parser_free(&parser);
             type_pool_free(&pool);
         }
@@ -262,10 +260,14 @@ int benchmark_files(const char **paths, int path_count, BenchmarkOptions *opts) 
                     } else {
                         benchmark_file(files[j], &results[result_count]);
                     }
+                    // The result keeps the collected path alive until after
+                    // printing; freed at the end of this function.
+                    results[result_count].owned_name = files[j];
                     total_time += results[result_count].total_time;
                     result_count++;
+                } else {
+                    free(files[j]);
                 }
-                free(files[j]);
             }
             free(files);
         } else if (stat(paths[i], &st) == 0) {
@@ -275,6 +277,7 @@ int benchmark_files(const char **paths, int path_count, BenchmarkOptions *opts) 
                 } else {
                     benchmark_file(paths[i], &results[result_count]);
                 }
+                results[result_count].owned_name = NULL;
                 total_time += results[result_count].total_time;
                 result_count++;
             }
@@ -320,6 +323,10 @@ int benchmark_files(const char **paths, int path_count, BenchmarkOptions *opts) 
         printf("Max time:   %.3f ms\n", max_time);
         printf("Avg time:   %.3f ms\n", avg_time);
         printf("Total time: %.3f ms\n", total_time);
+    }
+
+    for (int i = 0; i < result_count; i++) {
+        free(results[i].owned_name);
     }
 
     return 0;

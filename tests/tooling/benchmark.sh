@@ -32,6 +32,11 @@ echo "bench multiple files: passed"
 $TIQ bench "$TMP"
 echo "bench directory: passed"
 
+# Directory results must print real file names (regression: names were
+# freed before printing, producing garbage output)
+$TIQ bench "$TMP" | grep -q "small.tiq"
+echo "bench directory names: passed"
+
 # Test benchmark verbose mode
 $TIQ bench -v "$TMP/small.tiq" 2>&1 | head -20
 echo "bench verbose: passed"
