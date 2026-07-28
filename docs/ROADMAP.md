@@ -443,7 +443,7 @@ Status: done (2026-08-XX)
 
 - [x] String indexing terminology: `s[i]` returns the raw byte value at position `i` as `int` (not a Unicode code point); documented in LANGUAGE_SPEC §13.1 with ASCII example and Unicode advisory.
 - [x] `str` representation alignment: LANGUAGE_SPEC §11 now has a `str` representation subsection documenting the pointer+length end state and the v0.1 NUL-terminated `const char *` deviation; programs must not rely on NUL-termination (it is an implementation artifact).
-- [ ] Implemented-versus-reserved surface separation.
+- [x] Implemented-versus-reserved surface separation: LANGUAGE_SPEC §17 rewritten with a four-tier surface table (Implemented / Provisional / Fail-closed / Reserved) and subsections §17.1–§17.4 documenting each tier with error codes and blocking milestones.
 - [ ] Command/documentation consistency.
 - [ ] Syntax inventory check.
 

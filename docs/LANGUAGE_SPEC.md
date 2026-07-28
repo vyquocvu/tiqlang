@@ -367,9 +367,18 @@ The `defer` keyword schedules an expression to run when the enclosing block exit
 
 Deferred actions execute in reverse declaration order. `defer` is only valid inside `{ }` blocks. A `defer` outside a block is a compile-time error.
 
-## 17. Provisional constructs
+## 17. Provisional constructs and surface status
 
-The bootstrap parser accepts a few constructs ahead of their full specification. Their semantics are partial, they are explicitly provisional, and they may change or be removed.
+This section is normative for the bootstrap compiler's observable boundary. Every surface feature falls into exactly one tier:
+
+| Tier | Meaning | Example |
+|------|---------|---------|
+| **Implemented** | Fully specified, compiled, and tested | `[0..10] { print(i) }`, `move x`, `defer` |
+| **Provisional** | Parsed and partially checked; semantics may change | `match`, field access |
+| **Fail-closed** | Parsed but rejected at semantic analysis; no code produced | `spawn`, `chan`, `&x`, `&mut x` |
+| **Reserved** | Keyword exists in lexer; no parse path exists yet | `struct` definitions, record literals |
+
+The bootstrap compiler must reject anything that is not **Implemented** or **Provisional** before code generation, producing a non-zero exit code and a diagnostic with source location.
 
 ### 17.1 Match expressions (provisional)
 
@@ -382,13 +391,40 @@ res = match x { 10 => 100, 20 => 200, _ => 0 }
 
 Patterns are equality-compared expressions; there are no binding or destructuring patterns in v0.1. All arm bodies must have the same type. The wildcard pattern `_` matches any value and must be present as the last arm (E07: "match must have a wildcard arm ('_ => ...')"). Unmatched scrutinees without a wildcard are rejected at semantic analysis.
 
+Status: provisional — full pattern matching (guards, destructuring, exhaustiveness for non-wildcard arms) is deferred to M12.6 and M8.
+
 ### 17.2 Field access (provisional)
 
-`expr.field` parses and type-checks against struct types, but no surface syntax constructs a struct type yet: `struct` definitions and record literals do not parse and fail closed (pending M12.4 spec-and-grammar-first syntax).
+`expr.field` parses and type-checks against struct types, but no surface syntax constructs a struct type yet: `struct` definitions and record literals do not parse and fail closed with E05 (pending M12.4 spec-and-grammar-first syntax).
 
-### 17.3 Reserved and rejected
+Status: provisional — field access is parse-and-check only; struct definitions and record literals are reserved (see 17.4).
 
-`chan expr`, `spawn expr`, and borrow prefixes (`&x`, `&mut x`) parse but are rejected during semantic analysis with a "not supported yet" diagnostic (fail closed). `mut` is reserved for borrow syntax only.
+### 17.3 Fail-closed constructs
+
+The following constructs **parse** successfully but are **rejected during semantic analysis** with a located diagnostic (fail closed; no executable is produced):
+
+| Construct | Error | Blocking milestone |
+|-----------|-------|--------------------|
+| `spawn expr` | E07: "spawn is not supported yet" | M7 (concurrency runtime) |
+| `chan T` | E07: "chan is not supported yet" | M7 (concurrency runtime) |
+| `&x` | E07: "borrow is not supported yet" | M9 (borrow checker) |
+| `&mut x` | E07: "borrow is not supported yet" | M9 (borrow checker) |
+| `param:type` in function head | E22: "type annotations on function parameters are not supported in v0.1 (deferred to M12.4)" | M12.4 (type annotation syntax) |
+
+The parser accepts these forward-compatibility spellings so that future milestones can promote them to implemented without grammar breakage.
+
+### 17.4 Reserved keywords
+
+These keywords are recognized by the lexer and reserved for future milestones. They have **no parse path** for their intended construct: programs that attempt to use them in a structural position are rejected with a parse error (E04/E05):
+
+| Keyword | Reserved for |
+|---------|-------------|
+| `struct` | M12.4 struct definitions and record literals |
+| `mut` | M9 borrow syntax (`&mut x`) — `mut` alone outside a borrow prefix is rejected |
+| `while` | Stream generator bounds and predicate slicing (`§14`) only; no `while` loop statement |
+| `until` | Stream generator bounds only; no `until` loop statement |
+| `chan` | M7 channel type — lexes but semantic-rejects (§17.3) |
+| `spawn` | M7 concurrent spawn — lexes but semantic-rejects (§17.3) |
 
 ## 18. Program entry
 
@@ -397,3 +433,4 @@ Top-level executable statements form the implicit entry point. Libraries may con
 ## 19. Bootstrap conformance
 
 The bootstrap compiler must reject all unsupported syntax with a non-zero exit code rather than silently generating incorrect code.
+
