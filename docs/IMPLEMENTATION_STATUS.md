@@ -1,10 +1,10 @@
 # Tiq Implementation Status
 
-Updated: 2026-07-27
+Updated: 2026-07-28
 
 ## Current milestone
 
-M12 — Type system implementation (in progress; M12.1–M12.2 complete)
+M12 — Type system implementation (in progress; M12.1–M12.2, M12.7 complete)
 
 ## Implemented
 
@@ -186,6 +186,13 @@ corrected audits. None of these milestones is complete.
   - Behavior: comma-separated binder clauses desugar in the parser to nested `AST_BRACKET_LOOP` nodes (Cartesian product), so semantic checking and C emission are unchanged; later binders see earlier ones, `break`/`skip` bind to the innermost loop. Clauses after `,` must be `name <- range` (`expected loop binder after ','`, E04) and duplicate binder names are rejected (`duplicate loop binder`, E15). No guards/filters and no zip semantics (kept out deliberately).
   - Tests (added failing first): `bracket_loop_multi_binder` desugaring golden in `tests/parser.sh`; `bracket_loop_binder_missing` and `bracket_loop_dup_binder` in `tests/diagnostics.sh`; `loop_multi_binder` runtime test (dependent ranges, sum 51) in `tests/smoke.sh`.
   - Docs: GRAMMAR `binder_clauses` production, LANGUAGE_SPEC §10 multi-binder rules.
+- M12.7: Syntax coherence and safety audit (complete, 2026-07-28):
+  - M12.7.1: Singleton arrays, empty array rejection (E21), array fill correctness, stream seed arity (≤2, E07), bounded stream generators rejected (E07), block-expression contract (E07 outside function).
+  - M12.7.2: Range `a..b` rejected outside loop/slice context (E07, `in_range_context` flag). Match requires `_` wildcard arm (E07). Typed function header decision: `param:type` annotation syntax rejected at parse time (E22 `ERR_TYPE_ANNOTATION`); LANGUAGE_SPEC §7 updated; `function_type_annotation` golden test added failing first. Loop compactness audit: named binders + immutable loop variables already implemented in prior commits; roadmap evidence updated.
+  - M12.7.3.1+2: LANGUAGE_SPEC §13.1 clarifies `s[i]` returns raw byte value as `int` (not Unicode codepoint); §11 gains `str` representation subsection documenting NUL-terminated C backend deviation vs. pointer+length end state.
+  - M12.7.3.3: LANGUAGE_SPEC §17 rewritten with four-tier surface table (Implemented / Provisional / Fail-closed / Reserved) and subsections §17.1–§17.4 with error codes and blocking milestones.
+  - M12.7.3.4: CLI.md reconciled with main.c usage() text; option notes, debug/inspect section, --target note added.
+  - M12.7.3.5: GRAMMAR.md annotated all productions with ✅/🟡/🔴 tier; bootstrap section cross-references LANGUAGE_SPEC §17.
 
 ## Known bootstrap limitations
 

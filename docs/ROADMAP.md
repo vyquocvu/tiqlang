@@ -397,7 +397,7 @@ Status (2026-07-27, plan 3.2/3.3): `type_get_struct()` interns struct types nomi
 
 ### M12.7 — Syntax coherence and safety audit
 
-Status: M12.7.1 complete; M12.7.2 and M12.7.3 in progress
+Status: done (2026-07-28)
 
 Keep Tiq syntax compact while removing context-dependent rules that are easy to misread. Every accepted decision must update LANGUAGE_SPEC, GRAMMAR, examples, formatter behavior, diagnostics, and deterministic tests before implementation.
 
@@ -445,7 +445,7 @@ Status: done (2026-08-XX)
 - [x] `str` representation alignment: LANGUAGE_SPEC §11 now has a `str` representation subsection documenting the pointer+length end state and the v0.1 NUL-terminated `const char *` deviation; programs must not rely on NUL-termination (it is an implementation artifact).
 - [x] Implemented-versus-reserved surface separation: LANGUAGE_SPEC §17 rewritten with a four-tier surface table (Implemented / Provisional / Fail-closed / Reserved) and subsections §17.1–§17.4 documenting each tier with error codes and blocking milestones.
 - [x] Command/documentation consistency: CLI.md reconciled with main.c usage() text (fmt singular [file], test long flags, cache arg ordering, --target note, debug/inspect section, option notes table).
-- [ ] Syntax inventory check.
+- [x] Syntax inventory check: GRAMMAR.md annotated every production with ✅/🟡/🔴 tier; bootstrap section cross-references LANGUAGE_SPEC §17 for the complete table; `stream_slice`/`stream_bound` (🔴), `field` (🟡), `stream_gen` (🟡), `match_expr`/`match_arm` (🟡), unary `&` (🔴) all documented.
 
 ### Exit criteria
 
