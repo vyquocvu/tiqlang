@@ -201,6 +201,12 @@ never
 
 Integer literals default to `i64` unless the context requires another integer type. Floating literals default to `f64`. Integer literals that do not fit the resolved type are rejected at compile time.
 
+### `str` representation
+
+`str` is defined as an immutable UTF-8 byte sequence identified by pointer and length. It is not NUL-terminated by language contract.
+
+**Bootstrap deviation (v0.1)**: the C backend currently represents `str` as a NUL-terminated `const char *`. Only slices and string views (`TiqSlice`) use the pointer+length model. This means `len()` on a `str` literal calls `strlen()` under the hood. The end state — a pure pointer+length view with no NUL dependency — is scheduled for the M12 backend migration. Programs must not rely on the NUL-termination behavior; it is an implementation artifact, not a language guarantee.
+
 ## 12. The `print` builtin
 
 `print(expression)` writes the expression's value and a trailing newline to standard output. It is an ordinary builtin function call, not dedicated syntax, and takes exactly one argument:
@@ -252,14 +258,17 @@ head = xs[..2]   // slice from start (0) to index 2
 full = xs[..]    // full slice view of all elements
 ```
 
-Slicing a string `s[i..j]` returns a `str` view over the designated byte range.
+Slicing a string `s[i..j]` returns a `str` view over the designated byte range (a `TiqSlice` in the C backend).
 
-Indexing a string or string view with a single index `s[i]` returns the byte at position `i` as an integer:
+**String byte indexing**: indexing a string or string view with a single integer index `s[i]` returns the **raw byte value** at position `i` as an `int`. This is a byte position, not a Unicode code point or character. For ASCII strings the values match the character codes; for multi-byte UTF-8 sequences, individual bytes may fall within the continuation range (128–191) and do not represent valid Unicode scalars on their own.
 
 ```tiq
 s = "abc"
-print(s[0])   // prints 97
+print(s[0])   // prints 97  (ASCII code of 'a')
+print(s[1])   // prints 98  (ASCII code of 'b')
 ```
+
+To work with Unicode code points, split by `len()` and slice rather than index.
 
 Omitting the start index defaults to `0`. Omitting the end index defaults to `len(xs)` (or string length for `str`).
 

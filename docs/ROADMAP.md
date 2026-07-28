@@ -441,8 +441,8 @@ Status: done (2026-08-XX)
 
 #### M12.7.3 — Terminology and documentation surface audit
 
-- [ ] String indexing terminology: byte indexing vs character indexing.
-- [ ] `str` representation alignment with NUL-terminated backend deviation.
+- [x] String indexing terminology: `s[i]` returns the raw byte value at position `i` as `int` (not a Unicode code point); documented in LANGUAGE_SPEC §13.1 with ASCII example and Unicode advisory.
+- [x] `str` representation alignment: LANGUAGE_SPEC §11 now has a `str` representation subsection documenting the pointer+length end state and the v0.1 NUL-terminated `const char *` deviation; programs must not rely on NUL-termination (it is an implementation artifact).
 - [ ] Implemented-versus-reserved surface separation.
 - [ ] Command/documentation consistency.
 - [ ] Syntax inventory check.
