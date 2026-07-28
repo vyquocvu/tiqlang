@@ -262,6 +262,10 @@ static void check_node(SemanticContext *ctx, AstNode *node) {
                         if (at && at->kind != TYPE_INT && at->kind != TYPE_FLOAT &&
                             at->kind != TYPE_BOOL && at->kind != TYPE_STR &&
                             at->kind != TYPE_STR_VIEW && at->kind != TYPE_SLICE &&
+                            at->kind != TYPE_I8 && at->kind != TYPE_I16 &&
+                            at->kind != TYPE_I32 && at->kind != TYPE_U8 &&
+                            at->kind != TYPE_U16 && at->kind != TYPE_U32 &&
+                            at->kind != TYPE_U64 && at->kind != TYPE_F32 &&
                             at->kind != TYPE_UNKNOWN) {
                             char disp[96];
                             char msg[160];
@@ -280,14 +284,6 @@ static void check_node(SemanticContext *ctx, AstNode *node) {
                         if (node->as.call.args[0]) check_node(ctx, node->as.call.args[0]);
                         SemanticType *at = node->as.call.args[0] ?
                             node->as.call.args[0]->semantic_type : NULL;
-                        if (node->as.call.args[0] && node->as.call.args[0]->kind == AST_IDENTIFIER) {
-                            Symbol *sym = env_lookup(ctx->current_env, node->as.call.args[0]->as.identifier.name);
-                            if (sym && sym->type->kind == TYPE_UNKNOWN) {
-                                sym->type = type_get_slice(ctx->pool, ty(ctx, TYPE_INT));
-                                node->as.call.args[0]->semantic_type = sym->type;
-                                at = sym->type;
-                            }
-                        }
                         if (!at || (at->kind != TYPE_ARRAY && at->kind != TYPE_SLICE && at->kind != TYPE_STR && at->kind != TYPE_STR_VIEW && at->kind != TYPE_UNKNOWN))
                             diag_error(ctx->diag, ctx->path, node->token.line, ERR_TYPE_MISMATCH,
                                        "len expects an array argument");
@@ -343,23 +339,82 @@ static void check_node(SemanticContext *ctx, AstNode *node) {
                     }
                     if (matched) break;
                 }
-                if ((name.length == 2 && memcmp(name.start, "i8", 2) == 0) ||
-                    (name.length == 3 && memcmp(name.start, "i16", 3) == 0) ||
-                    (name.length == 3 && memcmp(name.start, "i32", 3) == 0) ||
-                    (name.length == 3 && memcmp(name.start, "i64", 3) == 0) ||
-                    (name.length == 2 && memcmp(name.start, "u8", 2) == 0) ||
-                    (name.length == 3 && memcmp(name.start, "u16", 3) == 0) ||
-                    (name.length == 3 && memcmp(name.start, "u32", 3) == 0) ||
-                    (name.length == 3 && memcmp(name.start, "u64", 3) == 0) ||
-                    (name.length == 3 && memcmp(name.start, "f32", 3) == 0) ||
-                    (name.length == 3 && memcmp(name.start, "f64", 3) == 0) ||
-                    (name.length == 3 && memcmp(name.start, "str", 3) == 0) ||
-                    (name.length == 4 && memcmp(name.start, "bool", 4) == 0)) {
-                    diag_error(ctx->diag, ctx->path, node->token.line, ERR_UNSUPPORTED_CONVERSION, "unsupported conversion");
-                    node->semantic_type = ty(ctx, TYPE_UNKNOWN);
-                    for (int i = 0; i < node->as.call.arg_count; i++) {
-                        if (node->as.call.args[i]) check_node(ctx, node->as.call.args[i]);
+                // M12.3: Explicit numeric type conversions.
+                // type_name(expr) where type_name is a primitive type keyword
+                // is a real checked conversion, not a function call.
+                // Allowlist: numeric <-> numeric always permitted (C cast,
+                // narrowing is the programmer's explicit intent).
+                // bool <-> numeric and str <-> anything are rejected (E10).
+                typedef struct {
+                    const char *name; int len; PrimitiveType kind; const char *display;
+                } ConvEntry;
+                static const ConvEntry conv_table[] = {
+                    {"i8",   2, TYPE_I8,    "i8"},
+                    {"i16",  3, TYPE_I16,   "i16"},
+                    {"i32",  3, TYPE_I32,   "i32"},
+                    {"i64",  3, TYPE_INT,   "i64"},
+                    {"u8",   2, TYPE_U8,    "u8"},
+                    {"u16",  3, TYPE_U16,   "u16"},
+                    {"u32",  3, TYPE_U32,   "u32"},
+                    {"u64",  3, TYPE_U64,   "u64"},
+                    {"f32",  3, TYPE_F32,   "f32"},
+                    {"f64",  3, TYPE_FLOAT, "f64"},
+                    {"bool", 4, TYPE_BOOL,  "bool"},
+                    {"str",  3, TYPE_STR,   "str"},
+                };
+                static const int conv_count = (int)(sizeof conv_table / sizeof conv_table[0]);
+                int ci = -1;
+                for (int k = 0; k < conv_count; k++) {
+                    if ((int)name.length == conv_table[k].len &&
+                        memcmp(name.start, conv_table[k].name, (size_t)conv_table[k].len) == 0) {
+                        ci = k; break;
                     }
+                }
+                if (ci >= 0) {
+                    PrimitiveType tgt = conv_table[ci].kind;
+                    // Arity check: exactly one argument.
+                    if (node->as.call.arg_count != 1) {
+                        diag_error(ctx->diag, ctx->path, node->token.line,
+                                   ERR_ARITY_MISMATCH,
+                                   "type conversion requires exactly 1 argument");
+                        node->semantic_type = ty(ctx, TYPE_UNKNOWN);
+                        for (int i = 0; i < node->as.call.arg_count; i++) {
+                            if (node->as.call.args[i]) check_node(ctx, node->as.call.args[i]);
+                        }
+                        break;
+                    }
+                    // Type-check the argument.
+                    if (node->as.call.args[0]) check_node(ctx, node->as.call.args[0]);
+                    SemanticType *src_t = node->as.call.args[0] ? node->as.call.args[0]->semantic_type : NULL;
+                    PrimitiveType src = src_t ? src_t->kind : TYPE_UNKNOWN;
+                    // Determine whether the conversion is in the allowlist.
+                    // Numeric kinds: INT, FLOAT, I8, I16, I32, U8, U16, U32, U64, F32.
+                    // (TYPE_I64 == TYPE_INT, TYPE_F64 == TYPE_FLOAT)
+                    bool src_numeric = (src == TYPE_INT  || src == TYPE_FLOAT ||
+                                        src == TYPE_I8   || src == TYPE_I16   ||
+                                        src == TYPE_I32  || src == TYPE_U8    ||
+                                        src == TYPE_U16  || src == TYPE_U32   ||
+                                        src == TYPE_U64  || src == TYPE_F32);
+                    bool tgt_numeric = (tgt == TYPE_INT  || tgt == TYPE_FLOAT ||
+                                        tgt == TYPE_I8   || tgt == TYPE_I16   ||
+                                        tgt == TYPE_I32  || tgt == TYPE_U8    ||
+                                        tgt == TYPE_U16  || tgt == TYPE_U32   ||
+                                        tgt == TYPE_U64  || tgt == TYPE_F32);
+                    bool allowed = (src == TYPE_UNKNOWN)       /* unknown propagation */
+                                || (src_numeric && tgt_numeric)/* numeric <-> numeric */
+                                || (src == tgt);               /* identity (bool->bool, str->str) */
+                    if (!allowed) {
+                        // Produce a clear E10 message naming source and target types.
+                        char src_name[32]; char msg[128];
+                        type_display(src_t, src_name, sizeof src_name);
+                        snprintf(msg, sizeof msg, "cannot convert %s to %s",
+                                 src_name, conv_table[ci].display);
+                        diag_error(ctx->diag, ctx->path, node->token.line,
+                                   ERR_UNSUPPORTED_CONVERSION, msg);
+                        node->semantic_type = ty(ctx, TYPE_UNKNOWN);
+                        break;
+                    }
+                    node->semantic_type = ty(ctx, tgt);
                     break;
                 }
             }
@@ -798,6 +853,7 @@ void semantic_check(AstNode **stmts, int count, const char *path, DiagContext *d
     ctx.diag = diag;
     ctx.loop_depth = 0;
     ctx.pool = pool;
+    ctx.in_range_context = false;
     Environment global_env;
     env_init(&global_env, NULL);
     ctx.current_env = &global_env;

@@ -1,6 +1,6 @@
 # Tiq Type System
 
-Status: partially implemented. The bootstrap slice checks `bool`/`i64`/`f64`/`str`, arrays, slices, string views, and stream generators with local inference and unification-based diagnostics (M12.1–M12.2, M12.5 in progress). Sized primitives, explicit conversions, annotations, and Option/Result remain design targets.
+Status: partially implemented. The bootstrap slice checks `bool`/`i64`/`f64`/`str`, arrays, slices, string views, and stream generators with local inference, unification-based diagnostics, and explicit numeric conversions (M12.1–M12.3, M12.5 complete). Type annotations and Option/Result remain design targets.
 
 ## Goals
 
@@ -44,6 +44,8 @@ Widening may be accepted only when value preservation is guaranteed. Narrowing, 
 small = i8(value)
 ratio = f64(count) / f64(total)
 ```
+
+Implemented (M12.3): `i8(x)`, `i16(x)`, `i32(x)`, `i64(x)`, `u8(x)`, `u16(x)`, `u32(x)`, `u64(x)`, `f32(x)`, `f64(x)` are checked conversions between numeric types. Conversions between `bool`/`str` and numeric types are rejected (E10). Width mixing in binary operations without explicit conversion is rejected (E09).
 
 ## Bindings
 

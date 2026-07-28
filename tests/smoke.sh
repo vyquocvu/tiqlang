@@ -282,4 +282,43 @@ if ! cmp -s "$TMP_DIR/i64_values.expected" "$TMP_DIR/i64_values.out"; then
   exit 1
 fi
 
+# M12.3: explicit numeric type conversions.
+# int -> f64: f64(42) prints as float
+printf 'x = f64(42)\nprint(x)\n' > "$TMP_DIR/conversion_int_f64.tiq"
+./build/tiq build "$TMP_DIR/conversion_int_f64.tiq" -o "$TMP_DIR/conversion_int_f64"
+[ "$("$TMP_DIR/conversion_int_f64")" = "42" ]
+
+# f64 -> i64: i64(3.9) truncates toward zero -> 3
+printf 'x = i64(3.9)\nprint(x)\n' > "$TMP_DIR/conversion_f64_i64.tiq"
+./build/tiq build "$TMP_DIR/conversion_f64_i64.tiq" -o "$TMP_DIR/conversion_f64_i64"
+[ "$("$TMP_DIR/conversion_f64_i64")" = "3" ]
+
+# Narrowing is explicit and allowed: i32(300) -> 300 (fits in i32)
+printf 'x = i32(300)\nprint(x)\n' > "$TMP_DIR/conversion_narrowing.tiq"
+./build/tiq build "$TMP_DIR/conversion_narrowing.tiq" -o "$TMP_DIR/conversion_narrowing"
+[ "$("$TMP_DIR/conversion_narrowing")" = "300" ]
+
+# Chain conversion: f64(i32(7)) -> 7
+printf 'x = f64(i32(7))\nprint(x)\n' > "$TMP_DIR/conversion_chain.tiq"
+./build/tiq build "$TMP_DIR/conversion_chain.tiq" -o "$TMP_DIR/conversion_chain"
+[ "$("$TMP_DIR/conversion_chain")" = "7" ]
+
+# f64 division: f64(count) / f64(total)
+printf 'count <- 1\ntotal <- 4\nratio = f64(count) / f64(total)\nprint(ratio)\n' > "$TMP_DIR/conversion_ratio.tiq"
+./build/tiq build "$TMP_DIR/conversion_ratio.tiq" -o "$TMP_DIR/conversion_ratio"
+[ "$("$TMP_DIR/conversion_ratio")" = "0.25" ]
+
+# Print sized types: i32, u8, f32
+printf 'x = i32(42)\nprint(x)\n' > "$TMP_DIR/print_i32.tiq"
+./build/tiq build "$TMP_DIR/print_i32.tiq" -o "$TMP_DIR/print_i32"
+[ "$("$TMP_DIR/print_i32")" = "42" ]
+
+printf 'x = u8(255)\nprint(x)\n' > "$TMP_DIR/print_u8.tiq"
+./build/tiq build "$TMP_DIR/print_u8.tiq" -o "$TMP_DIR/print_u8"
+[ "$("$TMP_DIR/print_u8")" = "255" ]
+
+printf 'x = f32(1.5)\nprint(x)\n' > "$TMP_DIR/print_f32.tiq"
+./build/tiq build "$TMP_DIR/print_f32.tiq" -o "$TMP_DIR/print_f32"
+[ "$("$TMP_DIR/print_f32")" = "1.5" ]
+
 echo "smoke: ok"

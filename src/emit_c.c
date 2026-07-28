@@ -44,6 +44,7 @@ typedef struct EmitContext {
 
 static void emit_expr(AstNode *node, EmitContext *ctx);
 static void emit_stmt(AstNode *node, EmitContext *ctx, int indent);
+static void emit_type_name(PrimitiveType kind, FILE *out);
 
 static bool is_stream_gen_name(EmitContext *ctx, const char *name, int len, int *out_params, int *out_param_count) {
     for (int i = 0; i < ctx->stream_gen_count; i++) {
@@ -133,7 +134,7 @@ static void emit_expr(AstNode *node, EmitContext *ctx) {
                     fputs("printf(\"%s\\n\", ", ctx->out);
                     emit_expr(arg, ctx);
                     fputs(")", ctx->out);
-                } else if (kind == TYPE_FLOAT) {
+                } else if (kind == TYPE_FLOAT || kind == TYPE_F32) {
                     fputs("printf(\"%g\\n\", (double)(", ctx->out);
                     emit_expr(arg, ctx);
                     fputs("))", ctx->out);
@@ -199,7 +200,48 @@ static void emit_expr(AstNode *node, EmitContext *ctx) {
                     fputs(")", ctx->out);
                     break;
                 }
+                // M12.3: Explicit numeric type conversion.
+                // The semantic checker already resolved node->semantic_type to the
+                // target type. Detect by matching the callee name against the
+                // conversion table and checking the result is a scalar primitive.
+                // Emit: ((C_type)(arg_expr))
+                {
+                    typedef struct { const char *n; int len; } CnvName;
+                    static const CnvName cnv[] = {
+                        {"i8",2},{"i16",3},{"i32",3},{"i64",3},
+                        {"u8",2},{"u16",3},{"u32",3},{"u64",3},
+                        {"f32",3},{"f64",3},{"bool",4},{"str",3},
+                    };
+                    int is_conv = 0;
+                    for (int k = 0; k < (int)(sizeof cnv/sizeof cnv[0]); k++) {
+                        if ((int)name.length == cnv[k].len &&
+                            memcmp(name.start, cnv[k].n, (size_t)cnv[k].len) == 0) {
+                            is_conv = 1; break;
+                        }
+                    }
+                    SemanticType *rst = node->semantic_type;
+                    // Only emit the cast if the result is a scalar numeric/bool type
+                    // (not array/slice/unknown/struct). Unknown means an error was
+                    // already reported; fall through to avoid double output.
+                    bool result_scalar = rst && (
+                        rst->kind == TYPE_INT   || rst->kind == TYPE_FLOAT ||
+                        rst->kind == TYPE_BOOL  || rst->kind == TYPE_I8    ||
+                        rst->kind == TYPE_I16   || rst->kind == TYPE_I32   ||
+                        rst->kind == TYPE_U8    || rst->kind == TYPE_U16   ||
+                        rst->kind == TYPE_U32   || rst->kind == TYPE_U64   ||
+                        rst->kind == TYPE_F32);
+                    if (is_conv && result_scalar && node->as.call.arg_count == 1 &&
+                        node->as.call.args[0]) {
+                        fputs("((", ctx->out);
+                        emit_type_name(rst->kind, ctx->out);
+                        fputs(")(", ctx->out);
+                        emit_expr(node->as.call.args[0], ctx);
+                        fputs("))", ctx->out);
+                        break;
+                    }
+                }
             }
+
             if (node->as.call.is_bracket_call && node->as.call.is_slice && node->as.call.callee) {
                 SemanticType *ct = node->as.call.callee->semantic_type;
                 fputs("((TiqSlice){ .ptr = ", ctx->out);

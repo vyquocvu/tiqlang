@@ -1,10 +1,10 @@
 # Tiq Implementation Status
 
-Updated: 2026-07-28
+Updated: 2026-07-29
 
 ## Current milestone
 
-M12 — Type system implementation (in progress; M12.1–M12.2, M12.7 complete)
+M12 — Type system implementation (M12.1–M12.3, M12.5, M12.7 complete; M12.4/M12.6 deferred from v0.1)
 
 ## Implemented
 
@@ -134,12 +134,19 @@ corrected audits. None of these milestones is complete.
   - Spec: LANGUAGE_SPEC §11 and TYPE_SYSTEM.md literal rules amended to the `i64` default.
   - Tests: `smoke.sh` `i64_values` runtime test and `semantic.sh` `int_literal_overflow` / `int_literal_overflow_expr` goldens, all added failing first; full suite green under ASan/UBSan.
 - Runtime helper hygiene (2026-07-27): emitted runtime helpers (`tiq_fs_write`, `tiq_fs_exists`, `tiq_proc_exec`, `tiq_proc_exit`, `tiq_json_parse_int`) return `int64_t`; `json_parse_int` uses `strtoll` so 64-bit values are not truncated (`smoke.sh` `rt_i64` goldens, added failing first).
-- M12.5: Unification-based local checking (in progress, 2026-07-27):
+- M12.5: Unification-based local checking (complete, 2026-07-29):
   - Single `unify(expected, found)` in `src/semantic.c` used by binary ops, `?:` branches, builtin call args, array elements, match arms, and function return re-pointing; unknown-propagation is one rule inside it.
   - Type mismatch diagnostics print `expected <T>, found <U>` with user-facing names from `type_display()` in `src/type.c` (`int`, `str`, `[3]int`, `[]int`, ...).
   - Non-first match arms and conflicting function redefinitions are now rejected (fail closed).
+  - The retroactive `len(x)`/index slice-inference symbol re-pointing was removed (2026-07-29); forward inference from definitions is sufficient.
   - Tests: `semantic.sh` goldens updated failing first (11 reshaped messages plus new `conditional_branch_mismatch`, `match_arm_mismatch`, `function_redefinition_mismatch`); full suite green under ASan/UBSan.
-  - Remaining: retire the retroactive `len(x)`/index slice-inference symbol re-pointing (tracked in ROADMAP M12.5).
+- M12.3: Explicit conversions (complete, 2026-07-29):
+  - Conversion table in `src/semantic.c` maps `i8`–`u64`, `f32`, `f64`, `bool`, `str` to target kinds; numeric↔numeric allowed, bool/str↔numeric rejected (E10); arity enforced (E12).
+  - C emitter emits `((C_type)(expr))` casts for conversion calls.
+  - `print` builtin accepts all sized numeric types (`i8`–`u64`, `f32`); `TYPE_F32` handled in float print branch.
+  - Width mixing in binary operations without explicit conversion is rejected by `unify()` (E09).
+  - Fixed uninitialized `ctx.in_range_context` (UBSan bug).
+  - Tests: `semantic.sh` (typed_conversion_*, conversion_*, width_mixing_i32_i64, width_mixing_u8_f64, typed_print_i32), `smoke.sh` (conversion_int_f64, conversion_f64_i64, conversion_narrowing, conversion_chain, conversion_ratio, print_i32, print_u8, print_f32); full suite green under ASan/UBSan.
 - M12.6 groundwork — nominal struct interning (2026-07-27, plan 3.2/3.3):
   - `type_get_struct(pool, name, field_names, field_types, field_count)` in `src/type.c`: struct types intern nominally by declared name (same name → same instance; same fields under a different name → distinct type); named structs are excluded from the structural intern scan.
   - `SemanticType` fixed arrays (`struct_name[64]`, `field_names[16][32]`, `field_types[16]`) replaced by pool-owned pointers; field-name strings are copied into and freed by the pool.

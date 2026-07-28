@@ -144,13 +144,13 @@ Status: done
 
 ## M4 — Ownership
 
-Status: active
+Status: done (M4.1 `move`, M4.2 `defer`; remaining ownership work in M9)
 
-- owned values and moves;
-- borrows;
-- scope destruction;
-- allocator interface;
-- explicit shared ownership library type.
+- owned values and moves; ✅ M4.1
+- borrows; → M9
+- scope destruction; → M9
+- allocator interface; → M9
+- explicit shared ownership library type. → M9
 
 ### M4.1 — `move` keyword
 
@@ -329,7 +329,7 @@ Status audit 2026-07-25: previously marked done; corrected after source review. 
 
 ## M12 — Type system implementation
 
-Status: in progress (M12.1 complete 2026-07-25)
+Status: in progress (M12.1–M12.3, M12.5, M12.7 complete)
 
 Implements `TYPE_SYSTEM.md` as written; prerequisite for M8 Option/Result, M9 ownership checks, and honest function signatures. Each phase lands test-first per `AGENTS.md`.
 
@@ -368,9 +368,19 @@ and the ASan/UBSan build both green, including the examples suite.
 
 ### M12.3 — Explicit conversions
 
-- [ ] `i32(x)`, `f64(n)`, etc. become real checked conversions instead of `ERR_UNSUPPORTED_CONVERSION`
-- [ ] Conversion allowlist; everything else keeps failing closed
-- [ ] No implicit narrowing or signedness change; widening only when value-preserving
+Status: done (2026-07-29)
+
+- [x] `i32(x)`, `f64(n)`, etc. become real checked conversions instead of `ERR_UNSUPPORTED_CONVERSION`
+- [x] Conversion allowlist; everything else keeps failing closed
+- [x] No implicit narrowing or signedness change; widening only when value-preserving
+
+Evidence 2026-07-29: conversion table in `src/semantic.c` maps `i8`–`u64`, `f32`, `f64`,
+`bool`, `str` to target kinds; numeric↔numeric allowed, bool/str↔numeric rejected (E10);
+arity enforced (E12); C emitter emits `((C_type)(expr))` casts; `print` accepts all sized
+numeric types; width mixing without conversion rejected by `unify()` (E09). Tests:
+`tests/semantic.sh` (typed_conversion_*, conversion_*, width_mixing_*), `tests/smoke.sh`
+(conversion_int_f64, conversion_f64_i64, conversion_narrowing, conversion_chain,
+conversion_ratio, print_i32, print_u8, print_f32). ASan/UBSan build green.
 
 ### M12.4 — Type annotation syntax
 
@@ -381,11 +391,16 @@ and the ASan/UBSan build both green, including the examples suite.
 
 ### M12.5 — Unification-based local checking
 
+Status: done (2026-07-29)
+
 - [x] Single `unify(expected, found)` used by binary ops, `?:` branches, call args, array elements, match arms, returns
-- [ ] Remove ad hoc `TYPE_UNKNOWN` in-place mutation (e.g. `len(x)` retroactively assigning slice-of-int)
+- [x] Remove ad hoc `TYPE_UNKNOWN` in-place mutation (e.g. `len(x)` retroactively assigning slice-of-int)
 - [x] Diagnostics upgraded to `expected <T>, found <U>` with source location; golden tests per error shape
 
-Status (2026-07-27, plan 3.1): `unify()` lives in `src/semantic.c` with a user-facing `type_display()` in `src/type.c`. Non-first match arms and conflicting function redefinitions are now rejected (`match_arm_mismatch`, `function_redefinition_mismatch` goldens added failing first). The `len(x)`/index retroactive slice inference still re-points symbol types (pool-sanctioned pointer swap, not type mutation); removing it is the remaining box.
+Evidence 2026-07-29: `unify()` in `src/semantic.c` handles all type compatibility checks;
+the `len(x)` retroactive slice inference hack (re-pointing `TYPE_UNKNOWN` symbols to
+`slice-of-int`) was removed — proper forward inference from definitions is sufficient;
+all existing tests pass without it. ASan/UBSan green.
 
 ### M12.6 — Composite types on the new core
 
@@ -449,10 +464,14 @@ Status: done (2026-08-XX)
 
 ### Exit criteria
 
-- [ ] `TYPE_SYSTEM.md` examples (`small = i8(value)`, `ratio = f64(count) / f64(total)`) compile and run
-- [ ] Width/signedness mixing without explicit conversion is rejected with located diagnostics
-- [ ] Typed IR dump shows full nested types; snapshots stable
-- [ ] `make test` plus sanitizer build pass
+- [x] `TYPE_SYSTEM.md` examples (`small = i8(value)`, `ratio = f64(count) / f64(total)`) compile and run
+- [x] Width/signedness mixing without explicit conversion is rejected with located diagnostics
+- [x] Typed IR dump shows full nested types; snapshots stable
+- [x] `make test` plus sanitizer build pass
+
+Evidence 2026-07-29: `i8(value)` and `f64(count)/f64(total)` run correctly; width mixing
+tests `width_mixing_i32_i64`, `width_mixing_u8_f64` reject with E09; `dump-typed-ast`
+shows `TYPE_ARRAY[3]:TYPE_INT`, `TYPE_SLICE:TYPE_INT` nested forms; ASan/UBSan green.
 
 
 ## Explicitly deferred

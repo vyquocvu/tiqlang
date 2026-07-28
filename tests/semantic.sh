@@ -51,8 +51,6 @@ assert_semantic "local_inference_mismatch" 'x = 1
 y = x + "foo"
 ' "$TMP_DIR/local_inference_mismatch.tiq:2: error[E09]: type mismatch: expected int, found str"
 
-assert_semantic "explicit_conversion_unsupported" 'i8(1)
-' "$TMP_DIR/explicit_conversion_unsupported.tiq:1: error[E10]: unsupported conversion"
 
 assert_semantic "immutable_assignment" 'x = 1
 x += 1
@@ -101,6 +99,13 @@ assert_semantic_ast "typed_ir_basic" 'x = 1 + 2' 'BINDING x <TYPE_INT>
   BINARY PLUS <TYPE_INT>
     INT 1 <TYPE_INT>
     INT 2 <TYPE_INT>'
+
+# M12.3: i8(1) is now a valid explicit conversion (was fail-closed stub E10).
+assert_semantic_ast "typed_conversion_i8" 'x = i8(1)
+' 'BINDING x <TYPE_I8>
+  CALL <TYPE_I8>
+    IDENT i8
+    INT 1 <TYPE_INT>'
 
 assert_semantic_ast "typed_array_nested" 'x = [1, 2, 3]' 'BINDING x <TYPE_ARRAY[3]:TYPE_INT>
   ARRAY <TYPE_ARRAY[3]:TYPE_INT>
@@ -361,5 +366,65 @@ b = &x
 assert_semantic "mut_borrow_unsupported" 'x <- 42
 b = &mut x
 ' "$TMP_DIR/mut_borrow_unsupported.tiq:2: error[E07]: borrow is not supported yet"
+
+# M12.3: explicit numeric type conversions.
+# Numeric -> numeric: allowed.
+assert_semantic_ast "typed_conversion_int_to_f64" 'x = f64(42)
+' 'BINDING x <TYPE_FLOAT>
+  CALL <TYPE_FLOAT>
+    IDENT f64
+    INT 42 <TYPE_INT>'
+
+assert_semantic_ast "typed_conversion_f64_to_int" 'x = i64(3.14)
+' 'BINDING x <TYPE_INT>
+  CALL <TYPE_INT>
+    IDENT i64
+    LITERAL <TYPE_FLOAT>'
+
+assert_semantic_ast "typed_conversion_i32" 'x = i32(100)
+' 'BINDING x <TYPE_I32>
+  CALL <TYPE_I32>
+    IDENT i32
+    INT 100 <TYPE_INT>'
+
+# str -> numeric: rejected E10.
+assert_semantic "conversion_str_to_int" 'x = i32("hello")
+' "$TMP_DIR/conversion_str_to_int.tiq:1: error[E10]: cannot convert str to i32"
+
+# bool -> numeric: rejected E10.
+assert_semantic "conversion_bool_to_int" 'x = i32(true)
+' "$TMP_DIR/conversion_bool_to_int.tiq:1: error[E10]: cannot convert bool to i32"
+
+# numeric -> bool: rejected E10.
+assert_semantic "conversion_int_to_bool" 'x = bool(42)
+' "$TMP_DIR/conversion_int_to_bool.tiq:1: error[E10]: cannot convert int to bool"
+
+# Arity 0: rejected E12.
+assert_semantic "conversion_arity_zero" 'x = i32()
+' "$TMP_DIR/conversion_arity_zero.tiq:1: error[E12]: type conversion requires exactly 1 argument"
+
+# Arity 2: rejected E12.
+assert_semantic "conversion_arity_two" 'x = i32(1, 2)
+' "$TMP_DIR/conversion_arity_two.tiq:1: error[E12]: type conversion requires exactly 1 argument"
+
+# M12.3 exit criteria: width mixing without explicit conversion is rejected.
+assert_semantic "width_mixing_i32_i64" 'a = i32(1)
+x = a + 2
+' "$TMP_DIR/width_mixing_i32_i64.tiq:2: error[E09]: type mismatch: expected i32, found int"
+
+assert_semantic "width_mixing_u8_f64" 'a = u8(1)
+x = a + 1.0
+' "$TMP_DIR/width_mixing_u8_f64.tiq:2: error[E09]: type mismatch: expected u8, found float"
+
+# Sized types are printable (typed AST).
+assert_semantic_ast "typed_print_i32" 'x = i32(42)
+print(x)
+' 'BINDING x <TYPE_I32>
+  CALL <TYPE_I32>
+    IDENT i32
+    INT 42 <TYPE_INT>
+CALL <TYPE_INT>
+  IDENT print
+  IDENT x <TYPE_I32>'
 
 echo "semantic: ok"
