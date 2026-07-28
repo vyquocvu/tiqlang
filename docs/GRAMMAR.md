@@ -67,6 +67,8 @@ literal       = integer | float | string | "true" | "false" ;
 
 Function application without parentheses, as in `fib n`, is allowed only in a function declaration parameter list. Calls use parentheses in v0.1 to avoid whitespace-sensitive ambiguity.
 
+**v0.1 type inference**: `function_def` parameters have no type annotation; `{ identifier }` collects plain identifiers only. Attempting `param:type` syntax is rejected at parse time (E22, "not supported in v0.1, deferred to M12.4"). Return-type annotations are likewise deferred to M12.4.
+
 `!` is the logical negation prefix of `unary`; printing is the `print` builtin call (LANGUAGE_SPEC §12), covered by the ordinary `postfix` call production. Function bodies may be blocks because `block` is a `primary`, so `expression` covers both `f a -> a + 1` and `f a -> { ... }`.
 
 ## Operator precedence

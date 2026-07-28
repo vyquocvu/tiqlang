@@ -242,7 +242,14 @@ static AstNode *primary(Parser *parser) {
         consume(parser, TOK_LBRACE, ERR_UNEXPECTED_TOKEN, "expected '{' after match expression");
         int cap = 0;
         while (!check(parser, TOK_RBRACE) && !check(parser, TOK_EOF)) {
-            AstNode *pat = expression(parser);
+            AstNode *pat = NULL;
+            bool is_wildcard = false;
+            if (match(parser, TOK_UNDERSCORE)) {
+                // Wildcard pattern: _ => ...
+                is_wildcard = true;
+            } else {
+                pat = expression(parser);
+            }
             if (parser->diag->fatal_error) break;
             consume(parser, TOK_FAT_ARROW, ERR_UNEXPECTED_TOKEN, "expected '=>' in match arm");
             AstNode *arm_body = expression(parser);
@@ -256,6 +263,7 @@ static AstNode *primary(Parser *parser) {
             }
             node->as.match_expr.arms[node->as.match_expr.arm_count].pattern = pat;
             node->as.match_expr.arms[node->as.match_expr.arm_count].body = arm_body;
+            node->as.match_expr.arms[node->as.match_expr.arm_count].is_wildcard = is_wildcard;
             node->as.match_expr.arm_count++;
             if (check(parser, TOK_COMMA)) advance(parser);
         }
@@ -626,6 +634,22 @@ static AstNode *declaration(Parser *parser) {
                 }
                 node->as.function.params[node->as.function.param_count++] = parser->current;
                 advance(parser);
+                // M12.7.2.D: param:type annotation syntax is not supported in v0.1
+                // (explicit type annotations are deferred to M12.4). Detect ':'
+                // immediately after a parameter identifier and emit a clear diagnostic
+                // instead of the generic "expected '->'" parse error.
+                if (check(parser, TOK_COLON)) {
+                    Token param_tok = node->as.function.params[node->as.function.param_count - 1];
+                    char msg[256];
+                    snprintf(msg, sizeof(msg),
+                             "type annotations on function parameters are not supported in v0.1 (deferred to M12.4)");
+                    diag_error(parser->diag, parser->lexer.path, param_tok.line,
+                               ERR_TYPE_ANNOTATION, msg);
+                    // Skip the ':' and the type token so we can continue parsing
+                    // and collect any remaining parameters before '->' is expected.
+                    advance(parser); // consume ':'
+                    if (check(parser, TOK_IDENT)) advance(parser); // consume type name
+                }
             }
             // param_types is filled in by semantic analysis; it must live
             // in the same arena as the node it annotates (plan 4.1).

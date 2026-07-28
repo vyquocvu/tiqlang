@@ -100,7 +100,12 @@ Single-expression function:
 add a b -> a + b
 ```
 
-Typed form planned for v0.2:
+**v0.1 type inference rule**: parameter and return types are always inferred from use.
+There is no type annotation syntax in v0.1. Attempting to write `param:type` is a
+compile-time error (E22: "type annotations on function parameters are not supported in
+v0.1 (deferred to M12.4)").
+
+Typed form planned for v0.2 (deferred to M12.4):
 
 ```tiq
 add a:i32 b:i32 -> i32 -> a + b
@@ -363,10 +368,10 @@ The bootstrap parser accepts a few constructs ahead of their full specification.
 
 ```tiq
 x = 10
-res = match x { 10 => 100, 20 => 200 }
+res = match x { 10 => 100, 20 => 200, _ => 0 }
 ```
 
-Patterns are equality-compared expressions; there are no binding or destructuring patterns in v0.1. All arm bodies must have the same type. Exhaustiveness checking is deferred; in the bootstrap backend an unmatched scrutinee yields `0`.
+Patterns are equality-compared expressions; there are no binding or destructuring patterns in v0.1. All arm bodies must have the same type. The wildcard pattern `_` matches any value and must be present as the last arm (E07: "match must have a wildcard arm ('_ => ...')"). Unmatched scrutinees without a wildcard are rejected at semantic analysis.
 
 ### 17.2 Field access (provisional)
 

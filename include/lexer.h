@@ -66,6 +66,7 @@ typedef enum {
     TOK_SEMICOLON,
     TOK_FAT_ARROW,
     TOK_QUESTION_QUESTION,
+    TOK_UNDERSCORE,
     TOK_DOT
 } TokenKind;
 

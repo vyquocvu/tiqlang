@@ -394,22 +394,33 @@ static void emit_expr(AstNode *node, EmitContext *ctx) {
             diag_error(ctx->diag, ctx->path, node->token.line, ERR_UNSUPPORTED_STATEMENT, "chan is not supported yet");
             break;
         case AST_MATCH: {
-            fputs("(", ctx->out);
+            // Emit: (cond1 ? body1 : (cond2 ? body2 : (... : 0)))
+            // Wildcard arms match everything and should be the last arm
+            // Structure: (cond) ? then : else  (parens close right after condition)
+            bool has_wildcard = false;
             for (int i = 0; i < node->as.match_expr.arm_count; i++) {
-                fputs("(", ctx->out);
-                emit_expr(node->as.match_expr.expr, ctx);
-                fputs(" == ", ctx->out);
-                emit_expr(node->as.match_expr.arms[i].pattern, ctx);
-                fputs(") ? (", ctx->out);
-                emit_expr(node->as.match_expr.arms[i].body, ctx);
-                fputs(") : ", ctx->out);
+                if (node->as.match_expr.arms[i].is_wildcard) {
+                    emit_expr(node->as.match_expr.arms[i].body, ctx);
+                    has_wildcard = true;
+                } else {
+                    fputs("(", ctx->out);
+                    emit_expr(node->as.match_expr.expr, ctx);
+                    fputs(" == ", ctx->out);
+                    emit_expr(node->as.match_expr.arms[i].pattern, ctx);
+                    fputs(") ? ", ctx->out);
+                    emit_expr(node->as.match_expr.arms[i].body, ctx);
+                    fputs(" : ", ctx->out);
+                }
             }
-            fputs("0)", ctx->out);
+            // Final fallback (only if no wildcard arm)
+            if (!has_wildcard) {
+                fputs("0", ctx->out);
+            }
             break;
         }
         case AST_BLOCK:
-            diag_error(ctx->diag, ctx->path, node->token.line, ERR_UNEXPECTED_TOKEN,
-                       "block expression not supported in this context");
+            diag_error(ctx->diag, ctx->path, node->token.line, ERR_UNSUPPORTED_STATEMENT,
+                       "block expression not supported outside function body");
             break;
         case AST_DEFER:
             if (node->as.defer.expr)

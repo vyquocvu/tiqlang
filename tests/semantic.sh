@@ -62,6 +62,11 @@ assert_semantic "function_arity_mismatch" 'f a -> a
 x = f(1, 2)
 ' "$TMP_DIR/function_arity_mismatch.tiq:2: error[E12]: arity mismatch"
 
+# M12.7.2.D: v0.1 function parameters are inference-only; type annotations
+# (param:type syntax, planned for M12.4) must be rejected with a clear error.
+assert_semantic "function_type_annotation" 'add a:i32 -> a + 1
+' "$TMP_DIR/function_type_annotation.tiq:1: error[E22]: type annotations on function parameters are not supported in v0.1 (deferred to M12.4)"
+
 assert_semantic "int_literal_overflow" 'x = 9223372036854775808
 ' "$TMP_DIR/int_literal_overflow.tiq:1: error[E20]: integer literal out of range for i64"
 
@@ -255,6 +260,30 @@ x = fib["bad"]
 assert_semantic "stream_state_undefined" 'fib = [0, 1, ... a + s]
 ' "$TMP_DIR/stream_state_undefined.tiq:1: error[E08]: undefined symbol 's'"
 
+# M12.7.1: stream generators support at most 2 seeds (v0.1 window size)
+assert_semantic "stream_too_many_seeds" 'fib = [0, 1, 2, ... a + b + c]
+' "$TMP_DIR/stream_too_many_seeds.tiq:1: error[E07]: stream generators support at most 2 seeds"
+
+# M12.7.1: bounded stream generators (while/until) are not yet implemented
+assert_semantic "stream_bounded_while" 'fib = [0, 1, ... a + b while x < 100]
+' "$TMP_DIR/stream_bounded_while.tiq:1: error[E07]: bounded stream generators are not yet supported"
+assert_semantic "stream_bounded_until" 'fib = [0, 1, ... a + b until x > 100]
+' "$TMP_DIR/stream_bounded_until.tiq:1: error[E07]: bounded stream generators are not yet supported"
+
+# M12.7.2: match expressions must have a wildcard arm
+assert_semantic "match_no_wildcard" 'x = 10
+res = match x { 10 => 100 }
+' "$TMP_DIR/match_no_wildcard.tiq:2: error[E07]: match must have a wildcard arm ('_ => ...')"
+
+# M12.7.2: range expressions are only valid inside loop or slice contexts
+assert_semantic "range_outside_context" 'x = 0..10
+' "$TMP_DIR/range_outside_context.tiq:1: error[E07]: range expressions 'a..b' are only valid inside loop or slice contexts"
+
+# M12.7.1: block expressions are only supported in function bodies
+# Outside function bodies, they produce a fatal emitter error
+assert_semantic "block_outside_function" 'x = { 1 }
+' "$TMP_DIR/block_outside_function.tiq:1: error[E07]: block expression not supported outside function body"
+
 assert_semantic "move_immutable" 'x = [1, 2, 3]
 y <- move x
 ' "$TMP_DIR/move_immutable.tiq:2: error[E17]: cannot move an immutable binding"
@@ -305,7 +334,7 @@ x = b ? 2 : "s"
 ' "$TMP_DIR/conditional_branch_mismatch.tiq:2: error[E09]: type mismatch: expected int, found str"
 
 assert_semantic "match_arm_mismatch" 'x = 1
-y = match x { 1 => 2, 2 => "s" }
+y = match x { 1 => 2, 2 => "s", _ => 0 }
 ' "$TMP_DIR/match_arm_mismatch.tiq:2: error[E09]: match arms must have the same type: expected int, found str"
 
 assert_semantic "function_redefinition_mismatch" 'f a -> 1

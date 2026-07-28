@@ -35,6 +35,7 @@ typedef struct AstNode AstNode;
 typedef struct {
     AstNode *pattern;
     AstNode *body;
+    bool is_wildcard;  // true for _ => ... wildcard arm
 } MatchArm;
 
 struct AstNode {

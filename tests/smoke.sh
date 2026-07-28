@@ -174,10 +174,11 @@ if ./build/tiq build "$TMP_DIR/m7_chan.tiq" -o "$TMP_DIR/m7_chan" 2>"$TMP_DIR/m7
 fi
 [ ! -e "$TMP_DIR/m7_chan" ]
 
-printf 'x = 10\nres = match x { 10 => 100, 20 => 200 }\n' > "$TMP_DIR/m8_match.tiq"
+# M12.7.2: match requires wildcard arm
+printf 'x = 10\nres = match x { 10 => 100, _ => 0 }\nprint(res)\n' > "$TMP_DIR/m8_match.tiq"
 ./build/tiq build "$TMP_DIR/m8_match.tiq" -o "$TMP_DIR/m8_match" 2>"$TMP_DIR/m8_match.err"
 [ -x "$TMP_DIR/m8_match" ]
-"$TMP_DIR/m8_match"
+[ "$("$TMP_DIR/m8_match")" = "100" ]
 
 # M9 borrow checking does not exist yet: borrows must fail closed instead
 # of silently emitting a value copy (DOC_REVIEW D).

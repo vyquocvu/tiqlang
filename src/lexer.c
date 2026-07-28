@@ -167,6 +167,7 @@ static TokenKind identifier_type(Lexer *lexer, const char *start) {
         case 't': return check_keyword(lexer, start, 1, 3, "rue", TOK_TRUE);
         case 'u': return check_keyword(lexer, start, 1, 4, "ntil", TOK_UNTIL);
         case 'w': return check_keyword(lexer, start, 1, 4, "hile", TOK_WHILE);
+        case '_': return TOK_UNDERSCORE;
     }
     return TOK_IDENT;
 }
@@ -192,7 +193,7 @@ Token lexer_next(Lexer *lexer) {
         return token;
     }
 
-    if (is_alpha(c)) return identifier(lexer, start);
+    if (is_alpha(c) || c == '_') return identifier(lexer, start);
     if (is_digit(c)) return number(lexer, start);
 
     switch (c) {
@@ -328,6 +329,7 @@ const char *token_kind_name(TokenKind kind) {
         case TOK_SEMICOLON: return "SEMICOLON";
         case TOK_FAT_ARROW: return "FAT_ARROW";
         case TOK_QUESTION_QUESTION: return "QUESTION_QUESTION";
+        case TOK_UNDERSCORE: return "UNDERSCORE";
         case TOK_DOT: return "DOT";
     }
     return "UNKNOWN";

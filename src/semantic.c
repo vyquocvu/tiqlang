@@ -66,6 +66,7 @@ typedef struct {
     DiagContext *diag;
     int loop_depth;
     TypePool *pool;
+    bool in_range_context;  // true when inside [...] loop/slice brackets
 } SemanticContext;
 
 static SemanticType *ty(SemanticContext *ctx, PrimitiveType kind) {
@@ -140,6 +141,11 @@ static void check_node(SemanticContext *ctx, AstNode *node) {
             break;
         }
         case AST_BINARY: {
+            // M12.7.2: Range expressions (a..b) are only valid inside loop/slice contexts
+            if (node->as.binary.op == TOK_DOT_DOT && !ctx->in_range_context) {
+                diag_error(ctx->diag, ctx->path, node->token.line, ERR_UNSUPPORTED_STATEMENT,
+                           "range expressions 'a..b' are only valid inside loop or slice contexts");
+            }
             check_node(ctx, node->as.binary.left);
             check_node(ctx, node->as.binary.right);
             SemanticType *lt = node->as.binary.left ? node->as.binary.left->semantic_type : NULL;
@@ -570,7 +576,11 @@ static void check_node(SemanticContext *ctx, AstNode *node) {
         }
         case AST_BRACKET_LOOP: {
             ctx->loop_depth++;
+            // M12.7.2: Set range context for domain checking
+            bool was_in_range = ctx->in_range_context;
+            ctx->in_range_context = true;
             check_node(ctx, node->as.bracket_loop.domain);
+            ctx->in_range_context = was_in_range;
             bool is_range = node->as.bracket_loop.domain &&
                 node->as.bracket_loop.domain->kind == AST_BINARY &&
                 node->as.bracket_loop.domain->as.binary.op == TOK_DOT_DOT;
@@ -638,6 +648,13 @@ static void check_node(SemanticContext *ctx, AstNode *node) {
             node->semantic_type = ty(ctx, TYPE_UNKNOWN);
             break;
         case AST_STREAM_GEN:
+            // Stream generators support 1 or 2 seeds only (v0.1 window size)
+            if (node->as.stream_gen.seed_count > 2) {
+                diag_error(ctx->diag, ctx->path, node->token.line, ERR_UNSUPPORTED_STATEMENT,
+                           "stream generators support at most 2 seeds");
+                node->semantic_type = ty(ctx, TYPE_UNKNOWN);
+                break;
+            }
             for (int i = 0; i < node->as.stream_gen.seed_count; i++) {
                 check_node(ctx, node->as.stream_gen.seeds[i]);
             }
@@ -650,7 +667,7 @@ static void check_node(SemanticContext *ctx, AstNode *node) {
                     xtoken.start = "x"; xtoken.length = 1;
                     env_define(ctx->current_env, xtoken, false, ty(ctx, TYPE_INT));
                 }
-                if (node->as.stream_gen.seed_count >= 2) {
+                if (node->as.stream_gen.seed_count == 2) {
                     Token atoken, btoken;
                     atoken.start = "a"; atoken.length = 1;
                     btoken.start = "b"; btoken.length = 1;
@@ -667,8 +684,10 @@ static void check_node(SemanticContext *ctx, AstNode *node) {
             } else {
                 node->semantic_type = ty(ctx, TYPE_UNKNOWN);
             }
+            // Stream generator bounds (while/until) are not yet implemented
             if (node->as.stream_gen.bound) {
-                check_node(ctx, node->as.stream_gen.bound);
+                diag_error(ctx->diag, ctx->path, node->token.line, ERR_UNSUPPORTED_STATEMENT,
+                           "bounded stream generators are not yet supported");
             }
             break;
         case AST_ARRAY: {
@@ -736,10 +755,24 @@ static void check_node(SemanticContext *ctx, AstNode *node) {
             node->semantic_type = ty(ctx, TYPE_UNKNOWN);
             break;
         case AST_MATCH: {
+            // Check for wildcard arm
+            bool has_wildcard = false;
+            for (int i = 0; i < node->as.match_expr.arm_count; i++) {
+                if (node->as.match_expr.arms[i].is_wildcard) {
+                    has_wildcard = true;
+                    break;
+                }
+            }
+            if (!has_wildcard) {
+                diag_error(ctx->diag, ctx->path, node->token.line, ERR_UNSUPPORTED_STATEMENT,
+                           "match must have a wildcard arm ('_ => ...')");
+            }
             check_node(ctx, node->as.match_expr.expr);
             SemanticType *result = NULL;
             for (int i = 0; i < node->as.match_expr.arm_count; i++) {
-                check_node(ctx, node->as.match_expr.arms[i].pattern);
+                if (!node->as.match_expr.arms[i].is_wildcard) {
+                    check_node(ctx, node->as.match_expr.arms[i].pattern);
+                }
                 check_node(ctx, node->as.match_expr.arms[i].body);
                 AstNode *body = node->as.match_expr.arms[i].body;
                 if (body && body->semantic_type) {

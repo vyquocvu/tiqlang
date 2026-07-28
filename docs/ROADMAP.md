@@ -397,11 +397,13 @@ Status (2026-07-27, plan 3.2/3.3): `type_get_struct()` interns struct types nomi
 
 ### M12.7 — Syntax coherence and safety audit
 
-Status: in progress
+Status: M12.7.1 complete; M12.7.2 and M12.7.3 in progress
 
 Keep Tiq syntax compact while removing context-dependent rules that are easy to misread. Every accepted decision must update LANGUAGE_SPEC, GRAMMAR, examples, formatter behavior, diagnostics, and deterministic tests before implementation.
 
 #### M12.7.1 — Close existing syntax-contract gaps (P0)
+
+Status: done (2026-08-XX)
 
 - [x] Singleton arrays and bracket grouping:
   - `[x]` now parses as AST_ARRAY with 1 element (not AST_BRACKET_EXPR).
@@ -411,17 +413,31 @@ Keep Tiq syntax compact while removing context-dependent rules that are easy to 
   - `[x; n]` now emits explicit element list `{ x, x, ..., x }` with n copies.
   - Before: `[5; 4]` emitted `{ 5 }` which C zero-initializes the rest, producing `[5, 0, 0, 0]`.
   - After: `[5; 4]` emits `{ 5LL, 5LL, 5LL, 5LL }` which correctly initializes all elements.
-- [ ] Stream seed arity honesty: parser accepts any seed count; emitter ignores seeds beyond first two.
-- [ ] Stream bounds and predicate slicing honesty: parser stores `while`/`until` bounds but emitter ignores them.
-- [ ] Block-expression contract: block bodies may not work in all expression positions.
+- [x] Stream seed arity honesty:
+  - Reject >2 seeds at semantic with E07 "stream generators support at most 2 seeds".
+  - Before: silently ignored seeds 3+.
+- [x] Stream bounds and predicate slicing honesty:
+  - Reject bounded generators (while/until) at semantic with E07 "bounded stream generators are not yet supported".
+  - Before: parsed but ignored bounds.
+- [x] Block-expression contract:
+  - Blocks work in function bodies.
+  - Outside function bodies: E07 "block expression not supported outside function body".
 
 #### M12.7.2 — Compact syntax decisions
 
 - [ ] Stream generator window parameters (explicit parameter names vs implicit `a`, `b`, `x`).
-- [ ] Range-context boundary: `a..b` in non-loop/slice contexts.
-- [ ] Safe partial-match policy: unmatched `match` behavior.
-- [ ] Typed function header decision: explicit type annotations.
-- [ ] Loop compactness audit: implicit `i` and named binders.
+- [x] Range-context boundary: `a..b` in non-loop/slice contexts.
+  - Range expressions `a..b` are rejected outside loop brackets `[...]` or slice contexts.
+  - Semantic error E07: "range expressions 'a..b' are only valid inside loop or slice contexts".
+  - Added `in_range_context` flag to SemanticContext.
+  - Added semantic test `range_outside_context`.
+- [x] Safe partial-match policy: unmatched `match` behavior.
+  - Match expressions require a wildcard arm `_ => ...`.
+  - Reject at semantic with E07 "match must have a wildcard arm ('_ => ...')".
+  - `_` is now a valid token (TOK_UNDERSCORE) and parses as a wildcard pattern.
+  - Updated smoke test and semantic tests.
+- [x] Typed function header decision: explicit type annotations are not part of v0.1; `param:type` syntax is rejected at parse time (E22) with a message directing to M12.4; LANGUAGE_SPEC §7 and GRAMMAR.md updated; `function_type_annotation` golden test added failing first.
+- [x] Loop compactness audit: implicit `i` and named binders — implemented in prior commits (1beba70, 063e471): optional `j <- range` binder, `i` default, immutable loop variables.
 
 #### M12.7.3 — Terminology and documentation surface audit
 

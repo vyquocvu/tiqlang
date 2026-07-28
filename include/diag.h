@@ -27,7 +27,8 @@ typedef enum {
     ERR_USE_AFTER_MOVE = 18,
     ERR_DEFER_OUTSIDE_BLOCK = 19,
     ERR_LITERAL_RANGE = 20,
-    ERR_EMPTY_ARRAY = 21
+    ERR_EMPTY_ARRAY = 21,
+    ERR_TYPE_ANNOTATION = 22   // M12.7.2.D: param:type annotation not supported in v0.1
 } ErrorCode;
 // ERR_EXPECTED_PRINT/ERR_EXPECTED_STRING (dead since the print statement was
 // removed) were retired before this numbering was first pinned and printed,
