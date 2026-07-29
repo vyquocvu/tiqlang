@@ -595,6 +595,14 @@ The returned view aliases its `json` argument and must not outlive the string it
 
 `json_has(json, key)` takes exactly two `str` arguments and returns a `bool`. It performs the same scan as `json_get` and returns `true` if `key` is present among the object's top-level members (regardless of the member's value), and `false` otherwise — including when `json` is not a JSON object or is malformed. It allocates nothing. Wrong arity is rejected with E12 and non-`str` arguments with E09 at compile time.
 
+`json_set(json, key, val)` takes exactly three `str` arguments and returns a heap-allocated `str` (owned per §16.4). It produces a JSON object string with the member `key` set to the raw JSON value `val`:
+
+- If `json` is not a JSON object (does not start with `{`), the result is `{"key":val}` (a fresh single-member object).
+- If `key` already exists among the object's top-level members, its value is replaced in situ (the surrounding structure is copied verbatim).
+- If `key` is absent, the member `"key":val` is appended before the closing `}`.
+
+The `val` argument is inserted verbatim as raw JSON text; callers are responsible for quoting string values (e.g. `json_encode_str`). No validation of `val` is performed. Wrong arity is rejected with E12 and non-`str` arguments with E09 at compile time.
+
 The pre-existing helpers `json_parse_int` (`str` → `int`, leading-integer parse) and `json_encode_str` (`str` → `str`, quoted and escaped) remain available.
 
 ### 19.2 HTTP fetch
