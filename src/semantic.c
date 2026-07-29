@@ -73,6 +73,29 @@ static SemanticType *ty(SemanticContext *ctx, PrimitiveType kind) {
     return type_get(ctx->pool, kind);
 }
 
+// M12.4: Resolve a type annotation token to a SemanticType.
+// Returns NULL if the token is not a valid type name.
+static SemanticType *resolve_type_annot(SemanticContext *ctx, Token tok) {
+    if (tok.kind != TOK_IDENT) return NULL;
+    typedef struct { const char *name; int len; PrimitiveType kind; } TypeName;
+    static const TypeName type_names[] = {
+        {"i8",   2, TYPE_I8},    {"i16",  3, TYPE_I16},
+        {"i32",  3, TYPE_I32},   {"i64",  3, TYPE_INT},
+        {"u8",   2, TYPE_U8},    {"u16",  3, TYPE_U16},
+        {"u32",  3, TYPE_U32},   {"u64",  3, TYPE_U64},
+        {"f32",  3, TYPE_F32},   {"f64",  3, TYPE_FLOAT},
+        {"bool", 4, TYPE_BOOL},  {"str",  3, TYPE_STR},
+        {"int",  3, TYPE_INT},   {"float",5, TYPE_FLOAT},
+    };
+    for (int i = 0; i < (int)(sizeof type_names / sizeof type_names[0]); i++) {
+        if ((int)tok.length == type_names[i].len &&
+            memcmp(tok.start, type_names[i].name, tok.length) == 0) {
+            return ty(ctx, type_names[i].kind);
+        }
+    }
+    return NULL; // unknown type name
+}
+
 // The single kind-level compatibility rule (OPTIMIZATION_PLAN 3.1).
 // Unknown unifies with anything and takes the known side; otherwise the
 // kinds must match exactly. On mismatch this emits
@@ -594,10 +617,25 @@ static void check_node(SemanticContext *ctx, AstNode *node) {
             Environment func_env;
             env_init(&func_env, ctx->current_env);
             ctx->current_env = &func_env;
-            // param_types is arena-allocated by the parser (plan 4.1);
-            // semantic analysis only fills in the inferred types.
+            // M12.4: Use declared parameter types from annotations if present,
+            // otherwise use TYPE_UNKNOWN for inference.
             for (int i = 0; i < node->as.function.param_count; i++) {
                 SemanticType *pt = ty(ctx, TYPE_UNKNOWN);
+                // Check for type annotation
+                if (node->as.function.param_type_annots &&
+                    node->as.function.param_type_annots[i].kind == TOK_IDENT) {
+                    SemanticType *annot = resolve_type_annot(ctx, node->as.function.param_type_annots[i]);
+                    if (annot) {
+                        pt = annot;
+                    } else {
+                        char msg[128];
+                        snprintf(msg, sizeof msg, "unknown type '%.*s'",
+                                 (int)node->as.function.param_type_annots[i].length,
+                                 node->as.function.param_type_annots[i].start);
+                        diag_error(ctx->diag, ctx->path, node->as.function.param_type_annots[i].line,
+                                   ERR_TYPE_MISMATCH, msg);
+                    }
+                }
                 if (node->as.function.param_types) node->as.function.param_types[i] = pt;
                 env_define(ctx->current_env, node->as.function.params[i], false, pt);
             }
@@ -614,6 +652,22 @@ static void check_node(SemanticContext *ctx, AstNode *node) {
             if (node->as.function.body && node->as.function.body->semantic_type) {
                 SemanticType *bt = (SemanticType *)node->as.function.body->semantic_type;
                 ret_kind = bt->kind;
+            }
+            // M12.4: Check body against declared return type if present
+            if (node->as.function.return_type_annot.kind == TOK_IDENT) {
+                SemanticType *ret_annot = resolve_type_annot(ctx, node->as.function.return_type_annot);
+                if (ret_annot) {
+                    SemanticType *u = unify(ctx, node->token.line, ret_annot,
+                                            ty(ctx, ret_kind), "return type mismatch");
+                    if (u) ret_kind = u->kind;
+                } else {
+                    char msg[128];
+                    snprintf(msg, sizeof msg, "unknown return type '%.*s'",
+                             (int)node->as.function.return_type_annot.length,
+                             node->as.function.return_type_annot.start);
+                    diag_error(ctx->diag, ctx->path, node->as.function.return_type_annot.line,
+                               ERR_TYPE_MISMATCH, msg);
+                }
             }
             Symbol *sym = env_lookup(ctx->current_env, node->as.function.name);
             if (sym) {

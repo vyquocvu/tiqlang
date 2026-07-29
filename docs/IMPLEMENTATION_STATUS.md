@@ -4,7 +4,7 @@ Updated: 2026-07-29
 
 ## Current milestone
 
-M12 — Type system implementation (M12.1–M12.3, M12.5, M12.7 complete; M12.4/M12.6 deferred from v0.1)
+M12 — Type system implementation (M12.1–M12.5, M12.7 complete; M12.4 done; M12.6 pending)
 
 ## Implemented
 
@@ -147,6 +147,14 @@ corrected audits. None of these milestones is complete.
   - Width mixing in binary operations without explicit conversion is rejected by `unify()` (E09).
   - Fixed uninitialized `ctx.in_range_context` (UBSan bug).
   - Tests: `semantic.sh` (typed_conversion_*, conversion_*, width_mixing_i32_i64, width_mixing_u8_f64, typed_print_i32), `smoke.sh` (conversion_int_f64, conversion_f64_i64, conversion_narrowing, conversion_chain, conversion_ratio, print_i32, print_u8, print_f32); full suite green under ASan/UBSan.
+- M12.4: Type annotation syntax (complete, 2026-07-29):
+  - GRAMMAR.md updated with `param`, `type`, `type_name`, `array_type`, `slice_type` productions.
+  - LANGUAGE_SPEC §7 documents `param:type` and `-> type ->` return annotation syntax.
+  - Parser accepts optional `:type` after parameters and optional `-> type ->` before body.
+  - `resolve_type_annot()` in `src/semantic.c` resolves primitive type names (`i8`–`u64`, `f32`, `f64`, `bool`, `str`, `int`, `float`) to `SemanticType*`.
+  - Semantic analysis uses declared parameter types from annotations; checks body against declared return type.
+  - Unknown type names rejected with E09.
+  - Tests: `semantic.sh` (typed_func_annot, func_return_type_mismatch, func_unknown_type); full suite green under ASan/UBSan.
 - M12.6 groundwork — nominal struct interning (2026-07-27, plan 3.2/3.3):
   - `type_get_struct(pool, name, field_names, field_types, field_count)` in `src/type.c`: struct types intern nominally by declared name (same name → same instance; same fields under a different name → distinct type); named structs are excluded from the structural intern scan.
   - `SemanticType` fixed arrays (`struct_name[64]`, `field_names[16][32]`, `field_types[16]`) replaced by pool-owned pointers; field-name strings are copied into and freed by the pool.

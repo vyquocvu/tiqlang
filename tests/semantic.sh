@@ -60,10 +60,14 @@ assert_semantic "function_arity_mismatch" 'f a -> a
 x = f(1, 2)
 ' "$TMP_DIR/function_arity_mismatch.tiq:2: error[E12]: arity mismatch"
 
-# M12.7.2.D: v0.1 function parameters are inference-only; type annotations
-# (param:type syntax, planned for M12.4) must be rejected with a clear error.
-assert_semantic "function_type_annotation" 'add a:i32 -> a + 1
-' "$TMP_DIR/function_type_annotation.tiq:1: error[E22]: type annotations on function parameters are not supported in v0.1 (deferred to M12.4)"
+# M12.4: type annotations are now supported.
+# Test return type mismatch detection.
+assert_semantic "func_return_type_mismatch" 'f a:i32 -> str -> a
+' "$TMP_DIR/func_return_type_mismatch.tiq:1: error[E09]: return type mismatch: expected str, found i32"
+
+# Test unknown type name rejection.
+assert_semantic "func_unknown_type" 'f a:unknown -> a
+' "$TMP_DIR/func_unknown_type.tiq:1: error[E09]: unknown type 'unknown'"
 
 assert_semantic "int_literal_overflow" 'x = 9223372036854775808
 ' "$TMP_DIR/int_literal_overflow.tiq:1: error[E20]: integer literal out of range for i64"
@@ -99,6 +103,15 @@ assert_semantic_ast "typed_ir_basic" 'x = 1 + 2' 'BINDING x <TYPE_INT>
   BINARY PLUS <TYPE_INT>
     INT 1 <TYPE_INT>
     INT 2 <TYPE_INT>'
+
+# M12.4: Test that annotated parameters work correctly.
+assert_semantic_ast "typed_func_annot" 'add a:i32 b:i32 -> a + b
+' 'FUNCTION add <TYPE_I32>
+  PARAM a
+  PARAM b
+  BINARY PLUS <TYPE_I32>
+    IDENT a <TYPE_I32>
+    IDENT b <TYPE_I32>'
 
 # M12.3: i8(1) is now a valid explicit conversion (was fail-closed stub E10).
 assert_semantic_ast "typed_conversion_i8" 'x = i8(1)

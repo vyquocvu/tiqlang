@@ -100,18 +100,18 @@ Single-expression function:
 add a b -> a + b
 ```
 
-**v0.1 type inference rule**: parameter and return types are always inferred from use.
-There is no type annotation syntax in v0.1. Attempting to write `param:type` is a
-compile-time error (E22: "type annotations on function parameters are not supported in
-v0.1 (deferred to M12.4)").
-
-Typed form planned for v0.2 (deferred to M12.4):
+**Type annotations (M12.4)**: parameters may have optional type annotations using `param:type` syntax. An optional return type may follow the parameter list:
 
 ```tiq
 add a:i32 b:i32 -> i32 -> a + b
 ```
 
-In v0.1, parameter and return types are inferred from use where possible. A program whose public or recursive function type cannot be inferred is rejected.
+When annotations are omitted, types are inferred from use. A program whose recursive or exported function type cannot be inferred is rejected.
+
+Supported type annotations:
+- Primitive types: `i8`, `i16`, `i32`, `i64`, `u8`, `u16`, `u32`, `u64`, `f32`, `f64`, `bool`, `str`
+- Array types: `[T; N]` (e.g., `[int; 3]`)
+- Slice types: `[]T` (e.g., `[]int`)
 
 The value of the final expression is the function result.
 
@@ -409,7 +409,6 @@ The following constructs **parse** successfully but are **rejected during semant
 | `chan T` | E07: "chan is not supported yet" | M7 (concurrency runtime) |
 | `&x` | E07: "borrow is not supported yet" | M9 (borrow checker) |
 | `&mut x` | E07: "borrow is not supported yet" | M9 (borrow checker) |
-| `param:type` in function head | E22: "type annotations on function parameters are not supported in v0.1 (deferred to M12.4)" | M12.4 (type annotation syntax) |
 
 The parser accepts these forward-compatibility spellings so that future milestones can promote them to implemented without grammar breakage.
 

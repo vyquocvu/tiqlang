@@ -329,7 +329,7 @@ Status audit 2026-07-25: previously marked done; corrected after source review. 
 
 ## M12 — Type system implementation
 
-Status: in progress (M12.1–M12.3, M12.5, M12.7 complete)
+Status: in progress (M12.1–M12.5, M12.7 complete; M12.4 done)
 
 Implements `TYPE_SYSTEM.md` as written; prerequisite for M8 Option/Result, M9 ownership checks, and honest function signatures. Each phase lands test-first per `AGENTS.md`.
 
@@ -384,10 +384,19 @@ conversion_ratio, print_i32, print_u8, print_f32). ASan/UBSan build green.
 
 ### M12.4 — Type annotation syntax
 
-- [ ] Spec and grammar first: `param = identifier, [":", type]`, optional return annotation, `type` production
-- [ ] Parser `parse_type` producing type expressions resolved through the pool
-- [ ] Resolve `struct_def` field-type tokens through the same path
-- [ ] Recursive and exported functions require inferable-or-explicit signatures; bodies checked against declared types
+Status: done (2026-07-29)
+
+- [x] Spec and grammar first: `param = identifier, [":", type]`, optional return annotation, `type` production
+- [x] Parser `parse_type` producing type expressions resolved through the pool
+- [x] Resolve `struct_def` field-type tokens through the same path (primitive types only; compound types deferred)
+- [x] Recursive and exported functions require inferable-or-explicit signatures; bodies checked against declared types
+
+Evidence 2026-07-29: GRAMMAR.md updated with `param`, `type`, `type_name`, `array_type`,
+`slice_type` productions; LANGUAGE_SPEC §7 documents `param:type` and `-> type ->` return
+annotation syntax; parser accepts optional `:type` after parameters and optional `-> type ->`
+before body; semantic analysis resolves type annotations via `resolve_type_annot()` and
+checks body against declared return type; unknown type names rejected (E09); tests:
+`semantic.sh` (typed_func_annot, func_return_type_mismatch, func_unknown_type); ASan/UBSan green.
 
 ### M12.5 — Unification-based local checking
 
@@ -440,7 +449,7 @@ Status: done (2026-08-XX)
 
 #### M12.7.2 — Compact syntax decisions
 
-- [ ] Stream generator window parameters (explicit parameter names vs implicit `a`, `b`, `x`).
+- [x] Stream generator window parameters: implicit context names `a`, `b` (two seeds), `x` (one seed), `i` (index) are the v0.1 design per LANGUAGE_SPEC §14; explicit parameter names deferred to a future version.
 - [x] Range-context boundary: `a..b` in non-loop/slice contexts.
   - Range expressions `a..b` are rejected outside loop brackets `[...]` or slice contexts.
   - Semantic error E07: "range expressions 'a..b' are only valid inside loop or slice contexts".

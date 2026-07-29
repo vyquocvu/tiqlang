@@ -623,6 +623,7 @@ static AstNode *declaration(Parser *parser) {
             advance(parser);
             AstNode *node = allocate_node(parser, AST_FUNCTION);
             node->as.function.name = name;
+            node->as.function.return_type_annot.kind = TOK_EOF; // no return type by default
             int capacity = 0;
             while (check(parser, TOK_IDENT)) {
                 if (node->as.function.param_count + 1 > capacity) {
@@ -630,26 +631,38 @@ static AstNode *declaration(Parser *parser) {
                     node->as.function.params = arena_realloc(&parser->arena, node->as.function.params,
                                                              sizeof(Token) * capacity,
                                                              sizeof(Token) * new_cap);
+                    node->as.function.param_type_annots = arena_realloc(&parser->arena, node->as.function.param_type_annots,
+                                                             sizeof(Token) * capacity,
+                                                             sizeof(Token) * new_cap);
                     capacity = new_cap;
                 }
-                node->as.function.params[node->as.function.param_count++] = parser->current;
+                node->as.function.params[node->as.function.param_count] = parser->current;
+                node->as.function.param_type_annots[node->as.function.param_count].kind = TOK_EOF; // default: no annotation
                 advance(parser);
-                // M12.7.2.D: param:type annotation syntax is not supported in v0.1
-                // (explicit type annotations are deferred to M12.4). Detect ':'
-                // immediately after a parameter identifier and emit a clear diagnostic
-                // instead of the generic "expected '->'" parse error.
+                // M12.4: parse optional :type annotation
                 if (check(parser, TOK_COLON)) {
-                    Token param_tok = node->as.function.params[node->as.function.param_count - 1];
-                    char msg[256];
-                    snprintf(msg, sizeof(msg),
-                             "type annotations on function parameters are not supported in v0.1 (deferred to M12.4)");
-                    diag_error(parser->diag, parser->lexer.path, param_tok.line,
-                               ERR_TYPE_ANNOTATION, msg);
-                    // Skip the ':' and the type token so we can continue parsing
-                    // and collect any remaining parameters before '->' is expected.
                     advance(parser); // consume ':'
-                    if (check(parser, TOK_IDENT)) advance(parser); // consume type name
+                    if (check(parser, TOK_IDENT)) {
+                        node->as.function.param_type_annots[node->as.function.param_count] = parser->current;
+                        advance(parser);
+                    } else if (check(parser, TOK_LBRACKET)) {
+                        // Compound type: [T; N] or []T - store '[' as marker, parse in semantic
+                        node->as.function.param_type_annots[node->as.function.param_count] = parser->current;
+                        advance(parser); // consume '['
+                        // For now, skip until we find the closing ']'
+                        int bracket_depth = 1;
+                        while (bracket_depth > 0 && !check(parser, TOK_EOF)) {
+                            if (check(parser, TOK_LBRACKET)) bracket_depth++;
+                            else if (check(parser, TOK_RBRACKET)) bracket_depth--;
+                            if (bracket_depth > 0) advance(parser);
+                        }
+                        if (check(parser, TOK_RBRACKET)) advance(parser); // consume final ']'
+                    } else {
+                        diag_error(parser->diag, parser->lexer.path, parser->current.line,
+                                   ERR_UNEXPECTED_TOKEN, "expected type name after ':'");
+                    }
                 }
+                node->as.function.param_count++;
             }
             // param_types is filled in by semantic analysis; it must live
             // in the same arena as the node it annotates (plan 4.1).
@@ -658,6 +671,20 @@ static AstNode *declaration(Parser *parser) {
             memset(node->as.function.param_types, 0,
                    sizeof(void *) * (node->as.function.param_count > 0 ? node->as.function.param_count : 1));
             consume(parser, TOK_RARROW, ERR_UNEXPECTED_TOKEN, "expected '->' after function parameters");
+            // M12.4: parse optional return type annotation: -> type -> body
+            if (check(parser, TOK_IDENT)) {
+                // Could be return type or start of body expression
+                // Peek ahead: if next is '->', this is a return type
+                Lexer peek_lexer2 = parser->lexer;
+                Token peek_tok = lexer_next(&peek_lexer2);
+                while (peek_tok.kind == TOK_NEWLINE) peek_tok = lexer_next(&peek_lexer2);
+                if (peek_tok.kind == TOK_RARROW) {
+                    // This is a return type annotation
+                    node->as.function.return_type_annot = parser->current;
+                    advance(parser); // consume type name
+                    consume(parser, TOK_RARROW, ERR_UNEXPECTED_TOKEN, "expected '->' after return type");
+                }
+            }
             node->as.function.body = expression(parser);
             return node;
         }

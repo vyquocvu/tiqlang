@@ -106,6 +106,9 @@ struct AstNode {
             void **param_types;
             int param_count;
             AstNode *body;
+            // M12.4: optional type annotations (kind == TOK_EOF if absent)
+            Token *param_type_annots;
+            Token return_type_annot;
         } function;
 
         struct {

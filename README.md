@@ -228,6 +228,9 @@ The LSP server implements:
 - Initialize/shutdown protocol
 - Diagnostics publishing
 - Text document synchronization
+- Hover (symbol type information)
+- Go-to-definition
+- Semantic tokens (syntax highlighting)
 
 ## Running Tests
 

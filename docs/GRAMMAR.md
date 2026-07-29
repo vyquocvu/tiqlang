@@ -28,7 +28,8 @@ Implementation status annotation (see also LANGUAGE_SPEC §17 for the complete t
 program       = { top_item } ;                                      (* ✅ *)
 top_item      = function_def | binding | statement ;                (* ✅ *)
 
-function_def  = identifier, { identifier }, "->", expression ;     (* ✅ — param:type rejected E22 *)
+function_def  = identifier, { param }, "->", [ type, "->" ], expression ;  (* ✅ — param:type M12.4 *)
+param         = identifier, [ ":", type ] ;                              (* ✅ — M12.4 *)
 binding       = identifier, "=", expression ;                       (* ✅ *)
 mutable_def   = identifier, "<-", expression ;                     (* ✅ *)
 statement     = assign_stmt | bracket_loop | control_stmt | defer_stmt | expression ; (* ✅ *)
@@ -69,11 +70,17 @@ array_fill    = "[", expression, ";", expression, "]" ;            (* ✅ — le
 match_expr    = "match", expression, "{", { match_arm, [ "," ] }, "}" ; (* 🟡 — requires wildcard arm *)
 match_arm     = expression, "=>", expression ;                     (* 🟡 — "_ =>" wildcard required *)
 literal       = integer | float | string | "true" | "false" ;     (* ✅ — i64 range checked *)
+
+type          = type_name | array_type | slice_type ;              (* ✅ — M12.4 *)
+type_name     = "i8" | "i16" | "i32" | "i64" | "u8" | "u16" | "u32" | "u64"
+              | "f32" | "f64" | "bool" | "str" ;                   (* ✅ — primitive types *)
+array_type    = "[", type, ";", integer, "]" ;                    (* ✅ — [T; N] *)
+slice_type    = "[", "]", type ;                                   (* ✅ — []T *)
 ```
 
 Function application without parentheses, as in `fib n`, is allowed only in a function declaration parameter list. Calls use parentheses in v0.1 to avoid whitespace-sensitive ambiguity.
 
-**v0.1 type inference**: `function_def` parameters have no type annotation; `{ identifier }` collects plain identifiers only. Attempting `param:type` syntax is rejected at parse time (E22, "not supported in v0.1, deferred to M12.4"). Return-type annotations are likewise deferred to M12.4.
+**Type annotations (M12.4)**: `function_def` parameters may have optional type annotations (`param:type`). An optional return type may follow the parameter list (`-> type -> body`). When omitted, types are inferred from use. A program whose recursive or exported function type cannot be inferred is rejected.
 
 `!` is the logical negation prefix of `unary`; printing is the `print` builtin call (LANGUAGE_SPEC §12), covered by the ordinary `postfix` call production. Function bodies may be blocks because `block` is a `primary`, so `expression` covers both `f a -> a + 1` and `f a -> { ... }`.
 
