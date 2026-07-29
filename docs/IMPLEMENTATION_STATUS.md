@@ -360,6 +360,11 @@ corrected audits. None of these milestones is complete.
   - Runtime function `tiq_str_cat` appended to `TIQ_RUNTIME_PRELUDE7`.
   - Tests (added failing first): `m1013_scat` in `tests/smoke.sh` covers normal concatenation, empty-first, empty-second, and length verification. Full suite plus tooling/fuzz green under ASan/UBSan.
   - Docs: LANGUAGE_SPEC §19.5; ROADMAP M10 evidence.
+- M10.14: Integer-to-string conversion builtin (2026-07-29):
+  - `int_str(n)` takes one `int` and returns its decimal representation as a heap-allocated `str` (owned per §16.4). Uses `snprintf` with a 21-byte buffer.
+  - Runtime function `tiq_int_str` appended to `TIQ_RUNTIME_PRELUDE7`.
+  - Tests (added failing first): `m1014_istr` in `tests/smoke.sh` covers positive, negative, zero, and length. Full suite plus tooling/fuzz green under ASan/UBSan.
+  - Docs: LANGUAGE_SPEC §19.5; ROADMAP M10 evidence.
 
 ## Known bootstrap limitations
 

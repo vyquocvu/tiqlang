@@ -658,8 +658,9 @@ All reject wrong arity with E12 and non-`int` arguments with E09 at compile time
 ### 19.5 String utilities
 
 - `str_cat(a, b)` takes exactly two `str` arguments and returns their concatenation as a heap-allocated `str` (owned per §16.4). Either argument may be empty. The result is a fresh buffer of length `len(a) + len(b)`.
+- `int_str(n)` takes exactly one `int` argument and returns its decimal string representation as a heap-allocated `str` (owned per §16.4). For example, `int_str(42)` yields `"42"` and `int_str(-7)` yields `"-7"`.
 
-Wrong arity is rejected with E12 and non-`str` arguments with E09 at compile time.
+Wrong arity is rejected with E12 and non-`str` arguments with E09 at compile time (`int_str` checks `int`).
 
 ## 20. Bootstrap conformance
 
