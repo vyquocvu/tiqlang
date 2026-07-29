@@ -1,0 +1,28 @@
+// Option and Result types demonstration
+
+// Option: some(x) wraps a value, none is absent
+x = some(42)
+y = x ?? 0
+print(y)
+
+z = none
+w = z ?? -1
+print(w)
+
+// Result: ok(x) wraps success, err(e) wraps error
+r = ok(100)
+s = r ?? 0
+print(s)
+
+e = err(99)
+f = e ?? 0
+print(f)
+
+// Propagation operator unwraps Option/Result
+a = some(7)
+b = a?
+print(b)
+
+c = ok(13)
+d = c?
+print(d)

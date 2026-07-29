@@ -83,6 +83,9 @@ static SemanticType *ty(SemanticContext *ctx, PrimitiveType kind) {
     return type_get(ctx->pool, kind);
 }
 
+// Forward declaration for struct registry lookup (defined below)
+static SemanticType *struct_lookup(SemanticContext *ctx, Token name);
+
 // M12.4: Resolve a type annotation token to a SemanticType.
 // Returns NULL if the token is not a valid type name.
 static SemanticType *resolve_type_annot(SemanticContext *ctx, Token tok) {
@@ -103,6 +106,9 @@ static SemanticType *resolve_type_annot(SemanticContext *ctx, Token tok) {
             return ty(ctx, type_names[i].kind);
         }
     }
+    // M12.6: Check user-defined struct types
+    SemanticType *st = struct_lookup(ctx, tok);
+    if (st) return st;
     return NULL; // unknown type name
 }
 

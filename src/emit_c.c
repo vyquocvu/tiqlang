@@ -573,7 +573,19 @@ static void emit_type_name(PrimitiveType kind, FILE *out) {
         case TYPE_F32:      fputs("float", out); break;
         case TYPE_UNIT:     fputs("void", out); break;
         case TYPE_NEVER:    fputs("void", out); break;
+        case TYPE_OPTION:   fputs("TiqOption", out); break;
+        case TYPE_RESULT:   fputs("TiqResult", out); break;
         default:           fputs("int64_t", out); break;
+    }
+}
+
+// M12.6/M8: Emit full C type for a SemanticType, including struct names.
+static void emit_semantic_type(SemanticType *t, FILE *out) {
+    if (!t) { fputs("int64_t", out); return; }
+    if (t->kind == TYPE_STRUCT && t->struct_name && t->struct_name[0]) {
+        fputs(t->struct_name, out);
+    } else {
+        emit_type_name(t->kind, out);
     }
 }
 
@@ -922,6 +934,23 @@ void compile_to_c(const char *source_path, const char *source, FILE *out, DiagCo
 
     fputs(TIQ_RUNTIME_PRELUDE, ctx->out);
 
+    // M12.6: Emit struct definitions (before function declarations so types are visible)
+    for (int i = 0; i < count; i++) {
+        if (stmts[i] && stmts[i]->kind == AST_STRUCT_DEF) {
+            SemanticType *st = stmts[i]->semantic_type;
+            if (st && st->kind == TYPE_STRUCT && st->struct_name) {
+                fprintf(ctx->out, "typedef struct {\n");
+                for (int f = 0; f < st->field_count; f++) {
+                    fputs("    ", ctx->out);
+                    if (st->field_types[f]) emit_type_name(st->field_types[f]->kind, ctx->out);
+                    else fputs("int64_t", ctx->out);
+                    fprintf(ctx->out, " %s;\n", st->field_names[f]);
+                }
+                fprintf(ctx->out, "} %s;\n\n", st->struct_name);
+            }
+        }
+    }
+
     // Forward-declare stream gen functions
     for (int g = 0; g < stream_gen_count; g++) {
         fprintf(ctx->out, "int64_t tiq_gen_%s(", stream_gens[g].name);
@@ -943,28 +972,11 @@ void compile_to_c(const char *source_path, const char *source, FILE *out, DiagCo
                 for (int j = 0; j < stmts[i]->as.function.param_count; j++) {
                     if (j > 0) fputs(", ", ctx->out);
                     SemanticType *pt = (SemanticType *)(stmts[i]->as.function.param_types ? stmts[i]->as.function.param_types[j] : NULL);
-                    if (pt && pt->kind == TYPE_SLICE) fputs("TiqSlice ", ctx->out);
-                    else fputs("int64_t ", ctx->out);
+                    emit_semantic_type(pt, ctx->out);
+                    fputs(" ", ctx->out);
                     fprintf(ctx->out, "%.*s", (int)stmts[i]->as.function.params[j].length, stmts[i]->as.function.params[j].start);
                 }
                 fputs(");\n", ctx->out);
-            }
-        }
-    }
-
-    // M12.6: Emit struct definitions
-    for (int i = 0; i < count; i++) {
-        if (stmts[i] && stmts[i]->kind == AST_STRUCT_DEF) {
-            SemanticType *st = stmts[i]->semantic_type;
-            if (st && st->kind == TYPE_STRUCT && st->struct_name) {
-                fprintf(ctx->out, "typedef struct {\n");
-                for (int f = 0; f < st->field_count; f++) {
-                    fputs("    ", ctx->out);
-                    if (st->field_types[f]) emit_type_name(st->field_types[f]->kind, ctx->out);
-                    else fputs("int64_t", ctx->out);
-                    fprintf(ctx->out, " %s;\n", st->field_names[f]);
-                }
-                fprintf(ctx->out, "} %s;\n\n", st->struct_name);
             }
         }
     }
@@ -996,8 +1008,8 @@ void compile_to_c(const char *source_path, const char *source, FILE *out, DiagCo
             for (int j = 0; j < stmts[i]->as.function.param_count; j++) {
                 if (j > 0) fputs(", ", ctx->out);
                 SemanticType *pt = (SemanticType *)(stmts[i]->as.function.param_types ? stmts[i]->as.function.param_types[j] : NULL);
-                if (pt && pt->kind == TYPE_SLICE) fputs("TiqSlice ", ctx->out);
-                else fputs("int64_t ", ctx->out);
+                emit_semantic_type(pt, ctx->out);
+                fputs(" ", ctx->out);
                 fprintf(ctx->out, "%.*s", (int)stmts[i]->as.function.params[j].length, stmts[i]->as.function.params[j].start);
             }
             if (stmts[i]->as.function.body && stmts[i]->as.function.body->kind == AST_BLOCK) {
