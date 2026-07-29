@@ -355,6 +355,11 @@ corrected audits. None of these milestones is complete.
   - Runtime prelude gained a seventh chunk (`TIQ_RUNTIME_PRELUDE7`) with `tiq_json_del`.
   - Tests (added failing first): `m1012_jdel` in `tests/smoke.sh` covers delete-first, delete-last, delete-only, and non-object-input. Full suite plus tooling/fuzz green under ASan/UBSan.
   - Docs: LANGUAGE_SPEC §19.1; ROADMAP M10 evidence.
+- M10.13: String concatenation builtin (2026-07-29):
+  - `str_cat(a, b)` takes two `str` arguments and returns their concatenation as a heap-allocated `str` (owned per §16.4). Either argument may be empty.
+  - Runtime function `tiq_str_cat` appended to `TIQ_RUNTIME_PRELUDE7`.
+  - Tests (added failing first): `m1013_scat` in `tests/smoke.sh` covers normal concatenation, empty-first, empty-second, and length verification. Full suite plus tooling/fuzz green under ASan/UBSan.
+  - Docs: LANGUAGE_SPEC §19.5; ROADMAP M10 evidence.
 
 ## Known bootstrap limitations
 

@@ -655,6 +655,12 @@ A minimal readiness-notification loop for monitoring multiple file descriptors w
 
 All reject wrong arity with E12 and non-`int` arguments with E09 at compile time. Invalid operations return `-1` (or `0` for `ev_ready`) and never raise a runtime error.
 
+### 19.5 String utilities
+
+- `str_cat(a, b)` takes exactly two `str` arguments and returns their concatenation as a heap-allocated `str` (owned per §16.4). Either argument may be empty. The result is a fresh buffer of length `len(a) + len(b)`.
+
+Wrong arity is rejected with E12 and non-`str` arguments with E09 at compile time.
+
 ## 20. Bootstrap conformance
 
 The bootstrap compiler must reject all unsupported syntax with a non-zero exit code rather than silently generating incorrect code.
