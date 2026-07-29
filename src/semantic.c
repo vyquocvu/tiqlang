@@ -522,6 +522,15 @@ static void check_node(SemanticContext *ctx, AstNode *node) {
                         // M10.7: JSON key-existence check (LANGUAGE_SPEC §19.1).
                         {"json_has",       8, 2, TYPE_STR, TYPE_BOOL, TYPE_UNKNOWN},
                         {"net_fetch",      9, 1, TYPE_STR, TYPE_STR, TYPE_UNKNOWN},
+                        // M10.8: TCP socket primitives (LANGUAGE_SPEC §19.3).
+                        {"net_listen",    10, 1, TYPE_INT, TYPE_INT, TYPE_UNKNOWN},
+                        {"net_accept",    10, 1, TYPE_INT, TYPE_INT, TYPE_UNKNOWN},
+                        {"net_connect",   11, 1, TYPE_INT, TYPE_INT, TYPE_UNKNOWN},
+                        {"net_recv",       8, 1, TYPE_INT, TYPE_STR, TYPE_UNKNOWN},
+                        {"net_send",       8, 2, TYPE_INT, TYPE_INT, TYPE_STR},
+                        {"net_close",      9, 1, TYPE_INT, TYPE_INT, TYPE_UNKNOWN},
+                        {"net_port",       8, 1, TYPE_INT, TYPE_INT, TYPE_UNKNOWN},
+                        {"net_shutdown",  12, 1, TYPE_INT, TYPE_INT, TYPE_UNKNOWN},
                         // M10.1: CLI argument builtins (LANGUAGE_SPEC §18.1)
                         {"cli_arg_count", 13, 0, TYPE_INT, TYPE_INT, TYPE_UNKNOWN},
                         {"cli_arg",        7, 1, TYPE_INT, TYPE_STR, TYPE_UNKNOWN},

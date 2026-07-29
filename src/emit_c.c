@@ -82,7 +82,7 @@ static void emit_type_name(PrimitiveType kind, FILE *out);
 static bool is_owned_str_builtin_call(AstNode *expr) {
     static const struct { const char *name; int len; } owned[] = {
         {"fs_read", 7}, {"json_encode_str", 15}, {"json_get", 8},
-        {"json_arr_get", 12}, {"net_fetch", 9},
+        {"json_arr_get", 12}, {"net_fetch", 9}, {"net_recv", 8},
     };
     if (!expr || expr->kind != AST_CALL || expr->as.call.is_bracket_call) return false;
     if (!expr->as.call.callee || expr->as.call.callee->kind != AST_IDENTIFIER) return false;
@@ -180,6 +180,9 @@ static bool is_safe_builtin_callee(AstNode *callee) {
         {"json_parse_int", 14}, {"json_encode_str", 15}, {"json_get", 8},
         {"json_arr_len", 12}, {"json_arr_get", 12}, {"net_fetch", 9},
         {"cli_arg_count", 13}, {"cli_arg", 7},
+        {"net_listen", 10}, {"net_accept", 10}, {"net_connect", 11},
+        {"net_recv", 8}, {"net_send", 8}, {"net_close", 9},
+        {"net_port", 8}, {"net_shutdown", 12},
     };
     if (!callee || callee->kind != AST_IDENTIFIER) return false;
     Token n = callee->as.identifier.name;
@@ -755,6 +758,10 @@ static void emit_expr(AstNode *node, EmitContext *ctx) {
                     {"json_arr_len", 12, "tiq_json_arr_len"}, {"json_arr_get", 12, "tiq_json_arr_get"},
                     {"json_view", 9, "tiq_json_view"},
                     {"json_has", 8, "tiq_json_has"},
+                    {"net_listen", 10, "tiq_net_listen"}, {"net_accept", 10, "tiq_net_accept"},
+                    {"net_connect", 11, "tiq_net_connect"}, {"net_recv", 8, "tiq_net_recv"},
+                    {"net_send", 8, "tiq_net_send"}, {"net_close", 9, "tiq_net_close"},
+                    {"net_port", 8, "tiq_net_port"}, {"net_shutdown", 12, "tiq_net_shutdown"},
                 };
                 const char *builtin_fn = NULL;
                 for (int bi = 0; bi < (int)(sizeof btn / sizeof btn[0]); bi++) {
@@ -1568,6 +1575,7 @@ void compile_to_c(const char *source_path, const char *source, FILE *out, DiagCo
     fputs(TIQ_RUNTIME_PRELUDE2, ctx->out);
     fputs(TIQ_RUNTIME_PRELUDE3, ctx->out);
     fputs(TIQ_RUNTIME_PRELUDE4, ctx->out);
+    fputs(TIQ_RUNTIME_PRELUDE5, ctx->out);
 
     // M12.6: Emit struct definitions (before function declarations so types are visible)
     for (int i = 0; i < count; i++) {

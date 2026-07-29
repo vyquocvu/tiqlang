@@ -13,6 +13,7 @@ static const char TIQ_RUNTIME_PRELUDE[] =
     "#include <sys/stat.h>\n"
     "#include <sys/socket.h>\n"
     "#include <netdb.h>\n"
+    "#include <netinet/in.h>\n"
     "#include <unistd.h>\n"
     "typedef struct { const void *ptr; int len; } TiqSlice;\n"
     "typedef struct { int64_t value; int has_value; } TiqOption;\n"
@@ -420,6 +421,72 @@ static const char TIQ_RUNTIME_PRELUDE4[] =
     "    memcpy(out, body, blen + 1);\n"
     "    free(buf);\n"
     "    return out;\n"
+    "}\n\n";
+
+// Fifth prelude chunk: M10.8 TCP socket primitives (LANGUAGE_SPEC §19.3).
+static const char TIQ_RUNTIME_PRELUDE5[] =
+    "static int64_t tiq_net_listen(int64_t port) {\n"
+    "    int fd = socket(AF_INET, SOCK_STREAM, 0);\n"
+    "    if (fd < 0) return -1;\n"
+    "    int opt = 1;\n"
+    "    setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof opt);\n"
+    "    struct sockaddr_in a;\n"
+    "    memset(&a, 0, sizeof a);\n"
+    "    a.sin_family = AF_INET;\n"
+    "    a.sin_addr.s_addr = htonl(INADDR_LOOPBACK);\n"
+    "    a.sin_port = htons((uint16_t)port);\n"
+    "    if (bind(fd, (struct sockaddr *)&a, sizeof a) != 0 ||\n"
+    "        listen(fd, 1) != 0) { close(fd); return -1; }\n"
+    "    return fd;\n"
+    "}\n\n"
+
+    "static int64_t tiq_net_accept(int64_t fd) {\n"
+    "    int c = accept((int)fd, 0, 0);\n"
+    "    return c < 0 ? -1 : c;\n"
+    "}\n\n"
+
+    "static int64_t tiq_net_connect(int64_t port) {\n"
+    "    int fd = socket(AF_INET, SOCK_STREAM, 0);\n"
+    "    if (fd < 0) return -1;\n"
+    "    struct sockaddr_in a;\n"
+    "    memset(&a, 0, sizeof a);\n"
+    "    a.sin_family = AF_INET;\n"
+    "    a.sin_addr.s_addr = htonl(INADDR_LOOPBACK);\n"
+    "    a.sin_port = htons((uint16_t)port);\n"
+    "    if (connect(fd, (struct sockaddr *)&a, sizeof a) != 0) {\n"
+    "        close(fd); return -1;\n"
+    "    }\n"
+    "    return fd;\n"
+    "}\n\n"
+
+    "static const char *tiq_net_recv(int64_t fd) {\n"
+    "    char *buf = (char *)tiq_alloc(4097);\n"
+    "    ssize_t r = read((int)fd, buf, 4096);\n"
+    "    if (r <= 0) { free(buf); return tiq_str_dup(\"\"); }\n"
+    "    buf[r] = 0;\n"
+    "    return buf;\n"
+    "}\n\n"
+
+    "static int64_t tiq_net_send(int64_t fd, const char *data) {\n"
+    "    if (!data) return -1;\n"
+    "    size_t n = strlen(data);\n"
+    "    ssize_t w = write((int)fd, data, n);\n"
+    "    return w < 0 ? -1 : (int64_t)w;\n"
+    "}\n\n"
+
+    "static int64_t tiq_net_close(int64_t fd) {\n"
+    "    return close((int)fd) == 0 ? 0 : -1;\n"
+    "}\n\n"
+
+    "static int64_t tiq_net_port(int64_t fd) {\n"
+    "    struct sockaddr_in a;\n"
+    "    socklen_t len = sizeof a;\n"
+    "    if (getsockname((int)fd, (struct sockaddr *)&a, &len) != 0) return -1;\n"
+    "    return ntohs(a.sin_port);\n"
+    "}\n\n"
+
+    "static int64_t tiq_net_shutdown(int64_t fd) {\n"
+    "    return shutdown((int)fd, SHUT_WR) == 0 ? 0 : -1;\n"
     "}\n\n";
 
 #endif

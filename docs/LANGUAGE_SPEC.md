@@ -607,6 +607,21 @@ The pre-existing helpers `json_parse_int` (`str` → `int`, leading-integer pars
 
 Wrong arity is rejected with E12 and a non-`str` argument with E09 at compile time.
 
+### 19.3 TCP socket primitives
+
+Low-level blocking TCP socket builtins for building simple servers and clients. All operate on `127.0.0.1` (loopback) only. File descriptors are represented as `int`; invalid operations return `-1` (or the empty string for `net_recv`) and never raise a runtime error.
+
+- `net_listen(port)` takes one `int` and returns a listening socket fd bound to `127.0.0.1:port`, or `-1`. Port `0` requests an OS-assigned ephemeral port (query it with `net_port`).
+- `net_accept(fd)` takes one `int` (a listening socket) and returns a new connection fd, or `-1`. Blocks until a client connects.
+- `net_connect(port)` takes one `int` and returns a connection fd to `127.0.0.1:port`, or `-1`.
+- `net_recv(fd)` takes one `int` and returns a `str` (heap-allocated, owned per §16.4). Performs a single `read` of up to 4096 bytes; returns the bytes read, or the empty string on EOF or error.
+- `net_send(fd, data)` takes an `int` and a `str` and returns the number of bytes written, or `-1`.
+- `net_close(fd)` takes one `int` and returns `0` on success, `-1` on error.
+- `net_port(fd)` takes one `int` and returns the actual port number of the socket, or `-1`.
+- `net_shutdown(fd)` takes one `int` and shuts down the write end of the socket (the peer sees EOF), returning `0` on success, `-1` on error.
+
+All reject wrong arity with E12 and non-`int` arguments with E09 at compile time (`net_send` checks `int`, `str`). The bootstrap implementation uses POSIX sockets (`socket`, `bind`, `listen`, `accept`, `connect`, `read`, `write`, `close`, `shutdown`, `getsockname`); these are documented platform API dependencies of generated programs.
+
 ## 20. Bootstrap conformance
 
 The bootstrap compiler must reject all unsupported syntax with a non-zero exit code rather than silently generating incorrect code.

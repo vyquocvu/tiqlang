@@ -963,4 +963,29 @@ cc -std=c11 -g -fsanitize=address,undefined -o "$TMP_DIR/m92l_cond_tmp_asan" "$T
 printf '2\n3\n3\nhello\n' > "$TMP_DIR/m92l_cond_tmp.expected"
 cmp "$TMP_DIR/m92l_cond_tmp.out" "$TMP_DIR/m92l_cond_tmp.expected"
 
+# M10.8: TCP socket primitives — a Tiq server (net_listen/net_accept/net_recv/
+# net_send/net_close) serves one HTTP response to a net_fetch client.
+cat > "$TMP_DIR/m108_srv.tiq" <<'EOF'
+fd = net_listen(18923)
+c = net_accept(fd)
+req = net_recv(c)
+net_send(c, "HTTP/1.0 200 OK\r\nContent-Length: 13\r\n\r\n{\"ok\": true}")
+net_close(c)
+net_close(fd)
+EOF
+cat > "$TMP_DIR/m108_cli.tiq" <<'EOF'
+r = net_fetch("http://127.0.0.1:18923/")
+print(json_get(r, "ok"))
+EOF
+./build/tiq build "$TMP_DIR/m108_srv.tiq" -o "$TMP_DIR/m108_srv"
+./build/tiq build "$TMP_DIR/m108_cli.tiq" -o "$TMP_DIR/m108_cli"
+"$TMP_DIR/m108_srv" &
+M108_PID=$!
+sleep 0.5
+"$TMP_DIR/m108_cli" > "$TMP_DIR/m108_cli.out" 2>/dev/null || true
+kill "$M108_PID" 2>/dev/null || true
+wait "$M108_PID" 2>/dev/null || true
+printf 'true\n' > "$TMP_DIR/m108_cli.expected"
+cmp "$TMP_DIR/m108_cli.out" "$TMP_DIR/m108_cli.expected"
+
 echo "smoke: ok"
