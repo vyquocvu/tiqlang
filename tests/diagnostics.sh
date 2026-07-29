@@ -32,6 +32,8 @@ assert_diagnostic() {
 }
 
 assert_diagnostic "unterminated_string" 'x = \"hello' "unterminated string literal"
+# LANGUAGE_SPEC §4: only \\ \" \n \r \t \0 are valid escapes; others fail closed.
+assert_diagnostic "bad_string_escape" 'x = "a\q"' "unsupported escape sequence"
 assert_diagnostic "bracket_loop_no_rbracket" '[0..10' "expected ']' after loop header"
 assert_diagnostic "bracket_loop_no_lbrace" '[0..10] i' "expected '{' to open loop body"
 assert_diagnostic "bracket_loop_no_rbrace" '[0..10] { i' "expected '}' after loop body"

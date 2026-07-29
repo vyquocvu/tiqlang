@@ -87,6 +87,14 @@ static Token string(Lexer *lexer, const char *start) {
         }
         if (peek(lexer) == '\\' && peek_next(lexer) != '\0') {
             advance(lexer);
+            // LANGUAGE_SPEC §4: only \\ \" \n \r \t \0 are valid escapes;
+            // anything else fails closed at lex time.
+            char e = peek(lexer);
+            if (e != '\\' && e != '"' && e != 'n' && e != 'r' && e != 't' && e != '0') {
+                char msg[64];
+                snprintf(msg, sizeof(msg), "unsupported escape sequence '\\%c'", e);
+                diag_error(lexer->diag, lexer->path, lexer->line, ERR_UNEXPECTED_CHAR, msg);
+            }
         }
         advance(lexer);
     }

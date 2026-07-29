@@ -374,6 +374,20 @@ assert_semantic "cli_arg_no_args" 'x = cli_arg()
 assert_semantic "cli_arg_bad_type" 'x = cli_arg("0")
 ' "$TMP_DIR/cli_arg_bad_type.tiq:1: error[E09]: cli_arg argument: expected int, found str"
 
+# M10.2: JSON decoder builtin (LANGUAGE_SPEC §19).
+assert_semantic_ast "typed_json_get" 'v = json_get("{}", "k")
+' 'BINDING v <TYPE_STR>
+  CALL <TYPE_STR>
+    IDENT json_get
+    STRING "{}" <TYPE_STR>
+    STRING "k" <TYPE_STR>'
+
+assert_semantic "json_get_bad_arity" 'x = json_get("{}")
+' "$TMP_DIR/json_get_bad_arity.tiq:1: error[E12]: json_get expects exactly 2 arguments"
+
+assert_semantic "json_get_bad_type" 'x = json_get("{}", 1)
+' "$TMP_DIR/json_get_bad_type.tiq:1: error[E09]: json_get argument: expected str, found int"
+
 # unify() (plan 3.1): conditional branches and every match arm are checked.
 assert_semantic "conditional_branch_mismatch" 'b = true
 x = b ? 2 : "s"

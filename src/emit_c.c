@@ -10,20 +10,22 @@
 #include "../include/emit_c.h"
 #include "../include/runtime_prelude.h"
 
+// Emit the raw bytes of a Tiq string literal as a C string literal.
+// LANGUAGE_SPEC §4 escapes (\\ \" \n \r \t \0) are spelled identically in C,
+// so validated escape sequences pass through verbatim; the lexer has already
+// rejected any other escape. Bare control bytes are hex-escaped.
 static void emit_c_string(FILE *out, const char *start, size_t length) {
     size_t i;
     fputc('"', out);
     for (i = 0; i < length; i++) {
         unsigned char ch = (unsigned char)start[i];
-        switch (ch) {
-            case '\\': fputs("\\\\", out); break;
-            case '"': fputs("\\\"", out); break;
-            case '\n': fputs("\\n", out); break;
-            case '\r': fputs("\\r", out); break;
-            case '\t': fputs("\\t", out); break;
-            default:
-                if (ch < 32U || ch == 127U) fprintf(out, "\\x%02x", ch);
-                else fputc((int)ch, out);
+        if (ch == '\\' && i + 1 < length) {
+            fputc('\\', out);
+            fputc(start[++i], out);
+        } else if (ch < 32U || ch == 127U) {
+            fprintf(out, "\\x%02x", ch);
+        } else {
+            fputc((int)ch, out);
         }
     }
     fputc('"', out);
@@ -274,6 +276,7 @@ static void emit_expr(AstNode *node, EmitContext *ctx) {
                     {"proc_exit", 9, "tiq_proc_exit"}, {"json_parse_int", 14, "tiq_json_parse_int"},
                     {"json_encode_str", 15, "tiq_json_encode_str"}, {"net_fetch", 9, "tiq_net_fetch"},
                     {"cli_arg_count", 13, "tiq_cli_arg_count"}, {"cli_arg", 7, "tiq_cli_arg"},
+                    {"json_get", 8, "tiq_json_get"},
                 };
                 const char *builtin_fn = NULL;
                 for (int bi = 0; bi < (int)(sizeof btn / sizeof btn[0]); bi++) {
@@ -976,6 +979,7 @@ void compile_to_c(const char *source_path, const char *source, FILE *out, DiagCo
     }
 
     fputs(TIQ_RUNTIME_PRELUDE, ctx->out);
+    fputs(TIQ_RUNTIME_PRELUDE2, ctx->out);
 
     // M12.6: Emit struct definitions (before function declarations so types are visible)
     for (int i = 0; i < count; i++) {

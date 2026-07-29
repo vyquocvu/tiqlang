@@ -45,7 +45,7 @@ false
 "hello"
 ```
 
-Escape sequences: `\\`, `\"`, `\n`, `\r`, `\t`, and `\0`.
+Escape sequences: `\\`, `\"`, `\n`, `\r`, `\t`, and `\0`. Each decodes to the escaped character in the string's value. Any other escape sequence is rejected at lex time with E01 (`unsupported escape sequence`).
 
 ## 5. Operators
 
@@ -536,7 +536,20 @@ Programs read their command-line arguments through two builtins:
 
 Both are ordinary builtin calls: wrong arity is rejected with E12 and a non-`int` index with E09 at compile time.
 
-## 19. Bootstrap conformance
+## 19. Standard library builtins: JSON access
+
+`json_get(json, key)` takes exactly two `str` arguments and returns a `str`. It performs a single deterministic scan of `json`, which must be a JSON object, and looks up `key` among the object's top-level members:
+
+- A string value yields its decoded contents: the escapes `\"`, `\\`, `\/`, `\n`, `\t`, and `\r` are decoded; any other `\x` yields `x`.
+- A number, `true`, `false`, or `null` value yields its verbatim token text (for example `"42"`, `"true"`).
+- An object or array value yields the raw balanced sub-document text, so nested members are read by chaining `json_get(json_get(j, "outer"), "inner")`.
+- A missing key, an input that is not a JSON object, or malformed input yields the empty string. `json_get` never raises a runtime error.
+
+Key comparison is exact and byte-wise; keys in `json` containing escape sequences are not decoded before comparison. Wrong arity is rejected with E12 and non-`str` arguments with E09 at compile time.
+
+The pre-existing helpers `json_parse_int` (`str` → `int`, leading-integer parse) and `json_encode_str` (`str` → `str`, quoted and escaped) remain available.
+
+## 20. Bootstrap conformance
 
 The bootstrap compiler must reject all unsupported syntax with a non-zero exit code rather than silently generating incorrect code.
 

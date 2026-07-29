@@ -505,6 +505,8 @@ static void check_node(SemanticContext *ctx, AstNode *node) {
                         {"proc_exit",      9, 1, TYPE_INT, TYPE_INT},
                         {"json_parse_int",14, 1, TYPE_STR, TYPE_INT},
                         {"json_encode_str",15,1, TYPE_STR, TYPE_STR},
+                        // M10.2: JSON decoder builtin (LANGUAGE_SPEC §19).
+                        {"json_get",       8, 2, TYPE_STR, TYPE_STR},
                         {"net_fetch",      9, 1, TYPE_STR, TYPE_STR},
                         // M10.1: CLI argument builtins (LANGUAGE_SPEC §18.1)
                         {"cli_arg_count", 13, 0, TYPE_INT, TYPE_INT},

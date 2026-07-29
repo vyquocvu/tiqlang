@@ -393,4 +393,34 @@ printf 'print(cli_arg_count())\n' > "$TMP_DIR/m10_cli_none.tiq"
 ./build/tiq build "$TMP_DIR/m10_cli_none.tiq" -o "$TMP_DIR/m10_cli_none"
 [ "$("$TMP_DIR/m10_cli_none")" = "0" ]
 
+# LANGUAGE_SPEC §4: string escapes decode to their escaped characters.
+cat > "$TMP_DIR/esc_decode.tiq" <<'EOF'
+print("a\nb")
+print("q\"q")
+print("t\tt")
+print("s\\s")
+EOF
+./build/tiq build "$TMP_DIR/esc_decode.tiq" -o "$TMP_DIR/esc_decode"
+"$TMP_DIR/esc_decode" > "$TMP_DIR/esc_decode.out"
+printf 'a\nb\nq"q\nt\tt\ns\\s\n' > "$TMP_DIR/esc_decode.expected"
+cmp "$TMP_DIR/esc_decode.out" "$TMP_DIR/esc_decode.expected"
+
+# M10.2: json_get decodes strings, returns raw scalars/sub-documents, and
+# yields the empty string for missing keys or non-object input (LANGUAGE_SPEC §19).
+cat > "$TMP_DIR/m10_json_get.tiq" <<'EOF'
+j = "{\"name\": \"tiq\", \"n\": 42, \"ok\": true, \"nested\": {\"x\": 7}, \"esc\": \"a\\nb\"}"
+print(json_get(j, "name"))
+print(json_get(j, "n"))
+print(json_get(j, "ok"))
+print(json_get(j, "nested"))
+print(json_get(json_get(j, "nested"), "x"))
+print(json_get(j, "esc"))
+print(json_get(j, "missing"))
+print(json_get("[1, 2]", "k"))
+EOF
+./build/tiq build "$TMP_DIR/m10_json_get.tiq" -o "$TMP_DIR/m10_json_get"
+"$TMP_DIR/m10_json_get" > "$TMP_DIR/m10_json_get.out"
+printf 'tiq\n42\ntrue\n{"x": 7}\n7\na\nb\n\n\n' > "$TMP_DIR/m10_json_get.expected"
+cmp "$TMP_DIR/m10_json_get.out" "$TMP_DIR/m10_json_get.expected"
+
 echo "smoke: ok"
