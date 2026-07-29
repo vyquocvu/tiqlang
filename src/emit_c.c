@@ -967,7 +967,7 @@ void compile_to_c(const char *source_path, const char *source, FILE *out, DiagCo
             if (stmts[i] && stmts[i]->kind == AST_FUNCTION &&
                 !(stmts[i]->as.function.body && stmts[i]->as.function.body->kind == AST_STREAM_GEN)) {
                 SemanticType *t = stmts[i]->semantic_type;
-                if (t) emit_type_name(t->kind, ctx->out); else fputs("int64_t", ctx->out);
+                emit_semantic_type(t, ctx->out);
                 fprintf(ctx->out, " %.*s(", (int)stmts[i]->as.function.name.length, stmts[i]->as.function.name.start);
                 for (int j = 0; j < stmts[i]->as.function.param_count; j++) {
                     if (j > 0) fputs(", ", ctx->out);
@@ -1003,7 +1003,7 @@ void compile_to_c(const char *source_path, const char *source, FILE *out, DiagCo
     for (int i = 0; i < count; i++) {
         if (stmts[i] && stmts[i]->kind == AST_FUNCTION && stmts[i]->as.function.body->kind != AST_STREAM_GEN) {
             SemanticType *t = stmts[i]->semantic_type;
-            if (t) emit_type_name(t->kind, ctx->out); else fputs("int64_t", ctx->out);
+            emit_semantic_type(t, ctx->out);
             fprintf(ctx->out, "\n%.*s(", (int)stmts[i]->as.function.name.length, stmts[i]->as.function.name.start);
             for (int j = 0; j < stmts[i]->as.function.param_count; j++) {
                 if (j > 0) fputs(", ", ctx->out);

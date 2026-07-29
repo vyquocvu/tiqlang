@@ -651,7 +651,10 @@ static void check_node(SemanticContext *ctx, AstNode *node) {
                         break;
                     }
                 }
-                if (!node->as.call.is_bracket_call && callee_type->param_count >= 0 && callee_type->param_count != node->as.call.arg_count) {
+                // M12.6: Skip arity check for struct-returning functions
+                // (param_count is 0 for struct types; arity checked at definition)
+                if (!node->as.call.is_bracket_call && callee_type->kind != TYPE_STRUCT &&
+                    callee_type->param_count >= 0 && callee_type->param_count != node->as.call.arg_count) {
                     diag_error(ctx->diag, ctx->path, node->token.line, ERR_ARITY_MISMATCH, "arity mismatch");
                 }
             }
@@ -659,12 +662,13 @@ static void check_node(SemanticContext *ctx, AstNode *node) {
                 check_node(ctx, node->as.call.args[i]);
             }
             {
-                PrimitiveType ret_kind = TYPE_UNKNOWN;
+                // M12.6: Use full callee type for struct returns (preserves struct_name)
                 if (node->as.call.callee && node->as.call.callee->semantic_type) {
                     SemanticType *ct = node->as.call.callee->semantic_type;
-                    ret_kind = ct->kind;
+                    node->semantic_type = ct;
+                } else {
+                    node->semantic_type = ty(ctx, TYPE_UNKNOWN);
                 }
-                node->semantic_type = ty(ctx, ret_kind);
             }
             break;
         case AST_BLOCK: {
@@ -782,12 +786,15 @@ static void check_node(SemanticContext *ctx, AstNode *node) {
                 ret_kind = bt->kind;
             }
             // M12.4: Check body against declared return type if present
+            SemanticType *ret_type = NULL; // Full type for struct returns
             if (node->as.function.return_type_annot.kind == TOK_IDENT) {
                 SemanticType *ret_annot = resolve_type_annot(ctx, node->as.function.return_type_annot);
                 if (ret_annot) {
                     SemanticType *u = unify(ctx, node->token.line, ret_annot,
                                             ty(ctx, ret_kind), "return type mismatch");
                     if (u) ret_kind = u->kind;
+                    // M12.6: Preserve full struct type for return
+                    if (ret_annot->kind == TYPE_STRUCT) ret_type = ret_annot;
                 } else {
                     char msg[128];
                     snprintf(msg, sizeof msg, "unknown return type '%.*s'",
@@ -805,10 +812,18 @@ static void check_node(SemanticContext *ctx, AstNode *node) {
                                         ty(ctx, sym->type ? sym->type->kind : TYPE_UNKNOWN),
                                         ty(ctx, ret_kind), "type mismatch");
                 if (u && u->kind != TYPE_UNKNOWN) {
-                    sym->type = type_get_func(ctx->pool, u->kind, node->as.function.param_count);
+                    // M12.6: For struct returns, use the full struct type so
+                    // callers can access fields. param_count is lost but
+                    // arity is checked at the definition site.
+                    if (ret_type && ret_type->kind == TYPE_STRUCT) {
+                        sym->type = ret_type;
+                    } else {
+                        sym->type = type_get_func(ctx->pool, u->kind, node->as.function.param_count);
+                    }
                 }
             }
-            node->semantic_type = ty(ctx, ret_kind);
+            // M12.6: Use full struct type if available, otherwise use kind-only type
+            node->semantic_type = ret_type ? ret_type : ty(ctx, ret_kind);
             break;
         }
         case AST_BRACKET_LOOP: {
