@@ -126,9 +126,21 @@ static void format_stream(FmtSink *sink, Lexer *lexer, FormatterOptions *opts) {
             token.kind == TOK_STAR_EQ || token.kind == TOK_SLASH_EQ ||
             token.kind == TOK_PERCENT_EQ || token.kind == TOK_COLON_EQ ||
             token.kind == TOK_LARROW || token.kind == TOK_RARROW ||
-            token.kind == TOK_QUESTION || token.kind == TOK_COLON) {
+            token.kind == TOK_QUESTION_QUESTION || token.kind == TOK_COLON) {
             emit_token(&fmt, token);
             emit_space(&fmt);
+            continue;
+        }
+
+        // M8: '?' can be ternary conditional or propagation operator.
+        // Ternary: space after. Propagation (followed by newline/EOF/closer): no space.
+        if (token.kind == TOK_QUESTION) {
+            emit_token(&fmt, token);
+            if (peek.kind != TOK_NEWLINE && peek.kind != TOK_EOF &&
+                peek.kind != TOK_RBRACE && peek.kind != TOK_RBRACKET &&
+                peek.kind != TOK_RPAREN && peek.kind != TOK_COMMA) {
+                emit_space(&fmt);
+            }
             continue;
         }
 
