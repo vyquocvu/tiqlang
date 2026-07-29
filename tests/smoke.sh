@@ -875,4 +875,27 @@ cc -std=c11 -g -fsanitize=address,undefined -o "$TMP_DIR/m92j_tmp_asan" "$TMP_DI
 printf 'two\n"three"\nfour\n' > "$TMP_DIR/m92j_tmp.expected"
 cmp "$TMP_DIR/m92j_tmp.out" "$TMP_DIR/m92j_tmp.expected"
 
+# M10.6: json_view(json, key) returns a zero-copy str view (TiqSlice) into the
+# source buffer: raw string bytes without quotes/escape decoding, verbatim
+# scalar tokens, raw sub-documents; missing key yields an empty view.
+cat > "$TMP_DIR/m106_jview.tiq" <<'EOF'
+j = "{\"name\": \"hello\", \"age\": 42, \"nested\": {\"a\": 1}}"
+v = json_view(j, "name")
+print(v)
+print(len(v))
+w = json_view(j, "age")
+print(w)
+x = json_view(j, "missing")
+print(len(x))
+y = json_view(j, "nested")
+print(y)
+EOF
+./build/tiq emit-c "$TMP_DIR/m106_jview.tiq" > "$TMP_DIR/m106_jview.c"
+grep -o 'free((void \*)[a-z_0-9]*);' "$TMP_DIR/m106_jview.c" > "$TMP_DIR/m106_jview.frees" || true
+test ! -s "$TMP_DIR/m106_jview.frees"
+cc -std=c11 -g -fsanitize=address,undefined -o "$TMP_DIR/m106_jview_asan" "$TMP_DIR/m106_jview.c"
+"$TMP_DIR/m106_jview_asan" > "$TMP_DIR/m106_jview.out"
+printf 'hello\n5\n42\n0\n{"a": 1}\n' > "$TMP_DIR/m106_jview.expected"
+cmp "$TMP_DIR/m106_jview.out" "$TMP_DIR/m106_jview.expected"
+
 echo "smoke: ok"

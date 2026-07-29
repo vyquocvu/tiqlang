@@ -237,6 +237,41 @@ static const char TIQ_RUNTIME_PRELUDE2[] =
 
 // Third prelude chunk, same ISO C 4095-character split rationale as above.
 static const char TIQ_RUNTIME_PRELUDE3[] =
+    // M10.6: json_view(json, key) -- zero-copy member lookup returning a
+    // TiqSlice into the source buffer (LANGUAGE_SPEC §19.1). String values
+    // yield raw bytes between quotes (no escape decoding); scalars and
+    // sub-documents yield verbatim text; failure yields an empty view.
+    "static TiqSlice tiq_json_view(const char *json, const char *key) {\n"
+    "    TiqSlice empty = { \"\", 0 };\n"
+    "    if (!json || !key) return empty;\n"
+    "    const char *p = tiq_json_ws(json);\n"
+    "    size_t klen = strlen(key);\n"
+    "    if (*p != '{') return empty;\n"
+    "    p = tiq_json_ws(p + 1);\n"
+    "    while (*p && *p != '}') {\n"
+    "        const char *ks = p + 1;\n"
+    "        const char *ke = tiq_json_str_end(p);\n"
+    "        if (!ke) return empty;\n"
+    "        p = tiq_json_ws(ke);\n"
+    "        if (*p != ':') return empty;\n"
+    "        p = tiq_json_ws(p + 1);\n"
+    "        const char *vs = p;\n"
+    "        const char *ve = tiq_json_value_end(p);\n"
+    "        if (!ve) return empty;\n"
+    "        if ((size_t)(ke - 1 - ks) == klen && memcmp(ks, key, klen) == 0) {\n"
+    "            if (*vs == '\"') { vs++; ve--; }\n"
+    "            TiqSlice r;\n"
+    "            r.ptr = vs;\n"
+    "            r.len = (int)(ve - vs);\n"
+    "            return r;\n"
+    "        }\n"
+    "        p = tiq_json_ws(ve);\n"
+    "        if (*p != ',') break;\n"
+    "        p = tiq_json_ws(p + 1);\n"
+    "    }\n"
+    "    return empty;\n"
+    "}\n\n"
+
     // M10.5: HTTP/1.1 chunked transfer decoding (LANGUAGE_SPEC §19.2).
     // Header name and value are matched case-insensitively.
     "static int64_t tiq_http_is_chunked(const char *h, size_t n) {\n"

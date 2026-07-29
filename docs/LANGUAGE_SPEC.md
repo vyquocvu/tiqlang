@@ -578,6 +578,15 @@ JSON arrays are read with two companion builtins:
 
 All three builtins reject wrong arity with E12 and wrong argument types with E09 at compile time.
 
+`json_view(json, key)` takes exactly two `str` arguments and returns a `str` view (a non-owning `TiqSlice`). It performs the same single deterministic scan of `json` as `json_get` and looks up `key` among the object's top-level members, but returns a view into the original buffer with no allocation:
+
+- A string value yields the raw bytes between the opening and closing quotes, without decoding escape sequences.
+- A number, `true`, `false`, or `null` value yields its verbatim token text.
+- An object or array value yields the raw balanced sub-document text.
+- A missing key, an input that is not a JSON object, or malformed input yields an empty view (length zero).
+
+The returned view aliases its `json` argument and must not outlive the string it was derived from. `json_view` is not a heap-allocating builtin and does not participate in the ownership rules of §16.4. Because the result aliases its argument, `json_view` is not a destruction-safe callee: temporaries passed to it are not hoisted and freed (they leak rather than dangle). Wrong arity is rejected with E12 and non-`str` arguments with E09 at compile time.
+
 The pre-existing helpers `json_parse_int` (`str` → `int`, leading-integer parse) and `json_encode_str` (`str` → `str`, quoted and escaped) remain available.
 
 ### 19.2 HTTP fetch
