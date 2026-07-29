@@ -8,6 +8,7 @@ static const char TIQ_RUNTIME_PRELUDE[] =
     "#include <stdio.h>\n"
     "#include <stdlib.h>\n"
     "#include <string.h>\n"
+    "#include <strings.h>\n"
     "#include <stdint.h>\n"
     "#include <sys/stat.h>\n"
     "#include <sys/socket.h>\n"
@@ -236,9 +237,63 @@ static const char TIQ_RUNTIME_PRELUDE2[] =
 
 // Third prelude chunk, same ISO C 4095-character split rationale as above.
 static const char TIQ_RUNTIME_PRELUDE3[] =
-    // M10.4: net_fetch(url) -- blocking HTTP/1.0 GET over POSIX sockets
-    // (LANGUAGE_SPEC §19.2). Only http://host[:port][/path]; every failure
-    // yields "" and never a runtime error.
+    // M10.5: HTTP/1.1 chunked transfer decoding (LANGUAGE_SPEC §19.2).
+    // Header name and value are matched case-insensitively.
+    "static int64_t tiq_http_is_chunked(const char *h, size_t n) {\n"
+    "    for (size_t i = 0; i + 18 <= n; i++) {\n"
+    "        if ((i == 0 || h[i - 1] == '\\n') &&\n"
+    "            strncasecmp(h + i, \"transfer-encoding:\", 18) == 0) {\n"
+    "            size_t j = i + 18;\n"
+    "            while (j + 7 <= n && h[j] != '\\r' && h[j] != '\\n') {\n"
+    "                if (strncasecmp(h + j, \"chunked\", 7) == 0) return 1;\n"
+    "                j++;\n"
+    "            }\n"
+    "            return 0;\n"
+    "        }\n"
+    "    }\n"
+    "    return 0;\n"
+    "}\n\n"
+
+    // Returns the decoded body or NULL on malformed framing; chunk-size
+    // extensions and trailers are ignored.
+    "static char *tiq_http_unchunk(const char *p, size_t n) {\n"
+    "    char *out = (char *)tiq_alloc(n + 1);\n"
+    "    size_t len = 0, i = 0;\n"
+    "    for (;;) {\n"
+    "        size_t sz = 0;\n"
+    "        int digits = 0;\n"
+    "        while (i < n) {\n"
+    "            char c = p[i];\n"
+    "            int v;\n"
+    "            if (c >= '0' && c <= '9') v = c - '0';\n"
+    "            else if (c >= 'a' && c <= 'f') v = c - 'a' + 10;\n"
+    "            else if (c >= 'A' && c <= 'F') v = c - 'A' + 10;\n"
+    "            else break;\n"
+    "            sz = sz * 16 + (size_t)v;\n"
+    "            digits++;\n"
+    "            i++;\n"
+    "        }\n"
+    "        if (digits == 0 || digits > 8) { free(out); return 0; }\n"
+    "        while (i < n && p[i] != '\\r') i++;\n"
+    "        if (i + 1 >= n || p[i + 1] != '\\n') { free(out); return 0; }\n"
+    "        i += 2;\n"
+    "        if (sz == 0) break;\n"
+    "        if (i + sz + 2 > n) { free(out); return 0; }\n"
+    "        memcpy(out + len, p + i, sz);\n"
+    "        len += sz;\n"
+    "        i += sz;\n"
+    "        if (p[i] != '\\r' || p[i + 1] != '\\n') { free(out); return 0; }\n"
+    "        i += 2;\n"
+    "    }\n"
+    "    out[len] = 0;\n"
+    "    return out;\n"
+    "}\n\n";
+
+// Fourth prelude chunk, same ISO C 4095-character split rationale as above.
+static const char TIQ_RUNTIME_PRELUDE4[] =
+    // M10.4/M10.5: net_fetch(url) -- blocking HTTP/1.1 GET over POSIX
+    // sockets (LANGUAGE_SPEC §19.2). Only http://host[:port][/path]; every
+    // failure yields "" and never a runtime error.
     "static const char *tiq_net_fetch(const char *url) {\n"
     "    if (!url || strncmp(url, \"http://\", 7) != 0) return tiq_str_dup(\"\");\n"
     "    const char *hs = url + 7;\n"
@@ -270,8 +325,9 @@ static const char TIQ_RUNTIME_PRELUDE3[] =
     "    }\n"
     "    freeaddrinfo(res);\n"
     "    char req[512];\n"
-    "    int rl = snprintf(req, sizeof req, \"GET %s HTTP/1.0\\r\\n\"\n"
-    "        \"Host: %s\\r\\nConnection: close\\r\\n\\r\\n\", path, host);\n"
+    "    const char *reqfmt = \"GET %s HTTP/1.1\\r\\n\"\n"
+    "        \"Host: %s\\r\\nConnection: close\\r\\n\\r\\n\";\n"
+    "    int rl = snprintf(req, sizeof req, reqfmt, path, host);\n"
     "    if (rl <= 0 || (size_t)rl >= sizeof req ||\n"
     "        write(fd, req, (size_t)rl) != (ssize_t)rl) { close(fd); return tiq_str_dup(\"\"); }\n"
     "    size_t cap = 4096, len = 0;\n"
@@ -294,6 +350,11 @@ static const char TIQ_RUNTIME_PRELUDE3[] =
     "    if (!body) { free(buf); return tiq_str_dup(\"\"); }\n"
     "    body += 4;\n"
     "    size_t blen = len - (size_t)(body - buf);\n"
+    "    if (tiq_http_is_chunked(buf, (size_t)(body - buf))) {\n"
+    "        char *dec = tiq_http_unchunk(body, blen);\n"
+    "        free(buf);\n"
+    "        return dec ? dec : tiq_str_dup(\"\");\n"
+    "    }\n"
     "    char *out = (char *)tiq_alloc(blen + 1);\n"
     "    memcpy(out, body, blen + 1);\n"
     "    free(buf);\n"

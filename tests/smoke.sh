@@ -509,6 +509,73 @@ wait "$HTTP_SERVER_PID"
 printf 'hello tiq\n\n\n' > "$TMP_DIR/m10_net_fetch.expected"
 cmp "$TMP_DIR/m10_net_fetch.out" "$TMP_DIR/m10_net_fetch.expected"
 
+# M10.5: net_fetch speaks HTTP/1.1 and decodes chunked responses
+# (LANGUAGE_SPEC §19.2). The one-shot server replies chunked (lowercase
+# header, a chunk-size extension, a trailer) only when the request line
+# says HTTP/1.1; otherwise it sends a "wrong version" body.
+cat > "$TMP_DIR/m105_server.c" <<'EOF'
+#include <netinet/in.h>
+#include <stdio.h>
+#include <string.h>
+#include <sys/socket.h>
+#include <unistd.h>
+int main(void) {
+    int s = socket(AF_INET, SOCK_STREAM, 0);
+    if (s < 0) return 1;
+    struct sockaddr_in addr;
+    memset(&addr, 0, sizeof addr);
+    addr.sin_family = AF_INET;
+    addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    addr.sin_port = 0;
+    if (bind(s, (struct sockaddr *)&addr, sizeof addr) != 0) return 1;
+    if (listen(s, 1) != 0) return 1;
+    socklen_t alen = sizeof addr;
+    if (getsockname(s, (struct sockaddr *)&addr, &alen) != 0) return 1;
+    printf("%d\n", (int)ntohs(addr.sin_port));
+    fflush(stdout);
+    int c = accept(s, 0, 0);
+    if (c < 0) return 1;
+    char buf[1024];
+    ssize_t n = read(c, buf, sizeof buf - 1);
+    if (n < 0) n = 0;
+    buf[n] = 0;
+    const char *ok = "HTTP/1.1 200 OK\r\n"
+        "transfer-encoding: chunked\r\n\r\n"
+        "d;ext=1\r\n{\"greet\": \"he\r\n"
+        "d\r\nllo chunked\"}\r\n"
+        "0\r\nX-Trail: 1\r\n\r\n";
+    const char *bad = "HTTP/1.1 200 OK\r\n\r\n{\"greet\": \"wrong version\"}";
+    const char *resp = strncmp(buf, "GET / HTTP/1.1\r\n", 16) == 0 ? ok : bad;
+    (void)write(c, resp, strlen(resp));
+    close(c);
+    close(s);
+    return 0;
+}
+EOF
+cc -std=c11 -o "$TMP_DIR/m105_server" "$TMP_DIR/m105_server.c"
+
+perl -e 'alarm 10; exec @ARGV' "$TMP_DIR/m105_server" > "$TMP_DIR/m105_port" &
+M105_SERVER_PID=$!
+PORT=""
+i=0
+while [ "$i" -lt 100 ]; do
+  PORT="$(cat "$TMP_DIR/m105_port" 2>/dev/null || true)"
+  [ -n "$PORT" ] && break
+  sleep 0.1
+  i=$((i + 1))
+done
+[ -n "$PORT" ]
+
+cat > "$TMP_DIR/m105_chunked.tiq" <<'EOF'
+body = net_fetch(cli_arg(0))
+print(json_get(body, "greet"))
+EOF
+./build/tiq build "$TMP_DIR/m105_chunked.tiq" -o "$TMP_DIR/m105_chunked"
+"$TMP_DIR/m105_chunked" "http://127.0.0.1:$PORT/" > "$TMP_DIR/m105_chunked.out"
+wait "$M105_SERVER_PID"
+printf 'hello chunked\n' > "$TMP_DIR/m105_chunked.expected"
+cmp "$TMP_DIR/m105_chunked.out" "$TMP_DIR/m105_chunked.expected"
+
 # M9.2: owned heap strings are freed at scope end, reverse declaration order,
 # after defers (LANGUAGE_SPEC §16.4); aliases and cli_arg results are not
 # freed. ASan build of the emitted C catches double-free / use-after-free.

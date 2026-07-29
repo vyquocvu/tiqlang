@@ -580,10 +580,10 @@ The pre-existing helpers `json_parse_int` (`str` → `int`, leading-integer pars
 
 ### 19.2 HTTP fetch
 
-`net_fetch(url)` takes exactly one `str` and returns a `str`. It performs a blocking HTTP/1.0 `GET` request with `Connection: close` and returns the response body — the bytes after the response's first blank line — regardless of status code.
+`net_fetch(url)` takes exactly one `str` and returns a `str`. It performs a blocking HTTP/1.1 `GET` request with `Connection: close` and returns the response body — the bytes after the response's first blank line — regardless of status code. When the response headers declare `Transfer-Encoding: chunked` (header name and value matched case-insensitively), the chunked framing is decoded and the concatenated chunk data is returned; chunk-size extensions and trailers are ignored.
 
 - The only supported URL form is `http://host[:port][/path]`; the port defaults to `80` and the path to `/`.
-- Any failure yields the empty string and never a runtime error: a non-`http://` scheme, an empty host, name resolution failure, connection failure, a request or read error, or a response without a complete header section.
+- Any failure yields the empty string and never a runtime error: a non-`http://` scheme, an empty host, name resolution failure, connection failure, a request or read error, a response without a complete header section, or malformed chunked framing.
 - The bootstrap implementation uses POSIX sockets (`getaddrinfo`, `socket`, `connect`); it is a documented platform API dependency of generated programs.
 
 Wrong arity is rejected with E12 and a non-`str` argument with E09 at compile time.

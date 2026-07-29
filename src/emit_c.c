@@ -1443,6 +1443,7 @@ void compile_to_c(const char *source_path, const char *source, FILE *out, DiagCo
     fputs(TIQ_RUNTIME_PRELUDE, ctx->out);
     fputs(TIQ_RUNTIME_PRELUDE2, ctx->out);
     fputs(TIQ_RUNTIME_PRELUDE3, ctx->out);
+    fputs(TIQ_RUNTIME_PRELUDE4, ctx->out);
 
     // M12.6: Emit struct definitions (before function declarations so types are visible)
     for (int i = 0; i < count; i++) {
