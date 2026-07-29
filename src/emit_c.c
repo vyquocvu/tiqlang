@@ -83,7 +83,7 @@ static bool is_owned_str_builtin_call(AstNode *expr) {
     static const struct { const char *name; int len; } owned[] = {
         {"fs_read", 7}, {"json_encode_str", 15}, {"json_get", 8},
         {"json_arr_get", 12}, {"net_fetch", 9}, {"net_recv", 8},
-        {"http_method", 11}, {"http_path", 9}, {"json_set", 8},
+        {"http_method", 11}, {"http_path", 9}, {"json_set", 8}, {"json_del", 8},
     };
     if (!expr || expr->kind != AST_CALL || expr->as.call.is_bracket_call) return false;
     if (!expr->as.call.callee || expr->as.call.callee->kind != AST_IDENTIFIER) return false;
@@ -186,7 +186,7 @@ static bool is_safe_builtin_callee(AstNode *callee) {
         {"net_port", 8}, {"net_shutdown", 12},
         {"http_method", 11}, {"http_path", 9},
         {"ev_loop", 7}, {"ev_add", 6}, {"ev_wait", 7}, {"ev_ready", 8},
-        {"json_set", 8},
+        {"json_set", 8}, {"json_del", 8},
     };
     if (!callee || callee->kind != AST_IDENTIFIER) return false;
     Token n = callee->as.identifier.name;
@@ -769,7 +769,7 @@ static void emit_expr(AstNode *node, EmitContext *ctx) {
                     {"http_method", 11, "tiq_http_method"}, {"http_path", 9, "tiq_http_path"},
                     {"ev_loop", 7, "tiq_ev_loop"}, {"ev_add", 6, "tiq_ev_add"},
                     {"ev_wait", 7, "tiq_ev_wait"}, {"ev_ready", 8, "tiq_ev_ready"},
-                    {"json_set", 8, "tiq_json_set"},
+                    {"json_set", 8, "tiq_json_set"}, {"json_del", 8, "tiq_json_del"},
                 };
                 const char *builtin_fn = NULL;
                 for (int bi = 0; bi < (int)(sizeof btn / sizeof btn[0]); bi++) {
@@ -1585,6 +1585,7 @@ void compile_to_c(const char *source_path, const char *source, FILE *out, DiagCo
     fputs(TIQ_RUNTIME_PRELUDE4, ctx->out);
     fputs(TIQ_RUNTIME_PRELUDE5, ctx->out);
     fputs(TIQ_RUNTIME_PRELUDE6, ctx->out);
+    fputs(TIQ_RUNTIME_PRELUDE7, ctx->out);
 
     // M12.6: Emit struct definitions (before function declarations so types are visible)
     for (int i = 0; i < count; i++) {

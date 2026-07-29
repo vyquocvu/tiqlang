@@ -523,6 +523,7 @@ static void check_node(SemanticContext *ctx, AstNode *node) {
                         {"json_has",       8, 2, TYPE_STR, TYPE_BOOL, TYPE_UNKNOWN},
                         // M10.11: JSON object encoder (LANGUAGE_SPEC §19.1).
                         {"json_set",       8, 3, TYPE_STR, TYPE_STR, TYPE_UNKNOWN},
+                        {"json_del",       8, 2, TYPE_STR, TYPE_STR, TYPE_UNKNOWN},
                         {"net_fetch",      9, 1, TYPE_STR, TYPE_STR, TYPE_UNKNOWN},
                         // M10.8: TCP socket primitives (LANGUAGE_SPEC §19.3).
                         {"net_listen",    10, 1, TYPE_INT, TYPE_INT, TYPE_UNKNOWN},

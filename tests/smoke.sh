@@ -1051,4 +1051,21 @@ EOF
 printf 'tiq\n1\nlang\n42\n' > "$TMP_DIR/m1011_jset.expected"
 cmp "$TMP_DIR/m1011_jset.out" "$TMP_DIR/m1011_jset.expected"
 
+# M10.12: json_del — remove members from JSON objects; owned heap result.
+cat > "$TMP_DIR/m1012_jdel.tiq" <<'EOF'
+a = json_set("{}", "x", "1")
+b = json_set(a, "y", "2")
+c = json_del(b, "x")
+print(json_get(c, "x"))
+print(json_get(c, "y"))
+d = json_del(c, "y")
+print(json_get(d, "y"))
+e = json_del("bad", "k")
+print(len(e))
+EOF
+./build/tiq build "$TMP_DIR/m1012_jdel.tiq" -o "$TMP_DIR/m1012_jdel"
+"$TMP_DIR/m1012_jdel" > "$TMP_DIR/m1012_jdel.out"
+printf '\n2\n\n3\n' > "$TMP_DIR/m1012_jdel.expected"
+cmp "$TMP_DIR/m1012_jdel.out" "$TMP_DIR/m1012_jdel.expected"
+
 echo "smoke: ok"
