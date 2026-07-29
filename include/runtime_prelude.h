@@ -690,6 +690,12 @@ static const char TIQ_RUNTIME_PRELUDE7[] =
     "    memcpy(r, a, la);\n"
     "    memcpy(r + la, b, lb + 1);\n"
     "    return r;\n"
+    "}\n\n"
+
+    "static const char *tiq_int_str(int64_t n) {\n"
+    "    char *r = (char *)tiq_alloc(21);\n"
+    "    snprintf(r, 21, \"%lld\", (long long)n);\n"
+    "    return r;\n"
     "}\n";
 
 #endif

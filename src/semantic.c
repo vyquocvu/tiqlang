@@ -526,6 +526,7 @@ static void check_node(SemanticContext *ctx, AstNode *node) {
                         {"json_del",       8, 2, TYPE_STR, TYPE_STR, TYPE_UNKNOWN},
                         // M10.13: String utilities (LANGUAGE_SPEC §19.5).
                         {"str_cat",        7, 2, TYPE_STR, TYPE_STR, TYPE_UNKNOWN},
+                        {"int_str",        7, 1, TYPE_INT, TYPE_STR, TYPE_UNKNOWN},
                         {"net_fetch",      9, 1, TYPE_STR, TYPE_STR, TYPE_UNKNOWN},
                         // M10.8: TCP socket primitives (LANGUAGE_SPEC §19.3).
                         {"net_listen",    10, 1, TYPE_INT, TYPE_INT, TYPE_UNKNOWN},

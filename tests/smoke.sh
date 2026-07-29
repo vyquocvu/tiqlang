@@ -1081,4 +1081,16 @@ EOF
 printf 'hello world\nx\ny\n4\n' > "$TMP_DIR/m1013_scat.expected"
 cmp "$TMP_DIR/m1013_scat.out" "$TMP_DIR/m1013_scat.expected"
 
+# M10.14: int_str — integer to decimal string; owned heap result.
+cat > "$TMP_DIR/m1014_istr.tiq" <<'EOF'
+print(int_str(42))
+print(int_str(-7))
+print(int_str(0))
+print(len(int_str(12345)))
+EOF
+./build/tiq build "$TMP_DIR/m1014_istr.tiq" -o "$TMP_DIR/m1014_istr"
+"$TMP_DIR/m1014_istr" > "$TMP_DIR/m1014_istr.out"
+printf '42\n-7\n0\n5\n' > "$TMP_DIR/m1014_istr.expected"
+cmp "$TMP_DIR/m1014_istr.out" "$TMP_DIR/m1014_istr.expected"
+
 echo "smoke: ok"
