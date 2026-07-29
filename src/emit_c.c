@@ -81,26 +81,54 @@ static bool is_owned_str_builtin_call(AstNode *expr) {
     return false;
 }
 
+// M9.2: does statement s bind an owned string? If so, report its name.
+static bool owned_binding_name(AstNode *s, Token *name) {
+    if (s && s->kind == AST_BINDING && !s->as.binding.is_mutable &&
+        is_owned_str_builtin_call(s->as.binding.expr)) {
+        *name = s->as.binding.name;
+        return true;
+    }
+    if (s && s->kind == AST_ASSIGN && s->as.assign.is_definition &&
+        s->as.assign.op == TOK_EQ && !s->as.assign.index &&
+        is_owned_str_builtin_call(s->as.assign.expr)) {
+        *name = s->as.assign.name;
+        return true;
+    }
+    return false;
+}
+
 // M9.2: free owned strings declared among the first `limit` stmts, in
 // reverse declaration order. Runs at scope end (limit = full statement
 // count, after that scope's defers) and on break/skip (limit = index of
 // the jump statement, so only owners already bound are freed).
 static void emit_scope_frees(AstNode **stmts, int limit, EmitContext *ctx, int indent) {
     for (int i = limit - 1; i >= 0; i--) {
-        AstNode *s = stmts[i];
         Token name;
-        if (s && s->kind == AST_BINDING && !s->as.binding.is_mutable &&
-            is_owned_str_builtin_call(s->as.binding.expr)) {
-            name = s->as.binding.name;
-        } else if (s && s->kind == AST_ASSIGN && s->as.assign.is_definition &&
-                   s->as.assign.op == TOK_EQ && !s->as.assign.index &&
-                   is_owned_str_builtin_call(s->as.assign.expr)) {
-            name = s->as.assign.name;
-        } else {
-            continue;
-        }
+        if (!owned_binding_name(stmts[i], &name)) continue;
         for (int j = 0; j < indent; j++) fputs("    ", ctx->out);
         fprintf(ctx->out, "free((void *)%.*s);\n", (int)name.length, name.start);
+    }
+}
+
+static bool scope_has_owned(AstNode **stmts, int count) {
+    Token name;
+    for (int i = 0; i < count; i++)
+        if (owned_binding_name(stmts[i], &name)) return true;
+    return false;
+}
+
+// M9.2-C: a function may destroy its owners only when its result type
+// cannot carry a pointer into one of them (LANGUAGE_SPEC §16.4).
+static bool is_scalar_result(SemanticType *t) {
+    if (!t) return false;
+    switch (t->kind) {
+        case TYPE_INT: case TYPE_FLOAT: case TYPE_BOOL:
+        case TYPE_I8: case TYPE_I16: case TYPE_I32:
+        case TYPE_U8: case TYPE_U16: case TYPE_U32: case TYPE_U64:
+        case TYPE_F32:
+            return true;
+        default:
+            return false;
     }
 }
 
@@ -1172,6 +1200,21 @@ void compile_to_c(const char *source_path, const char *source, FILE *out, DiagCo
             if (stmts[i]->as.function.body && stmts[i]->as.function.body->kind == AST_BLOCK) {
                 fputs(") {\n", ctx->out);
                 AstNode *block = stmts[i]->as.function.body;
+                // M9.2-C: scalar-result functions destroy their owned strings
+                // before returning; other result types could alias an owner,
+                // so they leak instead (LANGUAGE_SPEC §16.4). An unannotated
+                // function type is TYPE_UNKNOWN; the final expression's type
+                // decides, and a statement final (returns 0) is scalar.
+                AstNode *fe0 = block->as.block.final_expr;
+                bool ret_scalar;
+                if (!fe0 || fe0->kind == AST_ASSIGN || fe0->kind == AST_BINDING) {
+                    ret_scalar = true;
+                } else {
+                    SemanticType *rt = (t && t->kind != TYPE_UNKNOWN) ? t : fe0->semantic_type;
+                    ret_scalar = is_scalar_result(rt);
+                }
+                bool fn_frees = ret_scalar &&
+                    scope_has_owned(block->as.block.statements, block->as.block.stmt_count);
                 for (int s = 0; s < block->as.block.stmt_count; s++) {
                     emit_stmt(block->as.block.statements[s], ctx, 1);
                 }
@@ -1184,13 +1227,29 @@ void compile_to_c(const char *source_path, const char *source, FILE *out, DiagCo
                     AstNode *fe = block->as.block.final_expr;
                     if (fe->kind == AST_ASSIGN || fe->kind == AST_BINDING) {
                         emit_stmt(fe, ctx, 1);
+                        if (fn_frees)
+                            emit_scope_frees(block->as.block.statements,
+                                             block->as.block.stmt_count, ctx, 1);
                         fputs("    return 0;\n", ctx->out);
+                    } else if (fn_frees) {
+                        // Compute the result before the owners die.
+                        fputs("    ", ctx->out);
+                        emit_semantic_type(t, ctx->out);
+                        fputs(" tiq_fn_ret = ", ctx->out);
+                        emit_expr(fe, ctx);
+                        fputs(";\n", ctx->out);
+                        emit_scope_frees(block->as.block.statements,
+                                         block->as.block.stmt_count, ctx, 1);
+                        fputs("    return tiq_fn_ret;\n", ctx->out);
                     } else {
                         fputs("    return ", ctx->out);
                         emit_expr(fe, ctx);
                         fputs(";\n", ctx->out);
                     }
                 } else {
+                    if (fn_frees)
+                        emit_scope_frees(block->as.block.statements,
+                                         block->as.block.stmt_count, ctx, 1);
                     fputs("    return 0;\n", ctx->out);
                 }
                 fputs("}\n\n", ctx->out);

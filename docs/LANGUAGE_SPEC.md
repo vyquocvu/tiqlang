@@ -451,7 +451,9 @@ A binding initialized from another binding (`b = a`) aliases without owning; onl
 
 `break` and `skip` destroy the owned strings of every scope they exit — innermost first, from the jump statement's own scope through the enclosing loop body — before transferring control. Only owners already bound at the jump point are destroyed.
 
-Bootstrap limits (completed in later M9 packages): mutable (`<-`) bindings, bindings inside function bodies, and unbound temporary results are not yet destroyed, and `proc_exit` terminates the process without running destruction. These paths leak; they never double-free or dangle.
+Inside a function whose result type is scalar (an integer type, a float type, or `bool`), owned strings of the body's outermost scope are destroyed before the function returns: after the body's deferred actions, and after the result value has been computed. A function whose result type may carry a pointer (`str` or any composite type) does not yet destroy its owners — the result may alias one of them — so those functions leak instead of dangling.
+
+Bootstrap limits (completed in later M9 packages): mutable (`<-`) bindings and unbound temporary results are not yet destroyed, and `proc_exit` terminates the process without running destruction. These paths leak; they never double-free or dangle.
 
 ## 17. Provisional constructs and surface status
 

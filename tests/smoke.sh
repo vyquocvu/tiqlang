@@ -580,4 +580,28 @@ cc -std=c11 -g -fsanitize=address,undefined -o "$TMP_DIR/m92b_early_asan" "$TMP_
 printf '5\n7\n3\n3\n2\n' > "$TMP_DIR/m92b_early.expected"
 cmp "$TMP_DIR/m92b_early.out" "$TMP_DIR/m92b_early.expected"
 
+# M9.2-C: a scalar-result function frees its body's owned strings after the
+# result is computed; a str-result function must not free (the result may
+# alias an owner) (LANGUAGE_SPEC §16.4).
+cat > "$TMP_DIR/m92c_fn.tiq" <<'EOF'
+get_n src:str -> {
+    v = json_get(src, "n")
+    json_parse_int(v)
+}
+get_s src:str -> str -> {
+    w = json_get(src, "s")
+    w
+}
+print(get_n("{\"n\": 42}"))
+print(get_s("{\"s\": \"ok\"}"))
+EOF
+./build/tiq emit-c "$TMP_DIR/m92c_fn.tiq" > "$TMP_DIR/m92c_fn.c"
+grep -o 'free((void \*)[a-z]);' "$TMP_DIR/m92c_fn.c" > "$TMP_DIR/m92c_fn.frees" || true
+printf 'free((void *)v);\n' > "$TMP_DIR/m92c_fn.frees.expected"
+cmp "$TMP_DIR/m92c_fn.frees" "$TMP_DIR/m92c_fn.frees.expected"
+cc -std=c11 -g -fsanitize=address,undefined -o "$TMP_DIR/m92c_fn_asan" "$TMP_DIR/m92c_fn.c"
+"$TMP_DIR/m92c_fn_asan" > "$TMP_DIR/m92c_fn.out"
+printf '42\nok\n' > "$TMP_DIR/m92c_fn.expected"
+cmp "$TMP_DIR/m92c_fn.out" "$TMP_DIR/m92c_fn.expected"
+
 echo "smoke: ok"
