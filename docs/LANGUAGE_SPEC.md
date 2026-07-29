@@ -449,7 +449,9 @@ Heap-allocating builtins always return fresh heap storage, including their empty
 
 A binding initialized from another binding (`b = a`) aliases without owning; only the owner is destroyed. Aliases and views cannot outlive the owner because they live in the same or an inner scope.
 
-Bootstrap limits (completed in later M9 packages): mutable (`<-`) bindings, bindings inside function bodies, and unbound temporary results are not yet destroyed, and `break`, `skip`, and `proc_exit` paths bypass destruction. These paths leak; they never double-free or dangle.
+`break` and `skip` destroy the owned strings of every scope they exit — innermost first, from the jump statement's own scope through the enclosing loop body — before transferring control. Only owners already bound at the jump point are destroyed.
+
+Bootstrap limits (completed in later M9 packages): mutable (`<-`) bindings, bindings inside function bodies, and unbound temporary results are not yet destroyed, and `proc_exit` terminates the process without running destruction. These paths leak; they never double-free or dangle.
 
 ## 17. Provisional constructs and surface status
 

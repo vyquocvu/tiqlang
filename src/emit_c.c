@@ -34,6 +34,16 @@ static void emit_c_string(FILE *out, const char *start, size_t length) {
 #define TIQ_MAX_STREAM_GENS 64
 typedef struct { const char *name; Token *params; int param_count; } EmitStreamGenInfo;
 
+// M9.2-B: one entry per scope currently being emitted, so break/skip can
+// free the owned strings of every scope they exit (LANGUAGE_SPEC §16.4).
+#define TIQ_MAX_SCOPE_DEPTH 64
+typedef struct {
+    AstNode **stmts;
+    int count;
+    int emitted;      // index of the statement currently being emitted
+    bool is_loop_body;
+} EmitScope;
+
 // All emitter state lives here; no file-static mutable globals, so the
 // backend is re-entrant and unit-testable (plan 2.1).
 typedef struct EmitContext {
@@ -45,6 +55,8 @@ typedef struct EmitContext {
     // M9.1: enclosing function during body emission; used to re-derive
     // reference parameters (semantic analysis auto-derefs their uses).
     AstNode *current_fn;
+    EmitScope scopes[TIQ_MAX_SCOPE_DEPTH];
+    int scope_depth;
 } EmitContext;
 
 static void emit_expr(AstNode *node, EmitContext *ctx);
@@ -69,10 +81,12 @@ static bool is_owned_str_builtin_call(AstNode *expr) {
     return false;
 }
 
-// M9.2: free owned strings declared among stmts, in reverse declaration
-// order. Runs at scope end, after that scope's deferred actions.
-static void emit_scope_frees(AstNode **stmts, int count, EmitContext *ctx, int indent) {
-    for (int i = count - 1; i >= 0; i--) {
+// M9.2: free owned strings declared among the first `limit` stmts, in
+// reverse declaration order. Runs at scope end (limit = full statement
+// count, after that scope's defers) and on break/skip (limit = index of
+// the jump statement, so only owners already bound are freed).
+static void emit_scope_frees(AstNode **stmts, int limit, EmitContext *ctx, int indent) {
+    for (int i = limit - 1; i >= 0; i--) {
         AstNode *s = stmts[i];
         Token name;
         if (s && s->kind == AST_BINDING && !s->as.binding.is_mutable &&
@@ -87,6 +101,31 @@ static void emit_scope_frees(AstNode **stmts, int count, EmitContext *ctx, int i
         }
         for (int j = 0; j < indent; j++) fputs("    ", ctx->out);
         fprintf(ctx->out, "free((void *)%.*s);\n", (int)name.length, name.start);
+    }
+}
+
+// M9.2-B: push/pop the scope currently being emitted. Depth overflow fails
+// safe: the scope is not tracked, so its owners leak on break/skip but are
+// never double-freed.
+static void emit_scope_push(EmitContext *ctx, AstNode **stmts, int count, bool is_loop_body) {
+    if (ctx->scope_depth >= TIQ_MAX_SCOPE_DEPTH) { ctx->scope_depth++; return; }
+    EmitScope *s = &ctx->scopes[ctx->scope_depth++];
+    s->stmts = stmts; s->count = count; s->emitted = 0; s->is_loop_body = is_loop_body;
+}
+
+static void emit_scope_pop(EmitContext *ctx) {
+    if (ctx->scope_depth > 0) ctx->scope_depth--;
+}
+
+// M9.2-B: before a break or skip transfers control, free the owned strings
+// of every scope it exits: innermost first, through the enclosing loop body.
+static void emit_jump_frees(EmitContext *ctx, int indent) {
+    // Untracked inner scopes (depth overflow) would make outer frees unsafe.
+    if (ctx->scope_depth > TIQ_MAX_SCOPE_DEPTH) return;
+    for (int d = ctx->scope_depth - 1; d >= 0; d--) {
+        EmitScope *s = &ctx->scopes[d];
+        emit_scope_frees(s->stmts, s->emitted, ctx, indent);
+        if (s->is_loop_body) break;
     }
 }
 
@@ -789,9 +828,12 @@ static void emit_stmt(AstNode *node, EmitContext *ctx, int indent) {
             // M12.6: Struct definitions are emitted at the top level, not in statements
             break;
         case AST_BREAK:
+            // M9.2-B: destroy owned strings of every scope this break exits.
+            emit_jump_frees(ctx, indent);
             fputs("break;\n", ctx->out);
             break;
         case AST_SKIP:
+            emit_jump_frees(ctx, indent);
             fputs("continue;\n", ctx->out);
             break;
         case AST_BRACKET_LOOP: {
@@ -812,14 +854,21 @@ static void emit_stmt(AstNode *node, EmitContext *ctx, int indent) {
                 emit_expr(domain, ctx);
                 fputs(") {\n", ctx->out);
             }
+            emit_scope_push(ctx, node->as.bracket_loop.body_stmts,
+                            node->as.bracket_loop.body_count, true);
             for (int i = 0; i < node->as.bracket_loop.body_count; i++) {
+                if (ctx->scope_depth <= TIQ_MAX_SCOPE_DEPTH)
+                    ctx->scopes[ctx->scope_depth - 1].emitted = i;
                 emit_stmt(node->as.bracket_loop.body_stmts[i], ctx, indent + 1);
             }
             if (node->as.bracket_loop.body_final) {
+                if (ctx->scope_depth <= TIQ_MAX_SCOPE_DEPTH)
+                    ctx->scopes[ctx->scope_depth - 1].emitted = node->as.bracket_loop.body_count;
                 emit_stmt(node->as.bracket_loop.body_final, ctx, indent + 1);
             }
+            emit_scope_pop(ctx);
             // M9.2: the loop body is a scope; free its owned strings each
-            // iteration (break/skip bypass is a documented bootstrap limit).
+            // iteration (break/skip free their exited scopes at the jump).
             emit_scope_frees(node->as.bracket_loop.body_stmts,
                              node->as.bracket_loop.body_count, ctx, indent + 1);
             for (int i = 0; i < indent; i++) fputs("    ", ctx->out);
@@ -828,10 +877,18 @@ static void emit_stmt(AstNode *node, EmitContext *ctx, int indent) {
         }
         case AST_BLOCK: {
             fputs("{\n", ctx->out);
-            for (int i = 0; i < node->as.block.stmt_count; i++)
+            emit_scope_push(ctx, node->as.block.statements, node->as.block.stmt_count, false);
+            for (int i = 0; i < node->as.block.stmt_count; i++) {
+                if (ctx->scope_depth <= TIQ_MAX_SCOPE_DEPTH)
+                    ctx->scopes[ctx->scope_depth - 1].emitted = i;
                 emit_stmt(node->as.block.statements[i], ctx, indent + 1);
-            if (node->as.block.final_expr)
+            }
+            if (node->as.block.final_expr) {
+                if (ctx->scope_depth <= TIQ_MAX_SCOPE_DEPTH)
+                    ctx->scopes[ctx->scope_depth - 1].emitted = node->as.block.stmt_count;
                 emit_stmt(node->as.block.final_expr, ctx, indent + 1);
+            }
+            emit_scope_pop(ctx);
             for (int i = node->as.block.defer_count - 1; i >= 0; i--)
                 emit_stmt(node->as.block.deferred[i], ctx, indent + 1);
             // M9.2: owned strings die after the block's defers (§16.4).
@@ -964,7 +1021,7 @@ static void emit_stream_gen_def(const char *name, AstNode *node, Token *params, 
 }
 
 void compile_to_c(const char *source_path, const char *source, FILE *out, DiagContext *diag) {
-    EmitContext ectx = { out, diag, source_path, {{0, 0, 0}}, 0, NULL };
+    EmitContext ectx = { out, diag, source_path, {{0, 0, 0}}, 0, NULL, {{NULL, 0, 0, false}}, 0 };
     EmitContext *ctx = &ectx;
     Parser parser;
     parser_init(&parser, source, source_path, diag);

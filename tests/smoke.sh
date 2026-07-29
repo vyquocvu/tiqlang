@@ -540,4 +540,44 @@ cc -std=c11 -g -fsanitize=address,undefined -o "$TMP_DIR/m92_scope_asan" "$TMP_D
 printf 'one\n"two"\none\n\n1\nv\n7\n7\n' > "$TMP_DIR/m92_scope.expected"
 cmp "$TMP_DIR/m92_scope.out" "$TMP_DIR/m92_scope.expected"
 
+# M9.2-B: break/skip destroy the owned strings of every scope they exit
+# (innermost first, through the enclosing loop body) before jumping; only
+# owners already bound at the jump point are freed (LANGUAGE_SPEC §16.4).
+cat > "$TMP_DIR/m92b_early.tiq" <<'EOF'
+[0..3] {
+    a = json_get("{\"n\": 7}", "n")
+    [(i == 0)] {
+        b = json_get("{\"m\": 5}", "m")
+        print(b)
+        break
+    }
+    print(a)
+    break
+    d = json_get("{\"q\": 0}", "q")
+}
+[0..2] {
+    f = json_get("{\"k\": 3}", "k")
+    print(f)
+    skip
+    print(999)
+}
+[0..2] {
+    g = json_get("{\"g\": 1}", "g")
+    {
+        h = json_get("{\"h\": 2}", "h")
+        print(h)
+        break
+    }
+    print(g)
+}
+EOF
+./build/tiq emit-c "$TMP_DIR/m92b_early.tiq" > "$TMP_DIR/m92b_early.c"
+grep -o 'free((void \*)[a-z]);' "$TMP_DIR/m92b_early.c" > "$TMP_DIR/m92b_early.frees" || true
+printf 'free((void *)b);\nfree((void *)b);\nfree((void *)a);\nfree((void *)d);\nfree((void *)a);\nfree((void *)f);\nfree((void *)f);\nfree((void *)h);\nfree((void *)g);\nfree((void *)h);\nfree((void *)g);\n' > "$TMP_DIR/m92b_early.frees.expected"
+cmp "$TMP_DIR/m92b_early.frees" "$TMP_DIR/m92b_early.frees.expected"
+cc -std=c11 -g -fsanitize=address,undefined -o "$TMP_DIR/m92b_early_asan" "$TMP_DIR/m92b_early.c"
+"$TMP_DIR/m92b_early_asan" > "$TMP_DIR/m92b_early.out"
+printf '5\n7\n3\n3\n2\n' > "$TMP_DIR/m92b_early.expected"
+cmp "$TMP_DIR/m92b_early.out" "$TMP_DIR/m92b_early.expected"
+
 echo "smoke: ok"
