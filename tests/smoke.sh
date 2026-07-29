@@ -655,4 +655,28 @@ test "$exit_status" -eq 7
 printf 'one\ntwo\ntwo\ntwo\n' > "$TMP_DIR/m92e_exit.expected"
 cmp "$TMP_DIR/m92e_exit.out" "$TMP_DIR/m92e_exit.expected"
 
+# M9.2-F: an unbound owned-builtin temporary in an unconditionally evaluated
+# position of a simple statement (bare statement expression, or argument to a
+# standard-library builtin) is hoisted into a hidden binding and freed at the
+# end of the statement; a user-function argument is not (LANGUAGE_SPEC §16.4).
+cat > "$TMP_DIR/m92f_tmp.tiq" <<'EOF'
+id x:str -> str -> {
+    x
+}
+print(json_get("{\"k\": \"one\"}", "k"))
+n = json_parse_int(json_get("{\"n\": 7}", "n"))
+print(n)
+json_encode_str("two")
+y = id(json_get("{\"k\": \"three\"}", "k"))
+print(y)
+EOF
+./build/tiq emit-c "$TMP_DIR/m92f_tmp.tiq" > "$TMP_DIR/m92f_tmp.c"
+grep -o 'free((void \*)[a-z_0-9]*);' "$TMP_DIR/m92f_tmp.c" > "$TMP_DIR/m92f_tmp.frees" || true
+printf 'free((void *)tiq_tmp0);\nfree((void *)tiq_tmp1);\nfree((void *)tiq_tmp2);\n' > "$TMP_DIR/m92f_tmp.frees.expected"
+cmp "$TMP_DIR/m92f_tmp.frees" "$TMP_DIR/m92f_tmp.frees.expected"
+cc -std=c11 -g -fsanitize=address,undefined -o "$TMP_DIR/m92f_tmp_asan" "$TMP_DIR/m92f_tmp.c"
+"$TMP_DIR/m92f_tmp_asan" > "$TMP_DIR/m92f_tmp.out"
+printf 'one\n7\nthree\n' > "$TMP_DIR/m92f_tmp.expected"
+cmp "$TMP_DIR/m92f_tmp.out" "$TMP_DIR/m92f_tmp.expected"
+
 echo "smoke: ok"

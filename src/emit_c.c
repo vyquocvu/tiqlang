@@ -37,6 +37,9 @@ typedef struct { const char *name; Token *params; int param_count; } EmitStreamG
 // M9.2-B: one entry per scope currently being emitted, so break/skip can
 // free the owned strings of every scope they exit (LANGUAGE_SPEC §16.4).
 #define TIQ_MAX_SCOPE_DEPTH 64
+// M9.2-F: at most this many hoisted temporaries per statement; a statement
+// that overflows hoists nothing (leak, never dangle).
+#define TIQ_MAX_HOIST 16
 typedef struct {
     AstNode **stmts;
     int count;
@@ -61,6 +64,13 @@ typedef struct EmitContext {
     AstNode *current_fn;
     EmitScope scopes[TIQ_MAX_SCOPE_DEPTH];
     int scope_depth;
+    // M9.2-F: unbound owned temporaries hoisted out of the statement
+    // currently being emitted (LANGUAGE_SPEC §16.4).
+    AstNode *hoisted[TIQ_MAX_HOIST];
+    int hoist_ids[TIQ_MAX_HOIST];
+    int hoist_count;
+    AstNode *hoist_emitting; // temp whose own initializer is being emitted
+    int tmp_counter;         // monotonic across the whole translation unit
 } EmitContext;
 
 static void emit_expr(AstNode *node, EmitContext *ctx);
@@ -370,6 +380,27 @@ static bool is_proc_exit_call(AstNode *node) {
            node->as.call.arg_count == 1;
 }
 
+// M9.2-F: collect the unbound owned-builtin temporaries of a simple
+// statement that sit in unconditionally evaluated positions: the bare
+// statement expression itself, or a direct argument to a standard-library
+// builtin, nested to any depth through such builtins (§16.4). Post-order,
+// so temporaries evaluate left to right, inner before outer. Any other
+// position (conditionals, match arms, user-function arguments) is skipped:
+// those temporaries leak, they never dangle.
+static void hoist_collect(AstNode *n, bool root_bound, EmitContext *ctx, bool *overflow) {
+    if (!n || n->kind != AST_CALL || n->as.call.is_bracket_call) return;
+    if (!n->as.call.callee || n->as.call.callee->kind != AST_IDENTIFIER) return;
+    if (!is_safe_builtin_callee(n->as.call.callee)) return;
+    for (int i = 0; i < n->as.call.arg_count; i++)
+        hoist_collect(n->as.call.args[i], false, ctx, overflow);
+    if (!root_bound && is_owned_str_builtin_call(n)) {
+        if (ctx->hoist_count >= TIQ_MAX_HOIST) { *overflow = true; return; }
+        ctx->hoisted[ctx->hoist_count] = n;
+        ctx->hoist_ids[ctx->hoist_count] = ctx->tmp_counter++;
+        ctx->hoist_count++;
+    }
+}
+
 // M9.1: 0 = not a reference parameter of the enclosing function,
 // 1 = shared borrow (&T), 2 = mutable borrow (&mut T).
 static int ref_param_kind(EmitContext *ctx, Token name) {
@@ -415,6 +446,15 @@ static const char *binary_op_c_str(TokenKind op) {
 
 static void emit_expr(AstNode *node, EmitContext *ctx) {
     if (!node) return;
+    // M9.2-F: a hoisted temporary reads from its hidden binding (§16.4).
+    if (node != ctx->hoist_emitting) {
+        for (int i = 0; i < ctx->hoist_count; i++) {
+            if (ctx->hoisted[i] == node) {
+                fprintf(ctx->out, "tiq_tmp%d", ctx->hoist_ids[i]);
+                return;
+            }
+        }
+    }
     switch (node->kind) {
         case AST_LITERAL: {
             if (node->as.literal.type == TOK_INT)
@@ -952,6 +992,28 @@ static void emit_semantic_type(SemanticType *t, FILE *out) {
 
 static void emit_stmt(AstNode *node, EmitContext *ctx, int indent) {
     if (!node) return;
+    // M9.2-F: hoist the unbound owned temporaries of a simple statement
+    // into hidden bindings before it; they are freed right after it. On
+    // overflow, hoist nothing for this statement: leak, never dangle.
+    int hoist_start = ctx->hoist_count;
+    {
+        bool overflow = false;
+        if (node->kind == AST_BINDING)
+            hoist_collect(node->as.binding.expr, true, ctx, &overflow);
+        else if (node->kind == AST_ASSIGN)
+            hoist_collect(node->as.assign.expr, true, ctx, &overflow);
+        else if (node->kind == AST_CALL && !is_proc_exit_call(node))
+            hoist_collect(node, false, ctx, &overflow);
+        if (overflow) ctx->hoist_count = hoist_start;
+    }
+    for (int k = hoist_start; k < ctx->hoist_count; k++) {
+        for (int j = 0; j < indent; j++) fputs("    ", ctx->out);
+        fprintf(ctx->out, "const char *tiq_tmp%d = ", ctx->hoist_ids[k]);
+        ctx->hoist_emitting = ctx->hoisted[k];
+        emit_expr(ctx->hoisted[k], ctx);
+        ctx->hoist_emitting = NULL;
+        fputs(";\n", ctx->out);
+    }
     for (int i = 0; i < indent; i++) fputs("    ", ctx->out);
     switch (node->kind) {
         case AST_BINDING: {
@@ -1187,6 +1249,10 @@ static void emit_stmt(AstNode *node, EmitContext *ctx, int indent) {
                 fputs("}\n", ctx->out);
                 break;
             }
+            // M9.2-F: a hoisted bare statement expression reduces to its
+            // hidden binding; cast to void to keep the emitted C quiet.
+            for (int k = hoist_start; k < ctx->hoist_count; k++)
+                if (ctx->hoisted[k] == node) { fputs("(void)", ctx->out); break; }
             emit_expr(node, ctx);
             fputs(";\n", ctx->out);
             break;
@@ -1197,6 +1263,12 @@ static void emit_stmt(AstNode *node, EmitContext *ctx, int indent) {
             fputs(";\n", ctx->out);
             break;
     }
+    // M9.2-F: temporaries die at the end of their statement, newest first.
+    for (int k = ctx->hoist_count - 1; k >= hoist_start; k--) {
+        for (int j = 0; j < indent; j++) fputs("    ", ctx->out);
+        fprintf(ctx->out, "free((void *)tiq_tmp%d);\n", ctx->hoist_ids[k]);
+    }
+    ctx->hoist_count = hoist_start;
 }
 
 static void emit_check_node(AstNode *node, EmitContext *ctx);
@@ -1306,7 +1378,8 @@ static void emit_stream_gen_def(const char *name, AstNode *node, Token *params, 
 
 void compile_to_c(const char *source_path, const char *source, FILE *out, DiagContext *diag) {
     EmitContext ectx = { out, diag, source_path, {{0, 0, 0}}, 0, NULL,
-                         {{NULL, 0, 0, false, NULL, NULL, 0}}, 0 };
+                         {{NULL, 0, 0, false, NULL, NULL, 0}}, 0,
+                         {NULL}, {0}, 0, NULL, 0 };
     EmitContext *ctx = &ectx;
     Parser parser;
     parser_init(&parser, source, source_path, diag);

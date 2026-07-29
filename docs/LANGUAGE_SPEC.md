@@ -457,7 +457,9 @@ A mutable (`<-`) binding owns its string under a conservative escape test: its i
 
 A statement-level `proc_exit(code)` call destroys the owned strings of every scope lexically enclosing the call — innermost first, up to the current function body or the top-level program scope — before terminating. The exit code is computed before any destruction runs. Only owners already bound at the call site are destroyed; owners in calling functions are not (they leak). A `proc_exit` embedded in a larger expression terminates without destruction.
 
-Bootstrap limits (completed in later M9 packages): unbound temporary results are not yet destroyed. These paths leak; they never double-free or dangle.
+A temporary — an owned-builtin call whose result is not bound — is destroyed at the end of the statement that contains it, provided it appears in an unconditionally evaluated position of a simple statement (a binding, an assignment, or an expression statement): as the bare statement expression itself, or as a direct argument to a standard-library builtin, nested to any depth through such builtins. The temporary's value is computed into a hidden binding before the statement runs and freed immediately after it; hoisted temporaries evaluate left to right, deterministically. Temporaries in any other position — conditional branches, match arms, loop headers, arguments to user functions — are not destroyed: freeing them could dangle (a user function may return its argument), so they leak; they never double-free or dangle.
+
+Bootstrap limits: temporaries outside the positions above are not destroyed, and owners in calling functions are not destroyed by `proc_exit`. These paths leak; they never double-free or dangle.
 
 ## 17. Provisional constructs and surface status
 
