@@ -340,6 +340,11 @@ corrected audits. None of these milestones is complete.
   - Runtime prelude: `tiq_http_method` and `tiq_http_path` appended to `TIQ_RUNTIME_PRELUDE5`.
   - Tests (added failing first): `m109_http` in `tests/smoke.sh` covers a normal request line (`GET /index.html HTTP/1.1`), single-token input (`POST`), and empty input for both builtins. Full suite plus tooling/fuzz green under ASan/UBSan.
   - Docs: LANGUAGE_SPEC §19.3; ROADMAP M10 evidence.
+- M10.10: Event loop builtins / kqueue (2026-07-29):
+  - Four kqueue-backed event loop builtins for readiness-notification on macOS/BSD (LANGUAGE_SPEC §19.4): `ev_loop()` (process-wide singleton kqueue fd), `ev_add(loop, fd)` (register for EVFILT_READ), `ev_wait(loop, timeout_ms)` (block until ready or timeout, returns count), `ev_ready(loop, fd)` (check if fd was in the most recent result set). All take `int` arguments, return `int`, reject wrong arity (E12) and non-`int` arguments (E09). Invalid operations return -1 (or 0 for `ev_ready`) and never raise a runtime error.
+  - Runtime prelude: `<sys/event.h>` added to generated includes; `tiq_ev_loop`, `tiq_ev_add`, `tiq_ev_wait`, `tiq_ev_ready` appended to `TIQ_RUNTIME_PRELUDE5` with file-scope `tiq_ev_out_[64]` / `tiq_ev_nout_` statics.
+  - Tests (added failing first): `m1010_srv` in `tests/smoke.sh` uses the event loop to detect and serve one client connection; a `net_fetch` client verifies the JSON response. Full suite plus tooling/fuzz green under ASan/UBSan.
+  - Docs: LANGUAGE_SPEC §19.4; ROADMAP M10 evidence.
 
 ## Known bootstrap limitations
 

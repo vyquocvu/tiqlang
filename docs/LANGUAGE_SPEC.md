@@ -629,6 +629,17 @@ Two companion builtins parse the request line of an HTTP request (the first line
 
 Both never raise a runtime error. Wrong arity is rejected with E12 and non-`str` arguments with E09 at compile time.
 
+### 19.4 Event loop (kqueue)
+
+A minimal readiness-notification loop for monitoring multiple file descriptors without threads. The bootstrap implementation uses `kqueue`/`kevent` (a documented macOS/BSD platform API); Linux `epoll` support is deferred.
+
+- `ev_loop()` takes no arguments and returns an `int` event-loop handle (a kqueue fd). The handle is a process-wide singleton: repeated calls return the same fd. Returns `-1` on failure.
+- `ev_add(loop, fd)` takes two `int` arguments and registers `fd` for read-readiness monitoring (`EVFILT_READ`, `EV_ADD`). Returns `0` on success, `-1` on error.
+- `ev_wait(loop, timeout_ms)` takes two `int` arguments and blocks until at least one monitored fd is readable or `timeout_ms` milliseconds elapse (a negative timeout blocks indefinitely). Returns the number of ready fds (≥ 1), `0` on timeout, or `-1` on error.
+- `ev_ready(loop, fd)` takes two `int` arguments and returns `1` if `fd` was reported readable by the most recent `ev_wait` on that loop, `0` otherwise.
+
+All reject wrong arity with E12 and non-`int` arguments with E09 at compile time. Invalid operations return `-1` (or `0` for `ev_ready`) and never raise a runtime error.
+
 ## 20. Bootstrap conformance
 
 The bootstrap compiler must reject all unsupported syntax with a non-zero exit code rather than silently generating incorrect code.
