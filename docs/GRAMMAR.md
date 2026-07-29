@@ -29,7 +29,8 @@ program       = { top_item } ;                                      (* ✅ *)
 top_item      = function_def | struct_def | binding | statement ;   (* ✅ *)
 
 function_def  = identifier, { param }, "->", [ type, "->" ], expression ;  (* ✅ — param:type M12.4 *)
-param         = identifier, [ ":", type ] ;                              (* ✅ — M12.4 *)
+param         = identifier, [ ":", param_type ] ;                        (* ✅ — M12.4 *)
+param_type    = [ "&", [ "mut" ] ], type ;                           (* ✅ — M9.1 borrowed params *)
 struct_def    = "struct", identifier, "{", { field_def, [ "," ] }, "}" ; (* ✅ — M12.6 *)
 field_def     = identifier, ":", type ;                              (* ✅ — M12.6 *)
 binding       = identifier, "=", expression ;                       (* ✅ *)
@@ -59,9 +60,11 @@ range         = additive, [ "..", additive ] ;                      (* ✅ — E
 additive      = multiplicative, { ("+" | "-"), multiplicative } ;  (* ✅ *)
 multiplicative = unary, { ("*" | "/" | "%"), unary } ;             (* ✅ *)
 unary         = ("!" | "+" | "-" | "move"), unary | postfix ;     (* ✅ — "!" requires bool operand *)
-              (* "&" unary prefix: 🔴 parsed, semantic E07 borrow unsupported (LANGUAGE_SPEC §17.3) *)
+              (* "&" unary prefix: ✅ only as a call argument (borrow_arg); elsewhere semantic E07 (LANGUAGE_SPEC §16.3/§17.3) *)
 postfix       = primary, { call | index | field | propagate } ;    (* ✅ — M8: propagate = "?" *)
-call          = "(", [ expression, { ",", expression } ], ")" ;   (* ✅ — builtins and user functions *)
+call          = "(", [ arg, { ",", arg } ], ")" ;                 (* ✅ — builtins and user functions *)
+arg           = borrow_arg | expression ;                           (* ✅ — M9.1 *)
+borrow_arg    = "&", [ "mut" ], identifier ;                        (* ✅ — only for & / &mut parameters *)
 index         = "[", ( slice_range | expression | stream_slice ), "]" ; (* ✅ / ✅ / 🔴 *)
 field         = ".", identifier ;                                   (* ✅ — M12.6 struct field access *)
 propagate     = "?" ;                                               (* ✅ — M8: Option/Result propagation *)
@@ -118,7 +121,7 @@ From tightest to loosest:
 
 The bootstrap compiler must reject all unsupported input with a diagnostic containing source position and a non-zero exit status.
 
-The bootstrap parser additionally accepts `chan expr`, `spawn expr`, and borrow prefixes (`"&", ["mut"], unary`) for forward compatibility; all three are rejected during semantic analysis with a "not supported yet" diagnostic (fail closed, LANGUAGE_SPEC §17.3). `struct` definitions and record literals do not parse. Inline loop guards (`break if`, `skip if`) are not accepted.
+The bootstrap parser additionally accepts `chan expr`, `spawn expr`, and borrow prefixes (`"&", ["mut"], unary`) in any expression position for forward compatibility; `chan`/`spawn` are rejected during semantic analysis with a "not supported yet" diagnostic, and borrows outside call argument position are rejected with E07 (fail closed, LANGUAGE_SPEC §16.3/§17.3). `struct` definitions and record literals do not parse. Inline loop guards (`break if`, `skip if`) are not accepted.
 
 See LANGUAGE_SPEC §17 for the complete four-tier surface table (Implemented / Provisional / Fail-closed / Reserved) with error codes and blocking milestones.
 

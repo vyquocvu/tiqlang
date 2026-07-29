@@ -66,6 +66,13 @@ typedef struct {
     SemanticType *type;
 } StructEntry;
 
+// M9.1: Function registry entry; call sites need the definition to see
+// per-parameter borrow kinds (the pooled function type is arity-only).
+typedef struct {
+    char *name;
+    AstNode *node;
+} FuncEntry;
+
 typedef struct {
     Environment *current_env;
     const char *path;
@@ -77,6 +84,10 @@ typedef struct {
     StructEntry *structs;
     int struct_count;
     int struct_capacity;
+    // M9.1: function registry
+    FuncEntry *funcs;
+    int func_count;
+    int func_capacity;
 } SemanticContext;
 
 static SemanticType *ty(SemanticContext *ctx, PrimitiveType kind) {
@@ -133,6 +144,34 @@ static void struct_register(SemanticContext *ctx, const char *name, SemanticType
     ctx->structs[ctx->struct_count].name = strdup(name);
     ctx->structs[ctx->struct_count].type = type;
     ctx->struct_count++;
+}
+
+// M9.1: Function registry helpers.
+static AstNode *func_lookup(SemanticContext *ctx, Token name) {
+    // Iterate backwards so the most recent definition wins.
+    for (int i = ctx->func_count - 1; i >= 0; i--) {
+        if ((int)strlen(ctx->funcs[i].name) == (int)name.length &&
+            memcmp(ctx->funcs[i].name, name.start, name.length) == 0) {
+            return ctx->funcs[i].node;
+        }
+    }
+    return NULL;
+}
+
+static void func_register(SemanticContext *ctx, Token name, AstNode *node) {
+    if (ctx->func_count + 1 > ctx->func_capacity) {
+        int new_cap = ctx->func_capacity < 8 ? 8 : ctx->func_capacity * 2;
+        ctx->funcs = realloc(ctx->funcs, sizeof(FuncEntry) * (size_t)new_cap);
+        if (!ctx->funcs) die_oom();
+        ctx->func_capacity = new_cap;
+    }
+    char *s = malloc((size_t)name.length + 1);
+    if (!s) die_oom();
+    memcpy(s, name.start, name.length);
+    s[name.length] = '\0';
+    ctx->funcs[ctx->func_count].name = s;
+    ctx->funcs[ctx->func_count].node = node;
+    ctx->func_count++;
 }
 
 // The single kind-level compatibility rule (OPTIMIZATION_PLAN 3.1).
@@ -204,7 +243,15 @@ static void check_node(SemanticContext *ctx, AstNode *node) {
                 diag_error(ctx->diag, ctx->path, node->token.line, ERR_USE_AFTER_MOVE, msg);
                 node->semantic_type = ty(ctx, TYPE_UNKNOWN);
             } else {
-                node->semantic_type = sym->type;
+                // M9.1: reference parameters auto-deref to the referent type
+                // in expression position; the emitter re-derives ref-ness
+                // from the enclosing function's parameter types.
+                if (sym->type && (sym->type->kind == TYPE_REF || sym->type->kind == TYPE_REF_MUT)) {
+                    node->semantic_type = sym->type->element_type ?
+                        sym->type->element_type : ty(ctx, TYPE_UNKNOWN);
+                } else {
+                    node->semantic_type = sym->type;
+                }
             }
             break;
         }
@@ -277,11 +324,14 @@ static void check_node(SemanticContext *ctx, AstNode *node) {
                     node->semantic_type = ty(ctx, TYPE_UNKNOWN);
                 }
             } else if (node->as.unary.op == TOK_AMP) {
-                // Fail closed: M9 borrow checking does not exist yet, so a
-                // borrow must be rejected instead of compiling to a value copy.
+                // M9.1: legal borrows (&x / &mut x as arguments to reference
+                // parameters) are consumed inside AST_CALL. Reaching this case
+                // means the borrow appears anywhere else: fail closed, borrows
+                // cannot be stored, returned, or re-borrowed (LANGUAGE_SPEC §16.3).
                 check_node(ctx, node->as.unary.right);
                 diag_error(ctx->diag, ctx->path, node->token.line,
-                           ERR_UNSUPPORTED_STATEMENT, "borrow is not supported yet");
+                           ERR_UNSUPPORTED_STATEMENT,
+                           "borrow is only valid as an argument to a reference parameter");
                 node->semantic_type = ty(ctx, TYPE_UNKNOWN);
             } else if (node->as.unary.op == TOK_QUESTION) {
                 // M8: Propagation operator (expr?) - unwraps Option/Result.
@@ -658,8 +708,128 @@ static void check_node(SemanticContext *ctx, AstNode *node) {
                     diag_error(ctx->diag, ctx->path, node->token.line, ERR_ARITY_MISMATCH, "arity mismatch");
                 }
             }
-            for (int i = 0; i < node->as.call.arg_count; i++) {
-                check_node(ctx, node->as.call.args[i]);
+            {
+                // M9.1: borrow-aware argument checking. The callee definition
+                // (if known) supplies per-parameter borrow kinds; borrows are
+                // only legal where the parameter is a reference (§16.3).
+                AstNode *fn_def = NULL;
+                if (!node->as.call.is_bracket_call && node->as.call.callee &&
+                    node->as.call.callee->kind == AST_IDENTIFIER) {
+                    fn_def = func_lookup(ctx, node->as.call.callee->as.identifier.name);
+                }
+                // Per-call aliasing bookkeeping: referent name + borrow kind.
+                typedef struct { Token name; bool is_mut; } BorrowRec;
+                BorrowRec *recs = NULL;
+                int rec_count = 0;
+                if (node->as.call.arg_count > 0) {
+                    recs = malloc(sizeof(BorrowRec) * (size_t)node->as.call.arg_count);
+                    if (!recs) die_oom();
+                }
+                for (int i = 0; i < node->as.call.arg_count; i++) {
+                    AstNode *arg = node->as.call.args[i];
+                    if (!arg) continue;
+                    bool arg_is_borrow = arg->kind == AST_UNARY &&
+                                         arg->as.unary.op == TOK_AMP;
+                    int want_ref = 0; // 0=value, 1=&, 2=&mut
+                    if (fn_def && i < fn_def->as.function.param_count &&
+                        fn_def->as.function.param_ref_kinds)
+                        want_ref = fn_def->as.function.param_ref_kinds[i];
+                    if (!arg_is_borrow) {
+                        check_node(ctx, arg);
+                        if (want_ref != 0) {
+                            char msg[128];
+                            snprintf(msg, sizeof msg, "argument %d must be borrowed with %s",
+                                     i + 1, want_ref == 2 ? "&mut" : "&");
+                            diag_error(ctx->diag, ctx->path, node->token.line, ERR_BORROW, msg);
+                        }
+                        continue;
+                    }
+                    if (want_ref == 0) {
+                        char msg[128];
+                        snprintf(msg, sizeof msg,
+                                 "argument %d cannot be a borrow: parameter is by value", i + 1);
+                        diag_error(ctx->diag, ctx->path, node->token.line, ERR_BORROW, msg);
+                        if (arg->as.unary.right) check_node(ctx, arg->as.unary.right);
+                        arg->semantic_type = ty(ctx, TYPE_UNKNOWN);
+                        continue;
+                    }
+                    bool is_mut = arg->as.unary.is_mut_borrow;
+                    if ((want_ref == 2) != is_mut) {
+                        char msg[128];
+                        snprintf(msg, sizeof msg, "argument %d must be borrowed with %s",
+                                 i + 1, want_ref == 2 ? "&mut" : "&");
+                        diag_error(ctx->diag, ctx->path, node->token.line, ERR_BORROW, msg);
+                    }
+                    AstNode *operand = arg->as.unary.right;
+                    if (!operand || operand->kind != AST_IDENTIFIER) {
+                        diag_error(ctx->diag, ctx->path, arg->token.line, ERR_BORROW,
+                                   "borrow operand must be a named binding");
+                        if (operand) check_node(ctx, operand);
+                        arg->semantic_type = ty(ctx, TYPE_UNKNOWN);
+                        continue;
+                    }
+                    // Reports undefined symbol / use-after-move and yields the
+                    // referent type (auto-deref never fires here except for
+                    // re-borrows, which are rejected below).
+                    check_node(ctx, operand);
+                    Token ref_name = operand->as.identifier.name;
+                    Symbol *sym = env_lookup(ctx->current_env, ref_name);
+                    if (sym) {
+                        if (sym->type && (sym->type->kind == TYPE_REF ||
+                                          sym->type->kind == TYPE_REF_MUT)) {
+                            char msg[256];
+                            snprintf(msg, sizeof msg, "cannot re-borrow reference parameter '%.*s'",
+                                     (int)ref_name.length, ref_name.start);
+                            diag_error(ctx->diag, ctx->path, node->token.line, ERR_BORROW, msg);
+                        }
+                        if (is_mut && !sym->is_mutable) {
+                            char msg[256];
+                            snprintf(msg, sizeof msg, "cannot borrow immutable binding '%.*s' as mutable",
+                                     (int)ref_name.length, ref_name.start);
+                            diag_error(ctx->diag, ctx->path, node->token.line, ERR_BORROW, msg);
+                        }
+                    }
+                    // Referent type must match the declared element type.
+                    if (fn_def && i < fn_def->as.function.param_count &&
+                        fn_def->as.function.param_types &&
+                        fn_def->as.function.param_types[i]) {
+                        SemanticType *pt = fn_def->as.function.param_types[i];
+                        if ((pt->kind == TYPE_REF || pt->kind == TYPE_REF_MUT) &&
+                            pt->element_type) {
+                            char where[64];
+                            snprintf(where, sizeof where, "argument %d", i + 1);
+                            unify(ctx, node->token.line, pt->element_type,
+                                  operand->semantic_type, where);
+                        }
+                    }
+                    // Aliasing within a single call: any number of shared
+                    // borrows, at most one mutable, never mixed (§16.3).
+                    for (int r = 0; r < rec_count; r++) {
+                        if (recs[r].name.length == ref_name.length &&
+                            memcmp(recs[r].name.start, ref_name.start, ref_name.length) == 0) {
+                            if (recs[r].is_mut && is_mut) {
+                                char msg[256];
+                                snprintf(msg, sizeof msg, "cannot borrow '%.*s' as mutable more than once in a call",
+                                         (int)ref_name.length, ref_name.start);
+                                diag_error(ctx->diag, ctx->path, node->token.line, ERR_BORROW, msg);
+                                break;
+                            } else if (recs[r].is_mut || is_mut) {
+                                char msg[256];
+                                snprintf(msg, sizeof msg, "cannot borrow '%.*s' as both mutable and shared in a call",
+                                         (int)ref_name.length, ref_name.start);
+                                diag_error(ctx->diag, ctx->path, node->token.line, ERR_BORROW, msg);
+                                break;
+                            }
+                        }
+                    }
+                    recs[rec_count].name = ref_name;
+                    recs[rec_count].is_mut = is_mut;
+                    rec_count++;
+                    arg->semantic_type = type_get_ref(ctx->pool,
+                        operand->semantic_type ? operand->semantic_type : ty(ctx, TYPE_UNKNOWN),
+                        is_mut);
+                }
+                free(recs);
             }
             {
                 // M12.6: Use full callee type for struct returns (preserves struct_name)
@@ -720,6 +890,16 @@ static void check_node(SemanticContext *ctx, AstNode *node) {
                                  (int)node->as.assign.name.length, node->as.assign.name.start);
                         diag_error(ctx->diag, ctx->path, node->token.line, ERR_UNDEFINED_SYMBOL, msg);
                     }
+                } else if (sym->type && sym->type->kind == TYPE_REF) {
+                    // M9.1: shared borrows are read-only views.
+                    char msg[256];
+                    snprintf(msg, sizeof msg, "cannot assign through shared borrow '%.*s'",
+                             (int)node->as.assign.name.length, node->as.assign.name.start);
+                    diag_error(ctx->diag, ctx->path, node->token.line, ERR_BORROW, msg);
+                } else if (sym->type && sym->type->kind == TYPE_REF_MUT) {
+                    // M9.1: assignment through a mutable borrow mutates the
+                    // referent in the caller; the emitter dereferences.
+                    sym->is_moved = false;
                 } else if (!sym->is_mutable) {
                     diag_error(ctx->diag, ctx->path, node->token.line, ERR_IMMUTABLE_ASSIGNMENT, "cannot assign to immutable binding");
                 } else {
@@ -746,6 +926,8 @@ static void check_node(SemanticContext *ctx, AstNode *node) {
         case AST_FUNCTION: {
             SemanticType *func_type = type_get_func(ctx->pool, TYPE_UNKNOWN, node->as.function.param_count);
             env_define(ctx->current_env, node->as.function.name, false, func_type);
+            // M9.1: record the definition so call sites can see borrow kinds.
+            func_register(ctx, node->as.function.name, node);
             Environment func_env;
             env_init(&func_env, ctx->current_env);
             ctx->current_env = &func_env;
@@ -767,6 +949,12 @@ static void check_node(SemanticContext *ctx, AstNode *node) {
                         diag_error(ctx->diag, ctx->path, node->as.function.param_type_annots[i].line,
                                    ERR_TYPE_MISMATCH, msg);
                     }
+                }
+                // M9.1: wrap reference parameters as &T / &mut T.
+                if (node->as.function.param_ref_kinds &&
+                    node->as.function.param_ref_kinds[i] != 0) {
+                    pt = type_get_ref(ctx->pool, pt,
+                                      node->as.function.param_ref_kinds[i] == 2);
                 }
                 if (node->as.function.param_types) node->as.function.param_types[i] = pt;
                 env_define(ctx->current_env, node->as.function.params[i], false, pt);
@@ -1152,6 +1340,9 @@ void semantic_check(AstNode **stmts, int count, const char *path, DiagContext *d
     ctx.structs = NULL;
     ctx.struct_count = 0;
     ctx.struct_capacity = 0;
+    ctx.funcs = NULL;
+    ctx.func_count = 0;
+    ctx.func_capacity = 0;
     Environment global_env;
     env_init(&global_env, NULL);
     ctx.current_env = &global_env;
@@ -1164,4 +1355,9 @@ void semantic_check(AstNode **stmts, int count, const char *path, DiagContext *d
         free(ctx.structs[i].name);
     }
     free(ctx.structs);
+    // M9.1: free function registry
+    for (int i = 0; i < ctx.func_count; i++) {
+        free(ctx.funcs[i].name);
+    }
+    free(ctx.funcs);
 }

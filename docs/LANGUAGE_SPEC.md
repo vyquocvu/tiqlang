@@ -391,7 +391,7 @@ y <- move x
 x += 1   // x is valid again with a new value
 ```
 
-Heap allocation, borrowing, and shared ownership are specified in `MEMORY_MODEL.md` and are not part of the bootstrap slice.
+Heap allocation and shared ownership are specified in `MEMORY_MODEL.md` and are not part of the bootstrap slice. Borrowed parameters are specified in §16.3.
 
 ### 16.2 Deferred actions
 
@@ -411,15 +411,45 @@ The `defer` keyword schedules an expression to run when the enclosing block exit
 
 Deferred actions execute in reverse declaration order. `defer` is only valid inside `{ }` blocks. A `defer` outside a block is a compile-time error.
 
+### 16.3 Borrowed parameters
+
+A function parameter may be declared as a borrow with `&type` (shared, read-only) or `&mut type` (exclusive, mutable):
+
+```tiq
+bump r:&mut i64 -> {
+    r <- r + 1
+}
+show v:&i64 -> print(v)
+
+n <- 41
+bump(&mut n)
+show(&n)     // 42
+```
+
+At the call site the argument for a borrowed parameter must be written `&x` or `&mut x`, where `x` names a binding in scope; expressions cannot be borrowed. The borrow kind must match the parameter exactly.
+
+Inside the callee a borrowed parameter reads like a value of the referent type. Reassignment (`r <- expr`, `r += expr`, ...) through a `&mut` parameter updates the caller's binding. Reassignment through a shared `&` parameter is a compile-time error.
+
+Rules (all violations are compile-time errors, code E23 unless noted):
+
+- `&mut x` requires `x` to be a mutable binding (`<-`).
+- A borrow argument requires a `&`/`&mut` parameter; passing `&x` to a value parameter is rejected.
+- A `&`/`&mut` parameter requires a borrow argument; passing a plain value is rejected.
+- Within one call, a binding may be borrowed shared any number of times, but at most once mutably, and never both mutably and shared (aliasing check).
+- Borrowing a moved binding is a use-after-move error (E18).
+- Borrowed parameters cannot be re-borrowed, stored in bindings, or returned; borrows are only valid in call argument position (E07 elsewhere).
+
+Every borrow ends when the call returns. Because borrows cannot be stored, returned, or re-borrowed, no borrow can outlive its referent; the lifetime rule is enforced structurally.
+
 ## 17. Provisional constructs and surface status
 
 This section is normative for the bootstrap compiler's observable boundary. Every surface feature falls into exactly one tier:
 
 | Tier | Meaning | Example |
 |------|---------|---------|
-| **Implemented** | Fully specified, compiled, and tested | `[0..10] { print(i) }`, `move x`, `defer`, `struct` |
+| **Implemented** | Fully specified, compiled, and tested | `[0..10] { print(i) }`, `move x`, `defer`, `struct`, `f(&mut x)` |
 | **Provisional** | Parsed and partially checked; semantics may change | `match` |
-| **Fail-closed** | Parsed but rejected at semantic analysis; no code produced | `spawn`, `chan`, `&x`, `&mut x` |
+| **Fail-closed** | Parsed but rejected at semantic analysis; no code produced | `spawn`, `chan`, `b = &x` |
 | **Reserved** | Keyword exists in lexer; no parse path exists yet | `mut` (standalone) |
 
 The bootstrap compiler must reject anything that is not **Implemented** or **Provisional** before code generation, producing a non-zero exit code and a diagnostic with source location.
@@ -477,8 +507,7 @@ The following constructs **parse** successfully but are **rejected during semant
 |-----------|-------|--------------------|
 | `spawn expr` | E07: "spawn is not supported yet" | M7 (concurrency runtime) |
 | `chan T` | E07: "chan is not supported yet" | M7 (concurrency runtime) |
-| `&x` | E07: "borrow is not supported yet" | M9 (borrow checker) |
-| `&mut x` | E07: "borrow is not supported yet" | M9 (borrow checker) |
+| `&x` outside call arguments | E07: "borrow is only valid as an argument to a reference parameter" | M9 (borrow extensions: stored/returned borrows) |
 
 The parser accepts these forward-compatibility spellings so that future milestones can promote them to implemented without grammar breakage.
 
@@ -488,7 +517,7 @@ These keywords are recognized by the lexer and reserved for future milestones. T
 
 | Keyword | Reserved for |
 |---------|-------------|
-| `mut` | M9 borrow syntax (`&mut x`) — `mut` alone outside a borrow prefix is rejected |
+| `mut` | Used in borrow syntax (`&mut x`, `&mut T`, §16.3) — `mut` alone outside a borrow prefix is rejected |
 | `while` | Stream generator bounds and predicate slicing (`§14`) only; no `while` loop statement |
 | `until` | Stream generator bounds only; no `until` loop statement |
 | `chan` | M7 channel type — lexes but semantic-rejects (§17.3) |

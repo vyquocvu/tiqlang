@@ -40,11 +40,32 @@ typedef struct EmitContext {
     const char *path;
     EmitStreamGenInfo stream_gens[TIQ_MAX_STREAM_GENS];
     int stream_gen_count;
+    // M9.1: enclosing function during body emission; used to re-derive
+    // reference parameters (semantic analysis auto-derefs their uses).
+    AstNode *current_fn;
 } EmitContext;
 
 static void emit_expr(AstNode *node, EmitContext *ctx);
 static void emit_stmt(AstNode *node, EmitContext *ctx, int indent);
 static void emit_type_name(PrimitiveType kind, FILE *out);
+
+// M9.1: 0 = not a reference parameter of the enclosing function,
+// 1 = shared borrow (&T), 2 = mutable borrow (&mut T).
+static int ref_param_kind(EmitContext *ctx, Token name) {
+    AstNode *fn = ctx->current_fn;
+    if (!fn) return 0;
+    for (int i = 0; i < fn->as.function.param_count; i++) {
+        if (fn->as.function.params[i].length == name.length &&
+            memcmp(fn->as.function.params[i].start, name.start, name.length) == 0) {
+            SemanticType *pt = fn->as.function.param_types ?
+                (SemanticType *)fn->as.function.param_types[i] : NULL;
+            if (pt && pt->kind == TYPE_REF) return 1;
+            if (pt && pt->kind == TYPE_REF_MUT) return 2;
+            return 0;
+        }
+    }
+    return 0;
+}
 
 static bool is_stream_gen_name(EmitContext *ctx, const char *name, int len, int *out_params, int *out_param_count) {
     for (int i = 0; i < ctx->stream_gen_count; i++) {
@@ -91,6 +112,9 @@ static void emit_expr(AstNode *node, EmitContext *ctx) {
             if (node->as.identifier.name.length == 4 &&
                 memcmp(node->as.identifier.name.start, "none", 4) == 0) {
                 fputs("((TiqOption){ .value = 0, .has_value = 0 })", ctx->out);
+            } else if (ref_param_kind(ctx, node->as.identifier.name) != 0) {
+                // M9.1: reference parameters deref to the referent.
+                fprintf(ctx->out, "(*%.*s)", (int)node->as.identifier.name.length, node->as.identifier.name.start);
             } else {
                 fprintf(ctx->out, "%.*s", (int)node->as.identifier.name.length, node->as.identifier.name.start);
             }
@@ -127,6 +151,11 @@ static void emit_expr(AstNode *node, EmitContext *ctx) {
                 // Full early-return semantics not yet implemented; emit .value access.
                 emit_expr(node->as.unary.right, ctx);
                 fputs(".value", ctx->out);
+            } else if (node->as.unary.op == TOK_AMP) {
+                // M9.1: borrow argument; semantic analysis guarantees the
+                // operand is a plain named binding in the caller's scope.
+                fputs("&", ctx->out);
+                emit_expr(node->as.unary.right, ctx);
             } else {
                 const char *op = "";
                 if (node->as.unary.op == TOK_BANG) op = "!";
@@ -582,6 +611,14 @@ static void emit_type_name(PrimitiveType kind, FILE *out) {
 // M12.6/M8: Emit full C type for a SemanticType, including struct names.
 static void emit_semantic_type(SemanticType *t, FILE *out) {
     if (!t) { fputs("int64_t", out); return; }
+    if (t->kind == TYPE_REF || t->kind == TYPE_REF_MUT) {
+        // M9.1: &T -> const T *, &mut T -> T *.
+        if (t->kind == TYPE_REF) fputs("const ", out);
+        if (t->element_type) emit_type_name(t->element_type->kind, out);
+        else fputs("int64_t", out);
+        fputs(" *", out);
+        return;
+    }
     if (t->kind == TYPE_STRUCT && t->struct_name && t->struct_name[0]) {
         fputs(t->struct_name, out);
     } else {
@@ -675,7 +712,12 @@ static void emit_stmt(AstNode *node, EmitContext *ctx, int indent) {
                     fprintf(ctx->out, "fprintf(stderr, \"tiq: index out of bounds for array of length %d\\n\"); exit(1); }\n", arr_len);
                     for (int j = 0; j < indent; j++) fputs("    ", ctx->out);
                 }
-                fprintf(ctx->out, "%.*s", (int)node->as.assign.name.length, node->as.assign.name.start);
+                if (!node->as.assign.index && ref_param_kind(ctx, node->as.assign.name) != 0) {
+                    // M9.1: assignment through a mutable borrow dereferences.
+                    fprintf(ctx->out, "(*%.*s)", (int)node->as.assign.name.length, node->as.assign.name.start);
+                } else {
+                    fprintf(ctx->out, "%.*s", (int)node->as.assign.name.length, node->as.assign.name.start);
+                }
                 if (node->as.assign.index) {
                     fputs("[", ctx->out);
                     emit_expr(node->as.assign.index, ctx);
@@ -871,7 +913,7 @@ static void emit_stream_gen_def(const char *name, AstNode *node, Token *params, 
 }
 
 void compile_to_c(const char *source_path, const char *source, FILE *out, DiagContext *diag) {
-    EmitContext ectx = { out, diag, source_path, {{0, 0, 0}}, 0 };
+    EmitContext ectx = { out, diag, source_path, {{0, 0, 0}}, 0, NULL };
     EmitContext *ctx = &ectx;
     Parser parser;
     parser_init(&parser, source, source_path, diag);
@@ -1002,6 +1044,7 @@ void compile_to_c(const char *source_path, const char *source, FILE *out, DiagCo
     // Emit function definitions
     for (int i = 0; i < count; i++) {
         if (stmts[i] && stmts[i]->kind == AST_FUNCTION && stmts[i]->as.function.body->kind != AST_STREAM_GEN) {
+            ctx->current_fn = stmts[i]; // M9.1: body emission derefs ref params
             SemanticType *t = stmts[i]->semantic_type;
             emit_semantic_type(t, ctx->out);
             fprintf(ctx->out, "\n%.*s(", (int)stmts[i]->as.function.name.length, stmts[i]->as.function.name.start);
@@ -1022,9 +1065,17 @@ void compile_to_c(const char *source_path, const char *source, FILE *out, DiagCo
                     emit_stmt(block->as.block.deferred[d], ctx, 1);
                 }
                 if (block->as.block.final_expr) {
-                    fputs("    return ", ctx->out);
-                    emit_expr(block->as.block.final_expr, ctx);
-                    fputs(";\n", ctx->out);
+                    // M9.1: a trailing assignment/binding is a statement, not
+                    // a value; emit it and return 0 (functions default to i64).
+                    AstNode *fe = block->as.block.final_expr;
+                    if (fe->kind == AST_ASSIGN || fe->kind == AST_BINDING) {
+                        emit_stmt(fe, ctx, 1);
+                        fputs("    return 0;\n", ctx->out);
+                    } else {
+                        fputs("    return ", ctx->out);
+                        emit_expr(fe, ctx);
+                        fputs(";\n", ctx->out);
+                    }
                 } else {
                     fputs("    return 0;\n", ctx->out);
                 }
@@ -1034,6 +1085,7 @@ void compile_to_c(const char *source_path, const char *source, FILE *out, DiagCo
                 emit_expr(stmts[i]->as.function.body, ctx);
                 fputs(";\n}\n\n", ctx->out);
             }
+            ctx->current_fn = NULL;
         }
     }
 

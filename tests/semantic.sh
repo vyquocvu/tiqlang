@@ -113,6 +113,14 @@ assert_semantic_ast "typed_func_annot" 'add a:i32 b:i32 -> a + b
     IDENT a <TYPE_I32>
     IDENT b <TYPE_I32>'
 
+# M9.1: reference parameters auto-deref to the referent type in the body.
+assert_semantic_ast "typed_borrow_param" 'show v:&i64 -> v + 0
+' 'FUNCTION show <TYPE_INT>
+  PARAM v
+  BINARY PLUS <TYPE_INT>
+    IDENT v <TYPE_INT>
+    INT 0 <TYPE_INT>'
+
 # M12.3: i8(1) is now a valid explicit conversion (was fail-closed stub E10).
 assert_semantic_ast "typed_conversion_i8" 'x = i8(1)
 ' 'BINDING x <TYPE_I8>
@@ -370,15 +378,68 @@ assert_semantic "spawn_unsupported_line" 'x = 1
 sp = spawn x
 ' "$TMP_DIR/spawn_unsupported_line.tiq:2: error[E07]: spawn is not supported yet"
 
-# M9 borrow checking does not exist yet: unary borrows must fail closed
-# instead of silently emitting a value copy (DOC_REVIEW D).
+# M9.1: borrows are only valid in call argument position for &/&mut
+# parameters (LANGUAGE_SPEC §16.3); anywhere else they fail closed.
 assert_semantic "borrow_unsupported" 'x <- 42
 b = &x
-' "$TMP_DIR/borrow_unsupported.tiq:2: error[E07]: borrow is not supported yet"
+' "$TMP_DIR/borrow_unsupported.tiq:2: error[E07]: borrow is only valid as an argument to a reference parameter"
 
 assert_semantic "mut_borrow_unsupported" 'x <- 42
 b = &mut x
-' "$TMP_DIR/mut_borrow_unsupported.tiq:2: error[E07]: borrow is not supported yet"
+' "$TMP_DIR/mut_borrow_unsupported.tiq:2: error[E07]: borrow is only valid as an argument to a reference parameter"
+
+# M9.1: &mut requires a mutable binding.
+assert_semantic "borrow_mut_of_immutable" 'bump r:&mut i64 -> { r <- r + 1 }
+x = 1
+bump(&mut x)
+' "$TMP_DIR/borrow_mut_of_immutable.tiq:3: error[E23]: cannot borrow immutable binding 'x' as mutable"
+
+# M9.1: a reference parameter requires a borrow argument.
+assert_semantic "borrow_arg_missing" 'bump r:&mut i64 -> { r <- r + 1 }
+x <- 1
+bump(x)
+' "$TMP_DIR/borrow_arg_missing.tiq:3: error[E23]: argument 1 must be borrowed with &mut"
+
+# M9.1: borrow spelling must match the parameter exactly.
+assert_semantic "borrow_kind_mismatch" 'show v:&i64 -> print(v)
+x <- 1
+show(&mut x)
+' "$TMP_DIR/borrow_kind_mismatch.tiq:3: error[E23]: argument 1 must be borrowed with &"
+
+# M9.1: value parameters do not accept borrows.
+assert_semantic "borrow_to_value_param" 'f a:i64 -> a
+x <- 1
+y = f(&x)
+' "$TMP_DIR/borrow_to_value_param.tiq:3: error[E23]: argument 1 cannot be a borrow: parameter is by value"
+
+# M9.1: aliasing checks within one call.
+assert_semantic "borrow_alias_two_muts" 'f a:&mut i64 b:&mut i64 -> { a <- a + b }
+x <- 1
+f(&mut x, &mut x)
+' "$TMP_DIR/borrow_alias_two_muts.tiq:3: error[E23]: cannot borrow 'x' as mutable more than once in a call"
+
+assert_semantic "borrow_alias_mut_and_shared" 'f a:&mut i64 b:&i64 -> { a <- a + b }
+x <- 1
+f(&mut x, &x)
+' "$TMP_DIR/borrow_alias_mut_and_shared.tiq:3: error[E23]: cannot borrow 'x' as both mutable and shared in a call"
+
+# M9.1: assignment through a shared borrow is rejected.
+assert_semantic "assign_through_shared_borrow" 'f r:&i64 -> { r <- 1 }
+x <- 1
+f(&x)
+' "$TMP_DIR/assign_through_shared_borrow.tiq:1: error[E23]: cannot assign through shared borrow 'r'"
+
+# M9.1: reference parameters cannot be re-borrowed.
+assert_semantic "borrow_reborrow" 'g r:&i64 -> print(r)
+f r:&i64 -> g(&r)
+' "$TMP_DIR/borrow_reborrow.tiq:2: error[E23]: cannot re-borrow reference parameter 'r'"
+
+# M9.1: borrowing a moved binding is a use-after-move error.
+assert_semantic "borrow_after_move" 'show v:&i64 -> print(v)
+x <- 1
+y <- move x
+show(&x)
+' "$TMP_DIR/borrow_after_move.tiq:4: error[E18]: use of moved value 'x'"
 
 # M12.3: explicit numeric type conversions.
 # Numeric -> numeric: allowed.

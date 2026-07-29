@@ -145,6 +145,12 @@ SemanticType *type_get_result(TypePool *pool, SemanticType *inner, SemanticType 
     return t;
 }
 
+// M9.1: Borrowed parameter types share the generic structural interner;
+// identity is (ref kind, referent type).
+SemanticType *type_get_ref(TypePool *pool, SemanticType *element, bool is_mut) {
+    return intern(pool, is_mut ? TYPE_REF_MUT : TYPE_REF, element, 0, 0);
+}
+
 static const char *kind_display_name(PrimitiveType kind) {
     switch (kind) {
         case TYPE_INT: return "int";
@@ -197,6 +203,11 @@ void type_display(const SemanticType *t, char *buf, size_t cap) {
         type_display(t->inner_type, inner, sizeof inner);
         type_display(t->error_type, error, sizeof error);
         snprintf(buf, cap, "%s!%s", inner[0] ? inner : "unknown", error[0] ? error : "unknown");
+    } else if (t->kind == TYPE_REF || t->kind == TYPE_REF_MUT) {
+        char elem[96] = "";
+        type_display(t->element_type, elem, sizeof elem);
+        snprintf(buf, cap, "&%s%s", t->kind == TYPE_REF_MUT ? "mut " : "",
+                 elem[0] ? elem : "unknown");
     } else {
         snprintf(buf, cap, "%s", kind_display_name(t->kind));
     }

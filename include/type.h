@@ -36,6 +36,10 @@ SemanticType *type_get_struct(TypePool *pool, Token name,
 SemanticType *type_get_option(TypePool *pool, SemanticType *inner);
 SemanticType *type_get_result(TypePool *pool, SemanticType *inner, SemanticType *error);
 
+// M9.1: Borrowed parameter types (&T / &mut T). Structural interning on the
+// referent type; refs only appear as function parameter types (LANGUAGE_SPEC §16.3).
+SemanticType *type_get_ref(TypePool *pool, SemanticType *element, bool is_mut);
+
 // User-facing type name for diagnostics ("expected <T>, found <U>"),
 // e.g. "int", "str", "[3]int", "[]int". The parser keeps its own
 // TYPE_* dump format for golden ASTs.

@@ -109,6 +109,9 @@ struct AstNode {
             // M12.4: optional type annotations (kind == TOK_EOF if absent)
             Token *param_type_annots;
             Token return_type_annot;
+            // M9.1: borrow spelling per parameter annotation:
+            // 0 = by value, 1 = shared borrow (&T), 2 = mutable borrow (&mut T)
+            unsigned char *param_ref_kinds;
         } function;
 
         struct {

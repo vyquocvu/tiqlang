@@ -180,14 +180,37 @@ printf 'x = 10\nres = match x { 10 => 100, _ => 0 }\nprint(res)\n' > "$TMP_DIR/m
 [ -x "$TMP_DIR/m8_match" ]
 [ "$("$TMP_DIR/m8_match")" = "100" ]
 
-# M9 borrow checking does not exist yet: borrows must fail closed instead
-# of silently emitting a value copy (DOC_REVIEW D).
+# M9.1: borrows outside call arguments still fail closed (no stored borrows).
 printf 'x <- 42\nb = &x\n' > "$TMP_DIR/m9_borrow.tiq"
 if ./build/tiq build "$TMP_DIR/m9_borrow.tiq" -o "$TMP_DIR/m9_borrow" 2>"$TMP_DIR/m9_borrow.err"; then
     echo "borrow unexpectedly compiled" >&2
     exit 1
 fi
 [ ! -e "$TMP_DIR/m9_borrow" ]
+
+# M9.1: &mut parameters mutate the caller's binding; & parameters read it.
+printf 'bump r:&mut i64 -> {\n    r <- r + 10\n}\nshow v:&i64 -> print(v)\nn <- 32\nbump(&mut n)\nshow(&n)\nprint(n)\n' > "$TMP_DIR/m9_borrow_params.tiq"
+./build/tiq build "$TMP_DIR/m9_borrow_params.tiq" -o "$TMP_DIR/m9_borrow_params" 2>"$TMP_DIR/m9_borrow_params.err"
+[ -x "$TMP_DIR/m9_borrow_params" ]
+"$TMP_DIR/m9_borrow_params" > "$TMP_DIR/m9_borrow_params.out"
+printf '42\n42\n' > "$TMP_DIR/m9_borrow_params.expected"
+if ! cmp -s "$TMP_DIR/m9_borrow_params.expected" "$TMP_DIR/m9_borrow_params.out"; then
+    echo "borrow params output mismatch" >&2
+    cat "$TMP_DIR/m9_borrow_params.out" >&2
+    exit 1
+fi
+
+# M9.1: shared borrows may alias in one call; compound assignment through &mut.
+printf 'addv a:&i64 b:&i64 -> a + b\nscale r:&mut i64 -> {\n    r *= 3\n}\nx <- 7\nprint(addv(&x, &x))\nscale(&mut x)\nprint(x)\n' > "$TMP_DIR/m9_borrow_shared.tiq"
+./build/tiq build "$TMP_DIR/m9_borrow_shared.tiq" -o "$TMP_DIR/m9_borrow_shared" 2>"$TMP_DIR/m9_borrow_shared.err"
+[ -x "$TMP_DIR/m9_borrow_shared" ]
+"$TMP_DIR/m9_borrow_shared" > "$TMP_DIR/m9_borrow_shared.out"
+printf '14\n21\n' > "$TMP_DIR/m9_borrow_shared.expected"
+if ! cmp -s "$TMP_DIR/m9_borrow_shared.expected" "$TMP_DIR/m9_borrow_shared.out"; then
+    echo "shared borrow output mismatch" >&2
+    cat "$TMP_DIR/m9_borrow_shared.out" >&2
+    exit 1
+fi
 
 # '!' is logical negation only; print is the print builtin (LANGUAGE_SPEC §12)
 printf 'flag = !false\nprint(flag)\nprint(!flag ? 10 : 20)\n' > "$TMP_DIR/not_bool.tiq"

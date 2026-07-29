@@ -752,14 +752,28 @@ static AstNode *declaration(Parser *parser) {
                     node->as.function.param_type_annots = arena_realloc(&parser->arena, node->as.function.param_type_annots,
                                                              sizeof(Token) * capacity,
                                                              sizeof(Token) * new_cap);
+                    node->as.function.param_ref_kinds = arena_realloc(&parser->arena, node->as.function.param_ref_kinds,
+                                                             sizeof(unsigned char) * capacity,
+                                                             sizeof(unsigned char) * new_cap);
                     capacity = new_cap;
                 }
                 node->as.function.params[node->as.function.param_count] = parser->current;
                 node->as.function.param_type_annots[node->as.function.param_count].kind = TOK_EOF; // default: no annotation
+                node->as.function.param_ref_kinds[node->as.function.param_count] = 0; // default: by value
                 advance(parser);
                 // M12.4: parse optional :type annotation
                 if (check(parser, TOK_COLON)) {
                     advance(parser); // consume ':'
+                    // M9.1: optional borrow prefix &type / &mut type
+                    if (check(parser, TOK_AMP)) {
+                        advance(parser); // consume '&'
+                        if (check(parser, TOK_MUT)) {
+                            advance(parser); // consume 'mut'
+                            node->as.function.param_ref_kinds[node->as.function.param_count] = 2;
+                        } else {
+                            node->as.function.param_ref_kinds[node->as.function.param_count] = 1;
+                        }
+                    }
                     if (check(parser, TOK_IDENT)) {
                         node->as.function.param_type_annots[node->as.function.param_count] = parser->current;
                         advance(parser);
