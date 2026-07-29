@@ -589,6 +589,8 @@ All three builtins reject wrong arity with E12 and wrong argument types with E09
 
 The returned view aliases its `json` argument and must not outlive the string it was derived from. `json_view` is not a heap-allocating builtin and does not participate in the ownership rules of §16.4. Because the result aliases its argument, `json_view` is not a destruction-safe callee: temporaries passed to it are not hoisted and freed (they leak rather than dangle). Wrong arity is rejected with E12 and non-`str` arguments with E09 at compile time.
 
+`json_has(json, key)` takes exactly two `str` arguments and returns a `bool`. It performs the same scan as `json_get` and returns `true` if `key` is present among the object's top-level members (regardless of the member's value), and `false` otherwise — including when `json` is not a JSON object or is malformed. It allocates nothing. Wrong arity is rejected with E12 and non-`str` arguments with E09 at compile time.
+
 The pre-existing helpers `json_parse_int` (`str` → `int`, leading-integer parse) and `json_encode_str` (`str` → `str`, quoted and escaped) remain available.
 
 ### 19.2 HTTP fetch

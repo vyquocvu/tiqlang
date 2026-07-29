@@ -519,6 +519,8 @@ static void check_node(SemanticContext *ctx, AstNode *node) {
                         {"json_arr_get",  12, 2, TYPE_STR, TYPE_STR, TYPE_INT},
                         // M10.6: zero-copy JSON member view (LANGUAGE_SPEC §19.1).
                         {"json_view",      9, 2, TYPE_STR, TYPE_STR_VIEW, TYPE_UNKNOWN},
+                        // M10.7: JSON key-existence check (LANGUAGE_SPEC §19.1).
+                        {"json_has",       8, 2, TYPE_STR, TYPE_BOOL, TYPE_UNKNOWN},
                         {"net_fetch",      9, 1, TYPE_STR, TYPE_STR, TYPE_UNKNOWN},
                         // M10.1: CLI argument builtins (LANGUAGE_SPEC §18.1)
                         {"cli_arg_count", 13, 0, TYPE_INT, TYPE_INT, TYPE_UNKNOWN},

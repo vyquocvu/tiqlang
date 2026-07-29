@@ -923,4 +923,19 @@ cc -std=c11 -g -fsanitize=address,undefined -o "$TMP_DIR/m92k_cond_asan" "$TMP_D
 printf 'yes\n"one"\nlit\n' > "$TMP_DIR/m92k_cond.expected"
 cmp "$TMP_DIR/m92k_cond.out" "$TMP_DIR/m92k_cond.expected"
 
+# M10.7: json_has(json, key) returns true when the key exists (even if the
+# value is the empty string) and false for missing keys / non-objects.
+cat > "$TMP_DIR/m107_jhas.tiq" <<'EOF'
+j = "{\"a\": \"\", \"b\": 42}"
+print(json_has(j, "a"))
+print(json_has(j, "b"))
+print(json_has(j, "c"))
+print(json_has("[1, 2]", "a"))
+EOF
+./build/tiq emit-c "$TMP_DIR/m107_jhas.tiq" > "$TMP_DIR/m107_jhas.c"
+cc -std=c11 -g -fsanitize=address,undefined -o "$TMP_DIR/m107_jhas_asan" "$TMP_DIR/m107_jhas.c"
+"$TMP_DIR/m107_jhas_asan" > "$TMP_DIR/m107_jhas.out"
+printf 'true\ntrue\nfalse\nfalse\n' > "$TMP_DIR/m107_jhas.expected"
+cmp "$TMP_DIR/m107_jhas.out" "$TMP_DIR/m107_jhas.expected"
+
 echo "smoke: ok"
