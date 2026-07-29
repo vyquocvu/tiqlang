@@ -1068,4 +1068,17 @@ EOF
 printf '\n2\n\n3\n' > "$TMP_DIR/m1012_jdel.expected"
 cmp "$TMP_DIR/m1012_jdel.out" "$TMP_DIR/m1012_jdel.expected"
 
+# M10.13: str_cat — string concatenation; owned heap result.
+cat > "$TMP_DIR/m1013_scat.tiq" <<'EOF'
+a = str_cat("hello", " world")
+print(a)
+print(str_cat("", "x"))
+print(str_cat("y", ""))
+print(len(str_cat("ab", "cd")))
+EOF
+./build/tiq build "$TMP_DIR/m1013_scat.tiq" -o "$TMP_DIR/m1013_scat"
+"$TMP_DIR/m1013_scat" > "$TMP_DIR/m1013_scat.out"
+printf 'hello world\nx\ny\n4\n' > "$TMP_DIR/m1013_scat.expected"
+cmp "$TMP_DIR/m1013_scat.out" "$TMP_DIR/m1013_scat.expected"
+
 echo "smoke: ok"

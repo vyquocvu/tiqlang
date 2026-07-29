@@ -680,6 +680,16 @@ static const char TIQ_RUNTIME_PRELUDE7[] =
     "    memcpy(r, json, pre);\n"
     "    strcpy(r + pre, rm_end);\n"
     "    return r;\n"
+    "}\n\n"
+
+    "static const char *tiq_str_cat(const char *a, const char *b) {\n"
+    "    if (!a) a = \"\";\n"
+    "    if (!b) b = \"\";\n"
+    "    size_t la = strlen(a), lb = strlen(b);\n"
+    "    char *r = (char *)tiq_alloc(la + lb + 1);\n"
+    "    memcpy(r, a, la);\n"
+    "    memcpy(r + la, b, lb + 1);\n"
+    "    return r;\n"
     "}\n";
 
 #endif
