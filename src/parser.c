@@ -865,6 +865,11 @@ static const char *type_kind_name(PrimitiveType kind) {
         case TYPE_U64: return "TYPE_U64";
         case TYPE_F32: return "TYPE_F32";
         case TYPE_NEVER: return "TYPE_NEVER";
+        case TYPE_OPTION: return "TYPE_OPTION";
+        case TYPE_RESULT: return "TYPE_RESULT";
+        case TYPE_STRUCT: return "TYPE_STRUCT";
+        case TYPE_REF: return "TYPE_REF";
+        case TYPE_REF_MUT: return "TYPE_REF_MUT";
         default: return "TYPE_UNKNOWN";
     }
 }
@@ -880,6 +885,16 @@ static void dump_type_display(SemanticType *t, char *buf, size_t cap) {
         char elem[96] = "";
         dump_type_display(t->element_type, elem, sizeof elem);
         snprintf(buf, cap, "TYPE_SLICE%s%s", elem[0] ? ":" : "", elem);
+    } else if (t->kind == TYPE_OPTION) {
+        char inner[96] = "";
+        dump_type_display(t->inner_type, inner, sizeof inner);
+        snprintf(buf, cap, "TYPE_OPTION%s%s", inner[0] ? "<" : "", inner);
+        if (inner[0]) { size_t l = strlen(buf); if (l + 1 < cap) { buf[l] = '>'; buf[l+1] = '\0'; } }
+    } else if (t->kind == TYPE_RESULT) {
+        char inner[64] = "", err[64] = "";
+        dump_type_display(t->inner_type, inner, sizeof inner);
+        dump_type_display(t->error_type, err, sizeof err);
+        snprintf(buf, cap, "TYPE_RESULT<%s,%s>", inner, err);
     } else {
         snprintf(buf, cap, "%s", type_kind_name(t->kind));
     }
