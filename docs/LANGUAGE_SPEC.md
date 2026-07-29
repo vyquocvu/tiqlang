@@ -441,6 +441,16 @@ Rules (all violations are compile-time errors, code E23 unless noted):
 
 Every borrow ends when the call returns. Because borrows cannot be stored, returned, or re-borrowed, no borrow can outlive its referent; the lifetime rule is enforced structurally.
 
+### 16.4 Scope-bound destruction of owned strings
+
+An immutable binding (`=`) whose initializer is a direct call to a heap-allocating builtin — `fs_read`, `json_encode_str`, `json_get`, `json_arr_get`, or `net_fetch` — owns the resulting string. Owned strings are destroyed at the end of the enclosing scope, in reverse declaration order, after that scope's deferred actions have run.
+
+Heap-allocating builtins always return fresh heap storage, including their empty-string failure results. If the runtime cannot allocate, the program terminates deterministically with exit code 1 and the message `tiq: out of memory`.
+
+A binding initialized from another binding (`b = a`) aliases without owning; only the owner is destroyed. Aliases and views cannot outlive the owner because they live in the same or an inner scope.
+
+Bootstrap limits (completed in later M9 packages): mutable (`<-`) bindings, bindings inside function bodies, and unbound temporary results are not yet destroyed, and `break`, `skip`, and `proc_exit` paths bypass destruction. These paths leak; they never double-free or dangle.
+
 ## 17. Provisional constructs and surface status
 
 This section is normative for the bootstrap compiler's observable boundary. Every surface feature falls into exactly one tier:

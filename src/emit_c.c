@@ -51,6 +51,45 @@ static void emit_expr(AstNode *node, EmitContext *ctx);
 static void emit_stmt(AstNode *node, EmitContext *ctx, int indent);
 static void emit_type_name(PrimitiveType kind, FILE *out);
 
+// M9.2: an immutable binding whose initializer is a direct call to one of
+// these builtins owns the returned heap string (LANGUAGE_SPEC §16.4).
+static bool is_owned_str_builtin_call(AstNode *expr) {
+    static const struct { const char *name; int len; } owned[] = {
+        {"fs_read", 7}, {"json_encode_str", 15}, {"json_get", 8},
+        {"json_arr_get", 12}, {"net_fetch", 9},
+    };
+    if (!expr || expr->kind != AST_CALL || expr->as.call.is_bracket_call) return false;
+    if (!expr->as.call.callee || expr->as.call.callee->kind != AST_IDENTIFIER) return false;
+    Token n = expr->as.call.callee->as.identifier.name;
+    for (int i = 0; i < (int)(sizeof owned / sizeof owned[0]); i++) {
+        if ((int)n.length == owned[i].len &&
+            memcmp(n.start, owned[i].name, n.length) == 0)
+            return true;
+    }
+    return false;
+}
+
+// M9.2: free owned strings declared among stmts, in reverse declaration
+// order. Runs at scope end, after that scope's deferred actions.
+static void emit_scope_frees(AstNode **stmts, int count, EmitContext *ctx, int indent) {
+    for (int i = count - 1; i >= 0; i--) {
+        AstNode *s = stmts[i];
+        Token name;
+        if (s && s->kind == AST_BINDING && !s->as.binding.is_mutable &&
+            is_owned_str_builtin_call(s->as.binding.expr)) {
+            name = s->as.binding.name;
+        } else if (s && s->kind == AST_ASSIGN && s->as.assign.is_definition &&
+                   s->as.assign.op == TOK_EQ && !s->as.assign.index &&
+                   is_owned_str_builtin_call(s->as.assign.expr)) {
+            name = s->as.assign.name;
+        } else {
+            continue;
+        }
+        for (int j = 0; j < indent; j++) fputs("    ", ctx->out);
+        fprintf(ctx->out, "free((void *)%.*s);\n", (int)name.length, name.start);
+    }
+}
+
 // M9.1: 0 = not a reference parameter of the enclosing function,
 // 1 = shared borrow (&T), 2 = mutable borrow (&mut T).
 static int ref_param_kind(EmitContext *ctx, Token name) {
@@ -779,6 +818,10 @@ static void emit_stmt(AstNode *node, EmitContext *ctx, int indent) {
             if (node->as.bracket_loop.body_final) {
                 emit_stmt(node->as.bracket_loop.body_final, ctx, indent + 1);
             }
+            // M9.2: the loop body is a scope; free its owned strings each
+            // iteration (break/skip bypass is a documented bootstrap limit).
+            emit_scope_frees(node->as.bracket_loop.body_stmts,
+                             node->as.bracket_loop.body_count, ctx, indent + 1);
             for (int i = 0; i < indent; i++) fputs("    ", ctx->out);
             fputs("}\n", ctx->out);
             break;
@@ -791,6 +834,9 @@ static void emit_stmt(AstNode *node, EmitContext *ctx, int indent) {
                 emit_stmt(node->as.block.final_expr, ctx, indent + 1);
             for (int i = node->as.block.defer_count - 1; i >= 0; i--)
                 emit_stmt(node->as.block.deferred[i], ctx, indent + 1);
+            // M9.2: owned strings die after the block's defers (§16.4).
+            emit_scope_frees(node->as.block.statements,
+                             node->as.block.stmt_count, ctx, indent + 1);
             for (int i = 0; i < indent; i++) fputs("    ", ctx->out);
             fputs("}\n", ctx->out);
             break;
@@ -1044,6 +1090,8 @@ void compile_to_c(const char *source_path, const char *source, FILE *out, DiagCo
             emit_stmt(stmts[i], ctx, 1);
         }
     }
+    // M9.2: the top-level program scope frees its owned strings before exit.
+    emit_scope_frees(stmts, count, ctx, 1);
     fputs("    return 0;\n}\n\n", ctx->out);
 
     // Emit stream gen definitions

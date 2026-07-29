@@ -509,4 +509,35 @@ wait "$HTTP_SERVER_PID"
 printf 'hello tiq\n\n\n' > "$TMP_DIR/m10_net_fetch.expected"
 cmp "$TMP_DIR/m10_net_fetch.out" "$TMP_DIR/m10_net_fetch.expected"
 
+# M9.2: owned heap strings are freed at scope end, reverse declaration order,
+# after defers (LANGUAGE_SPEC §16.4); aliases and cli_arg results are not
+# freed. ASan build of the emitted C catches double-free / use-after-free.
+cat > "$TMP_DIR/m92_scope.tiq" <<'EOF'
+a = json_get("{\"x\": \"one\"}", "x")
+b = json_encode_str("two")
+c = a
+d = cli_arg(0)
+print(a)
+print(b)
+print(c)
+print(d)
+{
+    e = json_get("{\"k\": \"v\"}", "k")
+    defer print(e)
+    print(1)
+}
+[0..2] {
+    f = json_get("{\"n\": 7}", "n")
+    print(f)
+}
+EOF
+./build/tiq emit-c "$TMP_DIR/m92_scope.tiq" > "$TMP_DIR/m92_scope.c"
+grep -o 'free((void \*)[a-z]);' "$TMP_DIR/m92_scope.c" > "$TMP_DIR/m92_scope.frees" || true
+printf 'free((void *)e);\nfree((void *)f);\nfree((void *)b);\nfree((void *)a);\n' > "$TMP_DIR/m92_scope.frees.expected"
+cmp "$TMP_DIR/m92_scope.frees" "$TMP_DIR/m92_scope.frees.expected"
+cc -std=c11 -g -fsanitize=address,undefined -o "$TMP_DIR/m92_scope_asan" "$TMP_DIR/m92_scope.c"
+"$TMP_DIR/m92_scope_asan" > "$TMP_DIR/m92_scope.out"
+printf 'one\n"two"\none\n\n1\nv\n7\n7\n' > "$TMP_DIR/m92_scope.expected"
+cmp "$TMP_DIR/m92_scope.out" "$TMP_DIR/m92_scope.expected"
+
 echo "smoke: ok"
