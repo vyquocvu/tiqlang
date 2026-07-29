@@ -938,4 +938,29 @@ cc -std=c11 -g -fsanitize=address,undefined -o "$TMP_DIR/m107_jhas_asan" "$TMP_D
 printf 'true\ntrue\nfalse\nfalse\n' > "$TMP_DIR/m107_jhas.expected"
 cmp "$TMP_DIR/m107_jhas.out" "$TMP_DIR/m107_jhas.expected"
 
+# M9.2-L: conditional-position temporaries — a conditional expression whose
+# branches are both owning expressions, appearing as a direct argument to a
+# builtin or as the bare statement expression, is hoisted into a hidden
+# binding and freed at statement end; a conditional with a non-owning branch
+# is not hoisted (leaks, never dangles).
+cat > "$TMP_DIR/m92l_cond_tmp.tiq" <<'EOF'
+mk src:str -> str -> {
+    json_get(src, "v")
+}
+a = json_get("{\"k\": \"hello\"}", "k")
+print(len(1 > 0 ? json_get("{\"a\": \"xy\"}", "a") : json_get("{\"b\": \"z\"}", "b")))
+print(len(1 > 0 ? mk("{\"v\": \"abc\"}") : json_get("{\"b\": \"w\"}", "b")))
+1 > 0 ? json_get("{\"c\": \"bare\"}", "c") : json_get("{\"d\": \"q\"}", "d")
+print(len(1 > 0 ? "lit" : json_get("{\"e\": \"r\"}", "e")))
+print(a)
+EOF
+./build/tiq emit-c "$TMP_DIR/m92l_cond_tmp.tiq" > "$TMP_DIR/m92l_cond_tmp.c"
+grep -o 'free((void \*)[a-z_0-9]*);' "$TMP_DIR/m92l_cond_tmp.c" > "$TMP_DIR/m92l_cond_tmp.frees" || true
+printf 'free((void *)tiq_tmp0);\nfree((void *)tiq_tmp1);\nfree((void *)tiq_tmp2);\nfree((void *)a);\n' > "$TMP_DIR/m92l_cond_tmp.frees.expected"
+cmp "$TMP_DIR/m92l_cond_tmp.frees" "$TMP_DIR/m92l_cond_tmp.frees.expected"
+cc -std=c11 -g -fsanitize=address,undefined -o "$TMP_DIR/m92l_cond_tmp_asan" "$TMP_DIR/m92l_cond_tmp.c"
+"$TMP_DIR/m92l_cond_tmp_asan" > "$TMP_DIR/m92l_cond_tmp.out"
+printf '2\n3\n3\nhello\n' > "$TMP_DIR/m92l_cond_tmp.expected"
+cmp "$TMP_DIR/m92l_cond_tmp.out" "$TMP_DIR/m92l_cond_tmp.expected"
+
 echo "smoke: ok"

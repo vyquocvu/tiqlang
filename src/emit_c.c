@@ -483,12 +483,28 @@ static bool is_proc_exit_call(AstNode *node) {
 // depth through such builtins (§16.4). M9.2-J extends both roles to calls to
 // fresh-result functions: such a call returns storage the caller cannot
 // already reach, so it is itself a temporary, and its arguments are
-// unconditionally evaluated positions the result cannot alias. Post-order,
-// so temporaries evaluate left to right, inner before outer. Any other
-// position (conditionals, match arms, non-fresh-result calls) is skipped:
-// those temporaries leak, they never dangle.
+// unconditionally evaluated positions the result cannot alias. M9.2-L extends
+// hoisting to conditional expressions whose branches are both owning
+// expressions: exactly one branch is evaluated, and every branch produces
+// distinct fresh heap storage, so the conditional as a whole is a safe
+// temporary. Post-order, so temporaries evaluate left to right, inner before
+// outer. Any other position (match arms, non-fresh-result calls, conditionals
+// with non-owning branches) is skipped: those temporaries leak, never dangle.
 static void hoist_collect(AstNode *n, bool root_bound, EmitContext *ctx, bool *overflow) {
-    if (!n || n->kind != AST_CALL || n->as.call.is_bracket_call) return;
+    if (!n) return;
+    // M9.2-L: a conditional whose branches are both owning expressions is
+    // itself a temporary when unbound; hoist the whole conditional (exactly
+    // one branch evaluates at runtime, both produce fresh heap storage).
+    if (n->kind == AST_CONDITIONAL) {
+        if (!root_bound && is_owning_conditional(n)) {
+            if (ctx->hoist_count >= TIQ_MAX_HOIST) { *overflow = true; return; }
+            ctx->hoisted[ctx->hoist_count] = n;
+            ctx->hoist_ids[ctx->hoist_count] = ctx->tmp_counter++;
+            ctx->hoist_count++;
+        }
+        return;
+    }
+    if (n->kind != AST_CALL || n->as.call.is_bracket_call) return;
     if (!n->as.call.callee || n->as.call.callee->kind != AST_IDENTIFIER) return;
     if (!is_safe_builtin_callee(n->as.call.callee) && !is_fresh_str_fn_call(n)) return;
     for (int i = 0; i < n->as.call.arg_count; i++)
@@ -1105,6 +1121,8 @@ static void emit_stmt(AstNode *node, EmitContext *ctx, int indent) {
         else if (node->kind == AST_ASSIGN)
             hoist_collect(node->as.assign.expr, true, ctx, &overflow);
         else if (node->kind == AST_CALL && !is_proc_exit_call(node))
+            hoist_collect(node, false, ctx, &overflow);
+        else if (node->kind == AST_CONDITIONAL)
             hoist_collect(node, false, ctx, &overflow);
         if (overflow) ctx->hoist_count = hoist_start;
     }
