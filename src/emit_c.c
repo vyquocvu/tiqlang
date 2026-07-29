@@ -42,6 +42,10 @@ typedef struct {
     int count;
     int emitted;      // index of the statement currently being emitted
     bool is_loop_body;
+    // M9.2-D: the rest of the scope, scanned by the mutable-owner escape test.
+    AstNode *final_expr;
+    AstNode **deferred;
+    int defer_count;
 } EmitScope;
 
 // All emitter state lives here; no file-static mutable globals, so the
@@ -97,23 +101,189 @@ static bool owned_binding_name(AstNode *s, Token *name) {
     return false;
 }
 
+// M9.2-D: does statement s declare a mutable binding whose initializer is
+// an owned builtin call? Ownership also needs the escape test below.
+static bool mut_owned_decl(AstNode *s, Token *name) {
+    if (s && s->kind == AST_BINDING && s->as.binding.is_mutable &&
+        is_owned_str_builtin_call(s->as.binding.expr)) {
+        *name = s->as.binding.name;
+        return true;
+    }
+    if (s && s->kind == AST_ASSIGN && s->as.assign.is_definition &&
+        s->as.assign.op == TOK_LARROW && !s->as.assign.index &&
+        is_owned_str_builtin_call(s->as.assign.expr)) {
+        *name = s->as.assign.name;
+        return true;
+    }
+    return false;
+}
+
+static bool tok_name_eq(Token a, Token b) {
+    return a.length == b.length && memcmp(a.start, b.start, a.length) == 0;
+}
+
+// M9.2-D: standard-library builtins that read a string argument without
+// retaining it; a mutable owner's name may appear only in these positions.
+static bool is_safe_builtin_callee(AstNode *callee) {
+    static const struct { const char *name; int len; } safe[] = {
+        {"print", 5}, {"len", 3},
+        {"fs_read", 7}, {"fs_write", 8}, {"fs_exists", 9},
+        {"proc_exec", 9}, {"proc_exit", 9},
+        {"json_parse_int", 14}, {"json_encode_str", 15}, {"json_get", 8},
+        {"json_arr_len", 12}, {"json_arr_get", 12}, {"net_fetch", 9},
+        {"cli_arg_count", 13}, {"cli_arg", 7},
+    };
+    if (!callee || callee->kind != AST_IDENTIFIER) return false;
+    Token n = callee->as.identifier.name;
+    for (int i = 0; i < (int)(sizeof safe / sizeof safe[0]); i++)
+        if ((int)n.length == safe[i].len &&
+            memcmp(n.start, safe[i].name, n.length) == 0)
+            return true;
+    return false;
+}
+
+// M9.2-D conservative escape test (LANGUAGE_SPEC §16.4): every use of a
+// mutable owner's name must be an argument to a standard-library builtin,
+// and every `<-` assignment to it must be a direct owned-builtin call.
+// Unknown constructs fail closed: the binding leaks, it never dangles.
+static bool mut_uses_ok(AstNode *n, Token name);
+
+static bool mut_call_args_ok(AstNode *call, Token name) {
+    for (int i = 0; i < call->as.call.arg_count; i++) {
+        AstNode *a = call->as.call.args[i];
+        if (a && a->kind == AST_IDENTIFIER &&
+            tok_name_eq(a->as.identifier.name, name)) continue;
+        if (!mut_uses_ok(a, name)) return false;
+    }
+    return true;
+}
+
+static bool mut_uses_ok(AstNode *n, Token name) {
+    if (!n) return true;
+    switch (n->kind) {
+        case AST_LITERAL: case AST_BREAK: case AST_SKIP:
+        case AST_STRUCT_DEF: case AST_CHAN:
+            return true;
+        case AST_IDENTIFIER:
+            return !tok_name_eq(n->as.identifier.name, name);
+        case AST_BINARY:
+            return mut_uses_ok(n->as.binary.left, name) &&
+                   mut_uses_ok(n->as.binary.right, name);
+        case AST_UNARY:
+            return mut_uses_ok(n->as.unary.right, name);
+        case AST_CONDITIONAL:
+            return mut_uses_ok(n->as.conditional.cond, name) &&
+                   mut_uses_ok(n->as.conditional.then_branch, name) &&
+                   mut_uses_ok(n->as.conditional.else_branch, name);
+        case AST_CALL:
+            if (!n->as.call.is_bracket_call &&
+                is_safe_builtin_callee(n->as.call.callee))
+                return mut_call_args_ok(n, name);
+            if (!mut_uses_ok(n->as.call.callee, name)) return false;
+            for (int i = 0; i < n->as.call.arg_count; i++)
+                if (!mut_uses_ok(n->as.call.args[i], name)) return false;
+            return true;
+        case AST_BLOCK:
+            for (int i = 0; i < n->as.block.stmt_count; i++)
+                if (!mut_uses_ok(n->as.block.statements[i], name)) return false;
+            for (int i = 0; i < n->as.block.defer_count; i++)
+                if (!mut_uses_ok(n->as.block.deferred[i], name)) return false;
+            return mut_uses_ok(n->as.block.final_expr, name);
+        case AST_BINDING:
+            // A same-named (re)binding shadows or aliases: fail closed.
+            if (tok_name_eq(n->as.binding.name, name)) return false;
+            return mut_uses_ok(n->as.binding.expr, name);
+        case AST_ASSIGN:
+            if (tok_name_eq(n->as.assign.name, name)) {
+                if (n->as.assign.is_definition) return false;
+                if (n->as.assign.op != TOK_LARROW || n->as.assign.index) return false;
+                if (!is_owned_str_builtin_call(n->as.assign.expr)) return false;
+                return mut_call_args_ok(n->as.assign.expr, name);
+            }
+            return mut_uses_ok(n->as.assign.index, name) &&
+                   mut_uses_ok(n->as.assign.expr, name);
+        case AST_FUNCTION:
+            return mut_uses_ok(n->as.function.body, name);
+        case AST_BRACKET_LOOP: {
+            // The binder (explicit, or the implicit range index `i`)
+            // shadows the owner inside the body: fail closed.
+            bool shadows = n->as.bracket_loop.has_binder ?
+                tok_name_eq(n->as.bracket_loop.binder, name) :
+                (name.length == 1 && name.start[0] == 'i');
+            if (shadows) return false;
+            if (!mut_uses_ok(n->as.bracket_loop.domain, name)) return false;
+            for (int i = 0; i < n->as.bracket_loop.body_count; i++)
+                if (!mut_uses_ok(n->as.bracket_loop.body_stmts[i], name)) return false;
+            return mut_uses_ok(n->as.bracket_loop.body_final, name);
+        }
+        case AST_STREAM_GEN:
+            for (int i = 0; i < n->as.stream_gen.seed_count; i++)
+                if (!mut_uses_ok(n->as.stream_gen.seeds[i], name)) return false;
+            return mut_uses_ok(n->as.stream_gen.gen_expr, name) &&
+                   mut_uses_ok(n->as.stream_gen.bound, name);
+        case AST_ARRAY:
+            for (int i = 0; i < n->as.array.element_count; i++)
+                if (!mut_uses_ok(n->as.array.elements[i], name)) return false;
+            return true;
+        case AST_ARRAY_FILL:
+            return mut_uses_ok(n->as.array_fill.value, name) &&
+                   mut_uses_ok(n->as.array_fill.length, name);
+        case AST_FIELD_ACCESS:
+            return mut_uses_ok(n->as.field_access.target, name);
+        case AST_RECORD_LIT:
+            for (int i = 0; i < n->as.record_lit.field_count; i++)
+                if (!mut_uses_ok(n->as.record_lit.field_values[i], name)) return false;
+            return true;
+        case AST_MATCH:
+            if (!mut_uses_ok(n->as.match_expr.expr, name)) return false;
+            for (int i = 0; i < n->as.match_expr.arm_count; i++) {
+                if (!mut_uses_ok(n->as.match_expr.arms[i].pattern, name)) return false;
+                if (!mut_uses_ok(n->as.match_expr.arms[i].body, name)) return false;
+            }
+            return true;
+        case AST_SPAWN:
+            return mut_uses_ok(n->as.spawn.expr, name);
+        case AST_DEFER:
+            return mut_uses_ok(n->as.defer.expr, name);
+        default:
+            return false; // fail closed on unknown constructs
+    }
+}
+
+// M9.2-D: full qualification for a mutable owner declared at decl_idx of sc.
+static bool mut_owner_qualifies(const EmitScope *sc, int decl_idx, Token name) {
+    for (int i = decl_idx + 1; i < sc->count; i++)
+        if (!mut_uses_ok(sc->stmts[i], name)) return false;
+    if (!mut_uses_ok(sc->final_expr, name)) return false;
+    for (int i = 0; i < sc->defer_count; i++)
+        if (!mut_uses_ok(sc->deferred[i], name)) return false;
+    return true;
+}
+
+// M9.2: is scope statement i an owner (immutable, or qualifying mutable)?
+static bool owned_name_at(const EmitScope *sc, int i, Token *name) {
+    if (owned_binding_name(sc->stmts[i], name)) return true;
+    return mut_owned_decl(sc->stmts[i], name) &&
+           mut_owner_qualifies(sc, i, *name);
+}
+
 // M9.2: free owned strings declared among the first `limit` stmts, in
 // reverse declaration order. Runs at scope end (limit = full statement
 // count, after that scope's defers) and on break/skip (limit = index of
 // the jump statement, so only owners already bound are freed).
-static void emit_scope_frees(AstNode **stmts, int limit, EmitContext *ctx, int indent) {
+static void emit_scope_frees(const EmitScope *sc, int limit, EmitContext *ctx, int indent) {
     for (int i = limit - 1; i >= 0; i--) {
         Token name;
-        if (!owned_binding_name(stmts[i], &name)) continue;
+        if (!owned_name_at(sc, i, &name)) continue;
         for (int j = 0; j < indent; j++) fputs("    ", ctx->out);
         fprintf(ctx->out, "free((void *)%.*s);\n", (int)name.length, name.start);
     }
 }
 
-static bool scope_has_owned(AstNode **stmts, int count) {
+static bool scope_has_owned(const EmitScope *sc) {
     Token name;
-    for (int i = 0; i < count; i++)
-        if (owned_binding_name(stmts[i], &name)) return true;
+    for (int i = 0; i < sc->count; i++)
+        if (owned_name_at(sc, i, &name)) return true;
     return false;
 }
 
@@ -135,10 +305,12 @@ static bool is_scalar_result(SemanticType *t) {
 // M9.2-B: push/pop the scope currently being emitted. Depth overflow fails
 // safe: the scope is not tracked, so its owners leak on break/skip but are
 // never double-freed.
-static void emit_scope_push(EmitContext *ctx, AstNode **stmts, int count, bool is_loop_body) {
+static void emit_scope_push(EmitContext *ctx, AstNode **stmts, int count, bool is_loop_body,
+                            AstNode *final_expr, AstNode **deferred, int defer_count) {
     if (ctx->scope_depth >= TIQ_MAX_SCOPE_DEPTH) { ctx->scope_depth++; return; }
     EmitScope *s = &ctx->scopes[ctx->scope_depth++];
     s->stmts = stmts; s->count = count; s->emitted = 0; s->is_loop_body = is_loop_body;
+    s->final_expr = final_expr; s->deferred = deferred; s->defer_count = defer_count;
 }
 
 static void emit_scope_pop(EmitContext *ctx) {
@@ -152,9 +324,31 @@ static void emit_jump_frees(EmitContext *ctx, int indent) {
     if (ctx->scope_depth > TIQ_MAX_SCOPE_DEPTH) return;
     for (int d = ctx->scope_depth - 1; d >= 0; d--) {
         EmitScope *s = &ctx->scopes[d];
-        emit_scope_frees(s->stmts, s->emitted, ctx, indent);
+        emit_scope_frees(s, s->emitted, ctx, indent);
         if (s->is_loop_body) break;
     }
+}
+
+// M9.2-D: does `name <- ...` reassign a qualifying mutable owner? Search
+// the scope stack innermost-first for the declaring statement.
+static bool mut_reassign_owner(EmitContext *ctx, Token name) {
+    // Untracked inner scopes (depth overflow) may shadow the name.
+    if (ctx->scope_depth > TIQ_MAX_SCOPE_DEPTH) return false;
+    for (int d = ctx->scope_depth - 1; d >= 0; d--) {
+        const EmitScope *sc = &ctx->scopes[d];
+        for (int i = 0; i < sc->count; i++) {
+            AstNode *s = sc->stmts[i];
+            bool declares =
+                (s && s->kind == AST_BINDING &&
+                 tok_name_eq(s->as.binding.name, name)) ||
+                (s && s->kind == AST_ASSIGN && s->as.assign.is_definition &&
+                 tok_name_eq(s->as.assign.name, name));
+            if (!declares) continue;
+            Token n2;
+            return mut_owned_decl(s, &n2) && mut_owner_qualifies(sc, i, name);
+        }
+    }
+    return false;
 }
 
 // M9.1: 0 = not a reference parameter of the enclosing function,
@@ -816,6 +1010,18 @@ static void emit_stmt(AstNode *node, EmitContext *ctx, int indent) {
                 int arr_len = 0;
                 SemanticType *st = node->semantic_type;
                 if (st && st->kind == TYPE_ARRAY) arr_len = st->array_length;
+                // M9.2-D: reassigning a qualifying mutable owner destroys the
+                // previous string after the new value is computed (§16.4).
+                if (!node->as.assign.index && node->as.assign.op == TOK_LARROW &&
+                    is_owned_str_builtin_call(node->as.assign.expr) &&
+                    mut_reassign_owner(ctx, node->as.assign.name)) {
+                    fprintf(ctx->out, "{ const char *tiq_old = %.*s; %.*s = ",
+                            (int)node->as.assign.name.length, node->as.assign.name.start,
+                            (int)node->as.assign.name.length, node->as.assign.name.start);
+                    emit_expr(node->as.assign.expr, ctx);
+                    fputs("; free((void *)tiq_old); }\n", ctx->out);
+                    break;
+                }
                 if (node->as.assign.index && arr_len > 0) {
                     fputs("if ((uint64_t)(", ctx->out);
                     emit_expr(node->as.assign.index, ctx);
@@ -883,7 +1089,8 @@ static void emit_stmt(AstNode *node, EmitContext *ctx, int indent) {
                 fputs(") {\n", ctx->out);
             }
             emit_scope_push(ctx, node->as.bracket_loop.body_stmts,
-                            node->as.bracket_loop.body_count, true);
+                            node->as.bracket_loop.body_count, true,
+                            node->as.bracket_loop.body_final, NULL, 0);
             for (int i = 0; i < node->as.bracket_loop.body_count; i++) {
                 if (ctx->scope_depth <= TIQ_MAX_SCOPE_DEPTH)
                     ctx->scopes[ctx->scope_depth - 1].emitted = i;
@@ -897,15 +1104,22 @@ static void emit_stmt(AstNode *node, EmitContext *ctx, int indent) {
             emit_scope_pop(ctx);
             // M9.2: the loop body is a scope; free its owned strings each
             // iteration (break/skip free their exited scopes at the jump).
-            emit_scope_frees(node->as.bracket_loop.body_stmts,
-                             node->as.bracket_loop.body_count, ctx, indent + 1);
+            {
+                EmitScope loop_sc = { node->as.bracket_loop.body_stmts,
+                                      node->as.bracket_loop.body_count,
+                                      node->as.bracket_loop.body_count, true,
+                                      node->as.bracket_loop.body_final, NULL, 0 };
+                emit_scope_frees(&loop_sc, loop_sc.count, ctx, indent + 1);
+            }
             for (int i = 0; i < indent; i++) fputs("    ", ctx->out);
             fputs("}\n", ctx->out);
             break;
         }
         case AST_BLOCK: {
             fputs("{\n", ctx->out);
-            emit_scope_push(ctx, node->as.block.statements, node->as.block.stmt_count, false);
+            emit_scope_push(ctx, node->as.block.statements, node->as.block.stmt_count, false,
+                            node->as.block.final_expr, node->as.block.deferred,
+                            node->as.block.defer_count);
             for (int i = 0; i < node->as.block.stmt_count; i++) {
                 if (ctx->scope_depth <= TIQ_MAX_SCOPE_DEPTH)
                     ctx->scopes[ctx->scope_depth - 1].emitted = i;
@@ -920,8 +1134,15 @@ static void emit_stmt(AstNode *node, EmitContext *ctx, int indent) {
             for (int i = node->as.block.defer_count - 1; i >= 0; i--)
                 emit_stmt(node->as.block.deferred[i], ctx, indent + 1);
             // M9.2: owned strings die after the block's defers (§16.4).
-            emit_scope_frees(node->as.block.statements,
-                             node->as.block.stmt_count, ctx, indent + 1);
+            {
+                EmitScope blk_sc = { node->as.block.statements,
+                                     node->as.block.stmt_count,
+                                     node->as.block.stmt_count, false,
+                                     node->as.block.final_expr,
+                                     node->as.block.deferred,
+                                     node->as.block.defer_count };
+                emit_scope_frees(&blk_sc, blk_sc.count, ctx, indent + 1);
+            }
             for (int i = 0; i < indent; i++) fputs("    ", ctx->out);
             fputs("}\n", ctx->out);
             break;
@@ -1049,7 +1270,8 @@ static void emit_stream_gen_def(const char *name, AstNode *node, Token *params, 
 }
 
 void compile_to_c(const char *source_path, const char *source, FILE *out, DiagContext *diag) {
-    EmitContext ectx = { out, diag, source_path, {{0, 0, 0}}, 0, NULL, {{NULL, 0, 0, false}}, 0 };
+    EmitContext ectx = { out, diag, source_path, {{0, 0, 0}}, 0, NULL,
+                         {{NULL, 0, 0, false, NULL, NULL, 0}}, 0 };
     EmitContext *ctx = &ectx;
     Parser parser;
     parser_init(&parser, source, source_path, diag);
@@ -1165,6 +1387,9 @@ void compile_to_c(const char *source_path, const char *source, FILE *out, DiagCo
           "    tiq_argc = argc;\n"
           "    tiq_argv = argv;\n", ctx->out);
 
+    // M9.2-D: track the top-level program scope so mutable-owner
+    // reassignments inside it (and its loops) find their declaration.
+    emit_scope_push(ctx, stmts, count, false, NULL, NULL, 0);
     for (int i = 0; i < count; i++) {
         if (stmts[i] && stmts[i]->kind != AST_FUNCTION && stmts[i]->kind != AST_STRUCT_DEF) {
             if (stmts[i]->kind == AST_BINDING && stmts[i]->as.binding.expr &&
@@ -1172,11 +1397,17 @@ void compile_to_c(const char *source_path, const char *source, FILE *out, DiagCo
                 // stream gen bindings are emitted via tiq_gen_* functions below
                 continue;
             }
+            if (ctx->scope_depth <= TIQ_MAX_SCOPE_DEPTH)
+                ctx->scopes[ctx->scope_depth - 1].emitted = i;
             emit_stmt(stmts[i], ctx, 1);
         }
     }
+    emit_scope_pop(ctx);
     // M9.2: the top-level program scope frees its owned strings before exit.
-    emit_scope_frees(stmts, count, ctx, 1);
+    {
+        EmitScope top_sc = { stmts, count, count, false, NULL, NULL, 0 };
+        emit_scope_frees(&top_sc, top_sc.count, ctx, 1);
+    }
     fputs("    return 0;\n}\n\n", ctx->out);
 
     // Emit stream gen definitions
@@ -1213,11 +1444,25 @@ void compile_to_c(const char *source_path, const char *source, FILE *out, DiagCo
                     SemanticType *rt = (t && t->kind != TYPE_UNKNOWN) ? t : fe0->semantic_type;
                     ret_scalar = is_scalar_result(rt);
                 }
-                bool fn_frees = ret_scalar &&
-                    scope_has_owned(block->as.block.statements, block->as.block.stmt_count);
+                EmitScope fn_sc = { block->as.block.statements,
+                                    block->as.block.stmt_count,
+                                    block->as.block.stmt_count, false,
+                                    block->as.block.final_expr,
+                                    block->as.block.deferred,
+                                    block->as.block.defer_count };
+                bool fn_frees = ret_scalar && scope_has_owned(&fn_sc);
+                emit_scope_push(ctx, block->as.block.statements,
+                                block->as.block.stmt_count, false,
+                                block->as.block.final_expr,
+                                block->as.block.deferred,
+                                block->as.block.defer_count);
                 for (int s = 0; s < block->as.block.stmt_count; s++) {
+                    if (ctx->scope_depth <= TIQ_MAX_SCOPE_DEPTH)
+                        ctx->scopes[ctx->scope_depth - 1].emitted = s;
                     emit_stmt(block->as.block.statements[s], ctx, 1);
                 }
+                if (ctx->scope_depth <= TIQ_MAX_SCOPE_DEPTH)
+                    ctx->scopes[ctx->scope_depth - 1].emitted = block->as.block.stmt_count;
                 for (int d = 0; d < block->as.block.defer_count; d++) {
                     emit_stmt(block->as.block.deferred[d], ctx, 1);
                 }
@@ -1228,8 +1473,7 @@ void compile_to_c(const char *source_path, const char *source, FILE *out, DiagCo
                     if (fe->kind == AST_ASSIGN || fe->kind == AST_BINDING) {
                         emit_stmt(fe, ctx, 1);
                         if (fn_frees)
-                            emit_scope_frees(block->as.block.statements,
-                                             block->as.block.stmt_count, ctx, 1);
+                            emit_scope_frees(&fn_sc, fn_sc.count, ctx, 1);
                         fputs("    return 0;\n", ctx->out);
                     } else if (fn_frees) {
                         // Compute the result before the owners die.
@@ -1238,8 +1482,7 @@ void compile_to_c(const char *source_path, const char *source, FILE *out, DiagCo
                         fputs(" tiq_fn_ret = ", ctx->out);
                         emit_expr(fe, ctx);
                         fputs(";\n", ctx->out);
-                        emit_scope_frees(block->as.block.statements,
-                                         block->as.block.stmt_count, ctx, 1);
+                        emit_scope_frees(&fn_sc, fn_sc.count, ctx, 1);
                         fputs("    return tiq_fn_ret;\n", ctx->out);
                     } else {
                         fputs("    return ", ctx->out);
@@ -1248,10 +1491,10 @@ void compile_to_c(const char *source_path, const char *source, FILE *out, DiagCo
                     }
                 } else {
                     if (fn_frees)
-                        emit_scope_frees(block->as.block.statements,
-                                         block->as.block.stmt_count, ctx, 1);
+                        emit_scope_frees(&fn_sc, fn_sc.count, ctx, 1);
                     fputs("    return 0;\n", ctx->out);
                 }
+                emit_scope_pop(ctx);
                 fputs("}\n\n", ctx->out);
             } else {
                 fputs(") {\n    return ", ctx->out);

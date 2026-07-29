@@ -453,7 +453,9 @@ A binding initialized from another binding (`b = a`) aliases without owning; onl
 
 Inside a function whose result type is scalar (an integer type, a float type, or `bool`), owned strings of the body's outermost scope are destroyed before the function returns: after the body's deferred actions, and after the result value has been computed. A function whose result type may carry a pointer (`str` or any composite type) does not yet destroy its owners — the result may alias one of them — so those functions leak instead of dangling.
 
-Bootstrap limits (completed in later M9 packages): mutable (`<-`) bindings and unbound temporary results are not yet destroyed, and `proc_exit` terminates the process without running destruction. These paths leak; they never double-free or dangle.
+A mutable (`<-`) binding owns its string under a conservative escape test: its initializer and every later `<-` assignment to it must be a direct call to a heap-allocating builtin, and its name may otherwise appear only as an argument to standard-library builtins. A qualifying mutable owner destroys its previous string when reassigned — after the new value is computed, so self-referencing reassignments such as `s <- json_get(s, "k")` are safe — and is destroyed at scope end like an immutable owner. A mutable binding that fails the test never destroys anything: it may leak; it never double-frees or dangles.
+
+Bootstrap limits (completed in later M9 packages): unbound temporary results are not yet destroyed, and `proc_exit` terminates the process without running destruction. These paths leak; they never double-free or dangle.
 
 ## 17. Provisional constructs and surface status
 

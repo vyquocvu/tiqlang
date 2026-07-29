@@ -604,4 +604,30 @@ cc -std=c11 -g -fsanitize=address,undefined -o "$TMP_DIR/m92c_fn_asan" "$TMP_DIR
 printf '42\nok\n' > "$TMP_DIR/m92c_fn.expected"
 cmp "$TMP_DIR/m92c_fn.out" "$TMP_DIR/m92c_fn.expected"
 
+# M9.2-D: a mutable owner (all assignments are owned-builtin calls, name only
+# used as builtin argument) frees its previous string on reassignment and is
+# freed at scope end; an aliased mutable is disqualified and never freed
+# (LANGUAGE_SPEC §16.4).
+cat > "$TMP_DIR/m92d_mut.tiq" <<'EOF'
+s <- json_get("{\"a\": \"one\"}", "a")
+print(s)
+s <- json_get("{\"b\": \"two\"}", "b")
+print(s)
+[0..2] {
+    s <- json_get("{\"c\": \"three\"}", "c")
+    print(s)
+}
+t <- json_get("{\"d\": \"four\"}", "d")
+u = t
+print(u)
+EOF
+./build/tiq emit-c "$TMP_DIR/m92d_mut.tiq" > "$TMP_DIR/m92d_mut.c"
+grep -o 'free((void \*)[a-z_]*);' "$TMP_DIR/m92d_mut.c" > "$TMP_DIR/m92d_mut.frees" || true
+printf 'free((void *)tiq_old);\nfree((void *)tiq_old);\nfree((void *)s);\n' > "$TMP_DIR/m92d_mut.frees.expected"
+cmp "$TMP_DIR/m92d_mut.frees" "$TMP_DIR/m92d_mut.frees.expected"
+cc -std=c11 -g -fsanitize=address,undefined -o "$TMP_DIR/m92d_mut_asan" "$TMP_DIR/m92d_mut.c"
+"$TMP_DIR/m92d_mut_asan" > "$TMP_DIR/m92d_mut.out"
+printf 'one\ntwo\nthree\nthree\nfour\n' > "$TMP_DIR/m92d_mut.expected"
+cmp "$TMP_DIR/m92d_mut.out" "$TMP_DIR/m92d_mut.expected"
+
 echo "smoke: ok"

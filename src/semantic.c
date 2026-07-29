@@ -874,6 +874,24 @@ static void check_node(SemanticContext *ctx, AstNode *node) {
             break;
         }
         case AST_BINDING:
+            // M9.2-D: `name <- expr` where name already names a mutable
+            // binding is a reassignment, not a redefinition; rewrite it so
+            // the emitter does not declare the name twice.
+            {
+                Symbol *prev = env_lookup(ctx->current_env, node->as.binding.name);
+                if (node->as.binding.is_mutable && prev && prev->is_mutable) {
+                    Token bname = node->as.binding.name;
+                    AstNode *bexpr = node->as.binding.expr;
+                    node->kind = AST_ASSIGN;
+                    node->as.assign.name = bname;
+                    node->as.assign.op = TOK_LARROW;
+                    node->as.assign.index = NULL;
+                    node->as.assign.expr = bexpr;
+                    node->as.assign.is_definition = false;
+                    check_node(ctx, node);
+                    break;
+                }
+            }
             check_node(ctx, node->as.binding.expr);
             {
                 SemanticType *type = ty(ctx, TYPE_UNKNOWN);
