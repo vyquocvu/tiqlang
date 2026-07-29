@@ -547,6 +547,13 @@ Both are ordinary builtin calls: wrong arity is rejected with E12 and a non-`int
 
 Key comparison is exact and byte-wise; keys in `json` containing escape sequences are not decoded before comparison. Wrong arity is rejected with E12 and non-`str` arguments with E09 at compile time.
 
+JSON arrays are read with two companion builtins:
+
+- `json_arr_len(json)` takes one `str` and returns the number of top-level elements of the JSON array `json` as `int`. An input that is not a JSON array or is malformed yields `0`.
+- `json_arr_get(json, i)` takes a `str` and an `int` and returns the `i`-th top-level element (0-based) of the JSON array `json` as `str`, using the same value-extraction rules as `json_get` (decoded strings, verbatim scalar tokens, raw balanced sub-documents). An index outside `0 <= i < json_arr_len(json)`, a non-array input, or malformed input yields the empty string. Neither builtin raises a runtime error.
+
+All three builtins reject wrong arity with E12 and wrong argument types with E09 at compile time.
+
 The pre-existing helpers `json_parse_int` (`str` → `int`, leading-integer parse) and `json_encode_str` (`str` → `str`, quoted and escaped) remain available.
 
 ## 20. Bootstrap conformance

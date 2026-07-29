@@ -277,6 +277,7 @@ static void emit_expr(AstNode *node, EmitContext *ctx) {
                     {"json_encode_str", 15, "tiq_json_encode_str"}, {"net_fetch", 9, "tiq_net_fetch"},
                     {"cli_arg_count", 13, "tiq_cli_arg_count"}, {"cli_arg", 7, "tiq_cli_arg"},
                     {"json_get", 8, "tiq_json_get"},
+                    {"json_arr_len", 12, "tiq_json_arr_len"}, {"json_arr_get", 12, "tiq_json_arr_get"},
                 };
                 const char *builtin_fn = NULL;
                 for (int bi = 0; bi < (int)(sizeof btn / sizeof btn[0]); bi++) {

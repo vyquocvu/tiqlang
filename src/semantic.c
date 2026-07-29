@@ -496,21 +496,27 @@ static void check_node(SemanticContext *ctx, AstNode *node) {
                     typedef struct {
                         const char *name; int name_len; int arity;
                         PrimitiveType expected; PrimitiveType ret;
+                        // M10.3: optional distinct type for the second argument;
+                        // TYPE_UNKNOWN (0) means "same as expected".
+                        PrimitiveType expected2;
                     } Builtin;
                     static const Builtin builtins[] = {
-                        {"fs_read",        7, 1, TYPE_STR, TYPE_STR},
-                        {"fs_write",       8, 2, TYPE_STR, TYPE_INT},
-                        {"fs_exists",      9, 1, TYPE_STR, TYPE_BOOL},
-                        {"proc_exec",      9, 1, TYPE_STR, TYPE_INT},
-                        {"proc_exit",      9, 1, TYPE_INT, TYPE_INT},
-                        {"json_parse_int",14, 1, TYPE_STR, TYPE_INT},
-                        {"json_encode_str",15,1, TYPE_STR, TYPE_STR},
+                        {"fs_read",        7, 1, TYPE_STR, TYPE_STR, TYPE_UNKNOWN},
+                        {"fs_write",       8, 2, TYPE_STR, TYPE_INT, TYPE_UNKNOWN},
+                        {"fs_exists",      9, 1, TYPE_STR, TYPE_BOOL, TYPE_UNKNOWN},
+                        {"proc_exec",      9, 1, TYPE_STR, TYPE_INT, TYPE_UNKNOWN},
+                        {"proc_exit",      9, 1, TYPE_INT, TYPE_INT, TYPE_UNKNOWN},
+                        {"json_parse_int",14, 1, TYPE_STR, TYPE_INT, TYPE_UNKNOWN},
+                        {"json_encode_str",15,1, TYPE_STR, TYPE_STR, TYPE_UNKNOWN},
                         // M10.2: JSON decoder builtin (LANGUAGE_SPEC §19).
-                        {"json_get",       8, 2, TYPE_STR, TYPE_STR},
-                        {"net_fetch",      9, 1, TYPE_STR, TYPE_STR},
+                        {"json_get",       8, 2, TYPE_STR, TYPE_STR, TYPE_UNKNOWN},
+                        // M10.3: JSON array builtins (LANGUAGE_SPEC §19).
+                        {"json_arr_len",  12, 1, TYPE_STR, TYPE_INT, TYPE_UNKNOWN},
+                        {"json_arr_get",  12, 2, TYPE_STR, TYPE_STR, TYPE_INT},
+                        {"net_fetch",      9, 1, TYPE_STR, TYPE_STR, TYPE_UNKNOWN},
                         // M10.1: CLI argument builtins (LANGUAGE_SPEC §18.1)
-                        {"cli_arg_count", 13, 0, TYPE_INT, TYPE_INT},
-                        {"cli_arg",        7, 1, TYPE_INT, TYPE_STR},
+                        {"cli_arg_count", 13, 0, TYPE_INT, TYPE_INT, TYPE_UNKNOWN},
+                        {"cli_arg",        7, 1, TYPE_INT, TYPE_STR, TYPE_UNKNOWN},
                     };
                     bool matched = false;
                     for (int bi = 0; bi < (int)(sizeof builtins / sizeof builtins[0]); bi++) {
@@ -532,12 +538,15 @@ static void check_node(SemanticContext *ctx, AstNode *node) {
                                 if (!node->as.call.args[ai]) continue;
                                 SemanticType *at = node->as.call.args[ai]->semantic_type;
                                 if (!at) continue;
+                                PrimitiveType want = builtins[bi].expected;
+                                if (ai == 1 && builtins[bi].expected2 != TYPE_UNKNOWN)
+                                    want = builtins[bi].expected2;
                                 // str parameters also accept borrowed str_view slices.
-                                if (builtins[bi].expected == TYPE_STR && at->kind == TYPE_STR_VIEW)
+                                if (want == TYPE_STR && at->kind == TYPE_STR_VIEW)
                                     continue;
                                 char where[64];
                                 snprintf(where, sizeof where, "%s argument", builtins[bi].name);
-                                unify(ctx, node->token.line, ty(ctx, builtins[bi].expected), at, where);
+                                unify(ctx, node->token.line, ty(ctx, want), at, where);
                             }
                         }
                         node->semantic_type = ty(ctx, builtins[bi].ret);

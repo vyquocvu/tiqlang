@@ -388,6 +388,28 @@ assert_semantic "json_get_bad_arity" 'x = json_get("{}")
 assert_semantic "json_get_bad_type" 'x = json_get("{}", 1)
 ' "$TMP_DIR/json_get_bad_type.tiq:1: error[E09]: json_get argument: expected str, found int"
 
+# M10.3: JSON array builtins (LANGUAGE_SPEC §19).
+assert_semantic_ast "typed_json_arr" 'n = json_arr_len("[1]")
+v = json_arr_get("[1]", 0)
+' 'BINDING n <TYPE_INT>
+  CALL <TYPE_INT>
+    IDENT json_arr_len
+    STRING "[1]" <TYPE_STR>
+BINDING v <TYPE_STR>
+  CALL <TYPE_STR>
+    IDENT json_arr_get
+    STRING "[1]" <TYPE_STR>
+    INT 0 <TYPE_INT>'
+
+assert_semantic "json_arr_get_bad_arity" 'x = json_arr_get("[1]")
+' "$TMP_DIR/json_arr_get_bad_arity.tiq:1: error[E12]: json_arr_get expects exactly 2 arguments"
+
+assert_semantic "json_arr_get_bad_index_type" 'x = json_arr_get("[1]", "0")
+' "$TMP_DIR/json_arr_get_bad_index_type.tiq:1: error[E09]: json_arr_get argument: expected int, found str"
+
+assert_semantic "json_arr_len_bad_type" 'x = json_arr_len(1)
+' "$TMP_DIR/json_arr_len_bad_type.tiq:1: error[E09]: json_arr_len argument: expected str, found int"
+
 # unify() (plan 3.1): conditional branches and every match arm are checked.
 assert_semantic "conditional_branch_mismatch" 'b = true
 x = b ? 2 : "s"

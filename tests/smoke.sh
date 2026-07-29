@@ -423,4 +423,25 @@ EOF
 printf 'tiq\n42\ntrue\n{"x": 7}\n7\na\nb\n\n\n' > "$TMP_DIR/m10_json_get.expected"
 cmp "$TMP_DIR/m10_json_get.out" "$TMP_DIR/m10_json_get.expected"
 
+# M10.3: json_arr_len / json_arr_get read JSON arrays; out-of-range index,
+# non-array input, and malformed input fail soft (LANGUAGE_SPEC §19).
+cat > "$TMP_DIR/m10_json_arr.tiq" <<'EOF'
+a = "[10, \"two\", {\"x\": 5}, [1, 2], true]"
+print(json_arr_len(a))
+print(json_arr_get(a, 0))
+print(json_arr_get(a, 1))
+print(json_get(json_arr_get(a, 2), "x"))
+print(json_arr_get(a, 3))
+print(json_arr_len(json_arr_get(a, 3)))
+print(json_arr_get(a, 4))
+print(json_arr_get(a, 9))
+print(json_arr_len("{}"))
+print(json_arr_len("[]"))
+print(json_arr_get("[]", 0))
+EOF
+./build/tiq build "$TMP_DIR/m10_json_arr.tiq" -o "$TMP_DIR/m10_json_arr"
+"$TMP_DIR/m10_json_arr" > "$TMP_DIR/m10_json_arr.out"
+printf '5\n10\ntwo\n5\n[1, 2]\n2\ntrue\n\n0\n0\n\n' > "$TMP_DIR/m10_json_arr.expected"
+cmp "$TMP_DIR/m10_json_arr.out" "$TMP_DIR/m10_json_arr.expected"
+
 echo "smoke: ok"
