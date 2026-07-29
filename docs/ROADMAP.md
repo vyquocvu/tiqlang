@@ -313,11 +313,11 @@ Status audit 2026-07-25: previously marked done; corrected after source review.
 
 Status: active
 
-Status audit 2026-07-25: previously marked done; corrected after source review. `net_fetch` is a hardcoded stub returning a fixed JSON string; no sockets, event loop, or HTTP code exists.
+Status audit 2026-07-25: previously marked done; corrected after source review. `net_fetch` is a hardcoded stub returning a fixed JSON string; no sockets, event loop, or HTTP code exists. (Stub replaced by a real HTTP client in M10.4, 2026-07-29; event loop and server remain open.)
 
 - [ ] Non-blocking event loop integration (`epoll` on Linux, `kqueue` on macOS)
 - [ ] Zero-copy JSON encoder and decoder primitives — partial: M10.2 (2026-07-29) adds `json_get(json, key)`, a real single-pass object-member decoder, and M10.3 (2026-07-29) adds `json_arr_len(json)` / `json_arr_get(json, i)` array access (LANGUAGE_SPEC §19; string escape decode, verbatim scalars, chainable raw sub-documents, soft failure on miss/malformed input); evidence: `typed_json_get`/`typed_json_arr` plus five negative tests in `tests/semantic.sh`, `m10_json_get`/`m10_json_arr` in `tests/smoke.sh`. `json_parse_int`/`json_encode_str` remain minimal helpers; a zero-copy encoder is open.
-- [ ] HTTP/1.1 service server & client socket primitives (replace the `tiq_net_fetch` stub)
+- [ ] HTTP/1.1 service server & client socket primitives — partial: M10.4 (2026-07-29) replaces the `tiq_net_fetch` stub with a real blocking HTTP/1.0 GET client over POSIX sockets (`getaddrinfo`/`socket`/`connect`, LANGUAGE_SPEC §19.2); only `http://host[:port][/path]`, all failures yield the empty string; evidence: `m10_net_fetch` in `tests/smoke.sh` fetches from a local one-shot server bound to port 0 and checks scheme/empty-host negatives. HTTP/1.1, an HTTP server, and non-blocking sockets remain open.
 - [x] Standard library CLI argument access — M10.1 (2026-07-29): `cli_arg_count()` / `cli_arg(i)` builtins backed by real `argc`/`argv` (LANGUAGE_SPEC §18.1); E12/E09 diagnostics; evidence: `typed_cli_builtins`, `cli_arg_count_bad_arity`, `cli_arg_no_args`, `cli_arg_bad_type` in `tests/semantic.sh`; `m10_cli_args`, `m10_cli_none` runtime tests in `tests/smoke.sh`. Flag parsing (named options) remains open.
 
 ## M11 — Platform expansion, IDE tooling & self-hosting
