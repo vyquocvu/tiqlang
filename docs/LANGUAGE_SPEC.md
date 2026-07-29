@@ -603,6 +603,13 @@ The returned view aliases its `json` argument and must not outlive the string it
 
 The `val` argument is inserted verbatim as raw JSON text; callers are responsible for quoting string values (e.g. `json_encode_str`). No validation of `val` is performed. Wrong arity is rejected with E12 and non-`str` arguments with E09 at compile time.
 
+`json_del(json, key)` takes exactly two `str` arguments and returns a heap-allocated `str` (owned per §16.4). It produces a JSON object string with the member `key` removed:
+
+- If `json` is not a JSON object or `key` is absent, the input is returned unchanged (as a fresh heap copy).
+- If `key` is present, the member and its surrounding comma (leading or trailing) are removed.
+
+Wrong arity is rejected with E12 and non-`str` arguments with E09 at compile time.
+
 The pre-existing helpers `json_parse_int` (`str` → `int`, leading-integer parse) and `json_encode_str` (`str` → `str`, quoted and escaped) remain available.
 
 ### 19.2 HTTP fetch

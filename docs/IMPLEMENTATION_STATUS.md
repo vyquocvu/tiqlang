@@ -350,6 +350,11 @@ corrected audits. None of these milestones is complete.
   - Runtime prelude gained a sixth chunk (`TIQ_RUNTIME_PRELUDE6`) with `tiq_json_set`; unit test buffer increased to 32 KB.
   - Tests (added failing first): `m1011_jset` in `tests/smoke.sh` covers append-to-empty, append-to-nonempty, replace-existing, and non-object-input. Full suite plus tooling/fuzz green under ASan/UBSan.
   - Docs: LANGUAGE_SPEC §19.1; ROADMAP M10 evidence.
+- M10.12: JSON member deletion builtin (2026-07-29):
+  - `json_del(json, key)` takes two `str` arguments and returns a heap-allocated `str` (owned per §16.4). Non-object input or absent key returns the input unchanged (heap copy); present key removes the member and its surrounding comma.
+  - Runtime prelude gained a seventh chunk (`TIQ_RUNTIME_PRELUDE7`) with `tiq_json_del`.
+  - Tests (added failing first): `m1012_jdel` in `tests/smoke.sh` covers delete-first, delete-last, delete-only, and non-object-input. Full suite plus tooling/fuzz green under ASan/UBSan.
+  - Docs: LANGUAGE_SPEC §19.1; ROADMAP M10 evidence.
 
 ## Known bootstrap limitations
 
