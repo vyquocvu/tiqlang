@@ -291,7 +291,7 @@ Status audit 2026-07-29: struct definitions, record literals, field access, and 
 
 - [x] Record / struct type definitions and field access — done in M12.6 (2026-07-29)
 - [x] Explicit Option types (`T?`) — `some(x)`, `none`, and `??` fallback operator implemented (2026-07-29)
-- [ ] Explicit Result types (`T!E`) — `ok(x)`, `err(e)` not yet implemented
+- [x] Explicit Result types (`T!E`) — `ok(x)`, `err(e)`, and `??` fallback operator implemented (2026-07-29)
 - [x] Pattern matching (`match expr { pattern => body }`) — parsed and checked; arm types unified via `unify()` since plan 3.1 (2026-07-27)
 - [x] Direct C struct emission in backend — done in M12.6 (2026-07-29)
 

@@ -98,9 +98,12 @@ static void emit_expr(AstNode *node, EmitContext *ctx) {
         case AST_BINARY: {
             // M8: Fallback operator ?? for Option/Result types.
             if (node->as.binary.op == TOK_QUESTION_QUESTION) {
+                SemanticType *lt = node->as.binary.left ? node->as.binary.left->semantic_type : NULL;
+                const char *flag_field = (lt && lt->kind == TYPE_RESULT) ? ".is_ok" : ".has_value";
                 fputs("(", ctx->out);
                 emit_expr(node->as.binary.left, ctx);
-                fputs(".has_value ? ", ctx->out);
+                fputs(flag_field, ctx->out);
+                fputs(" ? ", ctx->out);
                 emit_expr(node->as.binary.left, ctx);
                 fputs(".value : ", ctx->out);
                 emit_expr(node->as.binary.right, ctx);
@@ -207,6 +210,25 @@ static void emit_expr(AstNode *node, EmitContext *ctx) {
                 memcmp(node->as.call.callee->as.identifier.name.start, "none", 4) == 0 &&
                 node->as.call.arg_count == 0) {
                 fputs("((TiqOption){ .value = 0, .has_value = 0 })", ctx->out);
+                break;
+            }
+            // M8: Result constructors ok(x) and err(e).
+            if (node->as.call.callee && node->as.call.callee->kind == AST_IDENTIFIER &&
+                node->as.call.callee->as.identifier.name.length == 2 &&
+                memcmp(node->as.call.callee->as.identifier.name.start, "ok", 2) == 0 &&
+                node->as.call.arg_count == 1) {
+                fputs("((TiqResult){ .value = (int64_t)(", ctx->out);
+                emit_expr(node->as.call.args[0], ctx);
+                fputs("), .error = 0, .is_ok = 1 })", ctx->out);
+                break;
+            }
+            if (node->as.call.callee && node->as.call.callee->kind == AST_IDENTIFIER &&
+                node->as.call.callee->as.identifier.name.length == 3 &&
+                memcmp(node->as.call.callee->as.identifier.name.start, "err", 3) == 0 &&
+                node->as.call.arg_count == 1) {
+                fputs("((TiqResult){ .value = 0, .error = (int64_t)(", ctx->out);
+                emit_expr(node->as.call.args[0], ctx);
+                fputs("), .is_ok = 0 })", ctx->out);
                 break;
             }
             if (node->as.call.callee && node->as.call.callee->kind == AST_IDENTIFIER) {
@@ -588,6 +610,12 @@ static void emit_stmt(AstNode *node, EmitContext *ctx, int indent) {
             } else if (t && t->kind == TYPE_OPTION) {
                 // M8: Option binding
                 fprintf(ctx->out, "TiqOption %.*s", (int)node->as.binding.name.length, node->as.binding.name.start);
+                fputs(" = ", ctx->out);
+                emit_expr(node->as.binding.expr, ctx);
+                fputs(";\n", ctx->out);
+            } else if (t && t->kind == TYPE_RESULT) {
+                // M8: Result binding
+                fprintf(ctx->out, "TiqResult %.*s", (int)node->as.binding.name.length, node->as.binding.name.start);
                 fputs(" = ", ctx->out);
                 emit_expr(node->as.binding.expr, ctx);
                 fputs(";\n", ctx->out);

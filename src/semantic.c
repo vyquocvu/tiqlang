@@ -393,6 +393,37 @@ static void check_node(SemanticContext *ctx, AstNode *node) {
                     node->semantic_type = ty(ctx, TYPE_OPTION);
                     break;
                 }
+                // M8: Result constructors
+                if (name.length == 2 && memcmp(name.start, "ok", 2) == 0) {
+                    if (node->as.call.arg_count != 1) {
+                        diag_error(ctx->diag, ctx->path, node->token.line, ERR_ARITY_MISMATCH, "ok expects exactly 1 argument");
+                    } else {
+                        if (node->as.call.args[0]) check_node(ctx, node->as.call.args[0]);
+                        SemanticType *at = node->as.call.args[0] ?
+                            node->as.call.args[0]->semantic_type : NULL;
+                        if (at && at->kind != TYPE_UNKNOWN) {
+                            node->semantic_type = type_get_result(ctx->pool, at, ty(ctx, TYPE_INT));
+                        } else {
+                            node->semantic_type = ty(ctx, TYPE_RESULT);
+                        }
+                    }
+                    break;
+                }
+                if (name.length == 3 && memcmp(name.start, "err", 3) == 0) {
+                    if (node->as.call.arg_count != 1) {
+                        diag_error(ctx->diag, ctx->path, node->token.line, ERR_ARITY_MISMATCH, "err expects exactly 1 argument");
+                    } else {
+                        if (node->as.call.args[0]) check_node(ctx, node->as.call.args[0]);
+                        SemanticType *at = node->as.call.args[0] ?
+                            node->as.call.args[0]->semantic_type : NULL;
+                        if (at && at->kind != TYPE_UNKNOWN) {
+                            node->semantic_type = type_get_result(ctx->pool, ty(ctx, TYPE_INT), at);
+                        } else {
+                            node->semantic_type = ty(ctx, TYPE_RESULT);
+                        }
+                    }
+                    break;
+                }
                 {
                     typedef struct {
                         const char *name; int name_len; int arity;

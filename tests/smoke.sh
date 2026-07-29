@@ -344,4 +344,13 @@ printf 'x = none\ny = x ?? 99\nprint(y)\n' > "$TMP_DIR/option_none.tiq"
 ./build/tiq build "$TMP_DIR/option_none.tiq" -o "$TMP_DIR/option_none"
 [ "$("$TMP_DIR/option_none")" = "99" ]
 
+# M8: Result types - ok, err, and fallback operator.
+printf 'x = ok(42)\ny = x ?? 0\nprint(y)\n' > "$TMP_DIR/result_ok.tiq"
+./build/tiq build "$TMP_DIR/result_ok.tiq" -o "$TMP_DIR/result_ok"
+[ "$("$TMP_DIR/result_ok")" = "42" ]
+
+printf 'x = err(99)\ny = x ?? 0\nprint(y)\n' > "$TMP_DIR/result_err.tiq"
+./build/tiq build "$TMP_DIR/result_err.tiq" -o "$TMP_DIR/result_err"
+[ "$("$TMP_DIR/result_err")" = "0" ]
+
 echo "smoke: ok"

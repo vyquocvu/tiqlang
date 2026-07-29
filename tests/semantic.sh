@@ -489,4 +489,10 @@ y = x ?? 0
 assert_semantic "some_wrong_arity" 'x = some(1, 2)
 ' "$TMP_DIR/some_wrong_arity.tiq:1: error[E12]: some expects exactly 1 argument"
 
+assert_semantic "ok_wrong_arity" 'x = ok(1, 2)
+' "$TMP_DIR/ok_wrong_arity.tiq:1: error[E12]: ok expects exactly 1 argument"
+
+assert_semantic "err_wrong_arity" 'x = err()
+' "$TMP_DIR/err_wrong_arity.tiq:1: error[E12]: err expects exactly 1 argument"
+
 echo "semantic: ok"
