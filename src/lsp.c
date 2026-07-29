@@ -566,6 +566,52 @@ static void handle_did_open(LspServer *server, FILE *out, const char *content) {
     free(uri);
 }
 
+// M11.2: full-document sync (textDocumentSync 1). The change text replaces
+// the stored document, the version advances, and diagnostics are
+// republished. Changes for unopened uris or malformed params fail closed.
+static void handle_did_change(LspServer *server, FILE *out, const char *content) {
+    char *uri = json_get_string(content, "uri");
+    char *text = json_get_string(content, "text");
+    long version = 0;
+    if (!uri || !text || !json_get_long(content, "version", &version)) {
+        free(uri);
+        free(text);
+        return; // malformed didChange: fail closed
+    }
+    LspDocument *doc = doc_find(server, uri);
+    free(uri);
+    if (!doc) {
+        free(text); // change for an unopened document: fail closed
+        return;
+    }
+    free(doc->text);
+    doc->text = text; // takes ownership of text
+    doc->version = version;
+    publish_diagnostics(out, doc);
+}
+
+// M11.2: didClose drops the stored document (later requests answer null)
+// and clears its published diagnostics. No version is sent: the server no
+// longer holds one for the closed document.
+static void handle_did_close(LspServer *server, FILE *out, const char *content) {
+    char *uri = json_get_string(content, "uri");
+    if (!uri) return;
+    LspDocument *doc = doc_find(server, uri);
+    if (doc) {
+        free(doc->text);
+        doc->text = NULL;
+        doc->open = false;
+        size_t cap = strlen(uri) + 64;
+        char *params = malloc(cap);
+        if (params) {
+            snprintf(params, cap, "{\"uri\":\"%s\",\"diagnostics\":[]}", uri);
+            send_notification(out, "textDocument/publishDiagnostics", params);
+            free(params);
+        }
+    }
+    free(uri);
+}
+
 // Shared param parsing for hover/definition; returns the target document
 // or NULL (fail closed → null result).
 static LspDocument *request_doc_at(LspServer *server, const char *content,
@@ -811,9 +857,13 @@ int lsp_server_run(const char *root_path, int stdin_fd, int stdout_fd) {
                 handle_semantic_tokens(&server, out, id, content);
             } else if (strcmp(method, "textDocument/didOpen") == 0) {
                 handle_did_open(&server, out, content);
+            } else if (strcmp(method, "textDocument/didChange") == 0) {
+                handle_did_change(&server, out, content);
+            } else if (strcmp(method, "textDocument/didClose") == 0) {
+                handle_did_close(&server, out, content);
             }
-            // Other notifications (didChange, didClose, ...) are ignored:
-            // unsupported input fails closed without a response.
+            // Other notifications are ignored: unsupported input fails
+            // closed without a response.
         }
 
         free(method);

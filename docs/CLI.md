@@ -40,9 +40,11 @@ tiq dump-typed-ast <file.tiq>
 
 ## LSP server (`tiq lsp`)
 
-`tiq lsp` speaks JSON-RPC over stdio with `Content-Length` framing. Supported methods: `initialize`, `initialized`, `shutdown`, `exit`, `textDocument/didOpen`, `textDocument/hover`, `textDocument/definition`, and `textDocument/semanticTokens/full`. All other methods and malformed requests fail closed (notifications are ignored; requests answer `null`).
+`tiq lsp` speaks JSON-RPC over stdio with `Content-Length` framing. Supported methods: `initialize`, `initialized`, `shutdown`, `exit`, `textDocument/didOpen`, `textDocument/didChange`, `textDocument/didClose`, `textDocument/hover`, `textDocument/definition`, and `textDocument/semanticTokens/full`. All other methods and malformed requests fail closed (notifications are ignored; requests answer `null`).
 
 On `didOpen` the server runs the full front end (lexer, parser, semantic checker) over the stored text and publishes structured `textDocument/publishDiagnostics` (M11.1): each diagnostic carries a 0-based start-of-line range, `severity` 1 (Error), `code` `"ENN"` matching the CLI error code, `source` `"tiq"`, and the exact CLI message, keyed to the stored document version. A clean document publishes the empty set. At most 16 diagnostics are published per document; further records are dropped.
+
+`didChange` uses full-document sync (M11.2, matching the advertised `textDocumentSync: 1`): the change text replaces the stored document, the version advances, and diagnostics are republished. `didClose` drops the document — later requests against its uri answer `null` — and clears its diagnostics with an empty, versionless publish. Changes for unopened uris are ignored.
 
 ## Planned
 

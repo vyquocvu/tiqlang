@@ -31,6 +31,12 @@ frame() {
     frame '{"jsonrpc":"2.0","id":4,"method":"textDocument/definition","params":{"textDocument":{"uri":"file:///test.tiq"},"position":{"line":2,"character":5}}}'
     frame '{"jsonrpc":"2.0","id":5,"method":"textDocument/semanticTokens/full","params":{"textDocument":{"uri":"file:///test.tiq"}}}'
     frame '{"jsonrpc":"2.0","id":6,"method":"textDocument/hover","params":{"textDocument":{"uri":"file:///other.tiq"},"position":{"line":0,"character":0}}}'
+    frame '{"jsonrpc":"2.0","method":"textDocument/didChange","params":{"textDocument":{"uri":"file:///test.tiq","version":2},"contentChanges":[{"text":"print(z)\n"}]}}'
+    frame '{"jsonrpc":"2.0","method":"textDocument/didChange","params":{"textDocument":{"uri":"file:///test.tiq","version":3},"contentChanges":[{"text":"k = 9\nprint(k)\n"}]}}'
+    frame '{"jsonrpc":"2.0","id":8,"method":"textDocument/hover","params":{"textDocument":{"uri":"file:///test.tiq"},"position":{"line":0,"character":0}}}'
+    frame '{"jsonrpc":"2.0","method":"textDocument/didClose","params":{"textDocument":{"uri":"file:///test.tiq"}}}'
+    frame '{"jsonrpc":"2.0","id":9,"method":"textDocument/hover","params":{"textDocument":{"uri":"file:///test.tiq"},"position":{"line":0,"character":0}}}'
+    frame '{"jsonrpc":"2.0","method":"textDocument/didChange","params":{"textDocument":{"uri":"file:///nope.tiq","version":1},"contentChanges":[{"text":"x = 1\n"}]}}'
     frame '{"jsonrpc":"2.0","id":7,"method":"shutdown","params":null}'
     frame '{"jsonrpc":"2.0","method":"exit","params":null}'
 } > "$TMP/requests.bin"
@@ -43,6 +49,9 @@ frame() {
 # closed). publishDiagnostics carries real front-end diagnostics (M11.1):
 # 0-based start-of-line ranges, severity 1, code "ENN", source "tiq",
 # keyed to the stored document version; a clean document publishes [].
+# didChange (M11.2, full sync) replaces the stored text and version and
+# republishes; didClose drops the document (later requests answer null)
+# and clears its diagnostics; didChange for an unopened uri is ignored.
 {
     frame '{"jsonrpc":"2.0","id":1,"result":{"capabilities":{"textDocumentSync":1,"hoverProvider":true,"definitionProvider":true,"semanticTokensProvider":{"legend":{"tokenTypes":["keyword","variable","number","string","operator"],"tokenModifiers":[]},"full":true}},"serverInfo":{"name":"tiq","version":"0.1.0"}}}'
     frame '{"jsonrpc":"2.0","method":"textDocument/publishDiagnostics","params":{"uri":"file:///test.tiq","version":1,"diagnostics":[]}}'
@@ -52,6 +61,11 @@ frame() {
     frame '{"jsonrpc":"2.0","id":4,"result":{"uri":"file:///test.tiq","range":{"start":{"line":0,"character":0},"end":{"line":0,"character":1}}}}'
     frame '{"jsonrpc":"2.0","id":5,"result":{"data":[0,0,1,1,0,0,2,1,4,0,0,2,2,2,0,1,0,3,1,0,0,4,1,1,0,0,2,1,1,0,0,2,2,4,0,0,3,1,1,0,0,2,1,4,0,0,2,1,1,0,0,2,1,4,0,0,2,1,1,0,0,2,1,4,0,0,2,1,1,0,1,0,1,4,0,0,1,3,1,0,0,4,1,1,0,0,3,1,2,0]}}'
     frame '{"jsonrpc":"2.0","id":6,"result":null}'
+    frame '{"jsonrpc":"2.0","method":"textDocument/publishDiagnostics","params":{"uri":"file:///test.tiq","version":2,"diagnostics":[{"range":{"start":{"line":0,"character":0},"end":{"line":0,"character":0}},"severity":1,"code":"E08","source":"tiq","message":"undefined symbol '\''z'\''"}]}}'
+    frame '{"jsonrpc":"2.0","method":"textDocument/publishDiagnostics","params":{"uri":"file:///test.tiq","version":3,"diagnostics":[]}}'
+    frame '{"jsonrpc":"2.0","id":8,"result":{"contents":{"kind":"markdown","value":"```tiq\nk: int\n```"},"range":{"start":{"line":0,"character":0},"end":{"line":0,"character":1}}}}'
+    frame '{"jsonrpc":"2.0","method":"textDocument/publishDiagnostics","params":{"uri":"file:///test.tiq","diagnostics":[]}}'
+    frame '{"jsonrpc":"2.0","id":9,"result":null}'
     frame '{"jsonrpc":"2.0","id":7,"result":null}'
 } > "$TMP/expected.bin"
 
