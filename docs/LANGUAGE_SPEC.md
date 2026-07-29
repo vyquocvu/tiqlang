@@ -455,7 +455,9 @@ Inside a function whose result type is scalar (an integer type, a float type, or
 
 A mutable (`<-`) binding owns its string under a conservative escape test: its initializer and every later `<-` assignment to it must be a direct call to a heap-allocating builtin, and its name may otherwise appear only as an argument to standard-library builtins. A qualifying mutable owner destroys its previous string when reassigned — after the new value is computed, so self-referencing reassignments such as `s <- json_get(s, "k")` are safe — and is destroyed at scope end like an immutable owner. A mutable binding that fails the test never destroys anything: it may leak; it never double-frees or dangles.
 
-Bootstrap limits (completed in later M9 packages): unbound temporary results are not yet destroyed, and `proc_exit` terminates the process without running destruction. These paths leak; they never double-free or dangle.
+A statement-level `proc_exit(code)` call destroys the owned strings of every scope lexically enclosing the call — innermost first, up to the current function body or the top-level program scope — before terminating. The exit code is computed before any destruction runs. Only owners already bound at the call site are destroyed; owners in calling functions are not (they leak). A `proc_exit` embedded in a larger expression terminates without destruction.
+
+Bootstrap limits (completed in later M9 packages): unbound temporary results are not yet destroyed. These paths leak; they never double-free or dangle.
 
 ## 17. Provisional constructs and surface status
 

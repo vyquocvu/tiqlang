@@ -630,4 +630,29 @@ cc -std=c11 -g -fsanitize=address,undefined -o "$TMP_DIR/m92d_mut_asan" "$TMP_DI
 printf 'one\ntwo\nthree\nthree\nfour\n' > "$TMP_DIR/m92d_mut.expected"
 cmp "$TMP_DIR/m92d_mut.out" "$TMP_DIR/m92d_mut.expected"
 
+# M9.2-E: a statement-level proc_exit destroys the owned strings of every
+# enclosing scope (innermost first) before terminating; the exit code is
+# computed before destruction (LANGUAGE_SPEC §16.4).
+cat > "$TMP_DIR/m92e_exit.tiq" <<'EOF'
+a = json_get("{\"a\": \"one\"}", "a")
+print(a)
+[0..3] {
+    b = json_get("{\"b\": \"two\"}", "b")
+    print(b)
+    [(i == 2)] {
+        proc_exit(7)
+    }
+}
+EOF
+./build/tiq emit-c "$TMP_DIR/m92e_exit.tiq" > "$TMP_DIR/m92e_exit.c"
+grep -o 'free((void \*)[a-z_]*);' "$TMP_DIR/m92e_exit.c" > "$TMP_DIR/m92e_exit.frees" || true
+printf 'free((void *)b);\nfree((void *)a);\nfree((void *)b);\nfree((void *)a);\n' > "$TMP_DIR/m92e_exit.frees.expected"
+cmp "$TMP_DIR/m92e_exit.frees" "$TMP_DIR/m92e_exit.frees.expected"
+cc -std=c11 -g -fsanitize=address,undefined -o "$TMP_DIR/m92e_exit_asan" "$TMP_DIR/m92e_exit.c"
+exit_status=0
+"$TMP_DIR/m92e_exit_asan" > "$TMP_DIR/m92e_exit.out" || exit_status=$?
+test "$exit_status" -eq 7
+printf 'one\ntwo\ntwo\ntwo\n' > "$TMP_DIR/m92e_exit.expected"
+cmp "$TMP_DIR/m92e_exit.out" "$TMP_DIR/m92e_exit.expected"
+
 echo "smoke: ok"

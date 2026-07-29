@@ -351,6 +351,25 @@ static bool mut_reassign_owner(EmitContext *ctx, Token name) {
     return false;
 }
 
+// M9.2-E: before a statement-level proc_exit terminates the process, free
+// the owned strings of every tracked scope, innermost first (§16.4).
+static void emit_exit_frees(EmitContext *ctx, int indent) {
+    // Untracked inner scopes (depth overflow) would make the frees unsafe.
+    if (ctx->scope_depth > TIQ_MAX_SCOPE_DEPTH) return;
+    for (int d = ctx->scope_depth - 1; d >= 0; d--) {
+        EmitScope *s = &ctx->scopes[d];
+        emit_scope_frees(s, s->emitted, ctx, indent);
+    }
+}
+
+static bool is_proc_exit_call(AstNode *node) {
+    return node && node->kind == AST_CALL && !node->as.call.is_bracket_call &&
+           node->as.call.callee && node->as.call.callee->kind == AST_IDENTIFIER &&
+           node->as.call.callee->as.identifier.name.length == 9 &&
+           memcmp(node->as.call.callee->as.identifier.name.start, "proc_exit", 9) == 0 &&
+           node->as.call.arg_count == 1;
+}
+
 // M9.1: 0 = not a reference parameter of the enclosing function,
 // 1 = shared borrow (&T), 2 = mutable borrow (&mut T).
 static int ref_param_kind(EmitContext *ctx, Token name) {
@@ -1152,6 +1171,22 @@ static void emit_stmt(AstNode *node, EmitContext *ctx, int indent) {
         case AST_STREAM_GEN: case AST_ARRAY: case AST_ARRAY_FILL:
         case AST_FIELD_ACCESS: case AST_SPAWN: case AST_CHAN: case AST_MATCH:
         case AST_UNARY:
+            // M9.2-E: a statement-level proc_exit destroys the owned strings
+            // of every enclosing scope before terminating; the exit code is
+            // computed first so destruction cannot invalidate it (§16.4).
+            if (is_proc_exit_call(node)) {
+                fputs("{\n", ctx->out);
+                for (int j = 0; j < indent + 1; j++) fputs("    ", ctx->out);
+                fputs("int64_t tiq_exit_code = ", ctx->out);
+                emit_expr(node->as.call.args[0], ctx);
+                fputs(";\n", ctx->out);
+                emit_exit_frees(ctx, indent + 1);
+                for (int j = 0; j < indent + 1; j++) fputs("    ", ctx->out);
+                fputs("tiq_proc_exit(tiq_exit_code);\n", ctx->out);
+                for (int j = 0; j < indent; j++) fputs("    ", ctx->out);
+                fputs("}\n", ctx->out);
+                break;
+            }
             emit_expr(node, ctx);
             fputs(";\n", ctx->out);
             break;
