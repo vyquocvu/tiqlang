@@ -487,6 +487,28 @@ static const char TIQ_RUNTIME_PRELUDE5[] =
 
     "static int64_t tiq_net_shutdown(int64_t fd) {\n"
     "    return shutdown((int)fd, SHUT_WR) == 0 ? 0 : -1;\n"
+    "}\n\n"
+
+    "static const char *tiq_http_method(const char *req) {\n"
+    "    if (!req || !req[0]) return tiq_str_dup(\"\");\n"
+    "    const char *sp = strchr(req, ' ');\n"
+    "    if (!sp) return tiq_str_dup(req);\n"
+    "    size_t n = (size_t)(sp - req);\n"
+    "    char *out = (char *)tiq_alloc(n + 1);\n"
+    "    memcpy(out, req, n); out[n] = 0;\n"
+    "    return out;\n"
+    "}\n\n"
+
+    "static const char *tiq_http_path(const char *req) {\n"
+    "    if (!req) return tiq_str_dup(\"\");\n"
+    "    const char *sp1 = strchr(req, ' ');\n"
+    "    if (!sp1) return tiq_str_dup(\"\");\n"
+    "    const char *sp2 = strchr(sp1 + 1, ' ');\n"
+    "    if (!sp2) return tiq_str_dup(\"\");\n"
+    "    size_t n = (size_t)(sp2 - sp1 - 1);\n"
+    "    char *out = (char *)tiq_alloc(n + 1);\n"
+    "    memcpy(out, sp1 + 1, n); out[n] = 0;\n"
+    "    return out;\n"
     "}\n\n";
 
 #endif

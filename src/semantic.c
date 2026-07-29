@@ -531,6 +531,9 @@ static void check_node(SemanticContext *ctx, AstNode *node) {
                         {"net_close",      9, 1, TYPE_INT, TYPE_INT, TYPE_UNKNOWN},
                         {"net_port",       8, 1, TYPE_INT, TYPE_INT, TYPE_UNKNOWN},
                         {"net_shutdown",  12, 1, TYPE_INT, TYPE_INT, TYPE_UNKNOWN},
+                        // M10.9: HTTP request-line parsing (LANGUAGE_SPEC §19.3).
+                        {"http_method",  11, 1, TYPE_STR, TYPE_STR, TYPE_UNKNOWN},
+                        {"http_path",     9, 1, TYPE_STR, TYPE_STR, TYPE_UNKNOWN},
                         // M10.1: CLI argument builtins (LANGUAGE_SPEC §18.1)
                         {"cli_arg_count", 13, 0, TYPE_INT, TYPE_INT, TYPE_UNKNOWN},
                         {"cli_arg",        7, 1, TYPE_INT, TYPE_STR, TYPE_UNKNOWN},

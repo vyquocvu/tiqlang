@@ -83,6 +83,7 @@ static bool is_owned_str_builtin_call(AstNode *expr) {
     static const struct { const char *name; int len; } owned[] = {
         {"fs_read", 7}, {"json_encode_str", 15}, {"json_get", 8},
         {"json_arr_get", 12}, {"net_fetch", 9}, {"net_recv", 8},
+        {"http_method", 11}, {"http_path", 9},
     };
     if (!expr || expr->kind != AST_CALL || expr->as.call.is_bracket_call) return false;
     if (!expr->as.call.callee || expr->as.call.callee->kind != AST_IDENTIFIER) return false;
@@ -183,6 +184,7 @@ static bool is_safe_builtin_callee(AstNode *callee) {
         {"net_listen", 10}, {"net_accept", 10}, {"net_connect", 11},
         {"net_recv", 8}, {"net_send", 8}, {"net_close", 9},
         {"net_port", 8}, {"net_shutdown", 12},
+        {"http_method", 11}, {"http_path", 9},
     };
     if (!callee || callee->kind != AST_IDENTIFIER) return false;
     Token n = callee->as.identifier.name;
@@ -762,6 +764,7 @@ static void emit_expr(AstNode *node, EmitContext *ctx) {
                     {"net_connect", 11, "tiq_net_connect"}, {"net_recv", 8, "tiq_net_recv"},
                     {"net_send", 8, "tiq_net_send"}, {"net_close", 9, "tiq_net_close"},
                     {"net_port", 8, "tiq_net_port"}, {"net_shutdown", 12, "tiq_net_shutdown"},
+                                        {"http_method", 11, "tiq_http_method"}, {"http_path", 9, "tiq_http_path"},
                 };
                 const char *builtin_fn = NULL;
                 for (int bi = 0; bi < (int)(sizeof btn / sizeof btn[0]); bi++) {

@@ -988,4 +988,20 @@ wait "$M108_PID" 2>/dev/null || true
 printf 'true\n' > "$TMP_DIR/m108_cli.expected"
 cmp "$TMP_DIR/m108_cli.out" "$TMP_DIR/m108_cli.expected"
 
+# M10.9: HTTP request-line parsing — http_method and http_path extract the
+# method and path tokens from an HTTP request line; owned heap strings.
+cat > "$TMP_DIR/m109_http.tiq" <<'EOF'
+req = "GET /index.html HTTP/1.1"
+print(http_method(req))
+print(http_path(req))
+print(http_method("POST"))
+print(http_path("POST"))
+print(http_method(""))
+print(http_path(""))
+EOF
+./build/tiq build "$TMP_DIR/m109_http.tiq" -o "$TMP_DIR/m109_http"
+"$TMP_DIR/m109_http" > "$TMP_DIR/m109_http.out"
+printf 'GET\n/index.html\nPOST\n\n\n\n' > "$TMP_DIR/m109_http.expected"
+cmp "$TMP_DIR/m109_http.out" "$TMP_DIR/m109_http.expected"
+
 echo "smoke: ok"
