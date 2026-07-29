@@ -95,16 +95,42 @@ static bool is_owned_str_builtin_call(AstNode *expr) {
     return false;
 }
 
+// M9.2-I: user functions classified fresh-result (LANGUAGE_SPEC §16.4);
+// filled once per program before emission. Classification never consults
+// this table, so it is order-independent.
+#define TIQ_MAX_FRESH_FNS 64
+static Token fresh_str_fns[TIQ_MAX_FRESH_FNS];
+static int fresh_str_fn_count;
+
+// M9.2-I: a direct call to a fresh-result function returns heap storage the
+// caller cannot already reach, so the binding it initializes owns it.
+static bool is_fresh_str_fn_call(AstNode *expr) {
+    if (!expr || expr->kind != AST_CALL || expr->as.call.is_bracket_call) return false;
+    if (!expr->as.call.callee || expr->as.call.callee->kind != AST_IDENTIFIER) return false;
+    Token n = expr->as.call.callee->as.identifier.name;
+    for (int i = 0; i < fresh_str_fn_count; i++) {
+        if (fresh_str_fns[i].length == n.length &&
+            memcmp(fresh_str_fns[i].start, n.start, n.length) == 0)
+            return true;
+    }
+    return false;
+}
+
+// M9.2: initializers that make their binding an owner (§16.4).
+static bool is_owning_str_init(AstNode *expr) {
+    return is_owned_str_builtin_call(expr) || is_fresh_str_fn_call(expr);
+}
+
 // M9.2: does statement s bind an owned string? If so, report its name.
 static bool owned_binding_name(AstNode *s, Token *name) {
     if (s && s->kind == AST_BINDING && !s->as.binding.is_mutable &&
-        is_owned_str_builtin_call(s->as.binding.expr)) {
+        is_owning_str_init(s->as.binding.expr)) {
         *name = s->as.binding.name;
         return true;
     }
     if (s && s->kind == AST_ASSIGN && s->as.assign.is_definition &&
         s->as.assign.op == TOK_EQ && !s->as.assign.index &&
-        is_owned_str_builtin_call(s->as.assign.expr)) {
+        is_owning_str_init(s->as.assign.expr)) {
         *name = s->as.assign.name;
         return true;
     }
@@ -115,13 +141,13 @@ static bool owned_binding_name(AstNode *s, Token *name) {
 // an owned builtin call? Ownership also needs the escape test below.
 static bool mut_owned_decl(AstNode *s, Token *name) {
     if (s && s->kind == AST_BINDING && s->as.binding.is_mutable &&
-        is_owned_str_builtin_call(s->as.binding.expr)) {
+        is_owning_str_init(s->as.binding.expr)) {
         *name = s->as.binding.name;
         return true;
     }
     if (s && s->kind == AST_ASSIGN && s->as.assign.is_definition &&
         s->as.assign.op == TOK_LARROW && !s->as.assign.index &&
-        is_owned_str_builtin_call(s->as.assign.expr)) {
+        is_owning_str_init(s->as.assign.expr)) {
         *name = s->as.assign.name;
         return true;
     }
@@ -313,6 +339,47 @@ static bool scope_owner_index(const EmitScope *sc, Token want, int *idx) {
         if (tok_name_eq(name, want)) { *idx = i; return true; }
     }
     return false;
+}
+
+// M9.2-I: is `fn` fresh-result (LANGUAGE_SPEC §16.4)? Its `str` result must
+// be a direct owned-builtin call or a bare identifier naming an owner of the
+// body's outermost scope; both are heap storage the caller cannot reach.
+static bool fn_is_fresh_result(AstNode *fn) {
+    if (!fn || fn->kind != AST_FUNCTION || !fn->as.function.body) return false;
+    AstNode *body = fn->as.function.body;
+    AstNode *res = (body->kind == AST_BLOCK) ? body->as.block.final_expr : body;
+    if (!res) return false;
+    SemanticType *t = fn->semantic_type;
+    SemanticType *rt = (t && t->kind != TYPE_UNKNOWN) ? t : res->semantic_type;
+    if (!rt || rt->kind != TYPE_STR) return false;
+    if (is_owned_str_builtin_call(res)) return true;
+    if (res->kind == AST_IDENTIFIER && body->kind == AST_BLOCK) {
+        EmitScope sc = { body->as.block.statements,
+                         body->as.block.stmt_count,
+                         body->as.block.stmt_count, false,
+                         body->as.block.final_expr,
+                         body->as.block.deferred,
+                         body->as.block.defer_count };
+        int idx;
+        return scope_owner_index(&sc, res->as.identifier.name, &idx);
+    }
+    return false;
+}
+
+// M9.2-I: classify every top-level function once, before emission. The
+// classifier never reads the table (it is still empty here), so the result
+// does not depend on declaration order.
+static void collect_fresh_str_fns(AstNode **stmts, int count) {
+    Token found[TIQ_MAX_FRESH_FNS];
+    int n = 0;
+    fresh_str_fn_count = 0;
+    for (int i = 0; i < count && n < TIQ_MAX_FRESH_FNS; i++) {
+        if (stmts[i] && stmts[i]->kind == AST_FUNCTION &&
+            fn_is_fresh_result(stmts[i]))
+            found[n++] = stmts[i]->as.function.name;
+    }
+    for (int i = 0; i < n; i++) fresh_str_fns[i] = found[i];
+    fresh_str_fn_count = n;
 }
 
 // M9.2-C: a function may destroy its owners only when its result type
@@ -1457,6 +1524,10 @@ void compile_to_c(const char *source_path, const char *source, FILE *out, DiagCo
         ctx->stream_gens[g].param_count = stream_gens[g].param_count;
         ctx->stream_gen_count++;
     }
+
+    // M9.2-I: classify fresh-result functions before anything consults the
+    // ownership predicates (LANGUAGE_SPEC §16.4).
+    collect_fresh_str_fns(stmts, count);
 
     fputs(TIQ_RUNTIME_PRELUDE, ctx->out);
     fputs(TIQ_RUNTIME_PRELUDE2, ctx->out);

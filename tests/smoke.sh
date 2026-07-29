@@ -804,4 +804,38 @@ cc -std=c11 -g -fsanitize=address,undefined -o "$TMP_DIR/m92h_xfer_asan" "$TMP_D
 printf 'yy\nzz\n' > "$TMP_DIR/m92h_xfer.expected"
 cmp "$TMP_DIR/m92h_xfer.out" "$TMP_DIR/m92h_xfer.expected"
 
+# M9.2-I: a binding initialized from a direct call to a fresh-result function
+# (result expression is a heap-builtin call or a bare identifier naming a body
+# owner) owns the returned string and is freed at scope end; a function
+# returning a string literal is not fresh-result, so its result is never freed
+# (LANGUAGE_SPEC §16.4).
+cat > "$TMP_DIR/m92i_call.tiq" <<'EOF'
+mk src:str -> str -> {
+    a = json_get(src, "a")
+    json_encode_str(a)
+}
+pick src:str -> str -> {
+    b = json_get(src, "b")
+    c = json_get(src, "c")
+    c
+}
+lit src:str -> str -> {
+    "static"
+}
+v = mk("{\"a\": \"hi\"}")
+u = pick("{\"b\": \"1\", \"c\": \"yy\"}")
+w = lit("z")
+print(v)
+print(u)
+print(w)
+EOF
+./build/tiq emit-c "$TMP_DIR/m92i_call.tiq" > "$TMP_DIR/m92i_call.c"
+grep -o 'free((void \*)[a-z_0-9]*);' "$TMP_DIR/m92i_call.c" > "$TMP_DIR/m92i_call.frees" || true
+printf 'free((void *)u);\nfree((void *)v);\nfree((void *)a);\nfree((void *)b);\n' > "$TMP_DIR/m92i_call.frees.expected"
+cmp "$TMP_DIR/m92i_call.frees" "$TMP_DIR/m92i_call.frees.expected"
+cc -std=c11 -g -fsanitize=address,undefined -o "$TMP_DIR/m92i_call_asan" "$TMP_DIR/m92i_call.c"
+"$TMP_DIR/m92i_call_asan" > "$TMP_DIR/m92i_call.out"
+printf '"hi"\nyy\nstatic\n' > "$TMP_DIR/m92i_call.expected"
+cmp "$TMP_DIR/m92i_call.out" "$TMP_DIR/m92i_call.expected"
+
 echo "smoke: ok"
