@@ -302,8 +302,9 @@ Status: active
 
 Status audit 2026-07-25: previously marked done; corrected after source review.
 
-- [x] Borrow reference syntax (`&x`, `&mut x`) parsed into the AST — since 2026-07-27 rejected during semantic analysis ("borrow is not supported yet", fail closed, tested in `tests/semantic.sh` / `tests/smoke.sh`) instead of silently emitting a value copy; stays rejected until borrow checking exists
-- [ ] Borrow lifetime validation — no lifetime or aliasing checks exist in `semantic.c`
+- [x] Borrow reference syntax (`&x`, `&mut x`) parsed into the AST — since 2026-07-27 rejected during semantic analysis, since 2026-07-29 legal exactly in call argument position for reference parameters (M9.1); everywhere else still fails closed ("borrow is only valid as an argument to a reference parameter", tested in `tests/semantic.sh` / `tests/smoke.sh`)
+- [x] M9.1 Borrowed parameters (2026-07-29): `&T` / `&mut T` parameter annotations, `&x` / `&mut x` call arguments, auto-deref in callee bodies, mutation through `&mut` — LANGUAGE_SPEC §16.3, E23 diagnostics. Evidence: `param_ref_kinds` in `src/parser.c`, function registry + borrow checks in `src/semantic.c`, `const T *`/`T *` emission in `src/emit_c.c`; goldens `typed_borrow_param` + 9 negative cases in `tests/semantic.sh`, runtime `m9_borrow_params`/`m9_borrow_shared` in `tests/smoke.sh`
+- [x] Borrow lifetime validation for the M9.1 slice — structural: borrows exist only for the duration of one call and cannot be stored, returned, or re-borrowed, so no borrow can outlive its referent; per-call aliasing enforced (many shared, at most one `&mut`, never mixed). General lifetime analysis for stored borrows remains open with the features that would need it
 - [ ] Scope-bound destruction and reverse declaration order cleanup for heap values — no destructor emission; only `defer` exists
 - [ ] Explicit arena / scope allocator interfaces (`Allocator`) — not present in source
 - [ ] Opt-in reference-counted shared ownership (`Shared<T>`) — not present in source

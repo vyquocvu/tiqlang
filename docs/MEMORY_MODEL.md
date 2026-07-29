@@ -35,4 +35,4 @@ No value is implicitly thread-safe. Transfer across tasks requires move, copy, o
 
 ## Bootstrap
 
-The current compiler slice implements the explicit `move` keyword with use-after-move detection, `defer`, stack arrays, and non-owning `TiqSlice` views; there is still no heap allocation, borrow checking (borrows are rejected fail-closed), or shared ownership. Full ownership checking begins after the M12 type-system milestones.
+The current compiler slice implements the explicit `move` keyword with use-after-move detection, `defer`, stack arrays, non-owning `TiqSlice` views, and M9.1 borrowed parameters: `&T` / `&mut T` parameter annotations with `&x` / `&mut x` call arguments (LANGUAGE_SPEC §16.3). These borrows live only for the duration of one call and cannot be stored, returned, or re-borrowed, so they cannot outlive their owner; aliasing is checked per call (any number of shared borrows, at most one mutable, never mixed). There is still no heap allocation, general borrow storage, scope destruction, or shared ownership. Full ownership checking continues in the remaining M9 packages.
