@@ -1,6 +1,6 @@
 # Tiq Type System
 
-Status: partially implemented. The bootstrap slice checks `bool`/`i64`/`f64`/`str`, arrays, slices, string views, and stream generators with local inference, unification-based diagnostics, and explicit numeric conversions (M12.1–M12.3, M12.5 complete). Type annotations and Option/Result remain design targets.
+Status: substantially implemented. The bootstrap slice checks `bool`/`i64`/`f64`/`str`, sized primitives (`i8`–`u64`, `f32`), arrays, slices, string views, structs, Option/Result, and stream generators with local inference, unification-based diagnostics, explicit numeric conversions, type annotations, and composite types (M12.1–M12.7 complete; M8 Option/Result/propagation done).
 
 ## Goals
 
@@ -69,17 +69,17 @@ Unary `!` is logical negation: its operand must be `bool` and its type is `bool`
 
 ## Composite types
 
-Planned:
+Implemented:
 
 ```text
 [T; N]   fixed array
 []T      slice
-{...}    record
-T?       optional
-T!E      result
+struct Name { field: T, ... }   record (nominal)
+T?       optional (some(x), none, ?? fallback, ? propagation)
+T!E      result (ok(x), err(e), ?? fallback, ? propagation)
 ```
 
-Exact surface syntax remains provisional until parser and type-checker milestones are complete.
+Struct definitions use `struct Name { field: type, ... }` syntax. Record literals use `Name { field: value, ... }`. Field access uses `expr.field`.
 
 ## Generics
 

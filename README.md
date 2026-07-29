@@ -31,6 +31,7 @@ Language-specific syntax is intentionally small:
 name = value       immutable binding
 name <- value     mutable binding or reassignment
 f a b -> expression function
+f a:i32 -> i32 -> a + 1  typed function (param:type, -> rettype ->)
 [0..10] { print(i) }  bracket loop iteration
 [0, 1, ... a + b]  stream generator sequence
 [1, ... x * 2 while x < 100]  bounded stream generator
@@ -38,6 +39,13 @@ skip               continue iteration shorthand
 condition ? a : b  conditional expression
 0..n               half-open range
 print(expression)  print builtin
+struct Point { x: i64, y: i64 }  struct definition
+p = Point { x: 1, y: 2 }  record literal
+p.x                field access
+some(x) / none     Option constructors
+ok(x) / err(e)     Result constructors
+a ?? b             fallback (unwrap or default)
+expr?              propagation (unwrap or return)
 ```
 
 ## Status
