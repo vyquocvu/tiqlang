@@ -1552,13 +1552,24 @@ void compile_to_c(const char *source_path, const char *source, FILE *out, DiagCo
                     SemanticType *rt = (t && t->kind != TYPE_UNKNOWN) ? t : fe0->semantic_type;
                     ret_scalar = is_scalar_result(rt);
                 }
+                // M9.2-G: a str result that is a string literal or a direct
+                // owned-builtin call is fresh or static storage, so it cannot
+                // alias a body owner; such functions free their owners too.
+                bool ret_fresh_str = false;
+                if (fe0 && !ret_scalar) {
+                    SemanticType *rt = (t && t->kind != TYPE_UNKNOWN) ? t : fe0->semantic_type;
+                    if (rt && rt->kind == TYPE_STR)
+                        ret_fresh_str =
+                            (fe0->kind == AST_LITERAL && fe0->as.literal.type == TOK_STRING) ||
+                            is_owned_str_builtin_call(fe0);
+                }
                 EmitScope fn_sc = { block->as.block.statements,
                                     block->as.block.stmt_count,
                                     block->as.block.stmt_count, false,
                                     block->as.block.final_expr,
                                     block->as.block.deferred,
                                     block->as.block.defer_count };
-                bool fn_frees = ret_scalar && scope_has_owned(&fn_sc);
+                bool fn_frees = (ret_scalar || ret_fresh_str) && scope_has_owned(&fn_sc);
                 emit_scope_push(ctx, block->as.block.statements,
                                 block->as.block.stmt_count, false,
                                 block->as.block.final_expr,
@@ -1586,7 +1597,8 @@ void compile_to_c(const char *source_path, const char *source, FILE *out, DiagCo
                     } else if (fn_frees) {
                         // Compute the result before the owners die.
                         fputs("    ", ctx->out);
-                        emit_semantic_type(t, ctx->out);
+                        emit_semantic_type((t && t->kind != TYPE_UNKNOWN) ? t : fe->semantic_type,
+                                           ctx->out);
                         fputs(" tiq_fn_ret = ", ctx->out);
                         emit_expr(fe, ctx);
                         fputs(";\n", ctx->out);

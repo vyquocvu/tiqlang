@@ -679,4 +679,34 @@ cc -std=c11 -g -fsanitize=address,undefined -o "$TMP_DIR/m92f_tmp_asan" "$TMP_DI
 printf 'one\n7\nthree\n' > "$TMP_DIR/m92f_tmp.expected"
 cmp "$TMP_DIR/m92f_tmp.out" "$TMP_DIR/m92f_tmp.expected"
 
+# M9.2-G: a str-result function whose final expression is a string literal or
+# a direct owned-builtin call cannot alias a body owner, so it frees its
+# owners after computing the result; an identifier result still must not free
+# (it may alias an owner) (LANGUAGE_SPEC §16.4).
+cat > "$TMP_DIR/m92g_strfn.tiq" <<'EOF'
+make_s src:str -> str -> {
+    v = json_get(src, "s")
+    json_encode_str(v)
+}
+lit_s src:str -> str -> {
+    w = json_get(src, "s")
+    "lit"
+}
+alias_s src:str -> str -> {
+    u = json_get(src, "s")
+    u
+}
+print(make_s("{\"s\": \"hi\"}"))
+print(lit_s("{\"s\": \"no\"}"))
+print(alias_s("{\"s\": \"ok\"}"))
+EOF
+./build/tiq emit-c "$TMP_DIR/m92g_strfn.tiq" > "$TMP_DIR/m92g_strfn.c"
+grep -o 'free((void \*)[a-z_0-9]*);' "$TMP_DIR/m92g_strfn.c" > "$TMP_DIR/m92g_strfn.frees" || true
+printf 'free((void *)v);\nfree((void *)w);\n' > "$TMP_DIR/m92g_strfn.frees.expected"
+cmp "$TMP_DIR/m92g_strfn.frees" "$TMP_DIR/m92g_strfn.frees.expected"
+cc -std=c11 -g -fsanitize=address,undefined -o "$TMP_DIR/m92g_strfn_asan" "$TMP_DIR/m92g_strfn.c"
+"$TMP_DIR/m92g_strfn_asan" > "$TMP_DIR/m92g_strfn.out"
+printf '"hi"\nlit\nok\n' > "$TMP_DIR/m92g_strfn.expected"
+cmp "$TMP_DIR/m92g_strfn.out" "$TMP_DIR/m92g_strfn.expected"
+
 echo "smoke: ok"
