@@ -898,4 +898,29 @@ cc -std=c11 -g -fsanitize=address,undefined -o "$TMP_DIR/m106_jview_asan" "$TMP_
 printf 'hello\n5\n42\n0\n{"a": 1}\n' > "$TMP_DIR/m106_jview.expected"
 cmp "$TMP_DIR/m106_jview.out" "$TMP_DIR/m106_jview.expected"
 
+# M9.2-K: a binding whose initializer is a conditional expression owns the
+# result when both branches are owning expressions (heap-builtin calls,
+# fresh-result calls, or nested conditionals thereof); a conditional with a
+# non-owning branch (e.g. a literal) does not create an owner.
+cat > "$TMP_DIR/m92k_cond.tiq" <<'EOF'
+mk src:str -> str -> {
+    a = json_get(src, "a")
+    json_encode_str(a)
+}
+b = 1 > 0 ? json_get("{\"k\": \"yes\"}", "k") : json_get("{\"k\": \"no\"}", "k")
+print(b)
+c = 1 > 0 ? mk("{\"a\": \"one\"}") : json_get("{\"k\": \"two\"}", "k")
+print(c)
+d = 1 > 0 ? "lit" : json_get("{\"k\": \"x\"}", "k")
+print(d)
+EOF
+./build/tiq emit-c "$TMP_DIR/m92k_cond.tiq" > "$TMP_DIR/m92k_cond.c"
+grep -o 'free((void \*)[a-z_0-9]*);' "$TMP_DIR/m92k_cond.c" > "$TMP_DIR/m92k_cond.frees" || true
+printf 'free((void *)c);\nfree((void *)b);\nfree((void *)a);\n' > "$TMP_DIR/m92k_cond.frees.expected"
+cmp "$TMP_DIR/m92k_cond.frees" "$TMP_DIR/m92k_cond.frees.expected"
+cc -std=c11 -g -fsanitize=address,undefined -o "$TMP_DIR/m92k_cond_asan" "$TMP_DIR/m92k_cond.c"
+"$TMP_DIR/m92k_cond_asan" > "$TMP_DIR/m92k_cond.out"
+printf 'yes\n"one"\nlit\n' > "$TMP_DIR/m92k_cond.expected"
+cmp "$TMP_DIR/m92k_cond.out" "$TMP_DIR/m92k_cond.expected"
+
 echo "smoke: ok"

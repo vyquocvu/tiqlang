@@ -388,9 +388,13 @@ static void check_node(SemanticContext *ctx, AstNode *node) {
                     if (u) {
                         if (tt->kind == TYPE_UNKNOWN) node->as.conditional.then_branch->semantic_type = u;
                         if (et->kind == TYPE_UNKNOWN) node->as.conditional.else_branch->semantic_type = u;
+                        node->semantic_type = u;
+                    } else {
+                        node->semantic_type = tt;
                     }
+                } else {
+                    node->semantic_type = ty(ctx, TYPE_UNKNOWN);
                 }
-                node->semantic_type = ty(ctx, TYPE_UNKNOWN);
             }
             break;
         case AST_CALL:

@@ -117,8 +117,20 @@ static bool is_fresh_str_fn_call(AstNode *expr) {
 }
 
 // M9.2: initializers that make their binding an owner (§16.4).
+static bool is_owning_str_init(AstNode *expr);
+
+// M9.2-K: a conditional expression is an owning expression when both
+// branches are owning expressions (recursive through nested conditionals).
+static bool is_owning_conditional(AstNode *expr) {
+    if (!expr || expr->kind != AST_CONDITIONAL) return false;
+    return is_owning_str_init(expr->as.conditional.then_branch) &&
+           is_owning_str_init(expr->as.conditional.else_branch);
+}
+
+// M9.2: initializers that make their binding an owner (§16.4).
 static bool is_owning_str_init(AstNode *expr) {
-    return is_owned_str_builtin_call(expr) || is_fresh_str_fn_call(expr);
+    return is_owned_str_builtin_call(expr) || is_fresh_str_fn_call(expr) ||
+           is_owning_conditional(expr);
 }
 
 // M9.2: does statement s bind an owned string? If so, report its name.
