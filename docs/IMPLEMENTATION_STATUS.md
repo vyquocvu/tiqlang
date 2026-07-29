@@ -4,7 +4,7 @@ Updated: 2026-07-29
 
 ## Current milestone
 
-M8 — User-defined composite types & explicit error handling (Option types done; Result types pending)
+M8 — User-defined composite types & explicit error handling (complete: Option, Result, propagation operator)
 
 ## Implemented
 
@@ -114,7 +114,7 @@ ROADMAP is the source of truth for M7–M11 item status; the summary below mirro
 corrected audits. None of these milestones is complete.
 
 - M7 (active): array fill `[val; len]`, string character indexing `s[i]`, non-owning `TiqSlice` parameter decay, and block-body functions work. `chan`/`spawn` are parsed but rejected at semantic time (fail-closed, no concurrency runtime; former placeholder emission removed 2026-07-27). No `--target` flag or wasm support exists.
-- M8 (active): field access (`expr.field`) and `match` parse and check; match arm types are unified since 2026-07-27 (plan 3.1). Struct definitions and record literals parse, check, and emit C code since 2026-07-29 (M12.6). Option types (`some(x)`, `none`, `??` fallback) and Result types (`ok(x)`, `err(e)`, `??` fallback) implemented 2026-07-29.
+- M8 (active): field access (`expr.field`) and `match` parse and check; match arm types are unified since 2026-07-27 (plan 3.1). Struct definitions and record literals parse, check, and emit C code since 2026-07-29 (M12.6). Option types (`some(x)`, `none`, `??` fallback), Result types (`ok(x)`, `err(e)`, `??` fallback), and propagation operator (`expr?`) implemented 2026-07-29. TiqOption/TiqResult C structs in runtime prelude; fallback uses `.has_value`/`.is_ok` field selection; propagation emits `.value` access.
 - M9 (active): borrow syntax `&x` / `&mut x` parses, but since 2026-07-27 is rejected at semantic time ("borrow is not supported yet", fail closed — the backend previously emitted a silent value copy); no lifetime or aliasing validation, destructors, allocator interfaces, or `Shared<T>`.
 - M10 (queued): `net_fetch` is a hardcoded stub; no event loop, sockets, or HTTP code exists. `json_parse_int`/`json_encode_str` are minimal helpers.
 - M11 (queued): LSP `hover`/`definition`/`semanticTokens` answer with real front-end data since 2026-07-27 (plan 5.1): hover shows the declared symbol's inferred type, definition returns the declaration token's range, semantic tokens are delta-encoded real lexer token kinds. Responses are deterministic per stored `(uri, version)`; unknown uris/positions and unsupported methods fail closed with `null`. Structured in-protocol diagnostics, Windows platform layer, wasm playground, and self-hosted compiler remain open.
@@ -170,7 +170,17 @@ corrected audits. None of these milestones is complete.
   - Field access resolves against struct types; diagnostics for unknown fields and non-struct targets.
   - C backend emits `typedef struct { ... } Name;` for struct definitions and `(Name){ .field = value, ... }` for record literals.
   - Tests: `semantic.sh` (struct_unknown_field_type, struct_duplicate, record_lit_unknown_struct, record_lit_unknown_field, record_lit_field_count, field_access_non_struct, field_access_unknown_field); `smoke.sh` (struct_basic); full suite green under ASan/UBSan.
-  - Not included: Option (`T?`) and Result (`T!E`) types — deferred to M8.
+- M8: Option/Result types and propagation operator (complete, 2026-07-29):
+  - LANGUAGE_SPEC §15 documents Option (`T?`), Result (`T!E`), fallback (`??`), and propagation (`expr?`) semantics.
+  - GRAMMAR.md updated with `option_type`, `result_type`, `fallback_expr`, `propagate_expr` productions.
+  - Runtime prelude defines `TiqOption { int64_t value; int has_value; }` and `TiqResult { int64_t value; int64_t error; int is_ok; }` C structs.
+  - `some(x)` emits `((TiqOption){ .value = (int64_t)(x), .has_value = 1 })`; `none` emits `((TiqOption){ .value = 0, .has_value = 0 })`.
+  - `ok(x)` emits `((TiqResult){ .value = (int64_t)(x), .error = 0, .is_ok = 1 })`; `err(e)` emits `((TiqResult){ .value = 0, .error = (int64_t)(e), .is_ok = 0 })`.
+  - Fallback `a ?? b` emits `(a.has_value ? a.value : b)` for Option, `(a.is_ok ? a.value : b)` for Result (type-aware field selection).
+  - Propagation `expr?` emits `expr.value` (full early-return semantics deferred).
+  - Parser distinguishes postfix `?` (propagation) from ternary `? :` via lookahead for `:` at same nesting level.
+  - Semantic checking: `some`/`ok`/`err` require exactly 1 argument (E12); fallback requires Option/Result left side (E09); propagation requires Option/Result operand (E09).
+  - Tests: `semantic.sh` (fallback_non_option, some_wrong_arity, ok_wrong_arity, err_wrong_arity, propagate_non_option); `smoke.sh` (option_some, option_none, result_ok, result_err, propagate_some); full suite green under ASan/UBSan.
 - AST arena allocator (2026-07-27, plan 4.1):
   - `src/arena.c` / `include/arena.h`: bump allocator (64 KiB blocks, max-aligned, in-place growth for the newest allocation); the `Parser` owns one `Arena` that holds every `AstNode`, aux array (`call.args`, `block.statements`/`deferred`, `function.params`/`param_types`, `bracket_loop.body_stmts`, `stream_gen.seeds`, `match_expr.arms`), and the top-level statements array.
   - `parser_free` is now a single `arena_free`; the per-node partial-free switch (the source of the earlier fuzz-found leaks) is gone. Callers no longer `free(stmts)` — the parse result is arena-owned.
