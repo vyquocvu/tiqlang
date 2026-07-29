@@ -281,19 +281,37 @@ static bool owned_name_at(const EmitScope *sc, int i, Token *name) {
 // reverse declaration order. Runs at scope end (limit = full statement
 // count, after that scope's defers) and on break/skip (limit = index of
 // the jump statement, so only owners already bound are freed).
-static void emit_scope_frees(const EmitScope *sc, int limit, EmitContext *ctx, int indent) {
+// M9.2-H: skip_idx names an owner statement excluded from destruction
+// (its string transfers to the caller); pass -1 to free every owner.
+static void emit_scope_frees_except(const EmitScope *sc, int limit, int skip_idx,
+                                    EmitContext *ctx, int indent) {
     for (int i = limit - 1; i >= 0; i--) {
         Token name;
+        if (i == skip_idx) continue;
         if (!owned_name_at(sc, i, &name)) continue;
         for (int j = 0; j < indent; j++) fputs("    ", ctx->out);
         fprintf(ctx->out, "free((void *)%.*s);\n", (int)name.length, name.start);
     }
 }
 
+static void emit_scope_frees(const EmitScope *sc, int limit, EmitContext *ctx, int indent) {
+    emit_scope_frees_except(sc, limit, -1, ctx, indent);
+}
+
 static bool scope_has_owned(const EmitScope *sc) {
     Token name;
     for (int i = 0; i < sc->count; i++)
         if (owned_name_at(sc, i, &name)) return true;
+    return false;
+}
+
+// M9.2-H: does `want` name an owner of sc? Report its statement index.
+static bool scope_owner_index(const EmitScope *sc, Token want, int *idx) {
+    Token name;
+    for (int i = 0; i < sc->count; i++) {
+        if (!owned_name_at(sc, i, &name)) continue;
+        if (tok_name_eq(name, want)) { *idx = i; return true; }
+    }
     return false;
 }
 
@@ -1570,6 +1588,16 @@ void compile_to_c(const char *source_path, const char *source, FILE *out, DiagCo
                                     block->as.block.final_expr,
                                     block->as.block.deferred,
                                     block->as.block.defer_count };
+                // M9.2-H: a bare-identifier str result naming a body owner
+                // transfers that owner to the caller; every other owner is
+                // freed after the result is computed (§16.4).
+                int xfer_idx = -1;
+                if (fe0 && !ret_scalar && !ret_fresh_str &&
+                    fe0->kind == AST_IDENTIFIER) {
+                    SemanticType *rt = (t && t->kind != TYPE_UNKNOWN) ? t : fe0->semantic_type;
+                    if (rt && rt->kind == TYPE_STR)
+                        scope_owner_index(&fn_sc, fe0->as.identifier.name, &xfer_idx);
+                }
                 bool fn_frees = (ret_scalar || ret_fresh_str) && scope_has_owned(&fn_sc);
                 emit_scope_push(ctx, block->as.block.statements,
                                 block->as.block.stmt_count, false,
@@ -1595,7 +1623,7 @@ void compile_to_c(const char *source_path, const char *source, FILE *out, DiagCo
                         if (fn_frees)
                             emit_scope_frees(&fn_sc, fn_sc.count, ctx, 1);
                         fputs("    return 0;\n", ctx->out);
-                    } else if (fn_frees) {
+                    } else if (fn_frees || xfer_idx >= 0) {
                         // Compute the result before the owners die.
                         fputs("    ", ctx->out);
                         emit_semantic_type((t && t->kind != TYPE_UNKNOWN) ? t : fe->semantic_type,
@@ -1603,7 +1631,7 @@ void compile_to_c(const char *source_path, const char *source, FILE *out, DiagCo
                         fputs(" tiq_fn_ret = ", ctx->out);
                         emit_expr(fe, ctx);
                         fputs(";\n", ctx->out);
-                        emit_scope_frees(&fn_sc, fn_sc.count, ctx, 1);
+                        emit_scope_frees_except(&fn_sc, fn_sc.count, xfer_idx, ctx, 1);
                         fputs("    return tiq_fn_ret;\n", ctx->out);
                     } else {
                         fputs("    return ", ctx->out);

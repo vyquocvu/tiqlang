@@ -776,4 +776,32 @@ cc -std=c11 -g -fsanitize=address,undefined -o "$TMP_DIR/m92g_strfn_asan" "$TMP_
 printf '"hi"\nlit\nok\n' > "$TMP_DIR/m92g_strfn.expected"
 cmp "$TMP_DIR/m92g_strfn.out" "$TMP_DIR/m92g_strfn.expected"
 
+# M9.2-H: a str-result function whose final expression is a bare identifier
+# naming a body owner transfers that owner to the caller: every *other* owner
+# is freed after the result is computed; the named owner is returned
+# undestroyed. An alias-identifier result still must not free anything
+# (LANGUAGE_SPEC §16.4).
+cat > "$TMP_DIR/m92h_xfer.tiq" <<'EOF'
+pick src:str -> str -> {
+    a = json_get(src, "a")
+    b = json_get(src, "b")
+    b
+}
+alias_ret src:str -> str -> {
+    c = json_get(src, "c")
+    d = c
+    d
+}
+print(pick("{\"a\": \"xx\", \"b\": \"yy\"}"))
+print(alias_ret("{\"c\": \"zz\"}"))
+EOF
+./build/tiq emit-c "$TMP_DIR/m92h_xfer.tiq" > "$TMP_DIR/m92h_xfer.c"
+grep -o 'free((void \*)[a-z_0-9]*);' "$TMP_DIR/m92h_xfer.c" > "$TMP_DIR/m92h_xfer.frees" || true
+printf 'free((void *)a);\n' > "$TMP_DIR/m92h_xfer.frees.expected"
+cmp "$TMP_DIR/m92h_xfer.frees" "$TMP_DIR/m92h_xfer.frees.expected"
+cc -std=c11 -g -fsanitize=address,undefined -o "$TMP_DIR/m92h_xfer_asan" "$TMP_DIR/m92h_xfer.c"
+"$TMP_DIR/m92h_xfer_asan" > "$TMP_DIR/m92h_xfer.out"
+printf 'yy\nzz\n' > "$TMP_DIR/m92h_xfer.expected"
+cmp "$TMP_DIR/m92h_xfer.out" "$TMP_DIR/m92h_xfer.expected"
+
 echo "smoke: ok"
