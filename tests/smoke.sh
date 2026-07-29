@@ -749,7 +749,8 @@ cmp "$TMP_DIR/m92f_tmp.out" "$TMP_DIR/m92f_tmp.expected"
 # M9.2-G: a str-result function whose final expression is a string literal or
 # a direct owned-builtin call cannot alias a body owner, so it frees its
 # owners after computing the result; an identifier result still must not free
-# (it may alias an owner) (LANGUAGE_SPEC §16.4).
+# (it may alias an owner) (LANGUAGE_SPEC §16.4). Since M9.2-J the two
+# fresh-result calls in argument position are hoisted and freed by the caller.
 cat > "$TMP_DIR/m92g_strfn.tiq" <<'EOF'
 make_s src:str -> str -> {
     v = json_get(src, "s")
@@ -769,7 +770,7 @@ print(alias_s("{\"s\": \"ok\"}"))
 EOF
 ./build/tiq emit-c "$TMP_DIR/m92g_strfn.tiq" > "$TMP_DIR/m92g_strfn.c"
 grep -o 'free((void \*)[a-z_0-9]*);' "$TMP_DIR/m92g_strfn.c" > "$TMP_DIR/m92g_strfn.frees" || true
-printf 'free((void *)v);\nfree((void *)w);\n' > "$TMP_DIR/m92g_strfn.frees.expected"
+printf 'free((void *)tiq_tmp0);\nfree((void *)tiq_tmp1);\nfree((void *)v);\nfree((void *)w);\n' > "$TMP_DIR/m92g_strfn.frees.expected"
 cmp "$TMP_DIR/m92g_strfn.frees" "$TMP_DIR/m92g_strfn.frees.expected"
 cc -std=c11 -g -fsanitize=address,undefined -o "$TMP_DIR/m92g_strfn_asan" "$TMP_DIR/m92g_strfn.c"
 "$TMP_DIR/m92g_strfn_asan" > "$TMP_DIR/m92g_strfn.out"
@@ -780,7 +781,8 @@ cmp "$TMP_DIR/m92g_strfn.out" "$TMP_DIR/m92g_strfn.expected"
 # naming a body owner transfers that owner to the caller: every *other* owner
 # is freed after the result is computed; the named owner is returned
 # undestroyed. An alias-identifier result still must not free anything
-# (LANGUAGE_SPEC §16.4).
+# (LANGUAGE_SPEC §16.4). Since M9.2-J the transferring call in argument
+# position is hoisted and freed by the caller; the alias-returning call is not.
 cat > "$TMP_DIR/m92h_xfer.tiq" <<'EOF'
 pick src:str -> str -> {
     a = json_get(src, "a")
@@ -797,7 +799,7 @@ print(alias_ret("{\"c\": \"zz\"}"))
 EOF
 ./build/tiq emit-c "$TMP_DIR/m92h_xfer.tiq" > "$TMP_DIR/m92h_xfer.c"
 grep -o 'free((void \*)[a-z_0-9]*);' "$TMP_DIR/m92h_xfer.c" > "$TMP_DIR/m92h_xfer.frees" || true
-printf 'free((void *)a);\n' > "$TMP_DIR/m92h_xfer.frees.expected"
+printf 'free((void *)tiq_tmp0);\nfree((void *)a);\n' > "$TMP_DIR/m92h_xfer.frees.expected"
 cmp "$TMP_DIR/m92h_xfer.frees" "$TMP_DIR/m92h_xfer.frees.expected"
 cc -std=c11 -g -fsanitize=address,undefined -o "$TMP_DIR/m92h_xfer_asan" "$TMP_DIR/m92h_xfer.c"
 "$TMP_DIR/m92h_xfer_asan" > "$TMP_DIR/m92h_xfer.out"
@@ -837,5 +839,40 @@ cc -std=c11 -g -fsanitize=address,undefined -o "$TMP_DIR/m92i_call_asan" "$TMP_D
 "$TMP_DIR/m92i_call_asan" > "$TMP_DIR/m92i_call.out"
 printf '"hi"\nyy\nstatic\n' > "$TMP_DIR/m92i_call.expected"
 cmp "$TMP_DIR/m92i_call.out" "$TMP_DIR/m92i_call.expected"
+
+# M9.2-J: an unbound fresh-result function call in an unconditionally evaluated
+# position is hoisted into a hidden binding and freed at the end of its
+# statement, and arguments of a fresh-result call are such positions too (its
+# result cannot alias them); a call to a function that is not fresh-result is
+# still not a hoist position (LANGUAGE_SPEC §16.4).
+cat > "$TMP_DIR/m92j_tmp.tiq" <<'EOF'
+mk src:str -> str -> {
+    a = json_get(src, "a")
+    json_encode_str(a)
+}
+wrap s:str -> str -> {
+    json_encode_str(s)
+}
+pick src:str -> str -> {
+    b = json_get(src, "b")
+    b
+}
+keep x:str -> str -> {
+    x
+}
+mk("{\"a\": \"one\"}")
+print(pick("{\"b\": \"two\"}"))
+print(wrap(pick("{\"b\": \"three\"}")))
+z = keep(json_get("{\"k\": \"four\"}", "k"))
+print(z)
+EOF
+./build/tiq emit-c "$TMP_DIR/m92j_tmp.tiq" > "$TMP_DIR/m92j_tmp.c"
+grep -o 'free((void \*)[a-z_0-9]*);' "$TMP_DIR/m92j_tmp.c" > "$TMP_DIR/m92j_tmp.frees" || true
+printf 'free((void *)tiq_tmp0);\nfree((void *)tiq_tmp1);\nfree((void *)tiq_tmp3);\nfree((void *)tiq_tmp2);\nfree((void *)a);\n' > "$TMP_DIR/m92j_tmp.frees.expected"
+cmp "$TMP_DIR/m92j_tmp.frees" "$TMP_DIR/m92j_tmp.frees.expected"
+cc -std=c11 -g -fsanitize=address,undefined -o "$TMP_DIR/m92j_tmp_asan" "$TMP_DIR/m92j_tmp.c"
+"$TMP_DIR/m92j_tmp_asan" > "$TMP_DIR/m92j_tmp.out"
+printf 'two\n"three"\nfour\n' > "$TMP_DIR/m92j_tmp.expected"
+cmp "$TMP_DIR/m92j_tmp.out" "$TMP_DIR/m92j_tmp.expected"
 
 echo "smoke: ok"

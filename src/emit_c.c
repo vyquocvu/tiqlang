@@ -465,20 +465,23 @@ static bool is_proc_exit_call(AstNode *node) {
            node->as.call.arg_count == 1;
 }
 
-// M9.2-F: collect the unbound owned-builtin temporaries of a simple
-// statement that sit in unconditionally evaluated positions: the bare
-// statement expression itself, or a direct argument to a standard-library
-// builtin, nested to any depth through such builtins (§16.4). Post-order,
+// M9.2-F: collect the unbound owned temporaries of a simple statement that
+// sit in unconditionally evaluated positions: the bare statement expression
+// itself, or a direct argument to a standard-library builtin, nested to any
+// depth through such builtins (§16.4). M9.2-J extends both roles to calls to
+// fresh-result functions: such a call returns storage the caller cannot
+// already reach, so it is itself a temporary, and its arguments are
+// unconditionally evaluated positions the result cannot alias. Post-order,
 // so temporaries evaluate left to right, inner before outer. Any other
-// position (conditionals, match arms, user-function arguments) is skipped:
+// position (conditionals, match arms, non-fresh-result calls) is skipped:
 // those temporaries leak, they never dangle.
 static void hoist_collect(AstNode *n, bool root_bound, EmitContext *ctx, bool *overflow) {
     if (!n || n->kind != AST_CALL || n->as.call.is_bracket_call) return;
     if (!n->as.call.callee || n->as.call.callee->kind != AST_IDENTIFIER) return;
-    if (!is_safe_builtin_callee(n->as.call.callee)) return;
+    if (!is_safe_builtin_callee(n->as.call.callee) && !is_fresh_str_fn_call(n)) return;
     for (int i = 0; i < n->as.call.arg_count; i++)
         hoist_collect(n->as.call.args[i], false, ctx, overflow);
-    if (!root_bound && is_owned_str_builtin_call(n)) {
+    if (!root_bound && is_owning_str_init(n)) {
         if (ctx->hoist_count >= TIQ_MAX_HOIST) { *overflow = true; return; }
         ctx->hoisted[ctx->hoist_count] = n;
         ctx->hoist_ids[ctx->hoist_count] = ctx->tmp_counter++;
