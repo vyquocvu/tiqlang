@@ -495,4 +495,8 @@ assert_semantic "ok_wrong_arity" 'x = ok(1, 2)
 assert_semantic "err_wrong_arity" 'x = err()
 ' "$TMP_DIR/err_wrong_arity.tiq:1: error[E12]: err expects exactly 1 argument"
 
+assert_semantic "propagate_non_option" 'x = 1
+y = x?
+' "$TMP_DIR/propagate_non_option.tiq:2: error[E09]: propagation operator requires Option or Result operand"
+
 echo "semantic: ok"

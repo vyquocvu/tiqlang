@@ -412,6 +412,35 @@ static AstNode *call_or_index(Parser *parser) {
             }
             consume(parser, TOK_RBRACKET, ERR_UNEXPECTED_TOKEN, "expected ']' after index");
             expr = node;
+        } else if (check(parser, TOK_QUESTION)) {
+            // M8: Propagation operator (postfix ?) vs ternary conditional (? :).
+            // Peek ahead to see if there's a ':' at the same nesting level
+            // before a newline/EOF. If yes, it's ternary (leave for conditional()).
+            // If no, it's propagation.
+            Lexer peek_lexer = parser->lexer;
+            Token peek_tok = lexer_next(&peek_lexer); // skip '?'
+            int depth = 0;
+            bool found_colon = false;
+            while (peek_tok.kind != TOK_EOF && peek_tok.kind != TOK_NEWLINE) {
+                if (peek_tok.kind == TOK_LPAREN || peek_tok.kind == TOK_LBRACKET || peek_tok.kind == TOK_LBRACE) depth++;
+                else if (peek_tok.kind == TOK_RPAREN || peek_tok.kind == TOK_RBRACKET || peek_tok.kind == TOK_RBRACE) {
+                    if (depth == 0) break;
+                    depth--;
+                } else if (peek_tok.kind == TOK_COLON && depth == 0) {
+                    found_colon = true;
+                    break;
+                }
+                peek_tok = lexer_next(&peek_lexer);
+            }
+            if (found_colon) {
+                break; // It's ternary conditional, let conditional() handle it
+            }
+            // It's propagation
+            advance(parser); // consume '?'
+            AstNode *node = allocate_node(parser, AST_UNARY);
+            node->as.unary.op = TOK_QUESTION;
+            node->as.unary.right = expr;
+            expr = node;
         } else {
             break;
         }

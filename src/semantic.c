@@ -277,6 +277,18 @@ static void check_node(SemanticContext *ctx, AstNode *node) {
                 diag_error(ctx->diag, ctx->path, node->token.line,
                            ERR_UNSUPPORTED_STATEMENT, "borrow is not supported yet");
                 node->semantic_type = ty(ctx, TYPE_UNKNOWN);
+            } else if (node->as.unary.op == TOK_QUESTION) {
+                // M8: Propagation operator (expr?) - unwraps Option/Result.
+                check_node(ctx, node->as.unary.right);
+                SemanticType *rt = node->as.unary.right ?
+                    node->as.unary.right->semantic_type : NULL;
+                if (rt && (rt->kind == TYPE_OPTION || rt->kind == TYPE_RESULT)) {
+                    node->semantic_type = rt->inner_type ? rt->inner_type : ty(ctx, TYPE_UNKNOWN);
+                } else {
+                    diag_error(ctx->diag, ctx->path, node->token.line, ERR_TYPE_MISMATCH,
+                               "propagation operator requires Option or Result operand");
+                    node->semantic_type = ty(ctx, TYPE_UNKNOWN);
+                }
             } else {
                 check_node(ctx, node->as.unary.right);
                 if (node->as.unary.op == TOK_BANG) {

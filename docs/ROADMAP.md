@@ -422,13 +422,14 @@ Status: done (2026-07-29)
 - [x] Struct definitions parse and emit C typedefs
 - [x] Record literals construct struct values with field checking
 - [x] Field access resolves against struct types with diagnostics
-- [ ] Option (`T?`) and Result (`T!E`) become constructible (unblocks M8)
+- [x] Option (`T?`) and Result (`T!E`) become constructible (unblocks M8) — done 2026-07-29
 
 Evidence 2026-07-29: `struct Point { x: i64, y: i64 }` parses, registers a nominal
 type via `type_get_struct()`, and emits a C typedef. Record literals `Point { x: 1, y: 2 }`
 check field names and types against the definition. Field access `p.x` resolves the field
 type. Diagnostics: duplicate struct, unknown struct, unknown field, field count mismatch,
-field access on non-struct. ASan/UBSan green. Option/Result deferred to M8.
+field access on non-struct. Option/Result types (`some`, `none`, `ok`, `err`, `??`) implemented
+in M8. ASan/UBSan green.
 
 ### M12.7 — Syntax coherence and safety audit
 

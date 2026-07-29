@@ -353,4 +353,9 @@ printf 'x = err(99)\ny = x ?? 0\nprint(y)\n' > "$TMP_DIR/result_err.tiq"
 ./build/tiq build "$TMP_DIR/result_err.tiq" -o "$TMP_DIR/result_err"
 [ "$("$TMP_DIR/result_err")" = "0" ]
 
+# M8: Propagation operator (expr?).
+printf 'x = some(42)\ny = x?\nprint(y)\n' > "$TMP_DIR/propagate_some.tiq"
+./build/tiq build "$TMP_DIR/propagate_some.tiq" -o "$TMP_DIR/propagate_some"
+[ "$("$TMP_DIR/propagate_some")" = "42" ]
+
 echo "smoke: ok"

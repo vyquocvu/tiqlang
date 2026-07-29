@@ -122,6 +122,11 @@ static void emit_expr(AstNode *node, EmitContext *ctx) {
         case AST_UNARY: {
             if (node->as.unary.op == TOK_MOVE) {
                 emit_expr(node->as.unary.right, ctx);
+            } else if (node->as.unary.op == TOK_QUESTION) {
+                // M8: Propagation operator - unwrap Option/Result value.
+                // Full early-return semantics not yet implemented; emit .value access.
+                emit_expr(node->as.unary.right, ctx);
+                fputs(".value", ctx->out);
             } else {
                 const char *op = "";
                 if (node->as.unary.op == TOK_BANG) op = "!";
