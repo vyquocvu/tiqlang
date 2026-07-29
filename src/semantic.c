@@ -540,6 +540,7 @@ static void check_node(SemanticContext *ctx, AstNode *node) {
                         // M10.9: HTTP request-line parsing (LANGUAGE_SPEC §19.3).
                         {"http_method",  11, 1, TYPE_STR, TYPE_STR, TYPE_UNKNOWN},
                         {"http_path",     9, 1, TYPE_STR, TYPE_STR, TYPE_UNKNOWN},
+                        {"http_header",  11, 2, TYPE_STR, TYPE_STR, TYPE_UNKNOWN},
                         // M10.10: Event loop / kqueue (LANGUAGE_SPEC §19.4).
                         {"ev_loop",       7, 0, TYPE_INT, TYPE_INT, TYPE_UNKNOWN},
                         {"ev_add",        6, 2, TYPE_INT, TYPE_INT, TYPE_INT},

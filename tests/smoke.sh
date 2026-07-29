@@ -1093,4 +1093,16 @@ EOF
 printf '42\n-7\n0\n5\n' > "$TMP_DIR/m1014_istr.expected"
 cmp "$TMP_DIR/m1014_istr.out" "$TMP_DIR/m1014_istr.expected"
 
+# M10.15: http_header — extract header values from HTTP requests.
+cat > "$TMP_DIR/m1015_hdr.tiq" <<'EOF'
+req = "GET / HTTP/1.1\r\nHost: localhost\r\nContent-Type: text/html\r\n\r\n"
+print(http_header(req, "Host"))
+print(http_header(req, "Content-Type"))
+print(http_header(req, "Missing"))
+EOF
+./build/tiq build "$TMP_DIR/m1015_hdr.tiq" -o "$TMP_DIR/m1015_hdr"
+"$TMP_DIR/m1015_hdr" > "$TMP_DIR/m1015_hdr.out"
+printf 'localhost\ntext/html\n\n' > "$TMP_DIR/m1015_hdr.expected"
+cmp "$TMP_DIR/m1015_hdr.out" "$TMP_DIR/m1015_hdr.expected"
+
 echo "smoke: ok"

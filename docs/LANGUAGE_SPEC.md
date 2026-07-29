@@ -644,6 +644,8 @@ Two companion builtins parse the request line of an HTTP request (the first line
 
 Both never raise a runtime error. Wrong arity is rejected with E12 and non-`str` arguments with E09 at compile time.
 
+`http_header(req, name)` takes exactly two `str` arguments and returns the value of the named header as a heap-allocated `str` (owned per §16.4). It scans the request line-by-line (lines separated by `\r\n` or `\n`) for a line starting with `name` followed by `:` (case-insensitive match on the header name). The returned value is the text after the colon and optional leading whitespace, up to the end of the line. If the header is not found, the empty string is returned. Wrong arity is rejected with E12 and non-`str` arguments with E09 at compile time.
+
 ### 19.4 Event loop (kqueue)
 
 A minimal readiness-notification loop for monitoring multiple file descriptors without threads. The bootstrap implementation uses `kqueue`/`kevent` (a documented macOS/BSD platform API); Linux `epoll` support is deferred.

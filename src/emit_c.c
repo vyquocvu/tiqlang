@@ -84,7 +84,7 @@ static bool is_owned_str_builtin_call(AstNode *expr) {
         {"fs_read", 7}, {"json_encode_str", 15}, {"json_get", 8},
         {"json_arr_get", 12}, {"net_fetch", 9}, {"net_recv", 8},
         {"http_method", 11}, {"http_path", 9}, {"json_set", 8}, {"json_del", 8},
-        {"str_cat", 7}, {"int_str", 7},
+        {"str_cat", 7}, {"int_str", 7}, {"http_header", 11},
     };
     if (!expr || expr->kind != AST_CALL || expr->as.call.is_bracket_call) return false;
     if (!expr->as.call.callee || expr->as.call.callee->kind != AST_IDENTIFIER) return false;
@@ -188,6 +188,7 @@ static bool is_safe_builtin_callee(AstNode *callee) {
         {"http_method", 11}, {"http_path", 9},
         {"ev_loop", 7}, {"ev_add", 6}, {"ev_wait", 7}, {"ev_ready", 8},
         {"json_set", 8}, {"json_del", 8}, {"str_cat", 7}, {"int_str", 7},
+        {"http_header", 11},
     };
     if (!callee || callee->kind != AST_IDENTIFIER) return false;
     Token n = callee->as.identifier.name;
@@ -772,6 +773,7 @@ static void emit_expr(AstNode *node, EmitContext *ctx) {
                     {"ev_wait", 7, "tiq_ev_wait"}, {"ev_ready", 8, "tiq_ev_ready"},
                     {"json_set", 8, "tiq_json_set"}, {"json_del", 8, "tiq_json_del"},
                     {"str_cat", 7, "tiq_str_cat"}, {"int_str", 7, "tiq_int_str"},
+                    {"http_header", 11, "tiq_http_header"},
                 };
                 const char *builtin_fn = NULL;
                 for (int bi = 0; bi < (int)(sizeof btn / sizeof btn[0]); bi++) {
