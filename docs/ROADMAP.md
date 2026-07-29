@@ -324,11 +324,12 @@ Status audit 2026-07-25: previously marked done; corrected after source review. 
 
 Status: queued
 
-Status audit 2026-07-25: previously marked done; corrected after source review. `src/platform.c` does not exist; there is no wasm playground or self-hosted compiler. Update 2026-07-27 (plan 5.1): LSP `hover`/`definition`/`semanticTokens` now answer with real symbol data from the lexer+parser+semantic front end, pinned by the golden JSON-RPC transcript `tests/tooling/lsp.sh`.
+Status audit 2026-07-25: previously marked done; corrected after source review. `src/platform.c` does not exist; there is no wasm playground or self-hosted compiler. Update 2026-07-27 (plan 5.1): LSP `hover`/`definition`/`semanticTokens` now answer with real symbol data from the lexer+parser+semantic front end, pinned by the golden JSON-RPC transcript `tests/tooling/lsp.sh`. Update 2026-07-29 (M11.1): `didOpen` publishes structured in-protocol diagnostics from the real front end.
 
 - [ ] Native Windows platform abstraction layer (`src/platform.c` using Win32 API)
 - [ ] WebAssembly-compiled in-browser Tiq compiler & interactive web playground
 - [x] Full LSP server capabilities (`hover`, `go-to-definition`, `semanticTokens` with real symbol data) — 2026-07-27, evidence: `src/lsp.c` runs the front end on stored `didOpen` text; golden transcript `tests/tooling/lsp.sh`
+- [x] Structured in-protocol diagnostics on `didOpen` — M11.1 (2026-07-29): optional bounded `DiagRecord` sink on `DiagContext` (`include/diag.h`); `publishDiagnostics` carries 0-based start-of-line ranges, severity 1, code `"ENN"`, source `"tiq"`, exact CLI messages, keyed to the stored document version (docs/CLI.md); evidence: golden transcript `tests/tooling/lsp.sh` pins two E08 diagnostics plus the clean-document empty set. `didChange` republish remains open (didChange is still ignored, fail closed).
 - [ ] Self-hosting Tiq compiler written in Tiq
 
 ## M12 — Type system implementation
