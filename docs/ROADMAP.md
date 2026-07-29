@@ -283,15 +283,16 @@ Status audit 2026-07-25: previously marked done; corrected after source review. 
 
 ## M8 — User-defined composite types & explicit error handling
 
-Status: active
+Status: complete
 
 Status audit 2026-07-25: previously marked done; corrected after source review.
 Status audit 2026-07-27 (plan 3.2): struct rows corrected again — no struct/record grammar or parse path exists.
-Status audit 2026-07-29: struct definitions, record literals, field access, and Option types implemented.
+Status audit 2026-07-29: struct definitions, record literals, field access, Option/Result types, and propagation operator implemented.
 
 - [x] Record / struct type definitions and field access — done in M12.6 (2026-07-29)
 - [x] Explicit Option types (`T?`) — `some(x)`, `none`, and `??` fallback operator implemented (2026-07-29)
 - [x] Explicit Result types (`T!E`) — `ok(x)`, `err(e)`, and `??` fallback operator implemented (2026-07-29)
+- [x] Propagation operator (`expr?`) — postfix unwrap for Option/Result, parser lookahead distinguishes from ternary (2026-07-29)
 - [x] Pattern matching (`match expr { pattern => body }`) — parsed and checked; arm types unified via `unify()` since plan 3.1 (2026-07-27)
 - [x] Direct C struct emission in backend — done in M12.6 (2026-07-29)
 
