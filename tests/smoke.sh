@@ -150,7 +150,9 @@ printf 'p = "%s/m6_test.txt"\nfs_write(p, "hello m6")\ne = fs_exists(p)\nr = fs_
 [ -x "$TMP_DIR/m6_fs" ]
 "$TMP_DIR/m6_fs"
 
-printf 'cmd = "true"\nres = proc_exec(cmd)\nval = json_parse_int("42")\nenc = json_encode_str("test")\nnet = net_fetch("http://localhost")\n' > "$TMP_DIR/m6_sys.tiq"
+# net_fetch("ftp://...") fails the scheme check without touching the network
+# (LANGUAGE_SPEC §19.2), keeping this test deterministic.
+printf 'cmd = "true"\nres = proc_exec(cmd)\nval = json_parse_int("42")\nenc = json_encode_str("test")\nnet = net_fetch("ftp://unused")\n' > "$TMP_DIR/m6_sys.tiq"
 ./build/tiq build "$TMP_DIR/m6_sys.tiq" -o "$TMP_DIR/m6_sys" 2>"$TMP_DIR/m6_sys.err"
 [ -x "$TMP_DIR/m6_sys" ]
 "$TMP_DIR/m6_sys"
@@ -443,5 +445,68 @@ EOF
 "$TMP_DIR/m10_json_arr" > "$TMP_DIR/m10_json_arr.out"
 printf '5\n10\ntwo\n5\n[1, 2]\n2\ntrue\n\n0\n0\n\n' > "$TMP_DIR/m10_json_arr.expected"
 cmp "$TMP_DIR/m10_json_arr.out" "$TMP_DIR/m10_json_arr.expected"
+
+# M10.4: net_fetch performs a real HTTP/1.0 GET (LANGUAGE_SPEC §19.2), tested
+# against a local one-shot server on 127.0.0.1 (port 0, printed after bind).
+# A non-http scheme and an empty host yield the empty string.
+cat > "$TMP_DIR/http_server.c" <<'EOF'
+#include <netinet/in.h>
+#include <stdio.h>
+#include <string.h>
+#include <sys/socket.h>
+#include <unistd.h>
+int main(void) {
+    int s = socket(AF_INET, SOCK_STREAM, 0);
+    if (s < 0) return 1;
+    struct sockaddr_in addr;
+    memset(&addr, 0, sizeof addr);
+    addr.sin_family = AF_INET;
+    addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    addr.sin_port = 0;
+    if (bind(s, (struct sockaddr *)&addr, sizeof addr) != 0) return 1;
+    if (listen(s, 1) != 0) return 1;
+    socklen_t alen = sizeof addr;
+    if (getsockname(s, (struct sockaddr *)&addr, &alen) != 0) return 1;
+    printf("%d\n", (int)ntohs(addr.sin_port));
+    fflush(stdout);
+    int c = accept(s, 0, 0);
+    if (c < 0) return 1;
+    char buf[1024];
+    (void)read(c, buf, sizeof buf);
+    const char *resp = "HTTP/1.0 200 OK\r\n"
+        "Content-Type: application/json\r\n\r\n"
+        "{\"greet\": \"hello tiq\"}";
+    (void)write(c, resp, strlen(resp));
+    close(c);
+    close(s);
+    return 0;
+}
+EOF
+cc -std=c11 -o "$TMP_DIR/http_server" "$TMP_DIR/http_server.c"
+
+# 10s alarm converts a hung accept/read into a test failure.
+perl -e 'alarm 10; exec @ARGV' "$TMP_DIR/http_server" > "$TMP_DIR/http_port" &
+HTTP_SERVER_PID=$!
+PORT=""
+i=0
+while [ "$i" -lt 100 ]; do
+  PORT="$(cat "$TMP_DIR/http_port" 2>/dev/null || true)"
+  [ -n "$PORT" ] && break
+  sleep 0.1
+  i=$((i + 1))
+done
+[ -n "$PORT" ]
+
+cat > "$TMP_DIR/m10_net_fetch.tiq" <<'EOF'
+body = net_fetch(cli_arg(0))
+print(json_get(body, "greet"))
+print(net_fetch("ftp://example.invalid/"))
+print(net_fetch("http://"))
+EOF
+./build/tiq build "$TMP_DIR/m10_net_fetch.tiq" -o "$TMP_DIR/m10_net_fetch"
+"$TMP_DIR/m10_net_fetch" "http://127.0.0.1:$PORT/" > "$TMP_DIR/m10_net_fetch.out"
+wait "$HTTP_SERVER_PID"
+printf 'hello tiq\n\n\n' > "$TMP_DIR/m10_net_fetch.expected"
+cmp "$TMP_DIR/m10_net_fetch.out" "$TMP_DIR/m10_net_fetch.expected"
 
 echo "smoke: ok"

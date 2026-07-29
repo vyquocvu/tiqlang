@@ -536,7 +536,9 @@ Programs read their command-line arguments through two builtins:
 
 Both are ordinary builtin calls: wrong arity is rejected with E12 and a non-`int` index with E09 at compile time.
 
-## 19. Standard library builtins: JSON access
+## 19. Standard library builtins
+
+### 19.1 JSON access
 
 `json_get(json, key)` takes exactly two `str` arguments and returns a `str`. It performs a single deterministic scan of `json`, which must be a JSON object, and looks up `key` among the object's top-level members:
 
@@ -555,6 +557,16 @@ JSON arrays are read with two companion builtins:
 All three builtins reject wrong arity with E12 and wrong argument types with E09 at compile time.
 
 The pre-existing helpers `json_parse_int` (`str` → `int`, leading-integer parse) and `json_encode_str` (`str` → `str`, quoted and escaped) remain available.
+
+### 19.2 HTTP fetch
+
+`net_fetch(url)` takes exactly one `str` and returns a `str`. It performs a blocking HTTP/1.0 `GET` request with `Connection: close` and returns the response body — the bytes after the response's first blank line — regardless of status code.
+
+- The only supported URL form is `http://host[:port][/path]`; the port defaults to `80` and the path to `/`.
+- Any failure yields the empty string and never a runtime error: a non-`http://` scheme, an empty host, name resolution failure, connection failure, a request or read error, or a response without a complete header section.
+- The bootstrap implementation uses POSIX sockets (`getaddrinfo`, `socket`, `connect`); it is a documented platform API dependency of generated programs.
+
+Wrong arity is rejected with E12 and a non-`str` argument with E09 at compile time.
 
 ## 20. Bootstrap conformance
 
