@@ -1035,4 +1035,20 @@ wait "$M1010_PID" 2>/dev/null || true
 printf 'true\n' > "$TMP_DIR/m1010_cli.expected"
 cmp "$TMP_DIR/m1010_cli.out" "$TMP_DIR/m1010_cli.expected"
 
+# M10.11: json_set — build and modify JSON objects; owned heap result.
+cat > "$TMP_DIR/m1011_jset.tiq" <<'EOF'
+a = json_set("{}", "name", json_encode_str("tiq"))
+print(json_get(a, "name"))
+b = json_set(a, "ver", "1")
+print(json_get(b, "ver"))
+c = json_set(b, "name", json_encode_str("lang"))
+print(json_get(c, "name"))
+d = json_set("bad", "k", "42")
+print(json_get(d, "k"))
+EOF
+./build/tiq build "$TMP_DIR/m1011_jset.tiq" -o "$TMP_DIR/m1011_jset"
+"$TMP_DIR/m1011_jset" > "$TMP_DIR/m1011_jset.out"
+printf 'tiq\n1\nlang\n42\n' > "$TMP_DIR/m1011_jset.expected"
+cmp "$TMP_DIR/m1011_jset.out" "$TMP_DIR/m1011_jset.expected"
+
 echo "smoke: ok"
