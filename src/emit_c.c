@@ -185,6 +185,7 @@ static bool is_safe_builtin_callee(AstNode *callee) {
         {"net_recv", 8}, {"net_send", 8}, {"net_close", 9},
         {"net_port", 8}, {"net_shutdown", 12},
         {"http_method", 11}, {"http_path", 9},
+        {"ev_loop", 7}, {"ev_add", 6}, {"ev_wait", 7}, {"ev_ready", 8},
     };
     if (!callee || callee->kind != AST_IDENTIFIER) return false;
     Token n = callee->as.identifier.name;
@@ -764,7 +765,9 @@ static void emit_expr(AstNode *node, EmitContext *ctx) {
                     {"net_connect", 11, "tiq_net_connect"}, {"net_recv", 8, "tiq_net_recv"},
                     {"net_send", 8, "tiq_net_send"}, {"net_close", 9, "tiq_net_close"},
                     {"net_port", 8, "tiq_net_port"}, {"net_shutdown", 12, "tiq_net_shutdown"},
-                                        {"http_method", 11, "tiq_http_method"}, {"http_path", 9, "tiq_http_path"},
+                    {"http_method", 11, "tiq_http_method"}, {"http_path", 9, "tiq_http_path"},
+                    {"ev_loop", 7, "tiq_ev_loop"}, {"ev_add", 6, "tiq_ev_add"},
+                    {"ev_wait", 7, "tiq_ev_wait"}, {"ev_ready", 8, "tiq_ev_ready"},
                 };
                 const char *builtin_fn = NULL;
                 for (int bi = 0; bi < (int)(sizeof btn / sizeof btn[0]); bi++) {

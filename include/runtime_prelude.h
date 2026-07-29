@@ -14,6 +14,7 @@ static const char TIQ_RUNTIME_PRELUDE[] =
     "#include <sys/socket.h>\n"
     "#include <netdb.h>\n"
     "#include <netinet/in.h>\n"
+"#include <sys/event.h>\n"
     "#include <unistd.h>\n"
     "typedef struct { const void *ptr; int len; } TiqSlice;\n"
     "typedef struct { int64_t value; int has_value; } TiqOption;\n"
@@ -509,6 +510,40 @@ static const char TIQ_RUNTIME_PRELUDE5[] =
     "    char *out = (char *)tiq_alloc(n + 1);\n"
     "    memcpy(out, sp1 + 1, n); out[n] = 0;\n"
     "    return out;\n"
+    "}\n\n"
+
+    "static struct kevent tiq_ev_out_[64];\n"
+    "static int64_t tiq_ev_nout_ = 0;\n\n"
+
+    "static int64_t tiq_ev_loop(void) {\n"
+    "    static int kq = -2;\n"
+    "    if (kq == -2) kq = kqueue();\n"
+    "    return kq;\n"
+    "}\n\n"
+
+    "static int64_t tiq_ev_add(int64_t loop, int64_t fd) {\n"
+    "    struct kevent ev;\n"
+    "    EV_SET(&ev, fd, EVFILT_READ, EV_ADD, 0, 0, NULL);\n"
+    "    return kevent((int)loop, &ev, 1, NULL, 0, NULL) == 0 ? 0 : -1;\n"
+    "}\n\n"
+
+    "static int64_t tiq_ev_wait(int64_t loop, int64_t timeout_ms) {\n"
+    "    struct timespec ts;\n"
+    "    struct timespec *tsp = NULL;\n"
+    "    if (timeout_ms >= 0) {\n"
+    "        ts.tv_sec = timeout_ms / 1000;\n"
+    "        ts.tv_nsec = (timeout_ms % 1000) * 1000000L;\n"
+    "        tsp = &ts;\n"
+    "    }\n"
+    "    tiq_ev_nout_ = kevent((int)loop, NULL, 0, tiq_ev_out_, 64, tsp);\n"
+    "    return tiq_ev_nout_;\n"
+    "}\n\n"
+
+    "static int64_t tiq_ev_ready(int64_t loop, int64_t fd) {\n"
+    "    (void)loop;\n"
+    "    for (int i = 0; i < tiq_ev_nout_; i++)\n"
+    "        if ((int64_t)tiq_ev_out_[i].ident == fd) return 1;\n"
+    "    return 0;\n"
     "}\n\n";
 
 #endif

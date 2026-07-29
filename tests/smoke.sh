@@ -1004,4 +1004,35 @@ EOF
 printf 'GET\n/index.html\nPOST\n\n\n\n' > "$TMP_DIR/m109_http.expected"
 cmp "$TMP_DIR/m109_http.out" "$TMP_DIR/m109_http.expected"
 
+# M10.10: Event loop (kqueue) — a Tiq server uses ev_loop/ev_add/ev_wait/
+# ev_ready to detect and serve one client connection without blocking on
+# accept; a net_fetch client verifies the response.
+cat > "$TMP_DIR/m1010_srv.tiq" <<'EOF'
+fd = net_listen(18924)
+lp = ev_loop()
+ev_add(lp, fd)
+ev_wait(lp, 5000)
+c = net_accept(fd)
+ev_add(lp, c)
+ev_wait(lp, 5000)
+req = net_recv(c)
+net_send(c, "HTTP/1.0 200 OK\r\nContent-Length: 14\r\n\r\n{\"ev\": true}")
+net_close(c)
+net_close(fd)
+EOF
+cat > "$TMP_DIR/m1010_cli.tiq" <<'EOF'
+r = net_fetch("http://127.0.0.1:18924/")
+print(json_get(r, "ev"))
+EOF
+./build/tiq build "$TMP_DIR/m1010_srv.tiq" -o "$TMP_DIR/m1010_srv"
+./build/tiq build "$TMP_DIR/m1010_cli.tiq" -o "$TMP_DIR/m1010_cli"
+"$TMP_DIR/m1010_srv" &
+M1010_PID=$!
+sleep 0.5
+"$TMP_DIR/m1010_cli" > "$TMP_DIR/m1010_cli.out" 2>/dev/null || true
+kill "$M1010_PID" 2>/dev/null || true
+wait "$M1010_PID" 2>/dev/null || true
+printf 'true\n' > "$TMP_DIR/m1010_cli.expected"
+cmp "$TMP_DIR/m1010_cli.out" "$TMP_DIR/m1010_cli.expected"
+
 echo "smoke: ok"
