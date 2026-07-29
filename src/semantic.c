@@ -60,6 +60,12 @@ Symbol *env_lookup(Environment *env, Token name) {
     return NULL;
 }
 
+// M12.6: Struct registry entry
+typedef struct {
+    char *name;
+    SemanticType *type;
+} StructEntry;
+
 typedef struct {
     Environment *current_env;
     const char *path;
@@ -67,6 +73,10 @@ typedef struct {
     int loop_depth;
     TypePool *pool;
     bool in_range_context;  // true when inside [...] loop/slice brackets
+    // M12.6: struct registry
+    StructEntry *structs;
+    int struct_count;
+    int struct_capacity;
 } SemanticContext;
 
 static SemanticType *ty(SemanticContext *ctx, PrimitiveType kind) {
@@ -94,6 +104,29 @@ static SemanticType *resolve_type_annot(SemanticContext *ctx, Token tok) {
         }
     }
     return NULL; // unknown type name
+}
+
+// M12.6: Struct registry helpers
+static SemanticType *struct_lookup(SemanticContext *ctx, Token name) {
+    for (int i = 0; i < ctx->struct_count; i++) {
+        if ((int)strlen(ctx->structs[i].name) == (int)name.length &&
+            memcmp(ctx->structs[i].name, name.start, name.length) == 0) {
+            return ctx->structs[i].type;
+        }
+    }
+    return NULL;
+}
+
+static void struct_register(SemanticContext *ctx, const char *name, SemanticType *type) {
+    if (ctx->struct_count + 1 > ctx->struct_capacity) {
+        int new_cap = ctx->struct_capacity < 8 ? 8 : ctx->struct_capacity * 2;
+        ctx->structs = realloc(ctx->structs, sizeof(StructEntry) * (size_t)new_cap);
+        if (!ctx->structs) { fprintf(stderr, "out of memory\n"); exit(1); }
+        ctx->struct_capacity = new_cap;
+    }
+    ctx->structs[ctx->struct_count].name = strdup(name);
+    ctx->structs[ctx->struct_count].type = type;
+    ctx->struct_count++;
 }
 
 // The single kind-level compatibility rule (OPTIMIZATION_PLAN 3.1).
@@ -842,13 +875,25 @@ static void check_node(SemanticContext *ctx, AstNode *node) {
             SemanticType *tt = node->as.field_access.target ? (SemanticType *)node->as.field_access.target->semantic_type : NULL;
             SemanticType *ft = ty(ctx, TYPE_UNKNOWN);
             if (tt && tt->kind == TYPE_STRUCT) {
+                bool found = false;
                 for (int i = 0; i < tt->field_count; i++) {
                     if ((int)node->as.field_access.field.length == (int)strlen(tt->field_names[i]) &&
                         memcmp(node->as.field_access.field.start, tt->field_names[i], node->as.field_access.field.length) == 0) {
-                        ft = ty(ctx, tt->field_types[i] ? tt->field_types[i]->kind : TYPE_UNKNOWN);
+                        ft = tt->field_types[i] ? tt->field_types[i] : ty(ctx, TYPE_UNKNOWN);
+                        found = true;
                         break;
                     }
                 }
+                if (!found) {
+                    char msg[128];
+                    snprintf(msg, sizeof msg, "unknown field '%.*s'",
+                             (int)node->as.field_access.field.length,
+                             node->as.field_access.field.start);
+                    diag_error(ctx->diag, ctx->path, node->token.line, ERR_TYPE_MISMATCH, msg);
+                }
+            } else if (tt && tt->kind != TYPE_UNKNOWN) {
+                diag_error(ctx->diag, ctx->path, node->token.line, ERR_TYPE_MISMATCH,
+                           "field access on non-struct type");
             }
             node->semantic_type = ft;
             break;
@@ -894,10 +939,96 @@ static void check_node(SemanticContext *ctx, AstNode *node) {
             node->semantic_type = ty(ctx, result ? result->kind : TYPE_UNKNOWN);
             break;
         }
-        case AST_STRUCT_DEF:
-        case AST_RECORD_LIT:
-            node->semantic_type = ty(ctx, TYPE_STRUCT);
+        case AST_STRUCT_DEF: {
+            // M12.6: Register struct definition
+            Token name = node->as.struct_def.name;
+            // Check for duplicate struct name
+            if (struct_lookup(ctx, name)) {
+                char msg[128];
+                snprintf(msg, sizeof msg, "duplicate struct definition '%.*s'",
+                         (int)name.length, name.start);
+                diag_error(ctx->diag, ctx->path, node->token.line, ERR_TYPE_MISMATCH, msg);
+            }
+            // Resolve field types
+            SemanticType **field_types = NULL;
+            if (node->as.struct_def.field_count > 0) {
+                field_types = malloc(sizeof(SemanticType *) * (size_t)node->as.struct_def.field_count);
+                if (!field_types) { fprintf(stderr, "out of memory\n"); exit(1); }
+                for (int i = 0; i < node->as.struct_def.field_count; i++) {
+                    SemanticType *ft = resolve_type_annot(ctx, node->as.struct_def.field_types[i]);
+                    if (!ft) {
+                        char msg[128];
+                        snprintf(msg, sizeof msg, "unknown field type '%.*s'",
+                                 (int)node->as.struct_def.field_types[i].length,
+                                 node->as.struct_def.field_types[i].start);
+                        diag_error(ctx->diag, ctx->path, node->token.line, ERR_TYPE_MISMATCH, msg);
+                        ft = ty(ctx, TYPE_UNKNOWN);
+                    }
+                    field_types[i] = ft;
+                }
+            }
+            // Create and register the struct type
+            SemanticType *st = type_get_struct(ctx->pool, name,
+                                               node->as.struct_def.field_names,
+                                               field_types,
+                                               node->as.struct_def.field_count);
+            char name_buf[64];
+            snprintf(name_buf, sizeof name_buf, "%.*s", (int)name.length, name.start);
+            struct_register(ctx, name_buf, st);
+            free(field_types);
+            node->semantic_type = st;
             break;
+        }
+        case AST_RECORD_LIT: {
+            // M12.6: Check record literal against struct definition
+            Token struct_name = node->as.record_lit.struct_name;
+            SemanticType *st = struct_lookup(ctx, struct_name);
+            if (!st) {
+                char msg[128];
+                snprintf(msg, sizeof msg, "unknown struct '%.*s'",
+                         (int)struct_name.length, struct_name.start);
+                diag_error(ctx->diag, ctx->path, node->token.line, ERR_TYPE_MISMATCH, msg);
+                node->semantic_type = ty(ctx, TYPE_UNKNOWN);
+                break;
+            }
+            // Check field count matches
+            if (node->as.record_lit.field_count != st->field_count) {
+                char msg[128];
+                snprintf(msg, sizeof msg, "record literal has %d fields, struct has %d",
+                         node->as.record_lit.field_count, st->field_count);
+                diag_error(ctx->diag, ctx->path, node->token.line, ERR_TYPE_MISMATCH, msg);
+            }
+            // Check each field
+            for (int i = 0; i < node->as.record_lit.field_count; i++) {
+                Token field_name = node->as.record_lit.field_names[i];
+                // Find field in struct
+                int field_idx = -1;
+                for (int j = 0; j < st->field_count; j++) {
+                    if ((int)field_name.length == (int)strlen(st->field_names[j]) &&
+                        memcmp(field_name.start, st->field_names[j], field_name.length) == 0) {
+                        field_idx = j;
+                        break;
+                    }
+                }
+                if (field_idx < 0) {
+                    char msg[128];
+                    snprintf(msg, sizeof msg, "unknown field '%.*s'",
+                             (int)field_name.length, field_name.start);
+                    diag_error(ctx->diag, ctx->path, node->token.line, ERR_TYPE_MISMATCH, msg);
+                    continue;
+                }
+                // Check field value type
+                check_node(ctx, node->as.record_lit.field_values[i]);
+                SemanticType *vt = node->as.record_lit.field_values[i] ?
+                    (SemanticType *)node->as.record_lit.field_values[i]->semantic_type : NULL;
+                SemanticType *expected = st->field_types[field_idx];
+                if (vt && expected && vt->kind != TYPE_UNKNOWN && expected->kind != TYPE_UNKNOWN) {
+                    unify(ctx, node->token.line, expected, vt, "field type mismatch");
+                }
+            }
+            node->semantic_type = st;
+            break;
+        }
     }
 }
 
@@ -908,6 +1039,9 @@ void semantic_check(AstNode **stmts, int count, const char *path, DiagContext *d
     ctx.loop_depth = 0;
     ctx.pool = pool;
     ctx.in_range_context = false;
+    ctx.structs = NULL;
+    ctx.struct_count = 0;
+    ctx.struct_capacity = 0;
     Environment global_env;
     env_init(&global_env, NULL);
     ctx.current_env = &global_env;
@@ -915,4 +1049,9 @@ void semantic_check(AstNode **stmts, int count, const char *path, DiagContext *d
         check_node(&ctx, stmts[i]);
     }
     env_free(&global_env);
+    // Free struct registry
+    for (int i = 0; i < ctx.struct_count; i++) {
+        free(ctx.structs[i].name);
+    }
+    free(ctx.structs);
 }

@@ -428,6 +428,23 @@ static void emit_expr(AstNode *node, EmitContext *ctx) {
             fputs(".", ctx->out);
             fprintf(ctx->out, "%.*s", (int)node->as.field_access.field.length, node->as.field_access.field.start);
             break;
+        case AST_RECORD_LIT: {
+            // M12.6: Emit C struct initializer
+            SemanticType *st = node->semantic_type;
+            if (st && st->kind == TYPE_STRUCT && st->struct_name) {
+                fprintf(ctx->out, "(%s){ ", st->struct_name);
+                for (int i = 0; i < node->as.record_lit.field_count; i++) {
+                    if (i > 0) fputs(", ", ctx->out);
+                    fprintf(ctx->out, ".%.*s = ", (int)node->as.record_lit.field_names[i].length,
+                            node->as.record_lit.field_names[i].start);
+                    emit_expr(node->as.record_lit.field_values[i], ctx);
+                }
+                fputs(" }", ctx->out);
+            } else {
+                fputs("0", ctx->out);
+            }
+            break;
+        }
         case AST_SPAWN:
             // Unreachable after semantic rejection; fail closed if hit.
             diag_error(ctx->diag, ctx->path, node->token.line, ERR_UNSUPPORTED_STATEMENT, "spawn is not supported yet");
@@ -527,6 +544,13 @@ static void emit_stmt(AstNode *node, EmitContext *ctx, int indent) {
                     emit_expr(node->as.binding.expr, ctx);
                     fputs(";\n", ctx->out);
                 }
+            } else if (t && t->kind == TYPE_STRUCT && t->struct_name) {
+                // M12.6: Struct binding
+                fprintf(ctx->out, "%s %.*s", t->struct_name,
+                        (int)node->as.binding.name.length, node->as.binding.name.start);
+                fputs(" = ", ctx->out);
+                emit_expr(node->as.binding.expr, ctx);
+                fputs(";\n", ctx->out);
             } else {
                 if (t) emit_type_name(t->kind, ctx->out);
                 else fputs("int64_t", ctx->out);
@@ -589,6 +613,9 @@ static void emit_stmt(AstNode *node, EmitContext *ctx, int indent) {
             fputs(";\n", ctx->out);
             break;
         case AST_FUNCTION:
+            break;
+        case AST_STRUCT_DEF:
+            // M12.6: Struct definitions are emitted at the top level, not in statements
             break;
         case AST_BREAK:
             fputs("break;\n", ctx->out);
@@ -851,10 +878,28 @@ void compile_to_c(const char *source_path, const char *source, FILE *out, DiagCo
             }
         }
     }
+
+    // M12.6: Emit struct definitions
+    for (int i = 0; i < count; i++) {
+        if (stmts[i] && stmts[i]->kind == AST_STRUCT_DEF) {
+            SemanticType *st = stmts[i]->semantic_type;
+            if (st && st->kind == TYPE_STRUCT && st->struct_name) {
+                fprintf(ctx->out, "typedef struct {\n");
+                for (int f = 0; f < st->field_count; f++) {
+                    fputs("    ", ctx->out);
+                    if (st->field_types[f]) emit_type_name(st->field_types[f]->kind, ctx->out);
+                    else fputs("int64_t", ctx->out);
+                    fprintf(ctx->out, " %s;\n", st->field_names[f]);
+                }
+                fprintf(ctx->out, "} %s;\n\n", st->struct_name);
+            }
+        }
+    }
+
     fputs("\nint main(void) {\n", ctx->out);
 
     for (int i = 0; i < count; i++) {
-        if (stmts[i] && stmts[i]->kind != AST_FUNCTION) {
+        if (stmts[i] && stmts[i]->kind != AST_FUNCTION && stmts[i]->kind != AST_STRUCT_DEF) {
             if (stmts[i]->kind == AST_BINDING && stmts[i]->as.binding.expr &&
                 stmts[i]->as.binding.expr->kind == AST_STREAM_GEN) {
                 // stream gen bindings are emitted via tiq_gen_* functions below

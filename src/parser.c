@@ -279,6 +279,53 @@ static AstNode *primary(Parser *parser) {
         return block(parser);
     }
     if (match(parser, TOK_IDENT)) {
+        // M12.6: check for record literal: Ident { field: value, ... }
+        // But NOT if the next token after '{' is an expression followed by '=>'
+        // (that would be a match arm, not a field init)
+        if (check(parser, TOK_LBRACE)) {
+            // Peek ahead to distinguish record literal from match body
+            Lexer peek_lexer = parser->lexer;
+            Token peek_tok = lexer_next(&peek_lexer); // skip '{'
+            while (peek_tok.kind == TOK_NEWLINE) peek_tok = lexer_next(&peek_lexer);
+            // If we see 'ident :' or '}', it's a record literal
+            // If we see something else (like a number or '_' followed by '=>'), it's not
+            bool is_record_lit = false;
+            if (peek_tok.kind == TOK_RBRACE) {
+                is_record_lit = true; // empty record literal
+            } else if (peek_tok.kind == TOK_IDENT) {
+                Token peek_tok2 = lexer_next(&peek_lexer);
+                while (peek_tok2.kind == TOK_NEWLINE) peek_tok2 = lexer_next(&peek_lexer);
+                if (peek_tok2.kind == TOK_COLON) {
+                    is_record_lit = true; // field: value
+                }
+            }
+            if (is_record_lit) {
+                AstNode *node = allocate_node(parser, AST_RECORD_LIT);
+                node->as.record_lit.struct_name = parser->previous;
+                advance(parser); // consume '{'
+                int capacity = 0;
+                while (!check(parser, TOK_RBRACE) && !check(parser, TOK_EOF)) {
+                    if (node->as.record_lit.field_count + 1 > capacity) {
+                        int new_cap = capacity < 4 ? 4 : capacity * 2;
+                        node->as.record_lit.field_names = arena_realloc(&parser->arena, node->as.record_lit.field_names,
+                                                                        sizeof(Token) * capacity,
+                                                                        sizeof(Token) * new_cap);
+                        node->as.record_lit.field_values = arena_realloc(&parser->arena, node->as.record_lit.field_values,
+                                                                         sizeof(AstNode *) * capacity,
+                                                                         sizeof(AstNode *) * new_cap);
+                        capacity = new_cap;
+                    }
+                    consume(parser, TOK_IDENT, ERR_UNEXPECTED_TOKEN, "expected field name in record literal");
+                    node->as.record_lit.field_names[node->as.record_lit.field_count] = parser->previous;
+                    consume(parser, TOK_COLON, ERR_UNEXPECTED_TOKEN, "expected ':' after field name");
+                    node->as.record_lit.field_values[node->as.record_lit.field_count] = expression(parser);
+                    node->as.record_lit.field_count++;
+                    if (check(parser, TOK_COMMA)) advance(parser);
+                }
+                consume(parser, TOK_RBRACE, ERR_UNEXPECTED_TOKEN, "expected '}' after record literal");
+                return node;
+            }
+        }
         AstNode *node = allocate_node(parser, AST_IDENTIFIER);
         node->as.identifier.name = parser->previous;
         return node;
@@ -606,6 +653,35 @@ static AstNode *statement(Parser *parser) {
 }
 
 static AstNode *declaration(Parser *parser) {
+    // M12.6: struct definition
+    if (match(parser, TOK_STRUCT)) {
+        AstNode *node = allocate_node(parser, AST_STRUCT_DEF);
+        consume(parser, TOK_IDENT, ERR_UNEXPECTED_TOKEN, "expected struct name after 'struct'");
+        node->as.struct_def.name = parser->previous;
+        consume(parser, TOK_LBRACE, ERR_UNEXPECTED_TOKEN, "expected '{' after struct name");
+        int capacity = 0;
+        while (!check(parser, TOK_RBRACE) && !check(parser, TOK_EOF)) {
+            if (node->as.struct_def.field_count + 1 > capacity) {
+                int new_cap = capacity < 4 ? 4 : capacity * 2;
+                node->as.struct_def.field_names = arena_realloc(&parser->arena, node->as.struct_def.field_names,
+                                                                sizeof(Token) * capacity,
+                                                                sizeof(Token) * new_cap);
+                node->as.struct_def.field_types = arena_realloc(&parser->arena, node->as.struct_def.field_types,
+                                                                sizeof(Token) * capacity,
+                                                                sizeof(Token) * new_cap);
+                capacity = new_cap;
+            }
+            consume(parser, TOK_IDENT, ERR_UNEXPECTED_TOKEN, "expected field name");
+            node->as.struct_def.field_names[node->as.struct_def.field_count] = parser->previous;
+            consume(parser, TOK_COLON, ERR_UNEXPECTED_TOKEN, "expected ':' after field name");
+            consume(parser, TOK_IDENT, ERR_UNEXPECTED_TOKEN, "expected field type");
+            node->as.struct_def.field_types[node->as.struct_def.field_count] = parser->previous;
+            node->as.struct_def.field_count++;
+            if (check(parser, TOK_COMMA)) advance(parser);
+        }
+        consume(parser, TOK_RBRACE, ERR_UNEXPECTED_TOKEN, "expected '}' after struct fields");
+        return node;
+    }
     if (check(parser, TOK_IDENT)) {
         Token name = parser->current;
         Lexer peek_lexer = parser->lexer;

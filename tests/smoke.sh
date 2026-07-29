@@ -321,4 +321,18 @@ printf 'x = f32(1.5)\nprint(x)\n' > "$TMP_DIR/print_f32.tiq"
 ./build/tiq build "$TMP_DIR/print_f32.tiq" -o "$TMP_DIR/print_f32"
 [ "$("$TMP_DIR/print_f32")" = "1.5" ]
 
+# M12.6: Struct definitions, record literals, and field access.
+printf 'struct Point {\n  x: i64,\n  y: i64\n}\np = Point { x: 1, y: 2 }\nprint(p.x)\nprint(p.y)\n' > "$TMP_DIR/struct_basic.tiq"
+./build/tiq build "$TMP_DIR/struct_basic.tiq" -o "$TMP_DIR/struct_basic"
+"$TMP_DIR/struct_basic" > "$TMP_DIR/struct_basic.out"
+printf '1\n2\n' > "$TMP_DIR/struct_basic.expected"
+if ! cmp -s "$TMP_DIR/struct_basic.expected" "$TMP_DIR/struct_basic.out"; then
+  echo "struct basic output mismatch" >&2
+  echo "expected:" >&2
+  cat "$TMP_DIR/struct_basic.expected" >&2
+  echo "actual:" >&2
+  cat "$TMP_DIR/struct_basic.out" >&2
+  exit 1
+fi
+
 echo "smoke: ok"

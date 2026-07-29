@@ -4,7 +4,7 @@ Updated: 2026-07-29
 
 ## Current milestone
 
-M12 — Type system implementation (M12.1–M12.5, M12.7 complete; M12.4 done; M12.6 pending)
+M12 — Type system implementation (M12.1–M12.7 complete; M12.6 struct types done; Option/Result deferred to M8)
 
 ## Implemented
 
@@ -114,7 +114,7 @@ ROADMAP is the source of truth for M7–M11 item status; the summary below mirro
 corrected audits. None of these milestones is complete.
 
 - M7 (active): array fill `[val; len]`, string character indexing `s[i]`, non-owning `TiqSlice` parameter decay, and block-body functions work. `chan`/`spawn` are parsed but rejected at semantic time (fail-closed, no concurrency runtime; former placeholder emission removed 2026-07-27). No `--target` flag or wasm support exists.
-- M8 (active): field access (`expr.field`) and `match` parse and check; match arm types are unified since 2026-07-27 (plan 3.1). Struct definitions and record literals do NOT parse — `struct` lexes but `AST_STRUCT_DEF`/`AST_RECORD_LIT` are never constructed, so such programs fail closed with E05 (corrected 2026-07-27; blocked on M12.4 spec-and-grammar-first syntax). No Option/Result syntax exists.
+- M8 (active): field access (`expr.field`) and `match` parse and check; match arm types are unified since 2026-07-27 (plan 3.1). Struct definitions and record literals parse, check, and emit C code since 2026-07-29 (M12.6). No Option/Result syntax exists.
 - M9 (active): borrow syntax `&x` / `&mut x` parses, but since 2026-07-27 is rejected at semantic time ("borrow is not supported yet", fail closed — the backend previously emitted a silent value copy); no lifetime or aliasing validation, destructors, allocator interfaces, or `Shared<T>`.
 - M10 (queued): `net_fetch` is a hardcoded stub; no event loop, sockets, or HTTP code exists. `json_parse_int`/`json_encode_str` are minimal helpers.
 - M11 (queued): LSP `hover`/`definition`/`semanticTokens` answer with real front-end data since 2026-07-27 (plan 5.1): hover shows the declared symbol's inferred type, definition returns the declaration token's range, semantic tokens are delta-encoded real lexer token kinds. Responses are deterministic per stored `(uri, version)`; unknown uris/positions and unsupported methods fail closed with `null`. Structured in-protocol diagnostics, Windows platform layer, wasm playground, and self-hosted compiler remain open.
@@ -161,6 +161,16 @@ corrected audits. None of these milestones is complete.
   - `type_display()` renders the nominal struct name in diagnostics.
   - Tests: `tests/unit/test_main.c` `test_type_pool_struct_interning` (added failing first); full suite green under ASan/UBSan (pool ownership leak-checked).
   - Not included: struct/record surface syntax, declaration-site wiring, and record-literal checking — blocked on M12.4 (spec and grammar first); the plan 3.2 record-literal goldens are unreachable until then.
+- M12.6: Struct types and record literals (complete, 2026-07-29):
+  - GRAMMAR.md updated with `struct_def`, `field_def`, `record_lit`, `field_init` productions.
+  - LANGUAGE_SPEC §17.2 documents struct definitions, record literals, and field access semantics.
+  - Parser accepts `struct Name { field: type, ... }` at top level and `Name { field: value, ... }` record literals in expressions.
+  - Record literal parsing uses peek-ahead to distinguish from match bodies (`ident { ident :` = record lit; otherwise not).
+  - Semantic analysis registers struct definitions in a per-module registry; checks record literals against definitions (field names, field count, field types).
+  - Field access resolves against struct types; diagnostics for unknown fields and non-struct targets.
+  - C backend emits `typedef struct { ... } Name;` for struct definitions and `(Name){ .field = value, ... }` for record literals.
+  - Tests: `semantic.sh` (struct_unknown_field_type, struct_duplicate, record_lit_unknown_struct, record_lit_unknown_field, record_lit_field_count, field_access_non_struct, field_access_unknown_field); `smoke.sh` (struct_basic); full suite green under ASan/UBSan.
+  - Not included: Option (`T?`) and Result (`T!E`) types — deferred to M8.
 - AST arena allocator (2026-07-27, plan 4.1):
   - `src/arena.c` / `include/arena.h`: bump allocator (64 KiB blocks, max-aligned, in-place growth for the newest allocation); the `Parser` owns one `Arena` that holds every `AstNode`, aux array (`call.args`, `block.statements`/`deferred`, `function.params`/`param_types`, `bracket_loop.body_stmts`, `stream_gen.seeds`, `match_expr.arms`), and the top-level statements array.
   - `parser_free` is now a single `arena_free`; the per-node partial-free switch (the source of the earlier fuzz-found leaks) is gone. Callers no longer `free(stmts)` — the parse result is arena-owned.

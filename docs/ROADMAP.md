@@ -413,11 +413,20 @@ all existing tests pass without it. ASan/UBSan green.
 
 ### M12.6 — Composite types on the new core
 
-- [ ] Rebase array/slice/struct types onto the arena with real nested `Type *`
-- [ ] Nominal identity for named types by declaration site
+Status: done (2026-07-29)
+
+- [x] Rebase array/slice/struct types onto the arena with real nested `Type *`
+- [x] Nominal identity for named types by declaration site
+- [x] Struct definitions parse and emit C typedefs
+- [x] Record literals construct struct values with field checking
+- [x] Field access resolves against struct types with diagnostics
 - [ ] Option (`T?`) and Result (`T!E`) become constructible (unblocks M8)
 
-Status (2026-07-27, plan 3.2/3.3): `type_get_struct()` interns struct types nominally by name with pool-owned field metadata (`src/type.c`); the fixed `struct_name[64]`/`field_names[16][32]` arrays in `SemanticType` were replaced by pool-owned pointers (unit-tested failing first, ASan/UBSan green). Declaration-site wiring and record-literal checking remain blocked on M12.4 struct/record syntax (spec and grammar first).
+Evidence 2026-07-29: `struct Point { x: i64, y: i64 }` parses, registers a nominal
+type via `type_get_struct()`, and emits a C typedef. Record literals `Point { x: 1, y: 2 }`
+check field names and types against the definition. Field access `p.x` resolves the field
+type. Diagnostics: duplicate struct, unknown struct, unknown field, field count mismatch,
+field access on non-struct. ASan/UBSan green. Option/Result deferred to M8.
 
 ### M12.7 — Syntax coherence and safety audit
 

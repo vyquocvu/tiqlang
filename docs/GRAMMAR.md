@@ -26,10 +26,12 @@ Implementation status annotation (see also LANGUAGE_SPEC §17 for the complete t
 
 ```ebnf
 program       = { top_item } ;                                      (* ✅ *)
-top_item      = function_def | binding | statement ;                (* ✅ *)
+top_item      = function_def | struct_def | binding | statement ;   (* ✅ *)
 
 function_def  = identifier, { param }, "->", [ type, "->" ], expression ;  (* ✅ — param:type M12.4 *)
 param         = identifier, [ ":", type ] ;                              (* ✅ — M12.4 *)
+struct_def    = "struct", identifier, "{", { field_def, [ "," ] }, "}" ; (* ✅ — M12.6 *)
+field_def     = identifier, ":", type ;                              (* ✅ — M12.6 *)
 binding       = identifier, "=", expression ;                       (* ✅ *)
 mutable_def   = identifier, "<-", expression ;                     (* ✅ *)
 statement     = assign_stmt | bracket_loop | control_stmt | defer_stmt | expression ; (* ✅ *)
@@ -60,10 +62,12 @@ unary         = ("!" | "+" | "-" | "move"), unary | postfix ;     (* ✅ — "!"
 postfix       = primary, { call | index | field } ;                (* ✅ *)
 call          = "(", [ expression, { ",", expression } ], ")" ;   (* ✅ — builtins and user functions *)
 index         = "[", ( slice_range | expression | stream_slice ), "]" ; (* ✅ / ✅ / 🔴 *)
-field         = ".", identifier ;                                   (* 🟡 — parse+check, no struct surface *)
+field         = ".", identifier ;                                   (* ✅ — M12.6 struct field access *)
 slice_range   = [ expression ], "..", [ expression ] ;             (* ✅ *)
 stream_slice  = ("while" | "until"), expression ;                  (* 🔴 — bounded generators E07 *)
-primary       = identifier | literal | stream_gen | array_fill | match_expr | "(", expression, ")" | block ; (* ✅ *)
+primary       = identifier | literal | stream_gen | array_fill | match_expr | record_lit | "(", expression, ")" | block ; (* ✅ *)
+record_lit    = identifier, "{", { field_init, [ "," ] }, "}" ;    (* ✅ — M12.6 *)
+field_init    = identifier, ":", expression ;                       (* ✅ — M12.6 *)
 stream_gen    = "[", expression, { ",", expression }, ",", "...", expression, [ stream_bound ], "]" ; (* 🟡 — ≤2 seeds *)
 stream_bound  = ("while" | "until"), expression ;                  (* 🔴 — semantic E07 bounded unsupported *)
 array_fill    = "[", expression, ";", expression, "]" ;            (* ✅ — length must be integer literal *)
@@ -71,9 +75,9 @@ match_expr    = "match", expression, "{", { match_arm, [ "," ] }, "}" ; (* 🟡 
 match_arm     = expression, "=>", expression ;                     (* 🟡 — "_ =>" wildcard required *)
 literal       = integer | float | string | "true" | "false" ;     (* ✅ — i64 range checked *)
 
-type          = type_name | array_type | slice_type ;              (* ✅ — M12.4 *)
+type          = type_name | array_type | slice_type ;              (* ✅ — M12.4/M12.6 *)
 type_name     = "i8" | "i16" | "i32" | "i64" | "u8" | "u16" | "u32" | "u64"
-              | "f32" | "f64" | "bool" | "str" ;                   (* ✅ — primitive types *)
+              | "f32" | "f64" | "bool" | "str" | identifier ;      (* ✅ — primitive + struct types *)
 array_type    = "[", type, ";", integer, "]" ;                    (* ✅ — [T; N] *)
 slice_type    = "[", "]", type ;                                   (* ✅ — []T *)
 ```

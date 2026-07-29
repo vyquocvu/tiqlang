@@ -440,4 +440,45 @@ CALL <TYPE_INT>
   IDENT print
   IDENT x <TYPE_I32>'
 
+# M12.6: Struct definition and record literal tests.
+assert_semantic "struct_unknown_field_type" 'struct Point {
+  x: unknown
+}
+' "$TMP_DIR/struct_unknown_field_type.tiq:1: error[E09]: unknown field type 'unknown'"
+
+assert_semantic "struct_duplicate" 'struct Point {
+  x: i64
+}
+struct Point {
+  y: i64
+}
+' "$TMP_DIR/struct_duplicate.tiq:4: error[E09]: duplicate struct definition 'Point'"
+
+assert_semantic "record_lit_unknown_struct" 'p = Unknown { x: 1 }
+' "$TMP_DIR/record_lit_unknown_struct.tiq:1: error[E09]: unknown struct 'Unknown'"
+
+assert_semantic "record_lit_unknown_field" 'struct Point {
+  x: i64
+}
+p = Point { y: 1 }
+' "$TMP_DIR/record_lit_unknown_field.tiq:4: error[E09]: unknown field 'y'"
+
+assert_semantic "record_lit_field_count" 'struct Point {
+  x: i64,
+  y: i64
+}
+p = Point { x: 1 }
+' "$TMP_DIR/record_lit_field_count.tiq:5: error[E09]: record literal has 1 fields, struct has 2"
+
+assert_semantic "field_access_non_struct" 'x = 1
+y = x.foo
+' "$TMP_DIR/field_access_non_struct.tiq:2: error[E09]: field access on non-struct type"
+
+assert_semantic "field_access_unknown_field" 'struct Point {
+  x: i64
+}
+p = Point { x: 1 }
+y = p.foo
+' "$TMP_DIR/field_access_unknown_field.tiq:5: error[E09]: unknown field 'foo'"
+
 echo "semantic: ok"

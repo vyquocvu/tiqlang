@@ -373,10 +373,10 @@ This section is normative for the bootstrap compiler's observable boundary. Ever
 
 | Tier | Meaning | Example |
 |------|---------|---------|
-| **Implemented** | Fully specified, compiled, and tested | `[0..10] { print(i) }`, `move x`, `defer` |
-| **Provisional** | Parsed and partially checked; semantics may change | `match`, field access |
+| **Implemented** | Fully specified, compiled, and tested | `[0..10] { print(i) }`, `move x`, `defer`, `struct` |
+| **Provisional** | Parsed and partially checked; semantics may change | `match` |
 | **Fail-closed** | Parsed but rejected at semantic analysis; no code produced | `spawn`, `chan`, `&x`, `&mut x` |
-| **Reserved** | Keyword exists in lexer; no parse path exists yet | `struct` definitions, record literals |
+| **Reserved** | Keyword exists in lexer; no parse path exists yet | `mut` (standalone) |
 
 The bootstrap compiler must reject anything that is not **Implemented** or **Provisional** before code generation, producing a non-zero exit code and a diagnostic with source location.
 
@@ -393,11 +393,37 @@ Patterns are equality-compared expressions; there are no binding or destructurin
 
 Status: provisional — full pattern matching (guards, destructuring, exhaustiveness for non-wildcard arms) is deferred to M12.6 and M8.
 
-### 17.2 Field access (provisional)
+### 17.2 Struct types and field access (implemented)
 
-`expr.field` parses and type-checks against struct types, but no surface syntax constructs a struct type yet: `struct` definitions and record literals do not parse and fail closed with E05 (pending M12.4 spec-and-grammar-first syntax).
+Struct definitions declare a nominal record type with named, typed fields:
 
-Status: provisional — field access is parse-and-check only; struct definitions and record literals are reserved (see 17.4).
+```tiq
+struct Point {
+  x: i32,
+  y: i32
+}
+```
+
+Record literals construct values of a struct type:
+
+```tiq
+p = Point { x: 1, y: 2 }
+```
+
+Field access reads a field from a struct value:
+
+```tiq
+print(p.x)  // 1
+```
+
+Rules:
+- Struct names must be unique within a module (E09: "duplicate struct definition").
+- Field names must be unique within a struct (E09: "duplicate field").
+- Record literals must initialize all fields exactly once (E09: "missing field" / "unknown field").
+- Field access on a non-struct type is rejected (E09: "field access on non-struct type").
+- Field access with an unknown field name is rejected (E09: "unknown field").
+
+Status: implemented — struct definitions, record literals, and field access are fully specified, compiled, and tested.
 
 ### 17.3 Fail-closed constructs
 
@@ -418,7 +444,6 @@ These keywords are recognized by the lexer and reserved for future milestones. T
 
 | Keyword | Reserved for |
 |---------|-------------|
-| `struct` | M12.4 struct definitions and record literals |
 | `mut` | M9 borrow syntax (`&mut x`) — `mut` alone outside a borrow prefix is rejected |
 | `while` | Stream generator bounds and predicate slicing (`§14`) only; no `while` loop statement |
 | `until` | Stream generator bounds only; no `until` loop statement |
