@@ -35,9 +35,23 @@ typedef enum {
 // removed) were retired before this numbering was first pinned and printed,
 // so no published value was ever reused.
 
+// One captured diagnostic for the optional structured sink (M11.1).
+typedef struct {
+    int line;
+    ErrorCode code;
+    char message[200];
+} DiagRecord;
+
 typedef struct {
     bool has_error;
     bool fatal_error;
+    // Optional structured sink: when `records` is non-NULL, diagnostics are
+    // captured there instead of printed to stderr (the consumer owns
+    // presentation). Records past `record_cap` are dropped; `record_count`
+    // counts stored records only.
+    DiagRecord *records;
+    int record_cap;
+    int record_count;
 } DiagContext;
 
 void diag_init(DiagContext *diag);

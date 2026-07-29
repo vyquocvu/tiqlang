@@ -25,6 +25,7 @@ frame() {
     frame '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"rootUri":"file:///ws"}}'
     frame '{"jsonrpc":"2.0","method":"initialized","params":{}}'
     frame '{"jsonrpc":"2.0","method":"textDocument/didOpen","params":{"textDocument":{"uri":"file:///test.tiq","languageId":"tiq","version":1,"text":"n = 41\nmax a b -> a > b ? a : b\n!max(n, 1)\n"}}}'
+    frame '{"jsonrpc":"2.0","method":"textDocument/didOpen","params":{"textDocument":{"uri":"file:///bad.tiq","languageId":"tiq","version":7,"text":"print(x)\nprint(y)\n"}}}'
     frame '{"jsonrpc":"2.0","id":2,"method":"textDocument/hover","params":{"textDocument":{"uri":"file:///test.tiq"},"position":{"line":2,"character":5}}}'
     frame '{"jsonrpc":"2.0","id":3,"method":"textDocument/hover","params":{"textDocument":{"uri":"file:///test.tiq"},"position":{"line":2,"character":1}}}'
     frame '{"jsonrpc":"2.0","id":4,"method":"textDocument/definition","params":{"textDocument":{"uri":"file:///test.tiq"},"position":{"line":2,"character":5}}}'
@@ -39,10 +40,13 @@ frame() {
 # inference, which the transcript pins honestly). Definition: declaration
 # token of `n` on line 0. Semantic tokens: LSP delta encoding over legend
 # [keyword,variable,number,string,operator]. Unopened uri: null (fail
-# closed). publishDiagnostics echoes the stored document version.
+# closed). publishDiagnostics carries real front-end diagnostics (M11.1):
+# 0-based start-of-line ranges, severity 1, code "ENN", source "tiq",
+# keyed to the stored document version; a clean document publishes [].
 {
     frame '{"jsonrpc":"2.0","id":1,"result":{"capabilities":{"textDocumentSync":1,"hoverProvider":true,"definitionProvider":true,"semanticTokensProvider":{"legend":{"tokenTypes":["keyword","variable","number","string","operator"],"tokenModifiers":[]},"full":true}},"serverInfo":{"name":"tiq","version":"0.1.0"}}}'
     frame '{"jsonrpc":"2.0","method":"textDocument/publishDiagnostics","params":{"uri":"file:///test.tiq","version":1,"diagnostics":[]}}'
+    frame '{"jsonrpc":"2.0","method":"textDocument/publishDiagnostics","params":{"uri":"file:///bad.tiq","version":7,"diagnostics":[{"range":{"start":{"line":0,"character":0},"end":{"line":0,"character":0}},"severity":1,"code":"E08","source":"tiq","message":"undefined symbol '\''x'\''"},{"range":{"start":{"line":1,"character":0},"end":{"line":1,"character":0}},"severity":1,"code":"E08","source":"tiq","message":"undefined symbol '\''y'\''"}]}}'
     frame '{"jsonrpc":"2.0","id":2,"result":{"contents":{"kind":"markdown","value":"```tiq\nn: int\n```"},"range":{"start":{"line":2,"character":5},"end":{"line":2,"character":6}}}}'
     frame '{"jsonrpc":"2.0","id":3,"result":{"contents":{"kind":"markdown","value":"```tiq\nmax: fn(2) -> unknown\n```"},"range":{"start":{"line":2,"character":1},"end":{"line":2,"character":4}}}}'
     frame '{"jsonrpc":"2.0","id":4,"result":{"uri":"file:///test.tiq","range":{"start":{"line":0,"character":0},"end":{"line":0,"character":1}}}}'

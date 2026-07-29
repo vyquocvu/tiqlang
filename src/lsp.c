@@ -469,6 +469,85 @@ static void handle_shutdown(FILE *out, long id) {
     send_response(out, id, "null");
 }
 
+// M11.1: structured in-protocol diagnostics. Run the front end over the
+// stored document with a bounded DiagRecord sink and publish each record
+// as an LSP diagnostic: 0-based start-of-line range, severity 1 (Error),
+// code "ENN", source "tiq". Records past the sink cap are dropped by the
+// sink itself, so the payload stays bounded.
+#define LSP_MAX_DIAGS 16
+
+static void append_json_escaped(char *dst, size_t cap, size_t *len, const char *s) {
+    for (; *s; s++) {
+        char buf[8];
+        int n;
+        unsigned char c = (unsigned char)*s;
+        if (c == '"' || c == '\\') {
+            n = snprintf(buf, sizeof(buf), "\\%c", c);
+        } else if (c < 0x20) {
+            n = snprintf(buf, sizeof(buf), "\\u%04x", c);
+        } else {
+            buf[0] = (char)c;
+            buf[1] = '\0';
+            n = 1;
+        }
+        if (*len + (size_t)n >= cap) return; // truncate: never overflow
+        memcpy(dst + *len, buf, (size_t)n);
+        *len += (size_t)n;
+        dst[*len] = '\0';
+    }
+}
+
+static void publish_diagnostics(FILE *out, const LspDocument *doc) {
+    DiagRecord records[LSP_MAX_DIAGS];
+    DiagContext diag;
+    diag_init(&diag);
+    diag.records = records;
+    diag.record_cap = LSP_MAX_DIAGS;
+
+    Parser parser;
+    parser_init(&parser, doc->text, doc->uri, &diag);
+    int count;
+    AstNode **stmts = parser_parse(&parser, &count);
+    TypePool pool;
+    type_pool_init(&pool);
+    if (!diag.has_error) semantic_check(stmts, count, doc->uri, &diag, &pool);
+
+    char params[8192];
+    size_t len = 0;
+    int n = snprintf(params, sizeof(params),
+                     "{\"uri\":\"%s\",\"version\":%ld,\"diagnostics\":[",
+                     doc->uri, doc->version);
+    if (n < 0 || (size_t)n >= sizeof(params)) n = 0; // fail closed: empty prefix
+    len = (size_t)n;
+    for (int i = 0; i < diag.record_count; i++) {
+        int line0 = records[i].line > 0 ? records[i].line - 1 : 0;
+        char head[160];
+        int hn = snprintf(head, sizeof(head),
+                          "%s{\"range\":{\"start\":{\"line\":%d,\"character\":0},"
+                          "\"end\":{\"line\":%d,\"character\":0}},"
+                          "\"severity\":1,\"code\":\"E%02d\",\"source\":\"tiq\","
+                          "\"message\":\"",
+                          i > 0 ? "," : "", line0, line0, (int)records[i].code);
+        if (hn < 0 || len + (size_t)hn + 3 >= sizeof(params)) break;
+        memcpy(params + len, head, (size_t)hn);
+        len += (size_t)hn;
+        params[len] = '\0';
+        append_json_escaped(params, sizeof(params) - 3, &len, records[i].message);
+        params[len++] = '"';
+        params[len++] = '}';
+        params[len] = '\0';
+    }
+    if (len + 3 < sizeof(params)) {
+        params[len++] = ']';
+        params[len++] = '}';
+        params[len] = '\0';
+        send_notification(out, "textDocument/publishDiagnostics", params);
+    }
+
+    parser_free(&parser);
+    type_pool_free(&pool);
+}
+
 static void handle_did_open(LspServer *server, FILE *out, const char *content) {
     char *uri = json_get_string(content, "uri");
     char *text = json_get_string(content, "text");
@@ -480,16 +559,10 @@ static void handle_did_open(LspServer *server, FILE *out, const char *content) {
     }
     doc_open(server, uri, version, text); // takes ownership of text
 
-    // No structured diagnostics sink exists yet, so publish the empty set
-    // keyed to the stored document version.
-    size_t cap = strlen(uri) + 96;
-    char *params = malloc(cap);
-    if (params) {
-        snprintf(params, cap, "{\"uri\":\"%s\",\"version\":%ld,\"diagnostics\":[]}",
-                 uri, version);
-        send_notification(out, "textDocument/publishDiagnostics", params);
-        free(params);
-    }
+    // Publish real front-end diagnostics for the stored document (M11.1);
+    // a clean document publishes the empty set.
+    LspDocument *doc = doc_find(server, uri);
+    if (doc) publish_diagnostics(out, doc);
     free(uri);
 }
 
