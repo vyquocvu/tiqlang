@@ -78,6 +78,18 @@ static const char TIQ_RUNTIME_PRELUDE[] =
     "static const char *tiq_net_fetch(const char *url) {\n"
     "    (void)url;\n"
     "    return \"{\\\"status\\\": 200, \\\"ok\\\": true}\";\n"
+    "}\n\n"
+
+    "static int64_t tiq_argc = 0;\n"
+    "static char **tiq_argv = 0;\n\n"
+
+    "static int64_t tiq_cli_arg_count(void) {\n"
+    "    return tiq_argc > 0 ? tiq_argc - 1 : 0;\n"
+    "}\n\n"
+
+    "static const char *tiq_cli_arg(int64_t i) {\n"
+    "    if (i < 0 || i + 1 >= tiq_argc) return \"\";\n"
+    "    return tiq_argv[i + 1];\n"
     "}\n\n";
 
 #endif

@@ -381,4 +381,16 @@ printf 'x = some(42)\ny = x?\nprint(y)\n' > "$TMP_DIR/propagate_some.tiq"
 ./build/tiq build "$TMP_DIR/propagate_some.tiq" -o "$TMP_DIR/propagate_some"
 [ "$("$TMP_DIR/propagate_some")" = "42" ]
 
+# M10.1: CLI argument builtins read real argc/argv (LANGUAGE_SPEC §18.1);
+# out-of-range indices yield the empty string.
+printf 'print(cli_arg_count())\nprint(cli_arg(0))\nprint(cli_arg(1))\nprint(cli_arg(5))\n' > "$TMP_DIR/m10_cli_args.tiq"
+./build/tiq build "$TMP_DIR/m10_cli_args.tiq" -o "$TMP_DIR/m10_cli_args"
+"$TMP_DIR/m10_cli_args" alpha beta > "$TMP_DIR/m10_cli_args.out"
+printf '2\nalpha\nbeta\n\n' > "$TMP_DIR/m10_cli_args.expected"
+cmp "$TMP_DIR/m10_cli_args.out" "$TMP_DIR/m10_cli_args.expected"
+
+printf 'print(cli_arg_count())\n' > "$TMP_DIR/m10_cli_none.tiq"
+./build/tiq build "$TMP_DIR/m10_cli_none.tiq" -o "$TMP_DIR/m10_cli_none"
+[ "$("$TMP_DIR/m10_cli_none")" = "0" ]
+
 echo "smoke: ok"

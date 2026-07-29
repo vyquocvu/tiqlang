@@ -506,6 +506,9 @@ static void check_node(SemanticContext *ctx, AstNode *node) {
                         {"json_parse_int",14, 1, TYPE_STR, TYPE_INT},
                         {"json_encode_str",15,1, TYPE_STR, TYPE_STR},
                         {"net_fetch",      9, 1, TYPE_STR, TYPE_STR},
+                        // M10.1: CLI argument builtins (LANGUAGE_SPEC §18.1)
+                        {"cli_arg_count", 13, 0, TYPE_INT, TYPE_INT},
+                        {"cli_arg",        7, 1, TYPE_INT, TYPE_STR},
                     };
                     bool matched = false;
                     for (int bi = 0; bi < (int)(sizeof builtins / sizeof builtins[0]); bi++) {

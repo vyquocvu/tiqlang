@@ -273,6 +273,7 @@ static void emit_expr(AstNode *node, EmitContext *ctx) {
                     {"fs_exists", 9, "tiq_fs_exists"}, {"proc_exec", 9, "tiq_proc_exec"},
                     {"proc_exit", 9, "tiq_proc_exit"}, {"json_parse_int", 14, "tiq_json_parse_int"},
                     {"json_encode_str", 15, "tiq_json_encode_str"}, {"net_fetch", 9, "tiq_net_fetch"},
+                    {"cli_arg_count", 13, "tiq_cli_arg_count"}, {"cli_arg", 7, "tiq_cli_arg"},
                 };
                 const char *builtin_fn = NULL;
                 for (int bi = 0; bi < (int)(sizeof btn / sizeof btn[0]); bi++) {
@@ -1023,7 +1024,9 @@ void compile_to_c(const char *source_path, const char *source, FILE *out, DiagCo
         }
     }
 
-    fputs("\nint main(void) {\n", ctx->out);
+    fputs("\nint main(int argc, char **argv) {\n"
+          "    tiq_argc = argc;\n"
+          "    tiq_argv = argv;\n", ctx->out);
 
     for (int i = 0; i < count; i++) {
         if (stmts[i] && stmts[i]->kind != AST_FUNCTION && stmts[i]->kind != AST_STRUCT_DEF) {

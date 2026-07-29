@@ -527,6 +527,15 @@ These keywords are recognized by the lexer and reserved for future milestones. T
 
 Top-level executable statements form the implicit entry point. Libraries may contain definitions only. A future explicit `main` function may be supported but is not required for scripts and tools.
 
+### 18.1 Command-line arguments
+
+Programs read their command-line arguments through two builtins:
+
+- `cli_arg_count()` takes no arguments and returns the number of arguments passed after the program name, as `int`.
+- `cli_arg(i)` takes exactly one `int` and returns the `i`-th argument after the program name (0-based) as `str`. An index outside `0 <= i < cli_arg_count()` yields the empty string; it is not a runtime error.
+
+Both are ordinary builtin calls: wrong arity is rejected with E12 and a non-`int` index with E09 at compile time.
+
 ## 19. Bootstrap conformance
 
 The bootstrap compiler must reject all unsupported syntax with a non-zero exit code rather than silently generating incorrect code.

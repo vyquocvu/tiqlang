@@ -354,6 +354,26 @@ assert_semantic "json_encode_str_bad_type" 'json_encode_str(123)
 assert_semantic "net_fetch_bad_type" 'net_fetch(123)
 ' "$TMP_DIR/net_fetch_bad_type.tiq:1: error[E09]: net_fetch argument: expected str, found int"
 
+# M10.1: CLI argument builtins (LANGUAGE_SPEC §18.1).
+assert_semantic_ast "typed_cli_builtins" 'n = cli_arg_count()
+a = cli_arg(0)
+' 'BINDING n <TYPE_INT>
+  CALL <TYPE_INT>
+    IDENT cli_arg_count
+BINDING a <TYPE_STR>
+  CALL <TYPE_STR>
+    IDENT cli_arg
+    INT 0 <TYPE_INT>'
+
+assert_semantic "cli_arg_count_bad_arity" 'x = cli_arg_count(1)
+' "$TMP_DIR/cli_arg_count_bad_arity.tiq:1: error[E12]: cli_arg_count expects exactly 0 arguments"
+
+assert_semantic "cli_arg_no_args" 'x = cli_arg()
+' "$TMP_DIR/cli_arg_no_args.tiq:1: error[E12]: cli_arg expects exactly 1 argument"
+
+assert_semantic "cli_arg_bad_type" 'x = cli_arg("0")
+' "$TMP_DIR/cli_arg_bad_type.tiq:1: error[E09]: cli_arg argument: expected int, found str"
+
 # unify() (plan 3.1): conditional branches and every match arm are checked.
 assert_semantic "conditional_branch_mismatch" 'b = true
 x = b ? 2 : "s"

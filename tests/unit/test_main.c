@@ -459,7 +459,7 @@ static void test_emit_c_basic_program(void) {
     char *c = emit_c_capture("x = 1 + 2\nprint(x)\n", &had_error);
     ASSERT(c != NULL);
     ASSERT(!had_error);
-    ASSERT(strstr(c, "int main(void)") != NULL);
+    ASSERT(strstr(c, "int main(int argc, char **argv)") != NULL);
     ASSERT(strstr(c, "int64_t x = (1LL + 2LL);") != NULL);
     ASSERT(strstr(c, "printf(\"%lld\\n\", (long long)(x));") != NULL);
 }
