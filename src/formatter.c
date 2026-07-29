@@ -99,7 +99,8 @@ static bool is_binary_op(TokenKind kind) {
 static bool token_is_keyword(TokenKind kind) {
     return kind == TOK_WHILE || kind == TOK_BREAK || kind == TOK_SKIP ||
            kind == TOK_MOVE || kind == TOK_DEFER || kind == TOK_UNTIL ||
-           kind == TOK_TRUE || kind == TOK_FALSE;
+           kind == TOK_TRUE || kind == TOK_FALSE || kind == TOK_STRUCT ||
+           kind == TOK_MATCH || kind == TOK_SPAWN || kind == TOK_CHAN;
 }
 
 static void format_stream(FmtSink *sink, Lexer *lexer, FormatterOptions *opts) {
@@ -189,10 +190,14 @@ static void format_stream(FmtSink *sink, Lexer *lexer, FormatterOptions *opts) {
             if (peek.kind != TOK_NEWLINE && peek.kind != TOK_EOF &&
                 peek.kind != TOK_RBRACE && peek.kind != TOK_RBRACKET &&
                 peek.kind != TOK_RPAREN && peek.kind != TOK_COMMA &&
-                peek.kind != TOK_LPAREN &&
+                peek.kind != TOK_LPAREN && peek.kind != TOK_DOT &&
                 !is_binary_op(peek.kind) && peek.kind != TOK_QUESTION &&
                 peek.kind != TOK_COLON) {
                 emit_space(&fmt);
+            }
+            // M12.6: Glue '{' after identifier for struct defs and record literals
+            if (peek.kind == TOK_LBRACE) {
+                glue_next_lbrace = true;
             }
         }
 
