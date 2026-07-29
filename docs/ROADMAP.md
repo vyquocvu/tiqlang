@@ -316,7 +316,7 @@ Status: active
 Status audit 2026-07-25: previously marked done; corrected after source review. `net_fetch` is a hardcoded stub returning a fixed JSON string; no sockets, event loop, or HTTP code exists.
 
 - [ ] Non-blocking event loop integration (`epoll` on Linux, `kqueue` on macOS)
-- [ ] Zero-copy JSON encoder and decoder primitives (current `json_parse_int`/`json_encode_str` are minimal `atoi`/escape helpers)
+- [ ] Zero-copy JSON encoder and decoder primitives — partial: M10.2 (2026-07-29) adds `json_get(json, key)`, a real single-pass object-member decoder (LANGUAGE_SPEC §19; string escape decode, verbatim scalars, chainable raw sub-documents, empty string on miss/malformed input); evidence: `typed_json_get`/`json_get_bad_arity`/`json_get_bad_type` in `tests/semantic.sh`, `m10_json_get` in `tests/smoke.sh`. `json_parse_int`/`json_encode_str` remain minimal helpers; a zero-copy encoder and array iteration are open.
 - [ ] HTTP/1.1 service server & client socket primitives (replace the `tiq_net_fetch` stub)
 - [x] Standard library CLI argument access — M10.1 (2026-07-29): `cli_arg_count()` / `cli_arg(i)` builtins backed by real `argc`/`argv` (LANGUAGE_SPEC §18.1); E12/E09 diagnostics; evidence: `typed_cli_builtins`, `cli_arg_count_bad_arity`, `cli_arg_no_args`, `cli_arg_bad_type` in `tests/semantic.sh`; `m10_cli_args`, `m10_cli_none` runtime tests in `tests/smoke.sh`. Flag parsing (named options) remains open.
 
