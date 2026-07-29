@@ -570,8 +570,21 @@ static AstNode *logical_or(Parser *parser) {
     return expr;
 }
 
-static AstNode *conditional(Parser *parser) {
+// M8: fallback operator (??) - precedence between || and ?:
+static AstNode *fallback(Parser *parser) {
     AstNode *expr = logical_or(parser);
+    while (match(parser, TOK_QUESTION_QUESTION)) {
+        AstNode *node = allocate_node(parser, AST_BINARY);
+        node->as.binary.op = TOK_QUESTION_QUESTION;
+        node->as.binary.left = expr;
+        node->as.binary.right = logical_or(parser);
+        expr = node;
+    }
+    return expr;
+}
+
+static AstNode *conditional(Parser *parser) {
+    AstNode *expr = fallback(parser);
     if (match(parser, TOK_QUESTION)) {
         AstNode *node = allocate_node(parser, AST_CONDITIONAL);
         node->as.conditional.cond = expr;

@@ -47,6 +47,9 @@ typedef struct SemanticType {
     int field_count;
     const char **field_names;
     struct SemanticType **field_types;
+    // M8: Option/Result inner types
+    struct SemanticType *inner_type;   // T for T? or T!E
+    struct SemanticType *error_type;   // E for T!E (NULL for Option)
 } SemanticType;
 
 typedef struct Symbol {

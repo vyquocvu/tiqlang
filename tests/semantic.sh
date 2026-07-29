@@ -481,4 +481,12 @@ p = Point { x: 1 }
 y = p.foo
 ' "$TMP_DIR/field_access_unknown_field.tiq:5: error[E09]: unknown field 'foo'"
 
+# M8: Option/Result fallback operator tests.
+assert_semantic "fallback_non_option" 'x = 1
+y = x ?? 0
+' "$TMP_DIR/fallback_non_option.tiq:2: error[E09]: fallback operator requires Option or Result on left side"
+
+assert_semantic "some_wrong_arity" 'x = some(1, 2)
+' "$TMP_DIR/some_wrong_arity.tiq:1: error[E12]: some expects exactly 1 argument"
+
 echo "semantic: ok"

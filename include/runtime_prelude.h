@@ -10,7 +10,8 @@ static const char TIQ_RUNTIME_PRELUDE[] =
     "#include <string.h>\n"
     "#include <stdint.h>\n"
     "#include <sys/stat.h>\n"
-    "typedef struct { const void *ptr; int len; } TiqSlice;\n\n"
+    "typedef struct { const void *ptr; int len; } TiqSlice;\n"
+    "typedef struct { int64_t value; int has_value; } TiqOption;\n\n"
 
     "static const char *tiq_fs_read(const char *path) {\n"
     "    FILE *f = fopen(path, \"rb\");\n"

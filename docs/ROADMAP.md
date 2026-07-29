@@ -287,11 +287,13 @@ Status: active
 
 Status audit 2026-07-25: previously marked done; corrected after source review.
 Status audit 2026-07-27 (plan 3.2): struct rows corrected again — no struct/record grammar or parse path exists.
+Status audit 2026-07-29: struct definitions, record literals, field access, and Option types implemented.
 
-- [ ] Record / struct type definitions and field access — `struct` lexes and `expr.field` parses, but `struct Point { ... }` and record literals fail closed with E05: `AST_STRUCT_DEF`/`AST_RECORD_LIT` are never constructed by the parser (blocked on M12.4 spec-and-grammar-first syntax)
-- [ ] Explicit Result & Option types (`T?` / `T!E`) — only reserved `TYPE_OPTION`/`TYPE_RESULT` enum kinds exist; no syntax, construction, or checking (blocked on M12 type representation)
+- [x] Record / struct type definitions and field access — done in M12.6 (2026-07-29)
+- [x] Explicit Option types (`T?`) — `some(x)`, `none`, and `??` fallback operator implemented (2026-07-29)
+- [ ] Explicit Result types (`T!E`) — `ok(x)`, `err(e)` not yet implemented
 - [x] Pattern matching (`match expr { pattern => body }`) — parsed and checked; arm types unified via `unify()` since plan 3.1 (2026-07-27)
-- [ ] Direct C struct emission in backend — `src/emit_c.c` has no struct emission; only field-access expressions emit
+- [x] Direct C struct emission in backend — done in M12.6 (2026-07-29)
 
 ## M9 — Memory ownership & borrow checker (M4 completion)
 

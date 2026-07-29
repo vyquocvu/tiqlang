@@ -111,6 +111,40 @@ SemanticType *type_get_struct(TypePool *pool, Token name,
     return t;
 }
 
+// M8: Option/Result type constructors.
+SemanticType *type_get_option(TypePool *pool, SemanticType *inner) {
+    // Structural interning: same inner type -> same Option instance.
+    for (int i = 0; i < pool->count; i++) {
+        SemanticType *t = pool->items[i];
+        if (t->kind == TYPE_OPTION && t->inner_type == inner) {
+            return t;
+        }
+    }
+    SemanticType *t = calloc(1, sizeof(SemanticType));
+    if (!t) { fprintf(stderr, "out of memory\n"); exit(1); }
+    t->kind = TYPE_OPTION;
+    t->inner_type = inner;
+    pool_push(pool, t);
+    return t;
+}
+
+SemanticType *type_get_result(TypePool *pool, SemanticType *inner, SemanticType *error) {
+    // Structural interning: same inner+error types -> same Result instance.
+    for (int i = 0; i < pool->count; i++) {
+        SemanticType *t = pool->items[i];
+        if (t->kind == TYPE_RESULT && t->inner_type == inner && t->error_type == error) {
+            return t;
+        }
+    }
+    SemanticType *t = calloc(1, sizeof(SemanticType));
+    if (!t) { fprintf(stderr, "out of memory\n"); exit(1); }
+    t->kind = TYPE_RESULT;
+    t->inner_type = inner;
+    t->error_type = error;
+    pool_push(pool, t);
+    return t;
+}
+
 static const char *kind_display_name(PrimitiveType kind) {
     switch (kind) {
         case TYPE_INT: return "int";
@@ -153,6 +187,16 @@ void type_display(const SemanticType *t, char *buf, size_t cap) {
         snprintf(buf, cap, "[]%s", elem[0] ? elem : "unknown");
     } else if (t->kind == TYPE_STRUCT && t->struct_name && t->struct_name[0]) {
         snprintf(buf, cap, "%s", t->struct_name);
+    } else if (t->kind == TYPE_OPTION) {
+        char inner[96] = "";
+        type_display(t->inner_type, inner, sizeof inner);
+        snprintf(buf, cap, "%s?", inner[0] ? inner : "unknown");
+    } else if (t->kind == TYPE_RESULT) {
+        char inner[96] = "";
+        char error[96] = "";
+        type_display(t->inner_type, inner, sizeof inner);
+        type_display(t->error_type, error, sizeof error);
+        snprintf(buf, cap, "%s!%s", inner[0] ? inner : "unknown", error[0] ? error : "unknown");
     } else {
         snprintf(buf, cap, "%s", kind_display_name(t->kind));
     }

@@ -4,7 +4,7 @@ Updated: 2026-07-29
 
 ## Current milestone
 
-M12 — Type system implementation (M12.1–M12.7 complete; M12.6 struct types done; Option/Result deferred to M8)
+M8 — User-defined composite types & explicit error handling (Option types done; Result types pending)
 
 ## Implemented
 
@@ -114,7 +114,7 @@ ROADMAP is the source of truth for M7–M11 item status; the summary below mirro
 corrected audits. None of these milestones is complete.
 
 - M7 (active): array fill `[val; len]`, string character indexing `s[i]`, non-owning `TiqSlice` parameter decay, and block-body functions work. `chan`/`spawn` are parsed but rejected at semantic time (fail-closed, no concurrency runtime; former placeholder emission removed 2026-07-27). No `--target` flag or wasm support exists.
-- M8 (active): field access (`expr.field`) and `match` parse and check; match arm types are unified since 2026-07-27 (plan 3.1). Struct definitions and record literals parse, check, and emit C code since 2026-07-29 (M12.6). No Option/Result syntax exists.
+- M8 (active): field access (`expr.field`) and `match` parse and check; match arm types are unified since 2026-07-27 (plan 3.1). Struct definitions and record literals parse, check, and emit C code since 2026-07-29 (M12.6). Option types (`some(x)`, `none`, `??` fallback) implemented 2026-07-29; Result types (`ok(x)`, `err(e)`) pending.
 - M9 (active): borrow syntax `&x` / `&mut x` parses, but since 2026-07-27 is rejected at semantic time ("borrow is not supported yet", fail closed — the backend previously emitted a silent value copy); no lifetime or aliasing validation, destructors, allocator interfaces, or `Shared<T>`.
 - M10 (queued): `net_fetch` is a hardcoded stub; no event loop, sockets, or HTTP code exists. `json_parse_int`/`json_encode_str` are minimal helpers.
 - M11 (queued): LSP `hover`/`definition`/`semanticTokens` answer with real front-end data since 2026-07-27 (plan 5.1): hover shows the declared symbol's inferred type, definition returns the declaration token's range, semantic tokens are delta-encoded real lexer token kinds. Responses are deterministic per stored `(uri, version)`; unknown uris/positions and unsupported methods fail closed with `null`. Structured in-protocol diagnostics, Windows platform layer, wasm playground, and self-hosted compiler remain open.

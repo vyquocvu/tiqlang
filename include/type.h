@@ -30,6 +30,12 @@ SemanticType *type_get_struct(TypePool *pool, Token name,
                               SemanticType **field_types,
                               int field_count);
 
+// M8: Option/Result type constructors.
+// type_get_option(pool, T) returns the canonical T? type.
+// type_get_result(pool, T, E) returns the canonical T!E type.
+SemanticType *type_get_option(TypePool *pool, SemanticType *inner);
+SemanticType *type_get_result(TypePool *pool, SemanticType *inner, SemanticType *error);
+
 // User-facing type name for diagnostics ("expected <T>, found <U>"),
 // e.g. "int", "str", "[3]int", "[]int". The parser keeps its own
 // TYPE_* dump format for golden ASTs.

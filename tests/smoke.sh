@@ -335,4 +335,13 @@ if ! cmp -s "$TMP_DIR/struct_basic.expected" "$TMP_DIR/struct_basic.out"; then
   exit 1
 fi
 
+# M8: Option types - some, none, and fallback operator.
+printf 'x = some(42)\ny = x ?? 0\nprint(y)\n' > "$TMP_DIR/option_some.tiq"
+./build/tiq build "$TMP_DIR/option_some.tiq" -o "$TMP_DIR/option_some"
+[ "$("$TMP_DIR/option_some")" = "42" ]
+
+printf 'x = none\ny = x ?? 99\nprint(y)\n' > "$TMP_DIR/option_none.tiq"
+./build/tiq build "$TMP_DIR/option_none.tiq" -o "$TMP_DIR/option_none"
+[ "$("$TMP_DIR/option_none")" = "99" ]
+
 echo "smoke: ok"

@@ -178,6 +178,12 @@ static void check_node(SemanticContext *ctx, AstNode *node) {
             break;
         }
         case AST_IDENTIFIER: {
+            // M8: 'none' is a polymorphic Option constructor keyword.
+            Token id_name = node->as.identifier.name;
+            if (id_name.length == 4 && memcmp(id_name.start, "none", 4) == 0) {
+                node->semantic_type = ty(ctx, TYPE_OPTION);
+                break;
+            }
             Symbol *sym = env_lookup(ctx->current_env, node->as.identifier.name);
             if (!sym) {
                 char msg[256];
@@ -206,6 +212,22 @@ static void check_node(SemanticContext *ctx, AstNode *node) {
             check_node(ctx, node->as.binary.right);
             SemanticType *lt = node->as.binary.left ? node->as.binary.left->semantic_type : NULL;
             SemanticType *rt = node->as.binary.right ? node->as.binary.right->semantic_type : NULL;
+            // M8: Fallback operator (??) - left must be Option/Result, result is inner type
+            if (node->as.binary.op == TOK_QUESTION_QUESTION) {
+                if (lt && (lt->kind == TYPE_OPTION || lt->kind == TYPE_RESULT)) {
+                    SemanticType *inner = lt->inner_type ? lt->inner_type : ty(ctx, TYPE_UNKNOWN);
+                    // Right side should match inner type (or be unknown for inference)
+                    if (rt && rt->kind != TYPE_UNKNOWN && inner->kind != TYPE_UNKNOWN) {
+                        unify(ctx, node->token.line, inner, rt, "fallback type mismatch");
+                    }
+                    node->semantic_type = inner;
+                } else {
+                    diag_error(ctx->diag, ctx->path, node->token.line, ERR_TYPE_MISMATCH,
+                               "fallback operator requires Option or Result on left side");
+                    node->semantic_type = ty(ctx, TYPE_UNKNOWN);
+                }
+                break;
+            }
             if (lt && rt) {
                 // Pooled types are immutable: unify() propagates inference by
                 // swapping node type pointers, never by mutating types.
@@ -345,6 +367,30 @@ static void check_node(SemanticContext *ctx, AstNode *node) {
                                        "len expects an array argument");
                     }
                     node->semantic_type = ty(ctx, TYPE_INT);
+                    break;
+                }
+                // M8: Option constructors
+                if (name.length == 4 && memcmp(name.start, "some", 4) == 0) {
+                    if (node->as.call.arg_count != 1) {
+                        diag_error(ctx->diag, ctx->path, node->token.line, ERR_ARITY_MISMATCH, "some expects exactly 1 argument");
+                    } else {
+                        if (node->as.call.args[0]) check_node(ctx, node->as.call.args[0]);
+                        SemanticType *at = node->as.call.args[0] ?
+                            node->as.call.args[0]->semantic_type : NULL;
+                        if (at && at->kind != TYPE_UNKNOWN) {
+                            node->semantic_type = type_get_option(ctx->pool, at);
+                        } else {
+                            node->semantic_type = ty(ctx, TYPE_OPTION);
+                        }
+                    }
+                    break;
+                }
+                if (name.length == 4 && memcmp(name.start, "none", 4) == 0) {
+                    if (node->as.call.arg_count != 0) {
+                        diag_error(ctx->diag, ctx->path, node->token.line, ERR_ARITY_MISMATCH, "none expects no arguments");
+                    }
+                    // none is polymorphic - type inferred from context
+                    node->semantic_type = ty(ctx, TYPE_OPTION);
                     break;
                 }
                 {

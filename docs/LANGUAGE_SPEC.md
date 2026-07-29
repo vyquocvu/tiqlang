@@ -313,16 +313,60 @@ No other context names exist. v0.1 windows are limited to the two preceding term
 
 Tiq has no exceptions. Fallible functions return a result value.
 
-### 15.1 Design sketch (not implemented)
+### 15.1 Option and Result types
 
-The following direction is normative for design work but has no implementation; the compiler rejects all of this syntax until it lands (fail closed, targeted at M12.6):
+`T?` and `T!E` are postfix **type constructors**: `T?` is an optional (`T` or absent), `T!E` is a result (`T` or an error of type `E`).
 
-- `T?` and `T!E` are postfix **type constructors**, not runtime operators: `T?` is an optional (`T` or absent), `T!E` is a result (`T` or an error of type `E`).
-- `??` is the fallback operator: `r = fs_read("f") ?? ""`. It short-circuits — the right operand is evaluated only when the left operand is absent or an error. Its precedence sits between `||` and `?:` (tighter than `?:`, looser than `||`), so `a ?? b ? x : y` parses as `(a ?? b) ? x : y`.
-- `expr?` is **expression-level** propagation: if `expr` is absent or an error, the enclosing function returns that state immediately; otherwise `expr?` evaluates to the unwrapped value. The enclosing function's return type must itself be optional/result-compatible, checked at compile time.
-- A `T!E` value destructures with `match`; no dedicated destructuring syntax is planned.
+```tiq
+// Option: may hold a value or be absent
+find xs:i64 key:i64 -> i64? -> {
+  [i <- 0..len(xs)] { xs[i] == key ? i : skip }
+  none
+}
 
-Until then, the compiler must not invent implicit failure behavior.
+// Result: may hold a value or an error
+parse s:str -> i64!str -> {
+  // ... parsing logic ...
+  ok(42)   // or err("invalid")
+}
+```
+
+**Constructors:**
+- `some(x)` wraps a value in an Option.
+- `none` is the absent Option value.
+- `ok(x)` wraps a value in a Result.
+- `err(e)` wraps an error in a Result.
+
+**Fallback operator (`??`):**
+`a ?? b` evaluates to `a` if `a` is present/ok, otherwise `b`. It short-circuits — the right operand is evaluated only when the left operand is absent or an error. Its precedence sits between `||` and `?:` (tighter than `?:`, looser than `||`), so `a ?? b ? x : y` parses as `(a ?? b) ? x : y`.
+
+```tiq
+x = find(xs, 5) ?? -1   // -1 if not found
+```
+
+**Propagation (`expr?`):**
+If `expr` is absent or an error, the enclosing function returns that state immediately; otherwise `expr?` evaluates to the unwrapped value. The enclosing function's return type must itself be optional/result-compatible, checked at compile time.
+
+```tiq
+process s:str -> i64? -> {
+  x = parse(s)?   // returns none if parse fails
+  some(x * 2)
+}
+```
+
+**Pattern matching:**
+A `T?` or `T!E` value destructures with `match`:
+
+```tiq
+result = find(xs, key)
+msg = match result {
+  some(v) => "found",
+  none => "not found",
+  _ => "unreachable"
+}
+```
+
+Status: implemented — Option/Result types, constructors, fallback, and propagation are fully specified, compiled, and tested.
 
 ## 16. Memory
 
