@@ -622,6 +622,13 @@ Low-level blocking TCP socket builtins for building simple servers and clients. 
 
 All reject wrong arity with E12 and non-`int` arguments with E09 at compile time (`net_send` checks `int`, `str`). The bootstrap implementation uses POSIX sockets (`socket`, `bind`, `listen`, `accept`, `connect`, `read`, `write`, `close`, `shutdown`, `getsockname`); these are documented platform API dependencies of generated programs.
 
+Two companion builtins parse the request line of an HTTP request (the first line, `METHOD PATH HTTP/VERSION`):
+
+- `http_method(req)` takes one `str` and returns the method token (for example `"GET"`) as a heap-allocated `str` (owned per §16.4). If the input contains no space, the entire input is returned; an empty input yields the empty string.
+- `http_path(req)` takes one `str` and returns the path token (for example `"/index.html"`) as a heap-allocated `str` (owned per §16.4). If the input contains fewer than two spaces, the empty string is returned.
+
+Both never raise a runtime error. Wrong arity is rejected with E12 and non-`str` arguments with E09 at compile time.
+
 ## 20. Bootstrap conformance
 
 The bootstrap compiler must reject all unsupported syntax with a non-zero exit code rather than silently generating incorrect code.

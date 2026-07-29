@@ -335,6 +335,11 @@ corrected audits. None of these milestones is complete.
   - Runtime prelude gained a fifth chunk (`TIQ_RUNTIME_PRELUDE5`) with the eight socket functions; `<netinet/in.h>` added to the includes.
   - Tests (added failing first): `m108_server` in `tests/smoke.sh` compiles a Tiq server (listen/accept/recv/send/close) and a `net_fetch` client, runs them via loopback, and checks the JSON response body. Full suite plus tooling/fuzz green under ASan/UBSan.
   - Docs: LANGUAGE_SPEC §19.3; ROADMAP M10 evidence.
+- M10.9: HTTP request-line parsing builtins (2026-07-29):
+  - Two owned-string builtins that parse the request line of an HTTP request (LANGUAGE_SPEC §19.3): `http_method(req)` returns the method token (before first space; no space → entire input; empty → ""); `http_path(req)` returns the path token (between first and second space; fewer than two spaces → ""). Both return heap-allocated strings (owned per §16.4), classified in `is_owned_str_builtin_call` and `is_safe_builtin_callee`.
+  - Runtime prelude: `tiq_http_method` and `tiq_http_path` appended to `TIQ_RUNTIME_PRELUDE5`.
+  - Tests (added failing first): `m109_http` in `tests/smoke.sh` covers a normal request line (`GET /index.html HTTP/1.1`), single-token input (`POST`), and empty input for both builtins. Full suite plus tooling/fuzz green under ASan/UBSan.
+  - Docs: LANGUAGE_SPEC §19.3; ROADMAP M10 evidence.
 
 ## Known bootstrap limitations
 
