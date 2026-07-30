@@ -147,3 +147,22 @@ Zero-overhead C interoperability for calling host C libraries and embedding Tiq 
 - [ ] **M20.4** Dynamic library loading (`dlopen`/`dlsym`) bindings in standard library
 
 **Exit gate**: Native C libraries (e.g. `libz`, `libssl`, `sqlite3`) can be invoked from Tiq without compiler modifications.
+
+---
+
+## M21 — Native Tooling in Tiq
+
+Status: queued (blocked by M13 self-hosting)
+
+Rebuild the developer tooling as Tiq programs. The original C implementations (`tiq fmt`, `tiq test`, `tiq bench`, `tiq init`, `tiq cache`, `tiq lsp`) were removed from the bootstrap compiler on 2026-07-30 to keep the C11 codebase limited to the core pipeline (lexer, parser, semantic checker, C emitter); they remain available in git history for reference.
+
+### Tasks
+
+- [ ] **M21.1** `tiq fmt`: token-based formatter in Tiq (`--check`, `--output`, `--use-tabs`, `--indent-width`, stdin/stdout)
+- [ ] **M21.2** `tiq test`: test runner in Tiq using `//!` expected-output comments; reuses the `tests/tiq/` fixtures kept in the repository
+- [ ] **M21.3** `tiq bench`: compiler performance measurement (lexer/parser/semantic timing, throughput, iterations)
+- [ ] **M21.4** `tiq init` and package manifest handling (`*.tiq.toml`), aligned with the M15 package manager
+- [ ] **M21.5** Incremental module cache, aligned with M14 native compilation and incremental builds
+- [ ] **M21.6** LSP server in Tiq (JSON-RPC 2.0 over stdio, diagnostics, hover, definition, semantic tokens), feeding into M17.2
+
+**Exit gate**: All developer tooling ships as Tiq programs; `src/` contains no C tooling code beyond the core compiler pipeline.

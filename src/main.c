@@ -1,24 +1,15 @@
 #define _POSIX_C_SOURCE 200809L
-#include <ctype.h>
 #include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/wait.h>
-#include <sys/stat.h>
 #include <unistd.h>
-#include <dirent.h>
 #include "../include/lexer.h"
 #include "../include/diag.h"
 #include "../include/parser.h"
 #include "../include/semantic.h"
 #include "../include/type.h"
-#include "../include/formatter.h"
-#include "../include/cache.h"
-#include "../include/tester.h"
-#include "../include/manifest.h"
-#include "../include/lsp.h"
-#include "../include/benchmark.h"
 #include "../include/emit_c.h"
 
 #define TIQ_VERSION "0.1.0-dev"
@@ -177,10 +168,6 @@ static int dump_typed_ast(const char *input, DiagContext *diag) {
     return diag->has_error ? 1 : 0;
 }
 
-// ============================================================================
-// Tooling commands (M5)
-// ============================================================================
-
 static int cmd_check(const char *input) {
     DiagContext diag;
     diag_init(&diag);
@@ -203,152 +190,14 @@ static int cmd_check(const char *input) {
     return diag.has_error ? 1 : 0;
 }
 
-static int cmd_fmt(int argc, char **argv) {
-    FormatterOptions opts;
-    formatter_init_options(&opts);
-    const char *output = NULL;
-    bool check_mode = false;
-    const char *input_file = NULL;
-
-    for (int i = 2; i < argc; i++) {
-        if (strcmp(argv[i], "--check") == 0) {
-            check_mode = true;
-        } else if (strcmp(argv[i], "--output") == 0 && i + 1 < argc) {
-            output = argv[++i];
-        } else if (strcmp(argv[i], "--use-tabs") == 0) {
-            opts.use_tabs = true;
-        } else if (strcmp(argv[i], "--indent-width") == 0 && i + 1 < argc) {
-            opts.indent_width = atoi(argv[++i]);
-        } else if (argv[i][0] != '-') {
-            // Input file
-            input_file = argv[i];
-        }
-    }
-
-    if (input_file) {
-        if (check_mode) {
-            char *source = read_all(input_file);
-            if (!source) return 1;
-            char *formatted = format_source(source, input_file, &opts);
-            int changed = (strcmp(source, formatted) != 0);
-            free(formatted);
-            free(source);
-            if (changed) {
-                fprintf(stderr, "%s: not formatted\n", input_file);
-                return 1;
-            }
-            return 0;
-        }
-        return format_file(input_file, output, &opts);
-    }
-
-    // No input file, format stdin to stdout
-    return format_stdin_to_file(output, &opts);
-}
-
-static int cmd_test(int argc, char **argv) {
-    test_runner_init();
-    TestResults results = {0, 0, 0};
-    bool verbose = false;
-    bool list_mode = false;
-
-    for (int i = 2; i < argc; i++) {
-        if (strcmp(argv[i], "--verbose") == 0 || strcmp(argv[i], "-v") == 0) {
-            verbose = true;
-        } else if (strcmp(argv[i], "--list") == 0 || strcmp(argv[i], "-l") == 0) {
-            list_mode = true;
-        } else if (argv[i][0] != '-') {
-            struct stat st;
-            if (stat(argv[i], &st) == 0) {
-                if (list_mode) {
-                    printf("%s\n", argv[i]);
-                } else if (S_ISDIR(st.st_mode)) {
-                    if (verbose) printf("running tests in %s\n", argv[i]);
-                    run_tests_in_dir(argv[i], &results);
-                } else {
-                    if (verbose) printf("running test %s\n", argv[i]);
-                    run_tests_in_file(argv[i], &results);
-                }
-            }
-        }
-    }
-
-    test_runner_shutdown();
-
-    if (!list_mode) {
-        printf("Tests: %d passed, %d failed, %d skipped\n",
-               results.passed, results.failed, results.skipped);
-
-        if (results.passed == 0 && results.failed == 0) {
-            printf("Note: Test files should contain '//! expected_output' comments\n");
-        }
-    }
-
-    return results.failed > 0 ? 1 : 0;
-}
-
-static int cmd_init(const char *name) {
-    char manifest_path[256];
-    if (name) {
-        snprintf(manifest_path, sizeof(manifest_path), "%s.tiq.toml", name);
-    } else {
-        snprintf(manifest_path, sizeof(manifest_path), "tiq.toml");
-    }
-
-    FILE *f = fopen(manifest_path, "w");
-    if (!f) {
-        fprintf(stderr, "tiq: cannot create %s: %s\n", manifest_path, strerror(errno));
-        return 1;
-    }
-
-    fprintf(f, "# Tiq package manifest\n");
-    fprintf(f, "[package]\n");
-    fprintf(f, "name = \"%s\"\n", name ? name : "my-package");
-    fprintf(f, "version = \"0.1.0\"\n");
-    fprintf(f, "description = \"A Tiq package\"\n");
-    fprintf(f, "\n[tests]\n");
-    fprintf(f, "dir = \"tests\"\n");
-
-    fclose(f);
-    printf("Created %s\n", manifest_path);
-    return 0;
-}
-
-static int cmd_lsp(const char *root) {
-    Cache cache;
-    cache_init(&cache, NULL); // ensure the cache directory exists
-    return lsp_server_run(root ? root : ".", STDIN_FILENO, STDOUT_FILENO);
-}
-
-static int cmd_cache(int argc, char **argv) {
-    Cache cache;
-    cache_init(&cache, NULL);
-
-    for (int i = 2; i < argc; i++) {
-        if (strcmp(argv[i], "clear") == 0) {
-            cache_clear(&cache);
-            printf("Cache cleared at %s\n", cache_get_path(&cache));
-        } else if (strcmp(argv[i], "path") == 0) {
-            printf("%s\n", cache_get_path(&cache));
-        }
-    }
-    return 0;
-}
-
 static void usage(FILE *out) {
-    fputs("tiq " TIQ_VERSION " - Tiq compiler and tools\n\n", out);
+    fputs("tiq " TIQ_VERSION " - Tiq bootstrap compiler\n\n", out);
     fputs("usage:\n", out);
     fputs("  tiq --version\n", out);
     fputs("  tiq run <file.tiq>\n", out);
-    fputs("  tiq build <file.tiq> [-o output]\n", out);
+    fputs("  tiq build <file.tiq> [-o output] [--target <triple>]\n", out);
     fputs("  tiq emit-c <file.tiq>\n", out);
     fputs("  tiq check <file.tiq>...\n", out);
-    fputs("  tiq fmt [--check] [--output <file>] [--use-tabs] [--indent-width <n>] [file]\n", out);
-    fputs("  tiq test [--verbose] [--list] [dir|file...]\n", out);
-    fputs("  tiq bench [-v] [-i N] [-q] <file|dir>...\n", out);
-    fputs("  tiq init [name]\n", out);
-    fputs("  tiq lsp [--root <path>]\n", out);
-    fputs("  tiq cache [clear|path]\n", out);
     fputs("  tiq dump-tokens <file.tiq>\n", out);
     fputs("  tiq dump-ast <file.tiq>\n", out);
     fputs("  tiq dump-typed-ast <file.tiq>\n", out);
@@ -368,46 +217,6 @@ int main(int argc, char **argv) {
                 if (cmd_check(argv[i]) != 0) result = 1;
             }
             return result;
-        }
-        if (strcmp(argv[1], "fmt") == 0) {
-            return cmd_fmt(argc, argv);
-        }
-        if (strcmp(argv[1], "test") == 0) {
-            return cmd_test(argc, argv);
-        }
-        if (strcmp(argv[1], "init") == 0) {
-            return cmd_init(argc > 2 ? argv[2] : NULL);
-        }
-        if (strcmp(argv[1], "lsp") == 0) {
-            const char *root = NULL;
-            for (int i = 2; i < argc; i++) {
-                if (strcmp(argv[i], "--root") == 0 && i + 1 < argc) {
-                    root = argv[++i];
-                }
-            }
-            return cmd_lsp(root);
-        }
-        if (strcmp(argv[1], "cache") == 0) {
-            return cmd_cache(argc, argv);
-        }
-        if (strcmp(argv[1], "bench") == 0) {
-            BenchmarkOptions opts;
-            benchmark_init_options(&opts);
-            const char *paths[64];
-            int path_count = 0;
-            for (int i = 2; i < argc; i++) {
-                if (strcmp(argv[i], "-v") == 0 || strcmp(argv[i], "--verbose") == 0) {
-                    opts.verbose = true;
-                } else if (strcmp(argv[i], "-q") == 0 || strcmp(argv[i], "--quiet") == 0) {
-                    opts.quiet = true;
-                } else if (strcmp(argv[i], "-i") == 0 && i + 1 < argc) {
-                    opts.iterations = atoi(argv[++i]);
-                } else if (argv[i][0] != '-') {
-                    if (path_count < 64) paths[path_count++] = argv[i];
-                }
-            }
-            if (path_count == 0) paths[path_count++] = ".";
-            return benchmark_files(paths, path_count, &opts);
         }
         if (strcmp(argv[1], "run") == 0) {
             if (argc < 3) { usage(stderr); return 2; }

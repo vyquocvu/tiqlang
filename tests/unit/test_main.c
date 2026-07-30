@@ -10,7 +10,6 @@
 #include <stdalign.h>
 
 #include "../../include/arena.h"
-#include "../../include/cache.h"
 #include "../../include/lexer.h"
 #include "../../include/parser.h"
 #include "../../include/semantic.h"
@@ -387,52 +386,6 @@ static void test_arena_reset_reuses_memory(void) {
     arena_free(&arena);
 }
 
-// ----------------------------------------------------------------- cache
-
-// The cache is a caller-owned context with caller-provided path buffers
-// (plan 5.3): no hidden module statics, no shared state between contexts.
-static void test_cache_context_paths(void) {
-    Cache cache;
-    ASSERT(cache_init(&cache, "build/tiq-unit-cache") == 0);
-    ASSERT(strcmp(cache_get_path(&cache), "build/tiq-unit-cache") == 0);
-    char entry[1024];
-    ASSERT(cache_entry_path(&cache, "examples/hello.tiq", entry, sizeof entry));
-    // Keys flatten to a single file name inside the cache directory.
-    ASSERT(strncmp(entry, "build/tiq-unit-cache/", strlen("build/tiq-unit-cache/")) == 0);
-    ASSERT(strchr(entry + strlen("build/tiq-unit-cache/"), '/') == NULL);
-    // A too-small caller buffer must fail closed, not truncate.
-    char tiny[8];
-    ASSERT(!cache_entry_path(&cache, "examples/hello.tiq", tiny, sizeof tiny));
-    // Two contexts must not share state.
-    Cache other;
-    ASSERT(cache_init(&other, "build/tiq-unit-cache-other") == 0);
-    ASSERT(strcmp(cache_get_path(&cache), "build/tiq-unit-cache") == 0);
-    ASSERT(strcmp(cache_get_path(&other), "build/tiq-unit-cache-other") == 0);
-    cache_clear(&cache);
-    cache_clear(&other);
-}
-
-static void test_cache_put_has_roundtrip(void) {
-    Cache cache;
-    ASSERT(cache_init(&cache, "build/tiq-unit-cache") == 0);
-    const char *src = "build/tiq-unit-src.tiq";
-    const char *art = "build/tiq-unit-art.c";
-    FILE *f = fopen(src, "w");
-    ASSERT(f != NULL);
-    if (f) { fputs("x = 1\n", f); fclose(f); }
-    f = fopen(art, "w");
-    ASSERT(f != NULL);
-    if (f) { fputs("int main(void){return 0;}\n", f); fclose(f); }
-    ASSERT(!cache_has(&cache, src, art));
-    cache_put(&cache, src, art);
-    ASSERT(cache_has(&cache, src, art));
-    cache_remove(&cache, src);
-    ASSERT(!cache_has(&cache, src, art));
-    remove(src);
-    remove(art);
-    cache_clear(&cache);
-}
-
 // ---------------------------------------------------------------- emit_c
 
 // Run compile_to_c on `source` and capture the generated C (plan 2.1:
@@ -513,9 +466,6 @@ int main(void) {
     test_arena_alloc_and_growth();
     test_arena_realloc_preserves_content();
     test_arena_reset_reuses_memory();
-
-    test_cache_context_paths();
-    test_cache_put_has_roundtrip();
 
     test_emit_c_basic_program();
     test_emit_c_rejects_semantic_error();

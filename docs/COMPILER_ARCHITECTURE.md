@@ -36,7 +36,7 @@ It validates source, emits a C program using `fputs`, and optionally invokes the
 - Shell arguments derived from user paths must be quoted or passed without shell interpretation in a future process abstraction.
 - Each milestone adds syntax only after lexer, parser, diagnostics, and tests agree on its behavior.
 
-## Modules (actual, 2026-07-27)
+## Modules (actual, 2026-07-30)
 
 ```text
 src/main.c        CLI orchestration and build driver
@@ -46,13 +46,10 @@ src/semantic.c    scopes, symbols, and type checking
 src/type.c        type pool (interned primitive and struct types)
 src/emit_c.c      portable C backend (EmitContext, re-entrant)
 src/diag.c        structured diagnostics
-src/formatter.c   canonical source formatter
-src/cache.c       build cache
-src/tester.c      test runner
-src/manifest.c    project manifest
-src/lsp.c         language server scaffold
-src/benchmark.c   compile benchmark harness
+src/arena.c       AST arena allocator
 ```
+
+The bootstrap compiler contains only the core pipeline. The former C tooling modules (formatter, test runner, benchmark, manifest, cache, LSP server) were removed on 2026-07-30 and will be rewritten in Tiq after self-hosting (POST_BOOTSTRAP_ROADMAP M21).
 
 There is no separate `src/source.c`, `src/resolve.c`, or `src/ir.c`: source loading lives in `main.c`, resolution and checking are combined in `semantic.c`, and the emitter walks the typed AST directly without a lower-level IR. The C backend was split out of `main.c` into `src/emit_c.c` in 2026-07-27; all emitter state is carried in an `EmitContext` (no mutable globals), so `compile_to_c` is re-entrant and unit-tested in `tests/unit/test_main.c`.
 

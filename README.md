@@ -52,7 +52,7 @@ expr?              propagation (unwrap or return)
 
 Tiq is in **pre-alpha language design and compiler bootstrap**. The syntax and ABI may change without compatibility guarantees.
 
-The bootstrap compiler is written in ISO C11 and compiles Tiq programs into native executables through the host C compiler.
+The bootstrap compiler is written in ISO C11 and compiles Tiq programs into native executables through the host C compiler. It is intentionally limited to the core pipeline (lexer, parser, semantic checker, C emitter); developer tooling (formatter, test runner, benchmark, package manifests, module cache, LSP server) will be written in Tiq itself after self-hosting — see [the post-bootstrap roadmap](docs/POST_BOOTSTRAP_ROADMAP.md).
 
 ## Build the bootstrap compiler
 
@@ -98,159 +98,11 @@ make
 ./build/tiq dump-typed-ast examples/hello.tiq
 ```
 
-## Tooling Commands
-
-### Formatter
-
-Format Tiq source code:
-
-```sh
-# Format file to stdout
-./build/tiq fmt examples/hello.tiq
-
-# Format and write to file
-./build/tiq fmt examples/hello.tiq --output formatted.tiq
-
-# Format stdin
-echo 'x=1' | ./build/tiq fmt
-
-# Check if file is formatted (exit 0 if unchanged)
-./build/tiq fmt --check examples/hello.tiq
-
-# Use tabs for indentation
-./build/tiq fmt --use-tabs examples/hello.tiq
-
-# Custom indent width
-./build/tiq fmt --indent-width 2 examples/hello.tiq
-```
-
-### Test Runner
-
-Run tests in directories or files:
-
-```sh
-# Run all tests in directory
-./build/tiq test tests/tiq/
-
-# Run specific test file
-./build/tiq test tests/tiq/hello_test.tiq
-
-# Verbose output
-./build/tiq test -v tests/tiq/
-
-# List tests without running
-./build/tiq test -l tests/tiq/
-```
-
-Test files (`.tiq`) include expected output comments using `//!`:
-
-```tiq
-// Test arithmetic
-a = 1 + 2
-
-// Test loop
-total <- 0
-[0..5] { total += i }
-
-// Test fibonacci
-fib = [0, 1, ... a + b]
-result = fib[10]
-```
-
-##### Benchmark
-
-Measure compiler performance:
-
-```sh
-# Benchmark single file
-./build/tiq bench examples/fib.tiq
-
-# Benchmark directory
-./build/tiq bench examples/
-
-# Verbose output with timing breakdown
-./build/tiq bench -v examples/
-
-# Multiple iterations for accuracy
-./build/tiq bench -i 10 examples/
-
-# Quiet mode (summary for CI)
-./build/tiq bench -q examples/
-# Output: Files: 26, Avg: 0.008 ms, Total: 0.216 ms
-```
-
-### Package Management
-
-Initialize a new package:
-
-```sh
-# Create package manifest
-./build/tiq init mypackage
-# Creates: mypackage.tiq.toml
-
-# Create default manifest
-./build/tiq init
-# Creates: tiq.toml
-```
-
-Manifest format (`mypackage.tiq.toml`):
-
-```toml
-# Tiq package manifest
-[package]
-name = "mypackage"
-version = "0.1.0"
-description = "A Tiq package"
-
-[tests]
-dir = "tests"
-```
-
-### Module Cache
-
-Manage the incremental compilation cache:
-
-```sh
-# Show cache directory
-./build/tiq cache path
-# Output: ~/.cache/tiq
-
-# Clear cache
-./build/tiq cache clear
-```
-
-### Language Server Protocol
-
-Run the LSP server for editor integration:
-
-```sh
-# Start LSP server (uses stdin/stdout)
-./build/tiq lsp
-
-# With custom root directory
-./build/tiq lsp --root /path/to/project
-```
-
-The LSP server implements:
-- JSON-RPC 2.0 over stdin/stdout
-- Initialize/shutdown protocol
-- Diagnostics publishing
-- Text document synchronization
-- Hover (symbol type information)
-- Go-to-definition
-- Semantic tokens (syntax highlighting)
-
 ## Running Tests
 
 ```sh
 # Run all compiler tests
 make test
-
-# Run M5 tooling tests
-make test-tooling
-
-# Run all tests
-make test && make test-tooling
 
 # Run with sanitizers (recommended)
 make clean
@@ -264,14 +116,15 @@ make test
 src/                         bootstrap compiler in C
 include/                     compiler headers
 examples/                    Tiq programs
-tests/                       compiler and tooling tests
-tests/tooling/               M5 tooling test suite
+tests/                       compiler tests
+tests/tiq/                   fixtures for the future Tiq test runner
 docs/LANGUAGE_SPEC.md        normative language definition
 docs/GRAMMAR.md              lexical and syntactic grammar
 docs/TYPE_SYSTEM.md          static type model
 docs/MEMORY_MODEL.md         ownership and allocation direction
 docs/COMPILER_ARCHITECTURE.md compiler pipeline and invariants
 docs/ROADMAP.md              milestone plan
+docs/POST_BOOTSTRAP_ROADMAP.md post-bootstrap plan (incl. tooling in Tiq)
 docs/IMPLEMENTATION_STATUS.md evidence-backed implementation state
 ```
 

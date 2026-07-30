@@ -9,15 +9,9 @@ The following commands match the `usage:` output of `tiq` exactly:
 ```text
 tiq --version
 tiq run <file.tiq>
-tiq build <file.tiq> [-o output]
+tiq build <file.tiq> [-o output] [--target <triple>]
 tiq emit-c <file.tiq>
 tiq check <file.tiq>...
-tiq fmt [--check] [--output <file>] [--use-tabs] [--indent-width <n>] [file]
-tiq test [--verbose] [--list] [dir|file...]
-tiq bench [-v] [-i N] [-q] <file|dir>...
-tiq init [name]
-tiq lsp [--root <path>]
-tiq cache [clear|path]
 ```
 
 ### Debug / inspect commands
@@ -32,19 +26,8 @@ tiq dump-typed-ast <file.tiq>
 
 ## Option notes
 
-- `tiq fmt`: `[file]` is a single optional input file; omitting it reads from stdin and writes to stdout.
-- `tiq test`: `[dir|file...]` accepts zero or more directory or `.tiq` file paths; no arguments defaults to the current directory.
-- `tiq bench`: `-v` is short for `--verbose`; `-q` is short for `--quiet`; `-i N` sets the iteration count.
-- `tiq cache clear` removes all cached build artifacts; `tiq cache path` prints the cache directory.
-- `tiq build`: accepts an undocumented `--target <triple>` flag that is forwarded to the host C compiler; cross-compilation targets are planned but not tested (M11).
-
-## LSP server (`tiq lsp`)
-
-`tiq lsp` speaks JSON-RPC over stdio with `Content-Length` framing. Supported methods: `initialize`, `initialized`, `shutdown`, `exit`, `textDocument/didOpen`, `textDocument/didChange`, `textDocument/didClose`, `textDocument/hover`, `textDocument/definition`, and `textDocument/semanticTokens/full`. All other methods and malformed requests fail closed (notifications are ignored; requests answer `null`).
-
-On `didOpen` the server runs the full front end (lexer, parser, semantic checker) over the stored text and publishes structured `textDocument/publishDiagnostics` (M11.1): each diagnostic carries a 0-based start-of-line range, `severity` 1 (Error), `code` `"ENN"` matching the CLI error code, `source` `"tiq"`, and the exact CLI message, keyed to the stored document version. A clean document publishes the empty set. At most 16 diagnostics are published per document; further records are dropped.
-
-`didChange` uses full-document sync (M11.2, matching the advertised `textDocumentSync: 1`): the change text replaces the stored document, the version advances, and diagnostics are republished. `didClose` drops the document — later requests against its uri answer `null` — and clears its diagnostics with an empty, versionless publish. Changes for unopened uris are ignored.
+- `tiq build`: `--target <triple>` is forwarded to the host C compiler; cross-compilation targets are planned but not tested (M11).
+- Unknown commands fail closed: `tiq` prints usage to stderr and exits with code 2.
 
 ## Planned
 
@@ -52,6 +35,19 @@ On `didOpen` the server runs the full front end (lexer, parser, semantic checker
 tiq run <file.tiq> [-- program-args]
 tiq build <package> --release
 ```
+
+Developer tooling was removed from the C11 bootstrap compiler on 2026-07-30 and will be rewritten in Tiq after self-hosting (POST_BOOTSTRAP_ROADMAP M21):
+
+```text
+tiq fmt [--check] [--output <file>] [--use-tabs] [--indent-width <n>] [file]
+tiq test [--verbose] [--list] [dir|file...]
+tiq bench [-v] [-i N] [-q] <file|dir>...
+tiq init [name]
+tiq lsp [--root <path>]
+tiq cache [clear|path]
+```
+
+The removed C implementations remain available in git history.
 
 ## Exit codes
 
@@ -74,4 +70,3 @@ tiny     optimize size, strip optional metadata
 ```
 
 No profile may change language semantics.
-
