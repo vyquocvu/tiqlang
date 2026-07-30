@@ -365,6 +365,11 @@ corrected audits. None of these milestones is complete.
   - Runtime function `tiq_int_str` appended to `TIQ_RUNTIME_PRELUDE7`.
   - Tests (added failing first): `m1014_istr` in `tests/smoke.sh` covers positive, negative, zero, and length. Full suite plus tooling/fuzz green under ASan/UBSan.
   - Docs: LANGUAGE_SPEC §19.5; ROADMAP M10 evidence.
+- M10.15: HTTP header extraction builtin (2026-07-29):
+  - `http_header(req, name)` scans an HTTP request string line-by-line, matches the header name case-insensitively, and returns the value after the colon as a heap-allocated `str` (owned per §16.4). Returns empty string if not found.
+  - Runtime function `tiq_http_header` appended to `TIQ_RUNTIME_PRELUDE7`; uses `strncasecmp` for case-insensitive matching.
+  - Tests (added failing first): `m1015_hdr` in `tests/smoke.sh` covers found headers, missing header, and case-insensitive match. Full suite plus tooling/fuzz green under ASan/UBSan.
+  - Docs: LANGUAGE_SPEC §19.3; ROADMAP M10 evidence.
 
 ## Known bootstrap limitations
 

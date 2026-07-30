@@ -67,7 +67,7 @@ Expand `tiq.toml` into a full-fledged package manager and central registry clien
 
 Status: queued
 
-Production-grade standard library for web microservices and fast system tools.
+Production-grade standard library for web microservices and fast system tools. Auxiliary services (networking, event loops, JSON) are implemented cleanly in modular standard library code rather than built-in compiler intrinsics.
 
 ### Tasks
 
@@ -112,3 +112,38 @@ Real-world deployment and empirical performance validation.
 - [ ] **M18.3** Fuzzing & Security hardening (libFuzzer / ASan continuous fuzzing pipeline)
 
 **Exit gate**: Public benchmark suite published showing competitive performance against Rust and C with clean security audits.
+
+---
+
+## M19 — Standard Library Modularization (`std/` Ecosystem)
+
+Status: queued
+
+Extract auxiliary system, networking, and serialization features from compiler intrinsics into modular `std/` packages.
+
+### Tasks
+
+- [ ] **M19.1** `std/fs.tiq`: File operations, directory streaming, and path manipulation
+- [ ] **M19.2** `std/proc.tiq`: Process spawning, child pipes, and signal handling
+- [ ] **M19.3** `std/json.tiq`: Zero-copy JSON parsing, object inspection, and string escaping
+- [ ] **M19.4** `std/net.tiq`: Socket creation, listener binding, packet sending/receiving
+- [ ] **M19.5** `std/ev.tiq`: Event loop abstractions and timer queue bindings
+
+**Exit gate**: Core compiler code contains zero domain-specific builtin function names (`net_*`, `json_*`, `ev_*`).
+
+---
+
+## M20 — Foreign Function Interface (FFI) & C Interop System
+
+Status: queued
+
+Zero-overhead C interoperability for calling host C libraries and embedding Tiq binaries into C/C++ applications.
+
+### Tasks
+
+- [ ] **M20.1** `extern "C"` function declaration syntax in Tiq parser & semantic analyzer
+- [ ] **M20.2** C ABI type mapping for structs, pointers, and primitive scalar types
+- [ ] **M20.3** Automatic C header generation tool (`tiq emit-header`) for embedding Tiq libraries into C/C++ projects
+- [ ] **M20.4** Dynamic library loading (`dlopen`/`dlsym`) bindings in standard library
+
+**Exit gate**: Native C libraries (e.g. `libz`, `libssl`, `sqlite3`) can be invoked from Tiq without compiler modifications.

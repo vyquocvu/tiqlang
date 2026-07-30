@@ -9,6 +9,7 @@
 #include "../include/type.h"
 #include "../include/emit_c.h"
 #include "../include/runtime_prelude.h"
+#include "../include/runtime_aux.h"
 
 // Emit the raw bytes of a Tiq string literal as a C string literal.
 // LANGUAGE_SPEC §4 escapes (\\ \" \n \r \t \0) are spelled identically in C,
@@ -1583,13 +1584,18 @@ void compile_to_c(const char *source_path, const char *source, FILE *out, DiagCo
     // ownership predicates (LANGUAGE_SPEC §16.4).
     collect_fresh_str_fns(stmts, count);
 
-    fputs(TIQ_RUNTIME_PRELUDE, ctx->out);
-    fputs(TIQ_RUNTIME_PRELUDE2, ctx->out);
-    fputs(TIQ_RUNTIME_PRELUDE3, ctx->out);
-    fputs(TIQ_RUNTIME_PRELUDE4, ctx->out);
-    fputs(TIQ_RUNTIME_PRELUDE5, ctx->out);
-    fputs(TIQ_RUNTIME_PRELUDE6, ctx->out);
-    fputs(TIQ_RUNTIME_PRELUDE7, ctx->out);
+    // Emit Core Language Runtime Prelude
+    fputs(TIQ_CORE_RUNTIME_PRELUDE, ctx->out);
+
+    // Emit Auxiliary Standard Library Runtime Prelude
+    // (These stubs will be rewritten natively in Tiq under Milestone M19)
+    fputs(TIQ_RUNTIME_PRELUDE_AUX1, ctx->out);
+    fputs(TIQ_RUNTIME_PRELUDE_AUX2, ctx->out);
+    fputs(TIQ_RUNTIME_PRELUDE_AUX3, ctx->out);
+    fputs(TIQ_RUNTIME_PRELUDE_AUX4, ctx->out);
+    fputs(TIQ_RUNTIME_PRELUDE_AUX5, ctx->out);
+    fputs(TIQ_RUNTIME_PRELUDE_AUX6, ctx->out);
+    fputs(TIQ_RUNTIME_PRELUDE_AUX7, ctx->out);
 
     // M12.6: Emit struct definitions (before function declarations so types are visible)
     for (int i = 0; i < count; i++) {

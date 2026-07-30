@@ -505,6 +505,9 @@ static void check_node(SemanticContext *ctx, AstNode *node) {
                         PrimitiveType expected2;
                     } Builtin;
                     static const Builtin builtins[] = {
+                        // Auxiliary Standard Library Primitives
+                        // (Isolated stubs; under Milestone M19, these will be rewritten
+                        // natively in Tiq language (`std/*.tiq`) using C FFI interop).
                         {"fs_read",        7, 1, TYPE_STR, TYPE_STR, TYPE_UNKNOWN},
                         {"fs_write",       8, 2, TYPE_STR, TYPE_INT, TYPE_UNKNOWN},
                         {"fs_exists",      9, 1, TYPE_STR, TYPE_BOOL, TYPE_UNKNOWN},
