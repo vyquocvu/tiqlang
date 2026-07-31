@@ -607,6 +607,36 @@ static const char *binary_op_c_str(TokenKind op) {
     }
 }
 
+// M13.1-P8: length and byte-read fragments for the single-index byte
+// read s[i] on str / str views (bounds-checked, LANGUAGE_SPEC §13.1).
+static void emit_str_index_len(AstNode *callee, SemanticType *ct, EmitContext *ctx) {
+    if (ct->kind == TYPE_STR) {
+        fputs("(int64_t)strlen(", ctx->out);
+        emit_expr(callee, ctx);
+        fputs(")", ctx->out);
+    } else {
+        fputs("(int64_t)(((TiqSlice)(", ctx->out);
+        emit_expr(callee, ctx);
+        fputs(")).len)", ctx->out);
+    }
+}
+
+static void emit_str_index_byte(AstNode *callee, AstNode *idx, SemanticType *ct, EmitContext *ctx) {
+    if (ct->kind == TYPE_STR) {
+        fputs("((const char*)(", ctx->out);
+        emit_expr(callee, ctx);
+        fputs("))[", ctx->out);
+        emit_expr(idx, ctx);
+        fputs("]", ctx->out);
+    } else {
+        fputs("((const char*)(((TiqSlice)(", ctx->out);
+        emit_expr(callee, ctx);
+        fputs(")).ptr))[", ctx->out);
+        emit_expr(idx, ctx);
+        fputs("]", ctx->out);
+    }
+}
+
 static void emit_expr(AstNode *node, EmitContext *ctx) {
     if (!node) return;
     // M9.2-F: a hoisted temporary reads from its hidden binding (§16.4).
@@ -1094,6 +1124,23 @@ static void emit_expr(AstNode *node, EmitContext *ctx) {
                             fputs("0", ctx->out);
                         fputs("]", ctx->out);
                     }
+                    break;
+                }
+                if (ct && (ct->kind == TYPE_STR || ct->kind == TYPE_STR_VIEW) &&
+                    node->as.call.arg_count > 0 && node->as.call.args[0]) {
+                    // M13.1-P8: s[i] byte read with deterministic bounds
+                    // abort (§13.1); previously fell through to tiq_gen_.
+                    fputs("((uint64_t)(", ctx->out);
+                    emit_expr(node->as.call.args[0], ctx);
+                    fputs(") < (uint64_t)(", ctx->out);
+                    emit_str_index_len(node->as.call.callee, ct, ctx);
+                    fputs(") ? (int64_t)(unsigned char)", ctx->out);
+                    emit_str_index_byte(node->as.call.callee, node->as.call.args[0], ct, ctx);
+                    fputs(" : (fprintf(stderr, \"tiq: index %lld out of bounds for string of length %lld\\n\", (long long)(", ctx->out);
+                    emit_expr(node->as.call.args[0], ctx);
+                    fputs("), (long long)(", ctx->out);
+                    emit_str_index_len(node->as.call.callee, ct, ctx);
+                    fputs(")), exit(1), (int64_t)0))", ctx->out);
                     break;
                 }
                 if (node->as.call.callee->kind == AST_IDENTIFIER) {

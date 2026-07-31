@@ -113,6 +113,7 @@ Supported type annotations:
 - Primitive types: `i8`, `i16`, `i32`, `i64`, `u8`, `u16`, `u32`, `u64`, `f32`, `f64`, `bool`, `str`
 - Array types: `[T; N]` (e.g., `[int; 3]`)
 - Slice types: `[]T` (e.g., `[]int`)
+- Container types (M13.1-P8, function parameter and return position only): `vec[T]` with `T` one of `int`, `str`, or a named struct; `strbuf`; `map`. `vec[T]` uses the existing `[`/`]` tokens so the annotation grammar stays LL(1) with no new token kinds. `vec` without `[T]` is rejected with E09 ("vec annotation requires an element type: vec[T]"). Container annotations are not valid struct field types (fail closed). Borrow prefixes (`&`/`&mut`) are rejected on container annotations with E23: container bindings are already reference-semantics handles (§19.7–§19.9), so passing one by value copies the handle and the callee mutates the same underlying container as the caller (shared-handle semantics).
 
 The value of the final expression is the function result.
 
@@ -270,6 +271,8 @@ print(s[1])   // prints 98  (ASCII code of 'b')
 ```
 
 To work with Unicode code points, split by `len()` and slice rather than index.
+
+**Byte-index bounds (M13.1-P8).** A single-index byte read `s[i]` is valid exactly when `0 <= i < len(s)` (byte length). An out-of-range index aborts deterministically, following the array-indexing precedent: the program prints `tiq: index <i> out of bounds for string of length <len>` to standard error and exits with code 1 — never undefined behavior. The check is evaluated at runtime.
 
 Omitting the start index defaults to `0`. Omitting the end index defaults to `len(xs)` (or string length for `str`).
 
@@ -734,7 +737,7 @@ Wrong arity is rejected with E12 and non-`str` arguments with E09 at compile tim
 
 ### 19.7 Growable arrays (Vec)
 
-A vec is a growable, heap-allocated array. There is no vec type syntax (no `Vec[T]` annotations and no change to the grammar); vecs are created and used exclusively through builtin functions:
+A vec is a growable, heap-allocated array. Vec values are created and manipulated exclusively through builtin functions; the only vec type syntax is the `vec[T]` function annotation of §7/§19.10 (M13.1-P8) — there are no vec type expressions anywhere else:
 
 - `vec_new()` takes no arguments and returns a new empty vec.
 - `vec_push(v, x)` appends `x` to the end of `v` and returns the new length as `int`.
@@ -753,7 +756,7 @@ A vec binding holds a handle with reference semantics: the builtins mutate the v
 
 ### 19.8 String builder (StrBuf)
 
-A strbuf is a growable, heap-allocated byte buffer for building strings incrementally in amortized linear time (repeated `str_cat` is O(n²); repeated `str_buf_append` is O(n)). There is no strbuf type syntax (no `StrBuf` annotations and no change to the grammar); strbufs are created and used exclusively through builtin functions:
+A strbuf is a growable, heap-allocated byte buffer for building strings incrementally in amortized linear time (repeated `str_cat` is O(n²); repeated `str_buf_append` is O(n)). Strbufs are created and manipulated exclusively through builtin functions; the only strbuf type syntax is the `strbuf` function annotation of §7/§19.10 (M13.1-P8):
 
 - `str_buf_new()` takes no arguments and returns a new empty strbuf.
 - `str_buf_append(sb, s)` appends the bytes of the `str` argument `s` to the end of `sb` and returns the new length in bytes as `int`. Appending the empty string is a no-op that returns the current length. The argument's bytes are copied into the buffer; the strbuf never retains a pointer to `s`.
@@ -770,7 +773,7 @@ A strbuf binding holds a handle with reference semantics: the builtins mutate th
 
 ### 19.9 Hash map (Map)
 
-A map is a growable, heap-allocated hash table from `str` keys to `int` values. Keys are always `str` and values are always `int` — there are no other key or value types; values beyond `int` are expressed as indices into vecs (§19.7) by user code. There is no map type syntax (no `Map` annotations and no change to the grammar); maps are created and used exclusively through builtin functions:
+A map is a growable, heap-allocated hash table from `str` keys to `int` values. Keys are always `str` and values are always `int` — there are no other key or value types; values beyond `int` are expressed as indices into vecs (§19.7) by user code. Maps are created and manipulated exclusively through builtin functions; the only map type syntax is the `map` function annotation of §7/§19.10 (M13.1-P8):
 
 - `map_new()` takes no arguments and returns a new empty map.
 - `map_set(m, k, v)` associates the `str` key `k` with the `int` value `v` and returns the number of distinct keys after the operation as `int`. If `k` is already present, its value is overwritten and its iteration position is unchanged.
@@ -791,6 +794,20 @@ A map binding holds a handle with reference semantics: the builtins mutate the m
 **Ownership of `map_key_at` results.** `map_key_at` returns an interior pointer to the map's own key copy, exactly like `vec_get` on a `str` vec (§19.7) — not a fresh copy, and therefore *not* owned per §16.4 (a binding initialized from `map_key_at` never frees it). This is safe because map keys are never freed or moved after insert (leak-never-dangle), and it keeps the S3 symbol-table iteration hot path allocation-free.
 
 **Memory policy.** The map handle, its bucket array, its entry arrays, and its key copies follow leak-never-dangle: generated code never frees them, and no map builtin participates in the §16.4 owned-string destruction rules. This is an accepted bootstrap leak, documented in `MEMORY_MODEL.md`.
+
+### 19.10 Containers across function boundaries (M13.1-P8)
+
+Container values cross function boundaries through the §7 annotation syntax: `vec[T]` (with `T` ∈ `int`, `str`, named struct), `strbuf`, and `map` are accepted in parameter position (`param:vec[int]`) and return position (`-> vec[int] ->`). Annotations are required for containers: an unannotated parameter can never be inferred as a container type (fail closed).
+
+**Handle semantics.** A container argument passes its handle by value: caller and callee share the same underlying container, so mutations made through builtins in the callee are visible to the caller afterwards. Because the handle is already a reference, borrow prefixes on container annotations are rejected with E23 ("container parameters are reference-semantics handles; '&' is not allowed").
+
+**Vec element typing at boundaries.** An annotated `vec[T]` parameter is *established* with element type `T` inside the callee — `vec_get`/`vec_set`/`vec_pop` work immediately, and pushes of a different element type are E09 as usual. At a call site: an argument vec that is already established must match `T` exactly (nominal, struct name included) or the call is rejected with E09 ("argument N: expected vec<T>, found vec<U>") at the call's location; an argument vec that is *not* yet established (no `vec_push` before the call) is established as `vec<T>` by the call, exactly as a first `vec_push` would establish it — the P3 unestablished-vec rules (§19.7) remain coherent because the annotation supplies the missing element type. A non-vec argument for a `vec[T]` parameter is E09 ("argument N: expected vec<T>, found <U>").
+
+**Vec returns.** A function annotated `-> vec[T] ->` returns an established `vec<T>`: call results carry the full element type, so the caller may `vec_get` immediately. The function body's result is checked against the annotation; an expression body whose established vec element type differs from `T` is rejected with E09 ("return type mismatch: expected vec<T>, found vec<U>"). For block bodies the result is checked at kind level (a non-vec result is E09); the annotation is authoritative for callers.
+
+**strbuf/map at boundaries.** `strbuf` and `map` are unparametrized: an argument for a `strbuf`/`map` parameter must be a strbuf/map (E09 otherwise), and `-> strbuf ->` / `-> map ->` returns type-check the body the same way. Shared-handle semantics apply: a `map_set` in the callee is visible via `map_get` in the caller.
+
+**Arity.** Calls to container-typed functions check arity like any other user function: wrong argument count is E12.
 
 ## 20. Bootstrap conformance
 

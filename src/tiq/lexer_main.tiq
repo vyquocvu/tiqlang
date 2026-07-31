@@ -1,0 +1,12 @@
+// M13.2-S1: self-hosted lexer driver. Reads the file named by the first
+// CLI argument and prints its token stream byte-identically to
+// `tiq dump-tokens <file>`; exits 1 when the lexer reported an error
+// (dump_tokens returns diag->has_error).
+
+import "ast.tiq"
+import "lexer.tiq"
+
+path = cli_arg(0)
+source = fs_read(path)
+code = lex_dump(source, path)
+proc_exit(code)

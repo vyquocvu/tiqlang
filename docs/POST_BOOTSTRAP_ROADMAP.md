@@ -40,7 +40,7 @@ Replace the initial C11 bootstrap compiler (`src/*.c`) with a compiler written n
 
 ### Tasks
 
-- [ ] **M13.1** Language prerequisites for self-hosting, implemented in the C bootstrap first (spec, grammar, lexer, parser, semantics, backend, diagnostics, tests per change boundaries):
+- [x] **M13.1** Language prerequisites for self-hosting, implemented in the C bootstrap first (spec, grammar, lexer, parser, semantics, backend, diagnostics, tests per change boundaries) — closed 2026-07-31, P7 audit: `docs/M13_DETERMINISM.md` (evidence: Phase 0 `tests/determinism.sh`; P1 §19.5–§19.6; P2 §17.5 E24–E26; P3 §19.7; P4 §19.8; P5 §19.9; P6 §17.6 E27/E28 + `tests/module.sh`; P8 §19.10):
   - module system (`import`) so the compiler can span multiple `.tiq` files
   - enums / tagged unions for token kinds and AST node variants
   - growable arrays and hash maps (symbol tables, interning)

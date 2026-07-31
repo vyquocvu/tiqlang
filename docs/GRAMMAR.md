@@ -29,9 +29,9 @@ program       = { import_decl }, { top_item } ;                    (* ✅ — im
 import_decl   = "import", string_literal ;                          (* ✅ — M13.1-P6; path relative to importing file *)
 top_item      = function_def | struct_def | enum_def | binding | statement ; (* ✅ *)
 
-function_def  = identifier, { param }, "->", [ type, "->" ], expression ;  (* ✅ — param:type M12.4 *)
+function_def  = identifier, { param }, "->", [ ( type | container_type ), "->" ], expression ;  (* ✅ — param:type M12.4; container_type M13.1-P8 *)
 param         = identifier, [ ":", param_type ] ;                        (* ✅ — M12.4 *)
-param_type    = [ "&", [ "mut" ] ], type ;                           (* ✅ — M9.1 borrowed params *)
+param_type    = [ "&", [ "mut" ] ], ( type | container_type ) ;   (* ✅ — M9.1 borrowed params; "&" on container_type is semantic E23 (M13.1-P8) *)
 struct_def    = "struct", identifier, "{", { field_def, [ "," ] }, "}" ; (* ✅ — M12.6 *)
 field_def     = identifier, ":", type ;                              (* ✅ — M12.6 *)
 enum_def      = "enum", identifier, "{", { identifier, [ "," ] }, "}" ; (* ✅ — M13.1-P2; variants auto-numbered 0..n-1 *)
@@ -89,11 +89,14 @@ type_name     = "i8" | "i16" | "i32" | "i64" | "u8" | "u16" | "u32" | "u64"
               | "f32" | "f64" | "bool" | "str" | identifier ;      (* ✅ — primitive + struct types *)
 array_type    = "[", type, ";", integer, "]" ;                    (* ✅ — [T; N] *)
 slice_type    = "[", "]", type ;                                   (* ✅ — []T *)
+container_type = "strbuf" | "map" | ( "vec", "[", type_name, "]" ) ; (* ✅ — M13.1-P8; annotation position only; vec element must be "int", "str", or a struct name *)
 ```
 
 Function application without parentheses, as in `fib n`, is allowed only in a function declaration parameter list. Calls use parentheses in v0.1 to avoid whitespace-sensitive ambiguity.
 
 **Type annotations (M12.4)**: `function_def` parameters may have optional type annotations (`param:type`). An optional return type may follow the parameter list (`-> type -> body`). When omitted, types are inferred from use. A program whose recursive or exported function type cannot be inferred is rejected.
+
+**Container annotations (M13.1-P8)**: `container_type` is accepted only in function parameter and return annotation position — `strbuf` and `map` parse exactly like plain type names, and `vec` must be immediately followed by `[`, a single element type name, and `]` (reusing the existing bracket tokens, so the grammar stays LL(1) with no new token kinds). `vec`, `strbuf`, and `map` remain ordinary identifiers everywhere else. Container annotations are not valid struct field types (fail closed, semantic E09).
 
 `!` is the logical negation prefix of `unary`; printing is the `print` builtin call (LANGUAGE_SPEC §12), covered by the ordinary `postfix` call production. Function bodies may be blocks because `block` is a `primary`, so `expression` covers both `f a -> a + 1` and `f a -> { ... }`.
 

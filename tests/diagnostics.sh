@@ -80,4 +80,9 @@ assert_parser_terminates "fuzz_bad_domain" '[0(.10 | !i, break]'
 assert_parser_terminates "fuzz_bad_args" 'f(1,,,'
 assert_parser_terminates "fuzz_bad_match" 'match x { , => 1 }'
 
+# M13.1-P8: malformed vec[T] container annotations fail closed at parse
+# time (GRAMMAR container_type; E04).
+assert_diagnostic "p8_vec_annot_no_elem" 'f v:vec[ -> 1' "expected element type name in vec"
+assert_diagnostic "p8_vec_annot_no_rbracket" 'f v:vec[int -> 1' "expected ']' after vec element type"
+
 echo "diagnostics: ok"

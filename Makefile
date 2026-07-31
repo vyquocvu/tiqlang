@@ -47,6 +47,8 @@ test: $(TIQ) test-unit
 	sh tests/examples.sh
 	sh tests/determinism.sh
 	sh tests/module.sh
+	sh tests/selfhost_lexer.sh
+	sh tests/selfhost_parser.sh
 	sh tests/check.sh
 	sh tests/run.sh
 

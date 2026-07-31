@@ -1,0 +1,1394 @@
+// M13.3-S2: self-hosted Tiq parser — a faithful port of src/parser.c.
+//
+// Two structural differences from the C parser, both forced by the
+// bootstrap and both output-neutral:
+//
+// 1. The C parser pulls tokens from the lexer lazily and peeks by copying
+//    the Lexer struct. Here lex_scan() produces the whole token vector up
+//    front and the parser walks it by index, so `Lexer peek_lexer` copies
+//    become p_peek(i) (the first non-NEWLINE token at or after i). The C
+//    parser always consumes to EOF (error_at_current consumes the
+//    offending token, so no parse loop can spin) and only
+//    ERR_UNSUPPORTED_STATEMENT is fatal — a code the parser never raises —
+//    so `diag->fatal_error` is always false and every `if (fatal) break`
+//    is dead code, omitted here. Diagnostic ORDER is identical whenever a
+//    file has only lexical errors or only parse errors; a file mixing a
+//    non-fatal LEX error (bad escape / newline in string) with a parse
+//    error before it would print them in the other order, since lexing now
+//    happens first. See docs note in tests/selfhost_parser.sh.
+//
+// 2. The C recursive-descent functions are mutually recursive
+//    (expression -> ... -> primary -> expression). The bootstrap resolves
+//    calls in declaration order only, so there are no forward references
+//    and mutual recursion is impossible. The whole cycle is therefore
+//    collapsed into ONE self-recursive function, pnode(), whose first
+//    parameter selects the production (enum PM). The eleven left-
+//    associative binary levels share a single implementation driven by
+//    lvl_op()/lvl_gen(), descending via `mode + 1`; range, conditional,
+//    unary, postfix, primary, block, stream_gen, bracket_loop and
+//    statement are special-cased. declaration() and parser_parse() are not
+//    inside the cycle, so they stay separate (p_decl / p_parse) and are
+//    declared after pnode.
+//
+// Parser state lives in `st:vec[int]` (a shared handle, so callees mutate
+// the caller's state) with the PS slots below; the AST arena is the flat
+// `nodes:vec[int]` from ast.tiq plus `kids:vec[int]` for child spans, and
+// `sk`/`sk2` are the scratch stacks lists are built on.
+
+import "ast.tiq"
+import "lexer.tiq"
+
+// Parser fields: Cur/Prev are token indices (parser->current / previous),
+// Crossed is parser->crossed_newline, HasErr is diag->has_error.
+enum PS {
+    Cur,
+    Prev,
+    Crossed,
+    HasErr
+}
+
+// Productions of the collapsed recursive-descent cycle, in precedence
+// order: Cond..Mul are the expression levels (each descends to mode + 1),
+// then the non-binary productions.
+enum PM {
+    Cond,
+    Fb,
+    LOr,
+    LAnd,
+    BOr,
+    BXor,
+    BAnd,
+    Equ,
+    Cmp,
+    Shf,
+    Rng,
+    Add,
+    Mul,
+    Una,
+    Post,
+    Prim,
+    Blk,
+    Sgen,
+    Bloop,
+    Stmt
+}
+
+// Is `k` an operator of binary level `lv`? One row per C function
+// (fallback .. multiplicative).
+lvl_op lv:i64 k:i64 -> i64 -> match lv {
+    PM.Fb => k == TokenKind.QuestionQuestion ? 1 : 0,
+    PM.LOr => k == TokenKind.OrOr ? 1 : 0,
+    PM.LAnd => k == TokenKind.AndAnd ? 1 : 0,
+    PM.BOr => k == TokenKind.Pipe ? 1 : 0,
+    PM.BXor => k == TokenKind.Caret ? 1 : 0,
+    PM.BAnd => k == TokenKind.Amp ? 1 : 0,
+    PM.Equ => k == TokenKind.EqEq || k == TokenKind.BangEq ? 1 : 0,
+    PM.Cmp => k == TokenKind.Lt || k == TokenKind.Lte || k == TokenKind.Gt || k == TokenKind.Gte ? 1 : 0,
+    PM.Shf => k == TokenKind.Lshift || k == TokenKind.Rshift ? 1 : 0,
+    PM.Add => k == TokenKind.Plus || k == TokenKind.Minus ? 1 : 0,
+    PM.Mul => k == TokenKind.Star || k == TokenKind.Slash || k == TokenKind.Percent ? 1 : 0,
+    _ => 0
+}
+
+// Levels handled by the shared left-associative loop. Rng sits between Shf
+// and Add and is NOT one of them (it is right-open and non-repeating).
+lvl_gen lv:i64 -> i64 -> (lv >= PM.Fb && lv <= PM.Shf) || lv == PM.Add || lv == PM.Mul ? 1 : 0
+
+// Clamp a token index to the trailing EOF token: the C lexer returns EOF
+// forever once the source is exhausted, and lex_scan emits exactly one.
+p_ix toks:vec[Token] i:i64 -> i64 -> {
+    last = vec_len(toks) - 1
+    i > last ? last : i
+}
+
+// The C `Lexer peek_lexer` idiom: the first non-NEWLINE token at or after
+// i (every peek site in src/parser.c skips newlines except the ternary
+// lookahead, which stops at them and walks raw indices instead).
+p_peek toks:vec[Token] i:i64 -> i64 -> {
+    j <- p_ix(toks, i)
+    [tk_kind(toks, j) == TokenKind.Newline] { j <- p_ix(toks, j + 1) }
+    j
+}
+
+// parser->current.kind / the two token indices.
+p_ck toks:vec[Token] st:vec[int] -> i64 -> tk_kind(toks, vec_get(st, PS.Cur))
+p_ci st:vec[int] -> i64 -> vec_get(st, PS.Cur)
+p_pi st:vec[int] -> i64 -> vec_get(st, PS.Prev)
+
+// advance(): previous = current, then step to the next non-NEWLINE token,
+// recording whether any NEWLINE was crossed.
+p_advance toks:vec[Token] st:vec[int] -> i64 -> {
+    cur = vec_get(st, PS.Cur)
+    vec_set(st, PS.Prev, cur)
+    vec_set(st, PS.Crossed, 0)
+    j <- p_ix(toks, cur + 1)
+    [tk_kind(toks, j) == TokenKind.Newline] {
+        vec_set(st, PS.Crossed, 1)
+        j <- p_ix(toks, j + 1)
+    }
+    vec_set(st, PS.Cur, j)
+    0
+}
+
+// match(): consume the token when it is `k`, reporting whether it was.
+p_matchk toks:vec[Token] st:vec[int] k:i64 -> i64 -> {
+    r <- 0
+    [(tk_kind(toks, vec_get(st, PS.Cur)) == k)] {
+        p_advance(toks, st)
+        r <- 1
+        break
+    }
+    r
+}
+
+// diag_error(): stderr in src/diag.c's format, and has_error is latched.
+p_diag st:vec[int] path:str ln:i64 code:i64 msg:str -> i64 -> {
+    vec_set(st, PS.HasErr, 1)
+    eprint(diag_line(path, ln, code, msg))
+    0
+}
+
+// error_at_current(): report at the current token's line, then consume it
+// so every parse loop makes progress (fuzz 0.4).
+p_errcur toks:vec[Token] st:vec[int] path:str code:i64 msg:str -> i64 -> {
+    p_diag(st, path, tk_line(toks, vec_get(st, PS.Cur)), code, msg)
+    [(tk_kind(toks, vec_get(st, PS.Cur)) != TokenKind.Eof)] {
+        p_advance(toks, st)
+        break
+    }
+    0
+}
+
+// consume(): expect and eat `k`, else error_at_current.
+p_expect toks:vec[Token] st:vec[int] path:str k:i64 code:i64 msg:str -> i64 -> {
+    ok <- 0
+    [(tk_kind(toks, vec_get(st, PS.Cur)) == k)] {
+        p_advance(toks, st)
+        ok <- 1
+        break
+    }
+    [(ok == 0)] {
+        p_errcur(toks, st, path, code, msg)
+        break
+    }
+    0
+}
+
+// The collapsed recursive-descent cycle. `mode` (enum PM) selects the
+// production; the return value is a node index into `nodes`, or -1 for the
+// C parser's NULL. Every branch is a guarded block sequenced on the `hit`
+// sentinel, because Tiq has no early return.
+pnode mode:i64 src:str path:str toks:vec[Token] st:vec[int] nodes:vec[int] kids:vec[int] sk:vec[int] sk2:vec[int] -> i64 -> {
+    res <- -1
+    hit <- 0
+
+    // fallback / logical_or / logical_and / bit_or / bit_xor / bit_and /
+    // equality / comparison / shift / additive / multiplicative: identical
+    // left-associative loops that differ only in operator set and in the
+    // level they descend to (mode + 1).
+    [(hit == 0 && lvl_gen(mode) == 1)] {
+        left <- pnode(mode + 1, src, path, toks, st, nodes, kids, sk, sk2)
+        [lvl_op(mode, p_ck(toks, st)) == 1] {
+            p_advance(toks, st)
+            n = nd_new(nodes, AstKind.Binary, p_pi(st))
+            nd_set(nodes, n, NF.Op, tk_kind(toks, p_pi(st)))
+            nd_set(nodes, n, NF.A, left)
+            nd_set(nodes, n, NF.B, pnode(mode + 1, src, path, toks, st, nodes, kids, sk, sk2))
+            left <- n
+        }
+        res <- left
+        hit <- 1
+        break
+    }
+
+    // range(): a single, non-repeating '..' whose right operand is omitted
+    // before ']' (open-ended slice / loop domain).
+    [(hit == 0 && mode == PM.Rng)] {
+        left = pnode(PM.Add, src, path, toks, st, nodes, kids, sk, sk2)
+        res <- left
+        [(p_matchk(toks, st, TokenKind.DotDot) == 1)] {
+            n = nd_new(nodes, AstKind.Binary, p_pi(st))
+            nd_set(nodes, n, NF.Op, TokenKind.DotDot)
+            nd_set(nodes, n, NF.A, left)
+            rr <- -1
+            [(p_ck(toks, st) != TokenKind.Rbracket)] {
+                rr <- pnode(PM.Add, src, path, toks, st, nodes, kids, sk, sk2)
+                break
+            }
+            nd_set(nodes, n, NF.B, rr)
+            res <- n
+            break
+        }
+        hit <- 1
+        break
+    }
+
+    // conditional(): cond ? then : else. expression() is conditional().
+    [(hit == 0 && mode == PM.Cond)] {
+        left = pnode(PM.Fb, src, path, toks, st, nodes, kids, sk, sk2)
+        res <- left
+        [(p_matchk(toks, st, TokenKind.Question) == 1)] {
+            n = nd_new(nodes, AstKind.Conditional, p_pi(st))
+            nd_set(nodes, n, NF.A, left)
+            nd_set(nodes, n, NF.B, pnode(PM.Cond, src, path, toks, st, nodes, kids, sk, sk2))
+            p_expect(toks, st, path, TokenKind.Colon, 4, "expected ':' in conditional expression")
+            nd_set(nodes, n, NF.C, pnode(PM.Cond, src, path, toks, st, nodes, kids, sk, sk2))
+            res <- n
+            break
+        }
+        hit <- 1
+        break
+    }
+
+    // unary(): ! + - move, and the borrow prefixes & / &mut.
+    [(hit == 0 && mode == PM.Una)] {
+        k0 = p_ck(toks, st)
+        sub <- 0
+        [(k0 == TokenKind.Bang || k0 == TokenKind.Plus || k0 == TokenKind.Minus || k0 == TokenKind.Move)] {
+            p_advance(toks, st)
+            n = nd_new(nodes, AstKind.Unary, p_pi(st))
+            nd_set(nodes, n, NF.Op, tk_kind(toks, p_pi(st)))
+            nd_set(nodes, n, NF.A, pnode(PM.Una, src, path, toks, st, nodes, kids, sk, sk2))
+            res <- n
+            sub <- 1
+            break
+        }
+        [(sub == 0 && k0 == TokenKind.Amp)] {
+            p_advance(toks, st)
+            n = nd_new(nodes, AstKind.Unary, p_pi(st))
+            nd_set(nodes, n, NF.Op, TokenKind.Amp)
+            [(p_matchk(toks, st, TokenKind.Mut) == 1)] {
+                nd_set(nodes, n, NF.F1, 1)
+                break
+            }
+            nd_set(nodes, n, NF.A, pnode(PM.Una, src, path, toks, st, nodes, kids, sk, sk2))
+            res <- n
+            sub <- 1
+            break
+        }
+        [(sub == 0)] {
+            res <- pnode(PM.Post, src, path, toks, st, nodes, kids, sk, sk2)
+            break
+        }
+        hit <- 1
+        break
+    }
+
+    // call_or_index(): postfix '(' args ')', '.' field, '[' index/slice ']'
+    // and the propagation '?'. A crossed newline ends the postfix chain.
+    [(hit == 0 && mode == PM.Post)] {
+        expr <- pnode(PM.Prim, src, path, toks, st, nodes, kids, sk, sk2)
+        go <- 1
+        [go == 1] {
+            k0 = p_ck(toks, st)
+            br <- 0
+            [(vec_get(st, PS.Crossed) == 1)] {
+                go <- 0
+                br <- 1
+                break
+            }
+            [(br == 0 && k0 == TokenKind.Lparen)] {
+                p_advance(toks, st)
+                n = nd_new(nodes, AstKind.Call, p_pi(st))
+                nd_set(nodes, n, NF.A, expr)
+                base = vec_len(sk)
+                [(p_ck(toks, st) != TokenKind.Rparen)] {
+                    more <- 1
+                    [more == 1] {
+                        vec_push(sk, pnode(PM.Cond, src, path, toks, st, nodes, kids, sk, sk2))
+                        more <- p_matchk(toks, st, TokenKind.Comma)
+                    }
+                    break
+                }
+                cnt = vec_len(sk) - base
+                nd_set(nodes, n, NF.L1s, kids_flush(sk, kids, base))
+                nd_set(nodes, n, NF.L1n, cnt)
+                p_expect(toks, st, path, TokenKind.Rparen, 4, "expected ')' after arguments")
+                expr <- n
+                br <- 1
+                break
+            }
+            [(br == 0 && k0 == TokenKind.Dot)] {
+                p_advance(toks, st)
+                n = nd_new(nodes, AstKind.FieldAccess, p_pi(st))
+                nd_set(nodes, n, NF.A, expr)
+                p_expect(toks, st, path, TokenKind.Ident, 4, "expected field identifier after '.'")
+                nd_set(nodes, n, NF.Name, p_pi(st))
+                expr <- n
+                br <- 1
+                break
+            }
+            [(br == 0 && k0 == TokenKind.Lbracket)] {
+                p_advance(toks, st)
+                n = nd_new(nodes, AstKind.Call, p_pi(st))
+                nd_set(nodes, n, NF.A, expr)
+                nd_set(nodes, n, NF.F1, 1)
+                nk = p_ck(toks, st)
+                base = vec_len(sk)
+                sub <- 0
+                // [while c] / [until c]: a one-argument stream take.
+                [(nk == TokenKind.While || nk == TokenKind.Until)] {
+                    p_advance(toks, st)
+                    vec_push(sk, pnode(PM.Cond, src, path, toks, st, nodes, kids, sk, sk2))
+                    sub <- 1
+                    break
+                }
+                // [..end]: the start is an omitted (NULL) argument.
+                [(sub == 0 && nk == TokenKind.DotDot)] {
+                    p_advance(toks, st)
+                    en <- -1
+                    [(p_ck(toks, st) != TokenKind.Rbracket)] {
+                        en <- pnode(PM.Cond, src, path, toks, st, nodes, kids, sk, sk2)
+                        break
+                    }
+                    nd_set(nodes, n, NF.F2, 1)
+                    vec_push(sk, -1)
+                    vec_push(sk, en)
+                    sub <- 1
+                    break
+                }
+                // Otherwise one index expression; a '..' binary splits into
+                // the two slice bounds.
+                [(sub == 0)] {
+                    ix = pnode(PM.Cond, src, path, toks, st, nodes, kids, sk, sk2)
+                    isr <- 0
+                    [(ix != -1)] {
+                        [(nd_get(nodes, ix, NF.Kind) == AstKind.Binary)] {
+                            [(nd_get(nodes, ix, NF.Op) == TokenKind.DotDot)] {
+                                isr <- 1
+                                break
+                            }
+                            break
+                        }
+                        break
+                    }
+                    [(isr == 1)] {
+                        nd_set(nodes, n, NF.F2, 1)
+                        vec_push(sk, nd_get(nodes, ix, NF.A))
+                        vec_push(sk, nd_get(nodes, ix, NF.B))
+                        break
+                    }
+                    [(isr == 0)] {
+                        vec_push(sk, ix)
+                        break
+                    }
+                    break
+                }
+                cnt = vec_len(sk) - base
+                nd_set(nodes, n, NF.L1s, kids_flush(sk, kids, base))
+                nd_set(nodes, n, NF.L1n, cnt)
+                p_expect(toks, st, path, TokenKind.Rbracket, 4, "expected ']' after index")
+                expr <- n
+                br <- 1
+                break
+            }
+            // Postfix '?' vs ternary '? :': scan the RAW token stream (this
+            // is the one peek that stops at a newline instead of skipping
+            // it) for a ':' at nesting depth 0.
+            [(br == 0 && k0 == TokenKind.Question)] {
+                i <- p_ci(st) + 1
+                depth <- 0
+                found <- 0
+                scan <- 1
+                [scan == 1] {
+                    pk = tk_kind(toks, p_ix(toks, i))
+                    stop <- 0
+                    [(pk == TokenKind.Eof || pk == TokenKind.Newline)] {
+                        stop <- 1
+                        break
+                    }
+                    [(stop == 0 && (pk == TokenKind.Lparen || pk == TokenKind.Lbracket || pk == TokenKind.Lbrace))] {
+                        depth += 1
+                        break
+                    }
+                    [(stop == 0 && (pk == TokenKind.Rparen || pk == TokenKind.Rbracket || pk == TokenKind.Rbrace))] {
+                        [(depth == 0)] {
+                            stop <- 1
+                            break
+                        }
+                        [(stop == 0)] {
+                            depth -= 1
+                            break
+                        }
+                        break
+                    }
+                    [(stop == 0 && pk == TokenKind.Colon && depth == 0)] {
+                        found <- 1
+                        stop <- 1
+                        break
+                    }
+                    [(stop == 1)] {
+                        scan <- 0
+                        break
+                    }
+                    [(scan == 1)] {
+                        i <- i + 1
+                        break
+                    }
+                }
+                [(found == 1)] {
+                    go <- 0
+                    break
+                }
+                [(found == 0)] {
+                    p_advance(toks, st)
+                    n = nd_new(nodes, AstKind.Unary, p_pi(st))
+                    nd_set(nodes, n, NF.Op, TokenKind.Question)
+                    nd_set(nodes, n, NF.A, expr)
+                    expr <- n
+                    break
+                }
+                br <- 1
+                break
+            }
+            [(br == 0)] {
+                go <- 0
+                break
+            }
+        }
+        res <- expr
+        hit <- 1
+        break
+    }
+
+    // primary(): literals, spawn, chan, match, grouping, block, identifier
+    // or record literal, and bracket expressions (array / stream / fill).
+    [(hit == 0 && mode == PM.Prim)] {
+        k0 = p_ck(toks, st)
+        sub <- 0
+        [(k0 == TokenKind.False || k0 == TokenKind.True || k0 == TokenKind.Int || k0 == TokenKind.Float || k0 == TokenKind.String)] {
+            p_advance(toks, st)
+            n = nd_new(nodes, AstKind.Literal, p_pi(st))
+            nd_set(nodes, n, NF.Op, tk_kind(toks, p_pi(st)))
+            res <- n
+            sub <- 1
+            break
+        }
+        [(sub == 0 && k0 == TokenKind.Spawn)] {
+            p_advance(toks, st)
+            n = nd_new(nodes, AstKind.Spawn, p_pi(st))
+            nd_set(nodes, n, NF.A, pnode(PM.Cond, src, path, toks, st, nodes, kids, sk, sk2))
+            res <- n
+            sub <- 1
+            break
+        }
+        [(sub == 0 && k0 == TokenKind.Chan)] {
+            p_advance(toks, st)
+            n = nd_new(nodes, AstKind.Chan, p_pi(st))
+            [(p_ck(toks, st) == TokenKind.Ident)] {
+                p_advance(toks, st)
+                nd_set(nodes, n, NF.Name, p_pi(st))
+                break
+            }
+            res <- n
+            sub <- 1
+            break
+        }
+        [(sub == 0 && k0 == TokenKind.Match)] {
+            p_advance(toks, st)
+            n = nd_new(nodes, AstKind.Match, p_pi(st))
+            nd_set(nodes, n, NF.A, pnode(PM.Cond, src, path, toks, st, nodes, kids, sk, sk2))
+            p_expect(toks, st, path, TokenKind.Lbrace, 4, "expected '{' after match expression")
+            base = vec_len(sk)
+            [p_ck(toks, st) != TokenKind.Rbrace && p_ck(toks, st) != TokenKind.Eof] {
+                pat <- -1
+                wild <- 0
+                [(p_matchk(toks, st, TokenKind.Underscore) == 1)] {
+                    wild <- 1
+                    break
+                }
+                [(wild == 0)] {
+                    pat <- pnode(PM.Cond, src, path, toks, st, nodes, kids, sk, sk2)
+                    break
+                }
+                p_expect(toks, st, path, TokenKind.FatArrow, 4, "expected '=>' in match arm")
+                arm = nd_new(nodes, AstKind.MatchArm, p_pi(st))
+                nd_set(nodes, arm, NF.A, pat)
+                nd_set(nodes, arm, NF.F1, wild)
+                nd_set(nodes, arm, NF.B, pnode(PM.Cond, src, path, toks, st, nodes, kids, sk, sk2))
+                vec_push(sk, arm)
+                [(p_ck(toks, st) == TokenKind.Comma)] {
+                    p_advance(toks, st)
+                    break
+                }
+            }
+            cnt = vec_len(sk) - base
+            nd_set(nodes, n, NF.L1s, kids_flush(sk, kids, base))
+            nd_set(nodes, n, NF.L1n, cnt)
+            p_expect(toks, st, path, TokenKind.Rbrace, 4, "expected '}' after match arms")
+            res <- n
+            sub <- 1
+            break
+        }
+        [(sub == 0 && k0 == TokenKind.Lparen)] {
+            p_advance(toks, st)
+            e = pnode(PM.Cond, src, path, toks, st, nodes, kids, sk, sk2)
+            p_expect(toks, st, path, TokenKind.Rparen, 4, "expected ')' after expression")
+            res <- e
+            sub <- 1
+            break
+        }
+        [(sub == 0 && k0 == TokenKind.Lbrace)] {
+            p_advance(toks, st)
+            res <- pnode(PM.Blk, src, path, toks, st, nodes, kids, sk, sk2)
+            sub <- 1
+            break
+        }
+        [(sub == 0 && k0 == TokenKind.Ident)] {
+            p_advance(toks, st)
+            nt = p_pi(st)
+            // Ident '{' is a record literal only when the brace is followed
+            // by '}' or by 'field :' — otherwise it is a match body, so the
+            // '{' must stay unconsumed (M12.6).
+            isrec <- 0
+            [(p_ck(toks, st) == TokenKind.Lbrace)] {
+                p1 = p_peek(toks, p_ci(st) + 1)
+                [(tk_kind(toks, p1) == TokenKind.Rbrace)] {
+                    isrec <- 1
+                    break
+                }
+                [(isrec == 0 && tk_kind(toks, p1) == TokenKind.Ident)] {
+                    p2 = p_peek(toks, p1 + 1)
+                    [(tk_kind(toks, p2) == TokenKind.Colon)] {
+                        isrec <- 1
+                        break
+                    }
+                    break
+                }
+                break
+            }
+            [(isrec == 1)] {
+                n = nd_new(nodes, AstKind.RecordLit, nt)
+                nd_set(nodes, n, NF.Name, nt)
+                p_advance(toks, st)
+                vb = vec_len(sk)
+                nb = vec_len(sk2)
+                [p_ck(toks, st) != TokenKind.Rbrace && p_ck(toks, st) != TokenKind.Eof] {
+                    p_expect(toks, st, path, TokenKind.Ident, 4, "expected field name in record literal")
+                    vec_push(sk2, p_pi(st))
+                    p_expect(toks, st, path, TokenKind.Colon, 4, "expected ':' after field name")
+                    vec_push(sk, pnode(PM.Cond, src, path, toks, st, nodes, kids, sk, sk2))
+                    [(p_ck(toks, st) == TokenKind.Comma)] {
+                        p_advance(toks, st)
+                        break
+                    }
+                }
+                vc = vec_len(sk) - vb
+                nc = vec_len(sk2) - nb
+                nd_set(nodes, n, NF.L1s, kids_flush(sk, kids, vb))
+                nd_set(nodes, n, NF.L1n, vc)
+                nd_set(nodes, n, NF.L2s, kids_flush(sk2, kids, nb))
+                nd_set(nodes, n, NF.L2n, nc)
+                p_expect(toks, st, path, TokenKind.Rbrace, 4, "expected '}' after record literal")
+                res <- n
+                break
+            }
+            [(isrec == 0)] {
+                n = nd_new(nodes, AstKind.Identifier, nt)
+                nd_set(nodes, n, NF.Name, nt)
+                res <- n
+                break
+            }
+            sub <- 1
+            break
+        }
+        [(sub == 0 && k0 == TokenKind.Lbracket)] {
+            p_advance(toks, st)
+            n = pnode(PM.Sgen, src, path, toks, st, nodes, kids, sk, sk2)
+            bk <- 0
+            [(nd_get(nodes, n, NF.Kind) == AstKind.ArrayFill)] {
+                res <- n
+                bk <- 1
+                break
+            }
+            [(bk == 0)] {
+                p_expect(toks, st, path, TokenKind.Rbracket, 4, "expected ']' after bracket expression")
+                // No generator and no bound: every bracket expression (even
+                // an empty one) becomes an array; seeds are the elements.
+                [(nd_get(nodes, n, NF.A) == -1 && nd_get(nodes, n, NF.B) == -1)] {
+                    nd_set(nodes, n, NF.Kind, AstKind.Array)
+                    break
+                }
+                res <- n
+                break
+            }
+            sub <- 1
+            break
+        }
+        [(sub == 0)] {
+            p_errcur(toks, st, path, 5, "expected expression")
+            res <- -1
+            break
+        }
+        hit <- 1
+        break
+    }
+
+    // block(): statements, then the deferred ones, then an optional final
+    // expression (the last statement when '}' follows it directly, or when
+    // a ';'/newline separated it from '}').
+    [(hit == 0 && mode == PM.Blk)] {
+        n = nd_new(nodes, AstKind.Block, p_pi(st))
+        sb = vec_len(sk)
+        db = vec_len(sk2)
+        fin <- -1
+        done <- 0
+        [done == 0 && p_ck(toks, st) != TokenKind.Rbrace && p_ck(toks, st) != TokenKind.Eof] {
+            stmt = pnode(PM.Stmt, src, path, toks, st, nodes, kids, sk, sk2)
+            [(p_ck(toks, st) == TokenKind.Rbrace)] {
+                fin <- stmt
+                done <- 1
+                break
+            }
+            [(done == 0)] {
+                sc = p_matchk(toks, st, TokenKind.Semicolon)
+                [(sc == 1 || vec_get(st, PS.Crossed) == 1)] {
+                    [(p_ck(toks, st) == TokenKind.Rbrace)] {
+                        fin <- stmt
+                        done <- 1
+                        break
+                    }
+                    break
+                }
+                break
+            }
+            [(done == 0)] {
+                isd <- 0
+                [(stmt != -1)] {
+                    [(nd_get(nodes, stmt, NF.Kind) == AstKind.Defer)] {
+                        isd <- 1
+                        break
+                    }
+                    break
+                }
+                [(isd == 1)] {
+                    vec_push(sk2, stmt)
+                    break
+                }
+                [(isd == 0)] {
+                    vec_push(sk, stmt)
+                    break
+                }
+                break
+            }
+        }
+        p_expect(toks, st, path, TokenKind.Rbrace, 4, "expected '}' after block")
+        scnt = vec_len(sk) - sb
+        dcnt = vec_len(sk2) - db
+        nd_set(nodes, n, NF.L1s, kids_flush(sk, kids, sb))
+        nd_set(nodes, n, NF.L1n, scnt)
+        nd_set(nodes, n, NF.L2s, kids_flush(sk2, kids, db))
+        nd_set(nodes, n, NF.L2n, dcnt)
+        nd_set(nodes, n, NF.C, fin)
+        res <- n
+        hit <- 1
+        break
+    }
+
+    // stream_gen(): seeds, then '...' generator and an optional
+    // while/until bound. A ';' after the first (and only) seed turns the
+    // node into an array fill [value; length].
+    [(hit == 0 && mode == PM.Sgen)] {
+        n = nd_new(nodes, AstKind.StreamGen, p_pi(st))
+        base = vec_len(sk)
+        fill <- 0
+        [fill == 0 && p_ck(toks, st) != TokenKind.DotDotDot && p_ck(toks, st) != TokenKind.Rbracket && p_ck(toks, st) != TokenKind.Eof] {
+            elem = pnode(PM.Cond, src, path, toks, st, nodes, kids, sk, sk2)
+            [(p_ck(toks, st) == TokenKind.Semicolon && vec_len(sk) - base == 0)] {
+                p_advance(toks, st)
+                lx = pnode(PM.Cond, src, path, toks, st, nodes, kids, sk, sk2)
+                p_expect(toks, st, path, TokenKind.Rbracket, 4, "expected ']' after array fill length")
+                nd_set(nodes, n, NF.Kind, AstKind.ArrayFill)
+                nd_set(nodes, n, NF.A, elem)
+                nd_set(nodes, n, NF.B, lx)
+                fill <- 1
+                break
+            }
+            [(fill == 0)] {
+                vec_push(sk, elem)
+                [(p_ck(toks, st) != TokenKind.DotDotDot && p_ck(toks, st) != TokenKind.Rbracket)] {
+                    p_expect(toks, st, path, TokenKind.Comma, 4, "expected ',' in stream generator")
+                    break
+                }
+                break
+            }
+        }
+        cnt = vec_len(sk) - base
+        nd_set(nodes, n, NF.L1s, kids_flush(sk, kids, base))
+        // The array-fill branch returned from stream_gen already, so the
+        // '...' generator and the while/until bound are only looked for on
+        // the stream path (nested to keep p_matchk from consuming).
+        [(fill == 0)] {
+            nd_set(nodes, n, NF.L1n, cnt)
+            [(p_matchk(toks, st, TokenKind.DotDotDot) == 1)] {
+                nd_set(nodes, n, NF.A, pnode(PM.Cond, src, path, toks, st, nodes, kids, sk, sk2))
+                break
+            }
+            [(p_ck(toks, st) == TokenKind.While || p_ck(toks, st) == TokenKind.Until)] {
+                p_advance(toks, st)
+                nd_set(nodes, n, NF.B, pnode(PM.Cond, src, path, toks, st, nodes, kids, sk, sk2))
+                break
+            }
+            break
+        }
+        res <- n
+        hit <- 1
+        break
+    }
+
+    // bracket_loop(): [binder <- domain, binder2 <- domain2] { body }.
+    // Extra binders desugar to nested loops, so the body statements attach
+    // to the innermost one and each outer loop's body is that single child.
+    [(hit == 0 && mode == PM.Bloop)] {
+        n = nd_new(nodes, AstKind.BracketLoop, p_pi(st))
+        [(p_ck(toks, st) == TokenKind.Ident)] {
+            nx = p_peek(toks, p_ci(st) + 1)
+            [(tk_kind(toks, nx) == TokenKind.Larrow)] {
+                p_advance(toks, st)
+                nd_set(nodes, n, NF.Name, p_pi(st))
+                nd_set(nodes, n, NF.F1, 1)
+                p_advance(toks, st)
+                break
+            }
+            break
+        }
+        nd_set(nodes, n, NF.A, pnode(PM.Cond, src, path, toks, st, nodes, kids, sk, sk2))
+        inner <- n
+        stop <- 0
+        [stop == 0 && nd_get(nodes, inner, NF.F1) == 1 && p_ck(toks, st) == TokenKind.Comma] {
+            p_advance(toks, st)
+            ok <- 0
+            [(p_ck(toks, st) == TokenKind.Ident)] {
+                nx2 = p_peek(toks, p_ci(st) + 1)
+                [(tk_kind(toks, nx2) == TokenKind.Larrow)] {
+                    ok <- 1
+                    break
+                }
+                break
+            }
+            [(ok == 0)] {
+                p_errcur(toks, st, path, 4, "expected loop binder after ','")
+                stop <- 1
+                break
+            }
+            [(stop == 0)] {
+                nn = nd_new(nodes, AstKind.BracketLoop, p_pi(st))
+                p_advance(toks, st)
+                nd_set(nodes, nn, NF.Name, p_pi(st))
+                nd_set(nodes, nn, NF.F1, 1)
+                p_advance(toks, st)
+                // Walk the enclosing binders (outermost first) and reject a
+                // name that is already bound by this header.
+                o <- n
+                walk <- 1
+                [walk == 1] {
+                    [(tk_same(src, toks, nd_get(nodes, o, NF.Name), nd_get(nodes, nn, NF.Name)) == 1)] {
+                        p_diag(st, path, tk_line(toks, nd_get(nodes, nn, NF.Tok)), 15, "duplicate loop binder")
+                        walk <- 0
+                        break
+                    }
+                    [(walk == 1 && o == inner)] {
+                        walk <- 0
+                        break
+                    }
+                    [(walk == 1)] {
+                        o <- vec_get(kids, nd_get(nodes, o, NF.L1s))
+                        break
+                    }
+                }
+                nd_set(nodes, nn, NF.A, pnode(PM.Cond, src, path, toks, st, nodes, kids, sk, sk2))
+                nd_set(nodes, inner, NF.L1s, vec_len(kids))
+                vec_push(kids, nn)
+                nd_set(nodes, inner, NF.L1n, 1)
+                inner <- nn
+                break
+            }
+        }
+        p_expect(toks, st, path, TokenKind.Rbracket, 4, "expected ']' after loop header")
+        p_expect(toks, st, path, TokenKind.Lbrace, 4, "expected '{' to open loop body")
+        bb = vec_len(sk)
+        [p_ck(toks, st) != TokenKind.Rbrace && p_ck(toks, st) != TokenKind.Eof] {
+            stmt = pnode(PM.Stmt, src, path, toks, st, nodes, kids, sk, sk2)
+            [(stmt != -1)] {
+                [(nd_get(nodes, stmt, NF.Kind) == AstKind.Defer)] {
+                    p_diag(st, path, tk_line(toks, nd_get(nodes, stmt, NF.Tok)), 19, "defer is not allowed in bracket loops")
+                    break
+                }
+                break
+            }
+            vec_push(sk, stmt)
+            [(p_ck(toks, st) == TokenKind.Semicolon)] {
+                p_advance(toks, st)
+                break
+            }
+        }
+        bc = vec_len(sk) - bb
+        nd_set(nodes, inner, NF.L1s, kids_flush(sk, kids, bb))
+        nd_set(nodes, inner, NF.L1n, bc)
+        p_expect(toks, st, path, TokenKind.Rbrace, 4, "expected '}' after loop body")
+        res <- n
+        hit <- 1
+        break
+    }
+
+    // statement(): break / skip / defer / bracket loop / assignment, else
+    // an expression — with the indexed-assignment rewrite a[i] <- v.
+    [(hit == 0 && mode == PM.Stmt)] {
+        k0 = p_ck(toks, st)
+        sub <- 0
+        [(k0 == TokenKind.Break)] {
+            p_advance(toks, st)
+            res <- nd_new(nodes, AstKind.Break, p_pi(st))
+            sub <- 1
+            break
+        }
+        [(sub == 0 && k0 == TokenKind.Skip)] {
+            p_advance(toks, st)
+            res <- nd_new(nodes, AstKind.Skip, p_pi(st))
+            sub <- 1
+            break
+        }
+        [(sub == 0 && k0 == TokenKind.Defer)] {
+            p_advance(toks, st)
+            n = nd_new(nodes, AstKind.Defer, p_pi(st))
+            nd_set(nodes, n, NF.A, pnode(PM.Stmt, src, path, toks, st, nodes, kids, sk, sk2))
+            res <- n
+            sub <- 1
+            break
+        }
+        [(sub == 0 && k0 == TokenKind.Lbracket)] {
+            p_advance(toks, st)
+            res <- pnode(PM.Bloop, src, path, toks, st, nodes, kids, sk, sk2)
+            sub <- 1
+            break
+        }
+        [(sub == 0 && k0 == TokenKind.Ident)] {
+            nt = p_ci(st)
+            nx = tk_kind(toks, p_peek(toks, p_ci(st) + 1))
+            [(nx == TokenKind.Eq || nx == TokenKind.Larrow || nx == TokenKind.PlusEq || nx == TokenKind.MinusEq || nx == TokenKind.StarEq || nx == TokenKind.SlashEq || nx == TokenKind.PercentEq)] {
+                p_advance(toks, st)
+                p_advance(toks, st)
+                n = nd_new(nodes, AstKind.Assign, p_pi(st))
+                nd_set(nodes, n, NF.Name, nt)
+                nd_set(nodes, n, NF.Op, tk_kind(toks, p_pi(st)))
+                nd_set(nodes, n, NF.A, pnode(PM.Cond, src, path, toks, st, nodes, kids, sk, sk2))
+                res <- n
+                sub <- 1
+                break
+            }
+            break
+        }
+        [(sub == 0)] {
+            ex = pnode(PM.Cond, src, path, toks, st, nodes, kids, sk, sk2)
+            res <- ex
+            [(ex != -1)] {
+                isbc <- 0
+                [(nd_get(nodes, ex, NF.Kind) == AstKind.Call)] {
+                    [(nd_get(nodes, ex, NF.F1) == 1)] {
+                        isbc <- 1
+                        break
+                    }
+                    break
+                }
+                ck = p_ck(toks, st)
+                [(isbc == 1 && (ck == TokenKind.Larrow || ck == TokenKind.PlusEq || ck == TokenKind.MinusEq || ck == TokenKind.StarEq || ck == TokenKind.SlashEq || ck == TokenKind.PercentEq))] {
+                    asn = nd_new(nodes, AstKind.Assign, p_pi(st))
+                    nd_set(nodes, asn, NF.Name, nd_get(nodes, nd_get(nodes, ex, NF.A), NF.Name))
+                    nd_set(nodes, asn, NF.Op, ck)
+                    [(nd_get(nodes, ex, NF.L1n) > 0)] {
+                        nd_set(nodes, asn, NF.B, vec_get(kids, nd_get(nodes, ex, NF.L1s)))
+                        break
+                    }
+                    p_advance(toks, st)
+                    nd_set(nodes, asn, NF.A, pnode(PM.Cond, src, path, toks, st, nodes, kids, sk, sk2))
+                    res <- asn
+                    break
+                }
+                break
+            }
+            sub <- 1
+            break
+        }
+        hit <- 1
+        break
+    }
+    res
+}
+
+// declaration(): the top-level productions — import, struct, enum,
+// binding, function — falling back to statement(). Not part of the
+// pnode cycle, so it is a separate function declared after it.
+p_decl src:str path:str toks:vec[Token] st:vec[int] nodes:vec[int] kids:vec[int] sk:vec[int] sk2:vec[int] -> i64 -> {
+    res <- -1
+    hit <- 0
+    k0 = p_ck(toks, st)
+
+    // import "path.tiq" — the operand must be a string literal; the
+    // imports-first rule is enforced in p_parse (LANGUAGE_SPEC §17.6).
+    [(k0 == TokenKind.Import)] {
+        p_advance(toks, st)
+        n = nd_new(nodes, AstKind.Import, p_pi(st))
+        [(p_ck(toks, st) == TokenKind.String)] {
+            nd_set(nodes, n, NF.Name, p_ci(st))
+            p_advance(toks, st)
+            break
+        }
+        [(nd_get(nodes, n, NF.Name) == -1)] {
+            p_errcur(toks, st, path, 4, "expected string literal path after 'import'")
+            break
+        }
+        res <- n
+        hit <- 1
+        break
+    }
+
+    // struct Name { field: Type, ... } (M12.6)
+    [(hit == 0 && k0 == TokenKind.Struct)] {
+        p_advance(toks, st)
+        n = nd_new(nodes, AstKind.StructDef, p_pi(st))
+        p_expect(toks, st, path, TokenKind.Ident, 4, "expected struct name after 'struct'")
+        nd_set(nodes, n, NF.Name, p_pi(st))
+        p_expect(toks, st, path, TokenKind.Lbrace, 4, "expected '{' after struct name")
+        fb = vec_len(sk)
+        tb = vec_len(sk2)
+        [p_ck(toks, st) != TokenKind.Rbrace && p_ck(toks, st) != TokenKind.Eof] {
+            p_expect(toks, st, path, TokenKind.Ident, 4, "expected field name")
+            vec_push(sk, p_pi(st))
+            p_expect(toks, st, path, TokenKind.Colon, 4, "expected ':' after field name")
+            p_expect(toks, st, path, TokenKind.Ident, 4, "expected field type")
+            vec_push(sk2, p_pi(st))
+            [(p_ck(toks, st) == TokenKind.Comma)] {
+                p_advance(toks, st)
+                break
+            }
+        }
+        fc = vec_len(sk) - fb
+        tc = vec_len(sk2) - tb
+        nd_set(nodes, n, NF.L1s, kids_flush(sk, kids, fb))
+        nd_set(nodes, n, NF.L1n, fc)
+        nd_set(nodes, n, NF.L2s, kids_flush(sk2, kids, tb))
+        nd_set(nodes, n, NF.L2n, tc)
+        p_expect(toks, st, path, TokenKind.Rbrace, 4, "expected '}' after struct fields")
+        res <- n
+        hit <- 1
+        break
+    }
+
+    // enum Name { A, B } — bare identifiers, auto-numbered (§17.5).
+    [(hit == 0 && k0 == TokenKind.Enum)] {
+        p_advance(toks, st)
+        n = nd_new(nodes, AstKind.EnumDef, p_pi(st))
+        p_expect(toks, st, path, TokenKind.Ident, 4, "expected enum name after 'enum'")
+        nd_set(nodes, n, NF.Name, p_pi(st))
+        p_expect(toks, st, path, TokenKind.Lbrace, 4, "expected '{' after enum name")
+        vb = vec_len(sk)
+        [p_ck(toks, st) != TokenKind.Rbrace && p_ck(toks, st) != TokenKind.Eof] {
+            p_expect(toks, st, path, TokenKind.Ident, 4, "expected variant name")
+            vec_push(sk, p_pi(st))
+            [(p_ck(toks, st) == TokenKind.Comma)] {
+                p_advance(toks, st)
+                break
+            }
+        }
+        vc = vec_len(sk) - vb
+        nd_set(nodes, n, NF.L1s, kids_flush(sk, kids, vb))
+        nd_set(nodes, n, NF.L1n, vc)
+        p_expect(toks, st, path, TokenKind.Rbrace, 4, "expected '}' after enum variants")
+        res <- n
+        hit <- 1
+        break
+    }
+
+    // IDENT '=' / '<-' is a binding; IDENT IDENT starts a function.
+    [(hit == 0 && k0 == TokenKind.Ident)] {
+        nt = p_ci(st)
+        nx = tk_kind(toks, p_peek(toks, p_ci(st) + 1))
+        [(nx == TokenKind.Eq || nx == TokenKind.Larrow)] {
+            p_advance(toks, st)
+            p_advance(toks, st)
+            n = nd_new(nodes, AstKind.Binding, p_pi(st))
+            nd_set(nodes, n, NF.Name, nt)
+            nd_set(nodes, n, NF.F1, tk_kind(toks, p_pi(st)) == TokenKind.Larrow ? 1 : 0)
+            nd_set(nodes, n, NF.A, pnode(PM.Cond, src, path, toks, st, nodes, kids, sk, sk2))
+            res <- n
+            hit <- 1
+            break
+        }
+        [(hit == 0 && nx == TokenKind.Ident)] {
+            p_advance(toks, st)
+            n = nd_new(nodes, AstKind.Function, p_pi(st))
+            nd_set(nodes, n, NF.Name, nt)
+            pb = vec_len(sk)
+            ab = vec_len(sk2)
+            // Parameters: name, optional ':' annotation. sk holds the name
+            // token indices, sk2 a (type_annot, elem_annot, ref_kind)
+            // triple per parameter; -1 means "no annotation" (the C side
+            // leaves those Tokens with kind TOK_EOF).
+            [p_ck(toks, st) == TokenKind.Ident] {
+                vec_push(sk, p_ci(st))
+                tan <- -1
+                ean <- -1
+                rk <- 0
+                p_advance(toks, st)
+                [(p_ck(toks, st) == TokenKind.Colon)] {
+                    p_advance(toks, st)
+                    // Borrow prefix &type / &mut type (M9.1).
+                    [(p_ck(toks, st) == TokenKind.Amp)] {
+                        p_advance(toks, st)
+                        [(p_ck(toks, st) == TokenKind.Mut)] {
+                            p_advance(toks, st)
+                            rk <- 2
+                            break
+                        }
+                        [(rk == 0)] {
+                            rk <- 1
+                            break
+                        }
+                        break
+                    }
+                    seen <- 0
+                    [(p_ck(toks, st) == TokenKind.Ident)] {
+                        tt = p_ci(st)
+                        tan <- tt
+                        p_advance(toks, st)
+                        // vec[T] container annotation (M13.1-P8).
+                        [(str_eq(tk_lex(src, toks, tt), "vec") && p_ck(toks, st) == TokenKind.Lbracket)] {
+                            p_advance(toks, st)
+                            [(p_ck(toks, st) == TokenKind.Ident)] {
+                                ean <- p_ci(st)
+                                p_advance(toks, st)
+                                break
+                            }
+                            [(ean == -1)] {
+                                p_diag(st, path, tk_line(toks, p_ci(st)), 4, "expected element type name in vec[...]")
+                                break
+                            }
+                            p_expect(toks, st, path, TokenKind.Rbracket, 4, "expected ']' after vec element type")
+                            break
+                        }
+                        seen <- 1
+                        break
+                    }
+                    // Compound type [T; N] / []T: keep '[' as the marker and
+                    // skip to the matching ']' for semantic analysis.
+                    [(seen == 0 && p_ck(toks, st) == TokenKind.Lbracket)] {
+                        tan <- p_ci(st)
+                        p_advance(toks, st)
+                        dep <- 1
+                        [dep > 0 && p_ck(toks, st) != TokenKind.Eof] {
+                            bk = p_ck(toks, st)
+                            [(bk == TokenKind.Lbracket)] {
+                                dep += 1
+                                break
+                            }
+                            [(bk == TokenKind.Rbracket)] {
+                                dep -= 1
+                                break
+                            }
+                            [(dep > 0)] {
+                                p_advance(toks, st)
+                                break
+                            }
+                        }
+                        [(p_ck(toks, st) == TokenKind.Rbracket)] {
+                            p_advance(toks, st)
+                            break
+                        }
+                        seen <- 1
+                        break
+                    }
+                    [(seen == 0)] {
+                        p_diag(st, path, tk_line(toks, p_ci(st)), 4, "expected type name after ':'")
+                        break
+                    }
+                    break
+                }
+                vec_push(sk2, tan)
+                vec_push(sk2, ean)
+                vec_push(sk2, rk)
+            }
+            pc = vec_len(sk) - pb
+            ac = vec_len(sk2) - ab
+            nd_set(nodes, n, NF.L1s, kids_flush(sk, kids, pb))
+            nd_set(nodes, n, NF.L1n, pc)
+            nd_set(nodes, n, NF.L2s, kids_flush(sk2, kids, ab))
+            nd_set(nodes, n, NF.L2n, ac)
+            p_expect(toks, st, path, TokenKind.Rarrow, 4, "expected '->' after function parameters")
+            // Optional return annotation: `-> type ->` or `-> vec[T] ->`.
+            // Only the exact 4-token shape is an annotation; anything else
+            // stays part of the body (fail closed).
+            [(p_ck(toks, st) == TokenKind.Ident)] {
+                ci = p_ci(st)
+                pk1 = p_peek(toks, ci + 1)
+                isv = str_eq(tk_lex(src, toks, ci), "vec")
+                // `took` mirrors C's if/else-if: the plain `type ->` form is
+                // only considered when the vec[...] shape did not apply.
+                took <- 0
+                [(isv && tk_kind(toks, pk1) == TokenKind.Lbracket)] {
+                    took <- 1
+                    t1 = p_peek(toks, pk1 + 1)
+                    t2 = p_peek(toks, t1 + 1)
+                    t3 = p_peek(toks, t2 + 1)
+                    [(tk_kind(toks, t1) == TokenKind.Ident && tk_kind(toks, t2) == TokenKind.Rbracket && tk_kind(toks, t3) == TokenKind.Rarrow)] {
+                        nd_set(nodes, n, NF.R1, ci)
+                        p_advance(toks, st)
+                        p_advance(toks, st)
+                        nd_set(nodes, n, NF.R2, p_ci(st))
+                        p_advance(toks, st)
+                        p_expect(toks, st, path, TokenKind.Rbracket, 4, "expected ']' after vec element type")
+                        p_expect(toks, st, path, TokenKind.Rarrow, 4, "expected '->' after return type")
+                        break
+                    }
+                    break
+                }
+                [(took == 0 && tk_kind(toks, pk1) == TokenKind.Rarrow)] {
+                    nd_set(nodes, n, NF.R1, ci)
+                    p_advance(toks, st)
+                    p_expect(toks, st, path, TokenKind.Rarrow, 4, "expected '->' after return type")
+                    break
+                }
+                break
+            }
+            nd_set(nodes, n, NF.A, pnode(PM.Cond, src, path, toks, st, nodes, kids, sk, sk2))
+            res <- n
+            hit <- 1
+            break
+        }
+        break
+    }
+
+    // Anything else is a statement; defer has no meaning at top level.
+    [(hit == 0)] {
+        stmt = pnode(PM.Stmt, src, path, toks, st, nodes, kids, sk, sk2)
+        [(stmt != -1)] {
+            [(nd_get(nodes, stmt, NF.Kind) == AstKind.Defer)] {
+                p_diag(st, path, tk_line(toks, nd_get(nodes, stmt, NF.Tok)), 19, "defer is not allowed outside a block")
+                break
+            }
+            break
+        }
+        res <- stmt
+        break
+    }
+    res
+}
+
+// parser_parse(): the top-level statement list. Imports must form a prefix
+// of the file; the first one past a non-import item is rejected (§17.6).
+// Returns diag->has_error.
+p_parse src:str path:str toks:vec[Token] st:vec[int] nodes:vec[int] kids:vec[int] sk:vec[int] sk2:vec[int] tops:vec[int] -> i64 -> {
+    seen <- 0
+    go <- 1
+    [go == 1] {
+        atend <- 0
+        [(p_ck(toks, st) == TokenKind.Eof)] {
+            p_advance(toks, st)
+            go <- 0
+            atend <- 1
+            break
+        }
+        [(atend == 0)] {
+            decl = p_decl(src, path, toks, st, nodes, kids, sk, sk2)
+            [(decl != -1)] {
+                isimp <- 0
+                [(nd_get(nodes, decl, NF.Kind) == AstKind.Import)] {
+                    isimp <- 1
+                    break
+                }
+                [(isimp == 1 && seen == 1)] {
+                    p_diag(st, path, tk_line(toks, nd_get(nodes, decl, NF.Tok)), 4, "import must appear before any other top-level item")
+                    break
+                }
+                [(isimp == 0)] {
+                    seen <- 1
+                    break
+                }
+                break
+            }
+            vec_push(tops, decl)
+            break
+        }
+    }
+    vec_get(st, PS.HasErr)
+}
+
+// ast_print's indent: two spaces per level.
+pad n:i64 -> str -> {
+    s <- ""
+    [j <- 0..n] { s <- str_cat(s, "  ") }
+    s
+}
+
+// ast_print() from src/parser.c. `dump-ast` runs no semantic pass, so
+// node->semantic_type is always NULL and format_type yields the empty
+// string — the type suffix is therefore never printed here. A -1 index is
+// C's NULL node: ast_print returns immediately, printing nothing.
+//
+// The kinds with no case in the C switch (ARRAY_FILL, STRUCT_DEF,
+// RECORD_LIT, MATCH, SPAWN, CHAN — and MatchArm, which exists only in this
+// port) fall to `default:` and print UNKNOWN with NO children, so their
+// subtrees stay invisible. That is faithfully reproduced below.
+ast_show src:str toks:vec[Token] nodes:vec[int] kids:vec[int] i:i64 ind:i64 -> i64 -> {
+    [(i != -1)] {
+        pd = pad(ind)
+        pp = pad(ind + 1)
+        k = nd_get(nodes, i, NF.Kind)
+
+        [(k == AstKind.Literal)] {
+            lt = nd_get(nodes, i, NF.Op)
+            lx = tk_lex(src, toks, nd_get(nodes, i, NF.Tok))
+            nm = lt == TokenKind.String ? str_cat("STRING ", lx) : (lt == TokenKind.Int ? str_cat("INT ", lx) : "LITERAL")
+            print(str_cat(pd, nm))
+            break
+        }
+        [(k == AstKind.Identifier)] {
+            print(str_cat(str_cat(pd, "IDENT "), tk_lex(src, toks, nd_get(nodes, i, NF.Name))))
+            break
+        }
+        [(k == AstKind.Binary)] {
+            print(str_cat(str_cat(pd, "BINARY "), token_kind_name(nd_get(nodes, i, NF.Op))))
+            ast_show(src, toks, nodes, kids, nd_get(nodes, i, NF.A), ind + 1)
+            ast_show(src, toks, nodes, kids, nd_get(nodes, i, NF.B), ind + 1)
+            break
+        }
+        [(k == AstKind.Unary)] {
+            print(str_cat(str_cat(pd, "UNARY "), token_kind_name(nd_get(nodes, i, NF.Op))))
+            ast_show(src, toks, nodes, kids, nd_get(nodes, i, NF.A), ind + 1)
+            break
+        }
+        [(k == AstKind.Conditional)] {
+            print(str_cat(pd, "CONDITIONAL"))
+            ast_show(src, toks, nodes, kids, nd_get(nodes, i, NF.A), ind + 1)
+            ast_show(src, toks, nodes, kids, nd_get(nodes, i, NF.B), ind + 1)
+            ast_show(src, toks, nodes, kids, nd_get(nodes, i, NF.C), ind + 1)
+            break
+        }
+        // A slice prints SLICE, and an omitted (NULL) argument prints
+        // OMITTED at the child indent instead of recursing.
+        [(k == AstKind.Call)] {
+            nm = nd_get(nodes, i, NF.F2) == 1 ? "SLICE" : "CALL"
+            print(str_cat(pd, nm))
+            ast_show(src, toks, nodes, kids, nd_get(nodes, i, NF.A), ind + 1)
+            s1 = nd_get(nodes, i, NF.L1s)
+            c1 = nd_get(nodes, i, NF.L1n)
+            [j <- 0..c1] {
+                a = vec_get(kids, s1 + j)
+                [(a == -1)] {
+                    print(str_cat(pp, "OMITTED"))
+                    break
+                }
+                [(a != -1)] {
+                    ast_show(src, toks, nodes, kids, a, ind + 1)
+                    break
+                }
+            }
+            break
+        }
+        // Statements, then the deferred ones, then the final expression.
+        [(k == AstKind.Block)] {
+            print(str_cat(pd, "BLOCK"))
+            s1 = nd_get(nodes, i, NF.L1s)
+            c1 = nd_get(nodes, i, NF.L1n)
+            [j <- 0..c1] { ast_show(src, toks, nodes, kids, vec_get(kids, s1 + j), ind + 1) }
+            s2 = nd_get(nodes, i, NF.L2s)
+            c2 = nd_get(nodes, i, NF.L2n)
+            [j <- 0..c2] { ast_show(src, toks, nodes, kids, vec_get(kids, s2 + j), ind + 1) }
+            ast_show(src, toks, nodes, kids, nd_get(nodes, i, NF.C), ind + 1)
+            break
+        }
+        [(k == AstKind.Binding)] {
+            lbl = nd_get(nodes, i, NF.F1) == 1 ? "MUT_BINDING " : "BINDING "
+            print(str_cat(str_cat(pd, lbl), tk_lex(src, toks, nd_get(nodes, i, NF.Name))))
+            ast_show(src, toks, nodes, kids, nd_get(nodes, i, NF.A), ind + 1)
+            break
+        }
+        // The index child is printed only for the a[i] <- v form.
+        [(k == AstKind.Assign)] {
+            a1 = str_cat(pd, "ASSIGN ")
+            a2 = str_cat(a1, tk_lex(src, toks, nd_get(nodes, i, NF.Name)))
+            a3 = str_cat(a2, " ")
+            print(str_cat(a3, token_kind_name(nd_get(nodes, i, NF.Op))))
+            ast_show(src, toks, nodes, kids, nd_get(nodes, i, NF.B), ind + 1)
+            ast_show(src, toks, nodes, kids, nd_get(nodes, i, NF.A), ind + 1)
+            break
+        }
+        // Parameter names are plain lines at the child indent, not nodes.
+        [(k == AstKind.Function)] {
+            print(str_cat(str_cat(pd, "FUNCTION "), tk_lex(src, toks, nd_get(nodes, i, NF.Name))))
+            s1 = nd_get(nodes, i, NF.L1s)
+            c1 = nd_get(nodes, i, NF.L1n)
+            [j <- 0..c1] { print(str_cat(str_cat(pp, "PARAM "), tk_lex(src, toks, vec_get(kids, s1 + j)))) }
+            ast_show(src, toks, nodes, kids, nd_get(nodes, i, NF.A), ind + 1)
+            break
+        }
+        // body_final is never set by the parser, so NF.B is always -1 here.
+        [(k == AstKind.BracketLoop)] {
+            hb = nd_get(nodes, i, NF.F1)
+            nm = hb == 1 ? str_cat("BRACKET_LOOP ", tk_lex(src, toks, nd_get(nodes, i, NF.Name))) : "BRACKET_LOOP"
+            print(str_cat(pd, nm))
+            ast_show(src, toks, nodes, kids, nd_get(nodes, i, NF.A), ind + 1)
+            s1 = nd_get(nodes, i, NF.L1s)
+            c1 = nd_get(nodes, i, NF.L1n)
+            [j <- 0..c1] { ast_show(src, toks, nodes, kids, vec_get(kids, s1 + j), ind + 1) }
+            ast_show(src, toks, nodes, kids, nd_get(nodes, i, NF.B), ind + 1)
+            break
+        }
+        [(k == AstKind.Break)] {
+            print(str_cat(pd, "BREAK"))
+            break
+        }
+        [(k == AstKind.Skip)] {
+            print(str_cat(pd, "SKIP"))
+            break
+        }
+        [(k == AstKind.StreamGen)] {
+            print(str_cat(pd, "STREAM_GEN"))
+            s1 = nd_get(nodes, i, NF.L1s)
+            c1 = nd_get(nodes, i, NF.L1n)
+            [j <- 0..c1] { ast_show(src, toks, nodes, kids, vec_get(kids, s1 + j), ind + 1) }
+            ast_show(src, toks, nodes, kids, nd_get(nodes, i, NF.A), ind + 1)
+            ast_show(src, toks, nodes, kids, nd_get(nodes, i, NF.B), ind + 1)
+            break
+        }
+        [(k == AstKind.Array)] {
+            print(str_cat(pd, "ARRAY"))
+            s1 = nd_get(nodes, i, NF.L1s)
+            c1 = nd_get(nodes, i, NF.L1n)
+            [j <- 0..c1] { ast_show(src, toks, nodes, kids, vec_get(kids, s1 + j), ind + 1) }
+            break
+        }
+        [(k == AstKind.Defer)] {
+            print(str_cat(pd, "DEFER"))
+            ast_show(src, toks, nodes, kids, nd_get(nodes, i, NF.A), ind + 1)
+            break
+        }
+        [(k == AstKind.FieldAccess)] {
+            print(str_cat(str_cat(pd, "FIELD_ACCESS "), tk_lex(src, toks, nd_get(nodes, i, NF.Name))))
+            ast_show(src, toks, nodes, kids, nd_get(nodes, i, NF.A), ind + 1)
+            break
+        }
+        // Variant names are plain lines at the child indent.
+        [(k == AstKind.EnumDef)] {
+            print(str_cat(str_cat(pd, "ENUM_DEF "), tk_lex(src, toks, nd_get(nodes, i, NF.Name))))
+            s1 = nd_get(nodes, i, NF.L1s)
+            c1 = nd_get(nodes, i, NF.L1n)
+            [j <- 0..c1] { print(str_cat(str_cat(pp, "VARIANT "), tk_lex(src, toks, vec_get(kids, s1 + j)))) }
+            break
+        }
+        // The path token includes its quotes; an absent path is a zero-length
+        // token, so the line is "IMPORT " with a trailing space.
+        [(k == AstKind.Import)] {
+            pt = nd_get(nodes, i, NF.Name)
+            px = pt == -1 ? "" : tk_lex(src, toks, pt)
+            print(str_cat(str_cat(pd, "IMPORT "), px))
+            break
+        }
+        // default: everything the C switch does not name.
+        [(k == AstKind.ArrayFill || k == AstKind.StructDef || k == AstKind.RecordLit || k == AstKind.Match || k == AstKind.Spawn || k == AstKind.Chan || k == AstKind.MatchArm)] {
+            print(str_cat(pd, "UNKNOWN"))
+            break
+        }
+        break
+    }
+    0
+}

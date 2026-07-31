@@ -282,6 +282,41 @@ static void vec_unify_elem(SemanticContext *ctx, int line, SemanticType *expecte
     diag_error(ctx->diag, ctx->path, line, ERR_TYPE_MISMATCH, msg);
 }
 
+// M13.1-P8: resolve container annotations (vec[T] / strbuf / map) in
+// function parameter and return position (LANGUAGE_SPEC §19.10).
+// Returns NULL when the token is not a container name; malformed vec
+// annotations report E09 here and yield TYPE_UNKNOWN so the caller
+// does not double-report.
+static SemanticType *resolve_container_annot(SemanticContext *ctx, Token tok, Token elem_tok) {
+    if (tok.kind != TOK_IDENT) return NULL;
+    if (tok.length == 6 && memcmp(tok.start, "strbuf", 6) == 0)
+        return ty(ctx, TYPE_STRBUF);
+    if (tok.length == 3 && memcmp(tok.start, "map", 3) == 0)
+        return ty(ctx, TYPE_MAP);
+    if (tok.length == 3 && memcmp(tok.start, "vec", 3) == 0) {
+        if (elem_tok.kind != TOK_IDENT) {
+            diag_error(ctx->diag, ctx->path, tok.line, ERR_TYPE_MISMATCH,
+                       "vec annotation requires an element type: vec[T]");
+            return ty(ctx, TYPE_UNKNOWN);
+        }
+        SemanticType *et = resolve_type_annot(ctx, elem_tok);
+        if (!et) {
+            char msg[128];
+            snprintf(msg, sizeof msg, "unknown type '%.*s'",
+                     (int)elem_tok.length, elem_tok.start);
+            diag_error(ctx->diag, ctx->path, elem_tok.line, ERR_TYPE_MISMATCH, msg);
+            return ty(ctx, TYPE_UNKNOWN);
+        }
+        if (!vec_elem_type_ok(et)) {
+            diag_error(ctx->diag, ctx->path, elem_tok.line, ERR_TYPE_MISMATCH,
+                       "vec element type must be int, str, or a struct");
+            return ty(ctx, TYPE_UNKNOWN);
+        }
+        return type_get_vec(ctx->pool, et);
+    }
+    return NULL;
+}
+
 // M13.1-P3: Per-builtin checker for the six vec builtins. vec_push and
 // vec_set have heterogeneous signatures ((vec, T) / (vec, int, T)) that the
 // generic Builtin table in AST_CALL cannot express, so each is handled
@@ -1095,7 +1130,11 @@ static void check_node(SemanticContext *ctx, AstNode *node) {
                 }
                 // M12.6: Skip arity check for struct-returning functions
                 // (param_count is 0 for struct types; arity checked at definition)
+                // M13.1-P8: likewise for vec-returning functions — their callee
+                // type is the interned vec<T> (param_count 0); arity is checked
+                // against the recorded definition below.
                 if (!node->as.call.is_bracket_call && callee_type->kind != TYPE_STRUCT &&
+                    callee_type->kind != TYPE_VEC &&
                     callee_type->param_count >= 0 && callee_type->param_count != node->as.call.arg_count) {
                     diag_error(ctx->diag, ctx->path, node->token.line, ERR_ARITY_MISMATCH, "arity mismatch");
                 }
@@ -1108,6 +1147,13 @@ static void check_node(SemanticContext *ctx, AstNode *node) {
                 if (!node->as.call.is_bracket_call && node->as.call.callee &&
                     node->as.call.callee->kind == AST_IDENTIFIER) {
                     fn_def = func_lookup(ctx, node->as.call.callee->as.identifier.name);
+                }
+                // M13.1-P8: vec-returning functions carry vec<T> as their
+                // callee type, so their arity comes from the definition.
+                if (fn_def && node->as.call.callee->semantic_type &&
+                    ((SemanticType *)node->as.call.callee->semantic_type)->kind == TYPE_VEC &&
+                    fn_def->as.function.param_count != node->as.call.arg_count) {
+                    diag_error(ctx->diag, ctx->path, node->token.line, ERR_ARITY_MISMATCH, "arity mismatch");
                 }
                 // Per-call aliasing bookkeeping: referent name + borrow kind.
                 typedef struct { Token name; bool is_mut; } BorrowRec;
@@ -1133,6 +1179,41 @@ static void check_node(SemanticContext *ctx, AstNode *node) {
                             snprintf(msg, sizeof msg, "argument %d must be borrowed with %s",
                                      i + 1, want_ref == 2 ? "&mut" : "&");
                             diag_error(ctx->diag, ctx->path, node->token.line, ERR_BORROW, msg);
+                        }
+                        // M13.1-P8: container parameters (§19.10) — the kind
+                        // must match, vec elements match nominally, and an
+                        // annotated vec[T] param establishes an unestablished
+                        // argument vec exactly like a first vec_push would.
+                        SemanticType *cpt = NULL;
+                        if (fn_def && i < fn_def->as.function.param_count &&
+                            fn_def->as.function.param_types)
+                            cpt = fn_def->as.function.param_types[i];
+                        if (cpt && (cpt->kind == TYPE_VEC || cpt->kind == TYPE_STRBUF ||
+                                    cpt->kind == TYPE_MAP)) {
+                            char where[64];
+                            snprintf(where, sizeof where, "argument %d", i + 1);
+                            SemanticType *at = arg->semantic_type;
+                            if (unify(ctx, node->token.line, cpt, at, where) && at &&
+                                cpt->kind == TYPE_VEC && at->kind == TYPE_VEC) {
+                                if (at->element_type && cpt->element_type &&
+                                    at->element_type != cpt->element_type) {
+                                    char want[96], got[96], msg[320];
+                                    type_display(cpt, want, sizeof want);
+                                    type_display(at, got, sizeof got);
+                                    snprintf(msg, sizeof msg, "%s: expected %s, found %s",
+                                             where, want, got);
+                                    diag_error(ctx->diag, ctx->path, node->token.line,
+                                               ERR_TYPE_MISMATCH, msg);
+                                } else if (!at->element_type && cpt->element_type) {
+                                    // Establish: repoint the caller's binding.
+                                    if (arg->kind == AST_IDENTIFIER) {
+                                        Symbol *asym = env_lookup(ctx->current_env,
+                                                                  arg->as.identifier.name);
+                                        if (asym && asym->type == at) asym->type = cpt;
+                                    }
+                                    arg->semantic_type = cpt;
+                                }
+                            }
                         }
                         continue;
                     }
@@ -1345,26 +1426,47 @@ static void check_node(SemanticContext *ctx, AstNode *node) {
             // otherwise use TYPE_UNKNOWN for inference.
             for (int i = 0; i < node->as.function.param_count; i++) {
                 SemanticType *pt = ty(ctx, TYPE_UNKNOWN);
+                bool is_container = false;
                 // Check for type annotation
                 if (node->as.function.param_type_annots &&
                     node->as.function.param_type_annots[i].kind == TOK_IDENT) {
-                    SemanticType *annot = resolve_type_annot(ctx, node->as.function.param_type_annots[i]);
-                    if (annot) {
-                        pt = annot;
+                    // M13.1-P8: container annotations resolve before plain
+                    // names (vec/strbuf/map win in annotation position).
+                    Token elem_tok;
+                    elem_tok.kind = TOK_EOF;
+                    if (node->as.function.param_elem_annots)
+                        elem_tok = node->as.function.param_elem_annots[i];
+                    SemanticType *cont = resolve_container_annot(ctx,
+                        node->as.function.param_type_annots[i], elem_tok);
+                    if (cont) {
+                        pt = cont;
+                        is_container = cont->kind != TYPE_UNKNOWN;
                     } else {
-                        char msg[128];
-                        snprintf(msg, sizeof msg, "unknown type '%.*s'",
-                                 (int)node->as.function.param_type_annots[i].length,
-                                 node->as.function.param_type_annots[i].start);
-                        diag_error(ctx->diag, ctx->path, node->as.function.param_type_annots[i].line,
-                                   ERR_TYPE_MISMATCH, msg);
+                        SemanticType *annot = resolve_type_annot(ctx, node->as.function.param_type_annots[i]);
+                        if (annot) {
+                            pt = annot;
+                        } else {
+                            char msg[128];
+                            snprintf(msg, sizeof msg, "unknown type '%.*s'",
+                                     (int)node->as.function.param_type_annots[i].length,
+                                     node->as.function.param_type_annots[i].start);
+                            diag_error(ctx->diag, ctx->path, node->as.function.param_type_annots[i].line,
+                                       ERR_TYPE_MISMATCH, msg);
+                        }
                     }
                 }
                 // M9.1: wrap reference parameters as &T / &mut T.
                 if (node->as.function.param_ref_kinds &&
                     node->as.function.param_ref_kinds[i] != 0) {
-                    pt = type_get_ref(ctx->pool, pt,
-                                      node->as.function.param_ref_kinds[i] == 2);
+                    if (is_container) {
+                        // M13.1-P8: containers are shared handles (§19.10).
+                        diag_error(ctx->diag, ctx->path,
+                                   node->as.function.param_type_annots[i].line, ERR_BORROW,
+                                   "container parameters are reference-semantics handles; '&' is not allowed");
+                    } else {
+                        pt = type_get_ref(ctx->pool, pt,
+                                          node->as.function.param_ref_kinds[i] == 2);
+                    }
                 }
                 if (node->as.function.param_types) node->as.function.param_types[i] = pt;
                 env_define(ctx->current_env, node->as.function.params[i], false, pt);
@@ -1386,13 +1488,36 @@ static void check_node(SemanticContext *ctx, AstNode *node) {
             // M12.4: Check body against declared return type if present
             SemanticType *ret_type = NULL; // Full type for struct returns
             if (node->as.function.return_type_annot.kind == TOK_IDENT) {
-                SemanticType *ret_annot = resolve_type_annot(ctx, node->as.function.return_type_annot);
+                // M13.1-P8: container return annotations resolve first.
+                SemanticType *ret_annot = resolve_container_annot(ctx,
+                    node->as.function.return_type_annot,
+                    node->as.function.return_elem_annot);
+                if (!ret_annot)
+                    ret_annot = resolve_type_annot(ctx, node->as.function.return_type_annot);
                 if (ret_annot) {
                     SemanticType *u = unify(ctx, node->token.line, ret_annot,
                                             ty(ctx, ret_kind), "return type mismatch");
                     if (u) ret_kind = u->kind;
                     // M12.6: Preserve full struct type for return
-                    if (ret_annot->kind == TYPE_STRUCT) ret_type = ret_annot;
+                    // M13.1-P8: likewise vec<T>, so callers get the element type
+                    if (ret_annot->kind == TYPE_STRUCT || ret_annot->kind == TYPE_VEC)
+                        ret_type = ret_annot;
+                    // M13.1-P8: nominal element check for vec expression
+                    // bodies (block bodies are kind-checked only, §19.10).
+                    if (ret_annot->kind == TYPE_VEC && ret_annot->element_type &&
+                        node->as.function.body && node->as.function.body->semantic_type) {
+                        SemanticType *bt = (SemanticType *)node->as.function.body->semantic_type;
+                        if (bt->kind == TYPE_VEC && bt->element_type &&
+                            bt->element_type != ret_annot->element_type) {
+                            char want[96], got[96], msg[320];
+                            type_display(ret_annot, want, sizeof want);
+                            type_display(bt, got, sizeof got);
+                            snprintf(msg, sizeof msg, "return type mismatch: expected %s, found %s",
+                                     want, got);
+                            diag_error(ctx->diag, ctx->path, node->token.line,
+                                       ERR_TYPE_MISMATCH, msg);
+                        }
+                    }
                 } else {
                     char msg[128];
                     snprintf(msg, sizeof msg, "unknown return type '%.*s'",
@@ -1413,7 +1538,9 @@ static void check_node(SemanticContext *ctx, AstNode *node) {
                     // M12.6: For struct returns, use the full struct type so
                     // callers can access fields. param_count is lost but
                     // arity is checked at the definition site.
-                    if (ret_type && ret_type->kind == TYPE_STRUCT) {
+                    // M13.1-P8: vec returns keep the full vec<T> the same way
+                    // (arity comes from the recorded definition at call sites).
+                    if (ret_type && (ret_type->kind == TYPE_STRUCT || ret_type->kind == TYPE_VEC)) {
                         sym->type = ret_type;
                     } else {
                         sym->type = type_get_func(ctx->pool, u->kind, node->as.function.param_count);

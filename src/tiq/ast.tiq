@@ -1,0 +1,299 @@
+// M13.2-S1: shared token definitions for the self-hosted Tiq compiler.
+// TokenKind mirrors include/lexer.h's TokenKind exactly: same variant set,
+// declared in the same order, so the integer values match the C enum
+// (0 = Eof .. 64 = Import). Token mirrors the C Token struct; the C
+// pointers (start / comment_start) become byte offsets into the source
+// string, and comment_start is -1 when no comment trivia is attached
+// (the C side uses NULL).
+//
+// M13.3-S2 adds the AST representation: AstKind mirrors include/ast.h's
+// AstKind (0 = Literal .. 24 = Import) and the arena of AstNode structs
+// becomes a flat `nodes:vec[int]` where every node owns NodeWidth (15)
+// consecutive slots, indexed by the NF field offsets. A node reference is
+// its index, and -1 is the NULL pointer of the C AST — so the whole AST is
+// index-based and deterministic. Variable-length child lists live in a
+// second flat vec (`kids`) as [start, count) spans; a span element is a
+// node index, or a TOKEN index when the C field is a Token array
+// (struct fields, enum variants, function params, record-literal field
+// names). Storing token indices works because every Token the C parser
+// copies into a node comes from the token stream.
+
+enum TokenKind {
+    Eof,
+    Ident,
+    Int,
+    Float,
+    String,
+    True,
+    False,
+    While,
+    Break,
+    Skip,
+    Move,
+    Defer,
+    Until,
+    DotDotDot,
+    Plus,
+    Minus,
+    Star,
+    Slash,
+    Percent,
+    Eq,
+    EqEq,
+    BangEq,
+    Lt,
+    Lte,
+    Gt,
+    Gte,
+    AndAnd,
+    OrOr,
+    Bang,
+    Amp,
+    Pipe,
+    Caret,
+    Lshift,
+    Rshift,
+    PlusEq,
+    MinusEq,
+    StarEq,
+    SlashEq,
+    PercentEq,
+    ColonEq,
+    Larrow,
+    Rarrow,
+    Question,
+    Colon,
+    DotDot,
+    Lbrace,
+    Rbrace,
+    Lparen,
+    Rparen,
+    Lbracket,
+    Rbracket,
+    Comma,
+    Newline,
+    Spawn,
+    Chan,
+    Match,
+    Struct,
+    Enum,
+    Mut,
+    Semicolon,
+    FatArrow,
+    QuestionQuestion,
+    Underscore,
+    Dot,
+    Import
+}
+
+// One lexed token. Comment trivia preceding the token attaches to it
+// (comment_start/comment_length), exactly like the C lexer: comments
+// never enter the main token stream, so the parser is undisturbed and
+// the formatter can re-emit them at their original positions.
+struct Token {
+    kind: i64,
+    start: i64,
+    length: i64,
+    line: i64,
+    comment_start: i64,
+    comment_length: i64
+}
+
+// Token stream accessors. `t = vec_get(toks, i)` cannot be bound to a
+// local (a struct read out of a vec loses its type in the bootstrap), so
+// every field read goes through one of these and stays inline.
+tk_kind toks:vec[Token] i:i64 -> i64 -> vec_get(toks, i).kind
+tk_start toks:vec[Token] i:i64 -> i64 -> vec_get(toks, i).start
+tk_length toks:vec[Token] i:i64 -> i64 -> vec_get(toks, i).length
+tk_line toks:vec[Token] i:i64 -> i64 -> vec_get(toks, i).line
+
+// The raw lexeme of token i, the port of `%.*s` on token.start/length.
+tk_lex src:str toks:vec[Token] i:i64 -> str -> str_sub(src, tk_start(toks, i), tk_start(toks, i) + tk_length(toks, i))
+
+// Do tokens a and b spell the same name? The port of the length + memcmp
+// pair the C parser uses for duplicate loop binders.
+tk_same src:str toks:vec[Token] a:i64 b:i64 -> i64 -> str_eq(tk_lex(src, toks, a), tk_lex(src, toks, b)) ? 1 : 0
+
+// AstKind mirrors include/ast.h. MatchArm is not an AstKind in C (arms are
+// a side struct); here each arm is a node so that one child-list span can
+// hold them, and it is numbered past Import so no C kind is shadowed.
+enum AstKind {
+    Literal,
+    Identifier,
+    Binary,
+    Unary,
+    Conditional,
+    Call,
+    Block,
+    Binding,
+    Assign,
+    Function,
+    BracketLoop,
+    Break,
+    Skip,
+    StreamGen,
+    Array,
+    Defer,
+    ArrayFill,
+    FieldAccess,
+    StructDef,
+    EnumDef,
+    RecordLit,
+    Match,
+    Spawn,
+    Chan,
+    Import,
+    MatchArm
+}
+
+// Field offsets within one node's NodeWidth slots. The generic names carry
+// a per-kind meaning, documented here once:
+//   Tok   token index of the C node->token (allocate_node's parser->previous)
+//   Op    Binary/Unary/Assign op, or Literal's token kind
+//   A/B/C child node indices: Binary left/right; Unary right; Conditional
+//         cond/then/else; Call callee; Block final_expr; Binding expr;
+//         Assign index/expr; Function body; BracketLoop domain/body_final;
+//         StreamGen gen_expr/bound; ArrayFill value/length; FieldAccess
+//         target; Defer expr; Match expr; Spawn expr; MatchArm pattern/body
+//   Name  token index of the node's name (Identifier/Binding/Assign/
+//         Function/FieldAccess field/StructDef/EnumDef/RecordLit/Chan elem/
+//         BracketLoop binder/Import path), -1 when absent
+//   F1    is_mutable / has_binder / is_bracket_call / is_mut_borrow / is_wildcard
+//   F2    is_slice
+//   L1s/L1n first child-list span, L2s/L2n second (see below)
+//   R1/R2 Function return_type_annot / return_elem_annot token indices
+enum NF {
+    Kind,
+    Tok,
+    Op,
+    A,
+    B,
+    C,
+    Name,
+    F1,
+    F2,
+    L1s,
+    L1n,
+    L2s,
+    L2n,
+    R1,
+    R2
+}
+
+// NodeWidth must equal the number of NF variants.
+node_width d:i64 -> i64 -> 15
+
+// Read/write field f of node i in the flat node store.
+nd_get nodes:vec[int] i:i64 f:i64 -> i64 -> vec_get(nodes, i * 15 + f)
+
+nd_set nodes:vec[int] i:i64 f:i64 v:i64 -> i64 -> {
+    vec_set(nodes, i * 15 + f, v)
+    i
+}
+
+// allocate_node(): a zeroed node of `kind` whose token is `tidx`. Node and
+// token references start at -1 (the NULL/absent marker of the C AST);
+// flags and child-list COUNTS start at 0, so an unused list is empty
+// rather than a negative-length range.
+nd_new nodes:vec[int] kind:i64 tidx:i64 -> i64 -> {
+    idx = vec_len(nodes) / 15
+    vec_push(nodes, kind)
+    vec_push(nodes, tidx)
+    vec_push(nodes, 0 - 1)
+    vec_push(nodes, 0 - 1)
+    vec_push(nodes, 0 - 1)
+    vec_push(nodes, 0 - 1)
+    vec_push(nodes, 0 - 1)
+    vec_push(nodes, 0)
+    vec_push(nodes, 0)
+    vec_push(nodes, 0 - 1)
+    vec_push(nodes, 0)
+    vec_push(nodes, 0 - 1)
+    vec_push(nodes, 0)
+    vec_push(nodes, 0 - 1)
+    vec_push(nodes, 0 - 1)
+    idx
+}
+
+// Child lists are built on a scratch stack (`sk`), because a node's list
+// is still growing while its children are parsed. Regions nest strictly,
+// so a finished region is copied into `kids` — contiguous and final — and
+// popped off the scratch stack. Returns the start index in `kids`.
+kids_flush sk:vec[int] kids:vec[int] base:i64 -> i64 -> {
+    start = vec_len(kids)
+    count = vec_len(sk) - base
+    [j <- 0..count] { vec_push(kids, vec_get(sk, base + j)) }
+    [j <- 0..count] { drop = vec_pop(sk) }
+    start
+}
+
+// Port of token_kind_name() in src/lexer.c: the exact names printed by
+// `tiq dump-tokens`.
+token_kind_name k:i64 -> str -> match k {
+    TokenKind.Eof => "EOF",
+    TokenKind.Ident => "IDENT",
+    TokenKind.Int => "INT",
+    TokenKind.Float => "FLOAT",
+    TokenKind.String => "STRING",
+    TokenKind.True => "TRUE",
+    TokenKind.False => "FALSE",
+    TokenKind.While => "WHILE",
+    TokenKind.Break => "BREAK",
+    TokenKind.Skip => "SKIP",
+    TokenKind.Move => "MOVE",
+    TokenKind.Defer => "DEFER",
+    TokenKind.Until => "UNTIL",
+    TokenKind.DotDotDot => "DOT_DOT_DOT",
+    TokenKind.Plus => "PLUS",
+    TokenKind.Minus => "MINUS",
+    TokenKind.Star => "STAR",
+    TokenKind.Slash => "SLASH",
+    TokenKind.Percent => "PERCENT",
+    TokenKind.Eq => "EQ",
+    TokenKind.EqEq => "EQ_EQ",
+    TokenKind.BangEq => "BANG_EQ",
+    TokenKind.Lt => "LT",
+    TokenKind.Lte => "LTE",
+    TokenKind.Gt => "GT",
+    TokenKind.Gte => "GTE",
+    TokenKind.AndAnd => "AND_AND",
+    TokenKind.OrOr => "OR_OR",
+    TokenKind.Bang => "BANG",
+    TokenKind.Amp => "AMP",
+    TokenKind.Pipe => "PIPE",
+    TokenKind.Caret => "CARET",
+    TokenKind.Lshift => "LSHIFT",
+    TokenKind.Rshift => "RSHIFT",
+    TokenKind.PlusEq => "PLUS_EQ",
+    TokenKind.MinusEq => "MINUS_EQ",
+    TokenKind.StarEq => "STAR_EQ",
+    TokenKind.SlashEq => "SLASH_EQ",
+    TokenKind.PercentEq => "PERCENT_EQ",
+    TokenKind.ColonEq => "COLON_EQ",
+    TokenKind.Larrow => "LARROW",
+    TokenKind.Rarrow => "RARROW",
+    TokenKind.Question => "QUESTION",
+    TokenKind.Colon => "COLON",
+    TokenKind.DotDot => "DOT_DOT",
+    TokenKind.Lbrace => "LBRACE",
+    TokenKind.Rbrace => "RBRACE",
+    TokenKind.Lparen => "LPAREN",
+    TokenKind.Rparen => "RPAREN",
+    TokenKind.Lbracket => "LBRACKET",
+    TokenKind.Rbracket => "RBRACKET",
+    TokenKind.Comma => "COMMA",
+    TokenKind.Newline => "NEWLINE",
+    TokenKind.Spawn => "SPAWN",
+    TokenKind.Chan => "CHAN",
+    TokenKind.Match => "MATCH",
+    TokenKind.Struct => "STRUCT",
+    TokenKind.Enum => "ENUM",
+    TokenKind.Mut => "MUT",
+    TokenKind.Semicolon => "SEMICOLON",
+    TokenKind.FatArrow => "FAT_ARROW",
+    TokenKind.QuestionQuestion => "QUESTION_QUESTION",
+    TokenKind.Underscore => "UNDERSCORE",
+    TokenKind.Dot => "DOT",
+    TokenKind.Import => "IMPORT",
+    _ => "UNKNOWN"
+}

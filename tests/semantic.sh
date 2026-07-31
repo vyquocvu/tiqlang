@@ -903,4 +903,59 @@ BINDING w <TYPE_INT>
     IDENT m <TYPE_MAP>
     INT 0 <TYPE_INT>'
 
+# M13.1-P8: container annotations (LANGUAGE_SPEC §19.10). Malformed vec
+# annotations, kind mismatches, nominal element mismatches, borrow
+# rejection, return checking, and arity are all fail-closed E09/E12/E23.
+assert_semantic "p8_vec_annot_bare" 'f v:vec -> vec_len(v)
+' "$TMP_DIR/p8_vec_annot_bare.tiq:1: error[E09]: vec annotation requires an element type: vec[T]"
+
+assert_semantic "p8_vec_annot_unknown_elem" 'f v:vec[wat] -> vec_len(v)
+' "$TMP_DIR/p8_vec_annot_unknown_elem.tiq:1: error[E09]: unknown type 'wat'"
+
+assert_semantic "p8_vec_annot_bad_elem" 'f v:vec[bool] -> vec_len(v)
+' "$TMP_DIR/p8_vec_annot_bad_elem.tiq:1: error[E09]: vec element type must be int, str, or a struct"
+
+assert_semantic "p8_vec_arg_elem_mismatch" 'f v:vec[int] -> vec_len(v)
+v = vec_new()
+vec_push(v, "a")
+f(v)
+' "$TMP_DIR/p8_vec_arg_elem_mismatch.tiq:4: error[E09]: argument 1: expected vec<int>, found vec<str>"
+
+assert_semantic "p8_vec_arg_not_vec" 'f v:vec[int] -> vec_len(v)
+f(1)
+' "$TMP_DIR/p8_vec_arg_not_vec.tiq:2: error[E09]: argument 1: expected vec<int>, found int"
+
+assert_semantic "p8_container_borrow" 'f v:&vec[int] -> vec_len(v)
+' "$TMP_DIR/p8_container_borrow.tiq:1: error[E23]: container parameters are reference-semantics handles; '&' is not allowed"
+
+assert_semantic "p8_vec_return_elem_mismatch" 'g v:vec[str] -> vec[int] -> v
+' "$TMP_DIR/p8_vec_return_elem_mismatch.tiq:1: error[E09]: return type mismatch: expected vec<int>, found vec<str>"
+
+assert_semantic "p8_strbuf_arg_mismatch" 'f b:strbuf -> str_buf_len(b)
+f(1)
+' "$TMP_DIR/p8_strbuf_arg_mismatch.tiq:2: error[E09]: argument 1: expected strbuf, found int"
+
+assert_semantic "p8_vec_fn_arity" 'f v:vec[int] -> vec_len(v)
+v = vec_new()
+f(v, 2)
+' "$TMP_DIR/p8_vec_fn_arity.tiq:3: error[E12]: arity mismatch"
+
+# M13.1-P8: an annotated vec[T] parameter is established inside the callee
+# (vec_get works with no prior vec_push), and a vec[T] return annotation
+# carries the full element type on the function node.
+assert_semantic_ast "p8_typed_vec_param" 'f v:vec[int] -> vec_get(v, 0)
+' 'FUNCTION f <TYPE_INT>
+  PARAM v
+  CALL <TYPE_INT>
+    IDENT vec_get
+    IDENT v <TYPE_VEC:TYPE_INT>
+    INT 0 <TYPE_INT>'
+
+assert_semantic_ast "p8_typed_vec_return" 'f v:vec[int] b:strbuf m:map -> vec[int] -> v
+' 'FUNCTION f <TYPE_VEC:TYPE_INT>
+  PARAM v
+  PARAM b
+  PARAM m
+  IDENT v <TYPE_VEC:TYPE_INT>'
+
 echo "semantic: ok"

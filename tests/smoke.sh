@@ -1458,4 +1458,112 @@ map_neg_status=0
 printf 'tiq: map index -1 out of bounds for map of length 1\n' > "$TMP_DIR/p5_map_oob_neg.err.expected"
 cmp "$TMP_DIR/p5_map_oob_neg.err" "$TMP_DIR/p5_map_oob_neg.err.expected"
 
+# M13.1-P8 item 1: s[i] byte indexing on str and str views compiles and
+# returns the raw byte as int (§13.1); previously the emitter fell through
+# to stream-generator emission and produced invalid C. Output pinned:
+# 97+98+99 = 294, then s[0] = 97, then view v = s[1..] has v[0] = 98.
+cat > "$TMP_DIR/p8_str_index.tiq" <<'EOF'
+s = "abc"
+total <- 0
+[0..3] {
+    total += s[i]
+}
+print(total)
+print(s[0])
+v = s[1..]
+print(v[0])
+EOF
+./build/tiq build "$TMP_DIR/p8_str_index.tiq" -o "$TMP_DIR/p8_str_index"
+"$TMP_DIR/p8_str_index" > "$TMP_DIR/p8_str_index.out"
+printf '294\n97\n98\n' > "$TMP_DIR/p8_str_index.expected"
+cmp "$TMP_DIR/p8_str_index.out" "$TMP_DIR/p8_str_index.expected"
+
+# M13.1-P8 item 1: out-of-range s[i] aborts deterministically — exact
+# stderr message and exit code 1, matching the array precedent (§13.1).
+cat > "$TMP_DIR/p8_str_index_oob.tiq" <<'EOF'
+s = "abc"
+print(s[5])
+EOF
+./build/tiq build "$TMP_DIR/p8_str_index_oob.tiq" -o "$TMP_DIR/p8_str_index_oob"
+str_oob_status=0
+"$TMP_DIR/p8_str_index_oob" > "$TMP_DIR/p8_str_index_oob.out" 2> "$TMP_DIR/p8_str_index_oob.err" || str_oob_status=$?
+[ "$str_oob_status" -eq 1 ]
+printf 'tiq: index 5 out of bounds for string of length 3\n' > "$TMP_DIR/p8_str_index_oob.err.expected"
+cmp "$TMP_DIR/p8_str_index_oob.err" "$TMP_DIR/p8_str_index_oob.err.expected"
+[ ! -s "$TMP_DIR/p8_str_index_oob.out" ]
+
+# M13.1-P8 item 2: containers cross function boundaries (§19.10). A vec
+# argument shares its handle (callee pushes visible to the caller), an
+# unestablished vec is established by the annotated parameter, and a
+# vec[int] return carries the element type to the caller. Output pinned.
+cat > "$TMP_DIR/p8_vec_across_fns.tiq" <<'EOF'
+fill v:vec[int] -> int -> {
+  vec_push(v, 10)
+  vec_push(v, 20)
+  vec_len(v)
+}
+mk seed:int -> vec[int] -> {
+  v = vec_new()
+  vec_push(v, seed)
+  v
+}
+v = vec_new()
+n = fill(v)
+print(n)
+print(vec_get(v, 1))
+w = mk(7)
+print(vec_get(w, 0))
+EOF
+./build/tiq build "$TMP_DIR/p8_vec_across_fns.tiq" -o "$TMP_DIR/p8_vec_across_fns"
+"$TMP_DIR/p8_vec_across_fns" > "$TMP_DIR/p8_vec_across_fns.out"
+printf '2\n20\n7\n' > "$TMP_DIR/p8_vec_across_fns.expected"
+cmp "$TMP_DIR/p8_vec_across_fns.out" "$TMP_DIR/p8_vec_across_fns.expected"
+
+# M13.1-P8 item 2: a vec of named structs passes between functions with
+# its nominal element type intact (§19.10).
+cat > "$TMP_DIR/p8_vec_struct_across.tiq" <<'EOF'
+struct Tok { kind: int, val: int }
+first v:vec[Tok] -> Tok -> vec_get(v, 0)
+v = vec_new()
+vec_push(v, Tok { kind: 2, val: 5 })
+t = first(v)
+print(t.kind)
+EOF
+./build/tiq build "$TMP_DIR/p8_vec_struct_across.tiq" -o "$TMP_DIR/p8_vec_struct_across"
+"$TMP_DIR/p8_vec_struct_across" > "$TMP_DIR/p8_vec_struct_across.out"
+printf '2\n' > "$TMP_DIR/p8_vec_struct_across.expected"
+cmp "$TMP_DIR/p8_vec_struct_across.out" "$TMP_DIR/p8_vec_struct_across.expected"
+
+# M13.1-P8 item 2: a strbuf handle passed to a function is appended
+# through the shared handle; the caller snapshots the result (§19.10).
+cat > "$TMP_DIR/p8_strbuf_across.tiq" <<'EOF'
+addtwice sb:strbuf s:str -> int -> {
+  str_buf_append(sb, s)
+  str_buf_append(sb, s)
+  str_buf_len(sb)
+}
+sb = str_buf_new()
+n = addtwice(sb, "hi")
+print(n)
+out = str_buf_to_str(sb)
+print(out)
+EOF
+./build/tiq build "$TMP_DIR/p8_strbuf_across.tiq" -o "$TMP_DIR/p8_strbuf_across"
+"$TMP_DIR/p8_strbuf_across" > "$TMP_DIR/p8_strbuf_across.out"
+printf '4\nhihi\n' > "$TMP_DIR/p8_strbuf_across.expected"
+cmp "$TMP_DIR/p8_strbuf_across.out" "$TMP_DIR/p8_strbuf_across.expected"
+
+# M13.1-P8 item 2: a map set in the callee is visible in the caller —
+# shared-handle semantics, not a copy (§19.10).
+cat > "$TMP_DIR/p8_map_across.tiq" <<'EOF'
+put m:map -> int -> map_set(m, "answer", 42)
+m = map_new()
+put(m)
+print(map_get(m, "answer"))
+EOF
+./build/tiq build "$TMP_DIR/p8_map_across.tiq" -o "$TMP_DIR/p8_map_across"
+"$TMP_DIR/p8_map_across" > "$TMP_DIR/p8_map_across.out"
+printf '42\n' > "$TMP_DIR/p8_map_across.expected"
+cmp "$TMP_DIR/p8_map_across.out" "$TMP_DIR/p8_map_across.expected"
+
 echo "smoke: ok"

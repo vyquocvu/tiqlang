@@ -782,6 +782,7 @@ static AstNode *declaration(Parser *parser) {
             AstNode *node = allocate_node(parser, AST_FUNCTION);
             node->as.function.name = name;
             node->as.function.return_type_annot.kind = TOK_EOF; // no return type by default
+            node->as.function.return_elem_annot.kind = TOK_EOF; // M13.1-P8: no vec[T] element by default
             int capacity = 0;
             while (check(parser, TOK_IDENT)) {
                 if (node->as.function.param_count + 1 > capacity) {
@@ -792,6 +793,9 @@ static AstNode *declaration(Parser *parser) {
                     node->as.function.param_type_annots = arena_realloc(&parser->arena, node->as.function.param_type_annots,
                                                              sizeof(Token) * capacity,
                                                              sizeof(Token) * new_cap);
+                    node->as.function.param_elem_annots = arena_realloc(&parser->arena, node->as.function.param_elem_annots,
+                                                             sizeof(Token) * capacity,
+                                                             sizeof(Token) * new_cap);
                     node->as.function.param_ref_kinds = arena_realloc(&parser->arena, node->as.function.param_ref_kinds,
                                                              sizeof(unsigned char) * capacity,
                                                              sizeof(unsigned char) * new_cap);
@@ -799,6 +803,7 @@ static AstNode *declaration(Parser *parser) {
                 }
                 node->as.function.params[node->as.function.param_count] = parser->current;
                 node->as.function.param_type_annots[node->as.function.param_count].kind = TOK_EOF; // default: no annotation
+                node->as.function.param_elem_annots[node->as.function.param_count].kind = TOK_EOF; // M13.1-P8: default: no element
                 node->as.function.param_ref_kinds[node->as.function.param_count] = 0; // default: by value
                 advance(parser);
                 // M12.4: parse optional :type annotation
@@ -815,8 +820,23 @@ static AstNode *declaration(Parser *parser) {
                         }
                     }
                     if (check(parser, TOK_IDENT)) {
-                        node->as.function.param_type_annots[node->as.function.param_count] = parser->current;
+                        Token type_tok = parser->current;
+                        node->as.function.param_type_annots[node->as.function.param_count] = type_tok;
                         advance(parser);
+                        // M13.1-P8: vec[T] container annotation — the element
+                        // type name sits between the existing bracket tokens.
+                        if (type_tok.length == 3 && memcmp(type_tok.start, "vec", 3) == 0 &&
+                            check(parser, TOK_LBRACKET)) {
+                            advance(parser); // consume '['
+                            if (check(parser, TOK_IDENT)) {
+                                node->as.function.param_elem_annots[node->as.function.param_count] = parser->current;
+                                advance(parser);
+                            } else {
+                                diag_error(parser->diag, parser->lexer.path, parser->current.line,
+                                           ERR_UNEXPECTED_TOKEN, "expected element type name in vec[...]");
+                            }
+                            consume(parser, TOK_RBRACKET, ERR_UNEXPECTED_TOKEN, "expected ']' after vec element type");
+                        }
                     } else if (check(parser, TOK_LBRACKET)) {
                         // Compound type: [T; N] or []T - store '[' as marker, parse in semantic
                         node->as.function.param_type_annots[node->as.function.param_count] = parser->current;
@@ -850,7 +870,27 @@ static AstNode *declaration(Parser *parser) {
                 Lexer peek_lexer2 = parser->lexer;
                 Token peek_tok = lexer_next(&peek_lexer2);
                 while (peek_tok.kind == TOK_NEWLINE) peek_tok = lexer_next(&peek_lexer2);
-                if (peek_tok.kind == TOK_RARROW) {
+                bool cur_is_vec = parser->current.length == 3 &&
+                                  memcmp(parser->current.start, "vec", 3) == 0;
+                if (cur_is_vec && peek_tok.kind == TOK_LBRACKET) {
+                    // M13.1-P8: only the exact "vec [ elem ] ->" sequence is a
+                    // return annotation; anything else stays body (fail closed).
+                    Token t1 = lexer_next(&peek_lexer2);
+                    while (t1.kind == TOK_NEWLINE) t1 = lexer_next(&peek_lexer2);
+                    Token t2 = lexer_next(&peek_lexer2);
+                    while (t2.kind == TOK_NEWLINE) t2 = lexer_next(&peek_lexer2);
+                    Token t3 = lexer_next(&peek_lexer2);
+                    while (t3.kind == TOK_NEWLINE) t3 = lexer_next(&peek_lexer2);
+                    if (t1.kind == TOK_IDENT && t2.kind == TOK_RBRACKET && t3.kind == TOK_RARROW) {
+                        node->as.function.return_type_annot = parser->current;
+                        advance(parser); // consume 'vec'
+                        advance(parser); // consume '['
+                        node->as.function.return_elem_annot = parser->current;
+                        advance(parser); // consume element type name
+                        consume(parser, TOK_RBRACKET, ERR_UNEXPECTED_TOKEN, "expected ']' after vec element type");
+                        consume(parser, TOK_RARROW, ERR_UNEXPECTED_TOKEN, "expected '->' after return type");
+                    }
+                } else if (peek_tok.kind == TOK_RARROW) {
                     // This is a return type annotation
                     node->as.function.return_type_annot = parser->current;
                     advance(parser); // consume type name

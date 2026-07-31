@@ -235,4 +235,14 @@ assert_parser "import_two" 'import "a.tiq"
 import "sub/b.tiq"' 'IMPORT "a.tiq"
 IMPORT "sub/b.tiq"'
 
+# M13.1-P8: container type annotations parse in param and return position
+# (vec[T] / strbuf / map); annotations are not shown by dump-ast, so this
+# pins acceptance and body shape only.
+assert_parser "container_annots" 'f v:vec[int] b:strbuf m:map -> vec[int] -> v
+' 'FUNCTION f
+  PARAM v
+  PARAM b
+  PARAM m
+  IDENT v'
+
 echo "parser: ok"

@@ -1,0 +1,46 @@
+// M13.3-S2: the self-hosted `tiq dump-ast` driver. Reads the file named by
+// the first CLI argument, lexes it, parses it, prints the AST byte-
+// identically to dump_ast in src/main.c, and exits with diag->has_error.
+//
+// dump_ast does NOT run semantic analysis, so ast_print never prints a type
+// suffix and every node's kind is reported exactly as the parser built it.
+// parser_init advances to the first non-NEWLINE token before parsing and
+// leaves `previous` untouched; no node is allocated before the first
+// advance, so seeding Prev with the same index is equivalent.
+
+import "ast.tiq"
+import "lexer.tiq"
+import "parser.tiq"
+
+path = cli_arg(0)
+source = fs_read(path)
+
+toks = vec_new()
+lex_err = lex_scan(source, path, toks)
+
+st = vec_new()
+// The four PS slots are established with literals before being filled:
+// a user function's return type is interned with its arity, so a vec whose
+// element type is established by pushing a call result is NOT pointer-equal
+// to the vec[int] annotation's element type and the call is rejected E09
+// (semantic.c's nominal element check). Pushing a literal first establishes
+// the plain int element; vec_set then only kind-checks.
+vec_push(st, 0)
+vec_push(st, 0)
+vec_push(st, 0)
+vec_push(st, 0)
+first = p_peek(toks, 0)
+vec_set(st, PS.Cur, first)
+vec_set(st, PS.Prev, first)
+vec_set(st, PS.HasErr, lex_err)
+
+nodes = vec_new()
+kids = vec_new()
+sk = vec_new()
+sk2 = vec_new()
+tops = vec_new()
+
+err = p_parse(source, path, toks, st, nodes, kids, sk, sk2, tops)
+top_count = vec_len(tops)
+[j <- 0..top_count] { ast_show(source, toks, nodes, kids, vec_get(tops, j), 0) }
+proc_exit(err)

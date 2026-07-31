@@ -1,0 +1,378 @@
+// M13.2-S1: self-hosted Tiq lexer — a faithful port of src/lexer.c.
+//
+// The C lexer walks the source with a char pointer; here the cursor is a
+// byte offset `pos` and single characters are read as 1-byte strings via
+// str_sub(source, pos, pos + 1). str_sub returns "" past the end, which
+// plays the role of C's '\0' sentinel, so every peek/peek_next comparison
+// maps 1:1. Character classes (is_alpha / is_digit) and the keyword table
+// (identifier_type's first-letter dispatch: exact whole-word matches only,
+// near-misses like `enums` stay IDENT) are literal-keyed maps because vec
+// and map element types do not cross function boundaries in the bootstrap,
+// all lexing state lives in this single function (there is also no early
+// return, so alternatives are `[(guard)] { ...; break }` blocks sequenced
+// on a `k == -1` "kind not decided yet" sentinel, mirroring C's switch).
+//
+// lex_scan fills `toks` with the whole token stream and returns has_error
+// (0/1). It stops after the first EOF token, exactly where the C parser
+// stops pulling from the lexer: a lexical error also produces an EOF
+// token, so the stream ends there. Diagnostics go to stderr in
+// diag_error's format as they are discovered.
+//
+// lex_dump prints that stream exactly like `tiq dump-tokens`
+// (dump_tokens in src/main.c): the kind name, plus the raw lexeme for
+// IDENT/INT/FLOAT/STRING; NEWLINE tokens are skipped and the EOF token is
+// not printed. M13.3-S2 split scanning from printing so the self-hosted
+// parser can consume the same token vector.
+
+import "ast.tiq"
+
+// diag_error's stderr format (src/diag.c): "%s:%d: error[E%02d]: %s".
+diag_line path:str ln:i64 code:i64 msg:str -> str -> {
+    a = str_cat(path, ":")
+    b = str_cat(a, int_str(ln))
+    c = str_cat(b, ": error[E")
+    d = str_cat(c, code < 10 ? str_cat("0", int_str(code)) : int_str(code))
+    e = str_cat(d, "]: ")
+    str_cat(e, msg)
+}
+
+lex_scan source:str path:str toks:vec[Token] -> i64 -> {
+    // Reserved words (identifier_type in src/lexer.c). Exact-match lookup
+    // is equivalent to the C first-letter dispatch + memcmp of the rest.
+    kw = map_new()
+    map_set(kw, "break", TokenKind.Break)
+    map_set(kw, "chan", TokenKind.Chan)
+    map_set(kw, "defer", TokenKind.Defer)
+    map_set(kw, "enum", TokenKind.Enum)
+    map_set(kw, "import", TokenKind.Import)
+    map_set(kw, "false", TokenKind.False)
+    map_set(kw, "match", TokenKind.Match)
+    map_set(kw, "move", TokenKind.Move)
+    map_set(kw, "mut", TokenKind.Mut)
+    map_set(kw, "skip", TokenKind.Skip)
+    map_set(kw, "spawn", TokenKind.Spawn)
+    map_set(kw, "struct", TokenKind.Struct)
+    map_set(kw, "true", TokenKind.True)
+    map_set(kw, "until", TokenKind.Until)
+    map_set(kw, "while", TokenKind.While)
+
+    // is_digit: '0'..'9'
+    dig = map_new()
+    map_set(dig, "0", 0)
+    map_set(dig, "1", 0)
+    map_set(dig, "2", 0)
+    map_set(dig, "3", 0)
+    map_set(dig, "4", 0)
+    map_set(dig, "5", 0)
+    map_set(dig, "6", 0)
+    map_set(dig, "7", 0)
+    map_set(dig, "8", 0)
+    map_set(dig, "9", 0)
+
+    // is_alpha: 'a'..'z', 'A'..'Z', '_'
+    al = map_new()
+    map_set(al, "a", 0)
+    map_set(al, "b", 0)
+    map_set(al, "c", 0)
+    map_set(al, "d", 0)
+    map_set(al, "e", 0)
+    map_set(al, "f", 0)
+    map_set(al, "g", 0)
+    map_set(al, "h", 0)
+    map_set(al, "i", 0)
+    map_set(al, "j", 0)
+    map_set(al, "k", 0)
+    map_set(al, "l", 0)
+    map_set(al, "m", 0)
+    map_set(al, "n", 0)
+    map_set(al, "o", 0)
+    map_set(al, "p", 0)
+    map_set(al, "q", 0)
+    map_set(al, "r", 0)
+    map_set(al, "s", 0)
+    map_set(al, "t", 0)
+    map_set(al, "u", 0)
+    map_set(al, "v", 0)
+    map_set(al, "w", 0)
+    map_set(al, "x", 0)
+    map_set(al, "y", 0)
+    map_set(al, "z", 0)
+    map_set(al, "A", 0)
+    map_set(al, "B", 0)
+    map_set(al, "C", 0)
+    map_set(al, "D", 0)
+    map_set(al, "E", 0)
+    map_set(al, "F", 0)
+    map_set(al, "G", 0)
+    map_set(al, "H", 0)
+    map_set(al, "I", 0)
+    map_set(al, "J", 0)
+    map_set(al, "K", 0)
+    map_set(al, "L", 0)
+    map_set(al, "M", 0)
+    map_set(al, "N", 0)
+    map_set(al, "O", 0)
+    map_set(al, "P", 0)
+    map_set(al, "Q", 0)
+    map_set(al, "R", 0)
+    map_set(al, "S", 0)
+    map_set(al, "T", 0)
+    map_set(al, "U", 0)
+    map_set(al, "V", 0)
+    map_set(al, "W", 0)
+    map_set(al, "X", 0)
+    map_set(al, "Y", 0)
+    map_set(al, "Z", 0)
+    map_set(al, "_", 0)
+
+    n = len(source)
+    pos <- 0
+    line <- 1
+    pend_c <- -1
+    pend_l <- 0
+    has_err <- 0
+    eof <- false
+    [!eof] {
+        // skip_whitespace(): spaces/CRs/tabs; a // comment is consumed and
+        // kept as pending trivia for the next token (only the last comment
+        // before a token survives, exactly like the C lexer's overwrite).
+        ws <- true
+        [(ws)] {
+            wc = str_sub(source, pos, pos + 1)
+            hit <- false
+            [(str_eq(wc, " ") || str_eq(wc, "\r") || str_eq(wc, "\t"))] {
+                pos += 1
+                hit <- true
+                break
+            }
+            [(!hit && str_eq(wc, "/") && str_eq(str_sub(source, pos + 1, pos + 2), "/"))] {
+                pend_c <- pos
+                [pos < n && !str_eq(str_sub(source, pos, pos + 1), "\n")] { pos += 1 }
+                pend_l <- pos - pend_c
+                hit <- true
+                break
+            }
+            [(!hit)] { ws <- false; break }
+        }
+
+        start = pos
+        [(pos >= n)] {
+            // is_at_end: emit the EOF token and stop, printing nothing
+            // (dump_tokens breaks on EOF before printing).
+            vec_push(toks, Token { kind: TokenKind.Eof, start: start, length: 0, line: line, comment_start: pend_c, comment_length: pend_l })
+            pend_c <- -1
+            pend_l <- 0
+            eof <- true
+            break
+        }
+        [(!eof)] {
+            c0 = str_sub(source, pos, pos + 1)
+            pos += 1
+            k <- -1
+
+            // '\n' produces a NEWLINE token; line increments afterwards.
+            [(k == -1 && str_eq(c0, "\n"))] { k <- TokenKind.Newline; break }
+
+            // identifier(): [A-Za-z_][A-Za-z0-9_]*. Any identifier whose
+            // FIRST character is '_' is TOK_UNDERSCORE regardless of length
+            // (identifier_type's case '_'), otherwise keyword table or IDENT.
+            [(k == -1 && map_has(al, c0))] {
+                [map_has(al, str_sub(source, pos, pos + 1)) || map_has(dig, str_sub(source, pos, pos + 1))] { pos += 1 }
+                [(str_eq(c0, "_"))] { k <- TokenKind.Underscore; break }
+                [(k == -1)] {
+                    kk = map_get(kw, str_sub(source, start, pos))
+                    k <- kk == -1 ? TokenKind.Ident : kk
+                    break
+                }
+                break
+            }
+
+            // number(): digits/underscores; '.' starts a FLOAT only when
+            // followed by a digit (peek_next), fraction also allows '_'.
+            [(k == -1 && map_has(dig, c0))] {
+                [map_has(dig, str_sub(source, pos, pos + 1)) || str_eq(str_sub(source, pos, pos + 1), "_")] { pos += 1 }
+                [(str_eq(str_sub(source, pos, pos + 1), ".") && map_has(dig, str_sub(source, pos + 1, pos + 2)))] {
+                    pos += 1
+                    [map_has(dig, str_sub(source, pos, pos + 1)) || str_eq(str_sub(source, pos, pos + 1), "_")] { pos += 1 }
+                    k <- TokenKind.Float
+                    break
+                }
+                [(k == -1)] { k <- TokenKind.Int; break }
+                break
+            }
+
+            // string(): scan to the closing quote. A raw newline inside is
+            // E03 (line still counts up); '\' consumes the next char, and
+            // only \\ \" \n \r \t \0 are valid escapes — anything else is
+            // E01 at lex time. Running off the end is E02 + an EOF token.
+            [(k == -1 && str_eq(c0, "\""))] {
+                scanning <- true
+                [(scanning)] {
+                    sc = str_sub(source, pos, pos + 1)
+                    [(pos >= n || str_eq(sc, "\""))] { scanning <- false; break }
+                    [(scanning)] {
+                        [(str_eq(sc, "\n"))] {
+                            has_err <- 1
+                            eprint(diag_line(path, line, 3, "newline in string literal"))
+                            line += 1
+                            break
+                        }
+                        [(str_eq(sc, "\\") && pos + 1 < n)] {
+                            pos += 1
+                            ec = str_sub(source, pos, pos + 1)
+                            ok = str_eq(ec, "\\") || str_eq(ec, "\"") || str_eq(ec, "n") || str_eq(ec, "r") || str_eq(ec, "t") || str_eq(ec, "0")
+                            [(!ok)] {
+                                has_err <- 1
+                                eprint(diag_line(path, line, 1, str_cat(str_cat("unsupported escape sequence '\\", ec), "'")))
+                                break
+                            }
+                            break
+                        }
+                        pos += 1
+                        break
+                    }
+                }
+                [(pos >= n)] {
+                    has_err <- 1
+                    eprint(diag_line(path, line, 2, "unterminated string literal"))
+                    k <- TokenKind.Eof
+                    break
+                }
+                [(k == -1)] { pos += 1; k <- TokenKind.String; break }
+                break
+            }
+
+            // Single-character punctuation.
+            [(k == -1 && str_eq(c0, "{"))] { k <- TokenKind.Lbrace; break }
+            [(k == -1 && str_eq(c0, "}"))] { k <- TokenKind.Rbrace; break }
+            [(k == -1 && str_eq(c0, "("))] { k <- TokenKind.Lparen; break }
+            [(k == -1 && str_eq(c0, ")"))] { k <- TokenKind.Rparen; break }
+            [(k == -1 && str_eq(c0, "["))] { k <- TokenKind.Lbracket; break }
+            [(k == -1 && str_eq(c0, "]"))] { k <- TokenKind.Rbracket; break }
+            [(k == -1 && str_eq(c0, ","))] { k <- TokenKind.Comma; break }
+            [(k == -1 && str_eq(c0, ";"))] { k <- TokenKind.Semicolon; break }
+            [(k == -1 && str_eq(c0, "^"))] { k <- TokenKind.Caret; break }
+
+            // Multi-character operators: each match() consumes on success.
+            [(k == -1 && str_eq(c0, "?"))] {
+                [(str_eq(str_sub(source, pos, pos + 1), "?"))] { pos += 1; k <- TokenKind.QuestionQuestion; break }
+                [(k == -1)] { k <- TokenKind.Question; break }
+                break
+            }
+            [(k == -1 && str_eq(c0, "."))] {
+                [(str_eq(str_sub(source, pos, pos + 1), "."))] {
+                    pos += 1
+                    [(str_eq(str_sub(source, pos, pos + 1), "."))] { pos += 1; k <- TokenKind.DotDotDot; break }
+                    [(k == -1)] { k <- TokenKind.DotDot; break }
+                    break
+                }
+                [(k == -1)] { k <- TokenKind.Dot; break }
+                break
+            }
+            [(k == -1 && str_eq(c0, "+"))] {
+                [(str_eq(str_sub(source, pos, pos + 1), "="))] { pos += 1; k <- TokenKind.PlusEq; break }
+                [(k == -1)] { k <- TokenKind.Plus; break }
+                break
+            }
+            [(k == -1 && str_eq(c0, "-"))] {
+                [(str_eq(str_sub(source, pos, pos + 1), "="))] { pos += 1; k <- TokenKind.MinusEq; break }
+                [(k == -1 && str_eq(str_sub(source, pos, pos + 1), ">"))] { pos += 1; k <- TokenKind.Rarrow; break }
+                [(k == -1)] { k <- TokenKind.Minus; break }
+                break
+            }
+            [(k == -1 && str_eq(c0, "*"))] {
+                [(str_eq(str_sub(source, pos, pos + 1), "="))] { pos += 1; k <- TokenKind.StarEq; break }
+                [(k == -1)] { k <- TokenKind.Star; break }
+                break
+            }
+            [(k == -1 && str_eq(c0, "/"))] {
+                [(str_eq(str_sub(source, pos, pos + 1), "="))] { pos += 1; k <- TokenKind.SlashEq; break }
+                [(k == -1)] { k <- TokenKind.Slash; break }
+                break
+            }
+            [(k == -1 && str_eq(c0, "%"))] {
+                [(str_eq(str_sub(source, pos, pos + 1), "="))] { pos += 1; k <- TokenKind.PercentEq; break }
+                [(k == -1)] { k <- TokenKind.Percent; break }
+                break
+            }
+            [(k == -1 && str_eq(c0, "="))] {
+                [(str_eq(str_sub(source, pos, pos + 1), "="))] { pos += 1; k <- TokenKind.EqEq; break }
+                [(k == -1 && str_eq(str_sub(source, pos, pos + 1), ">"))] { pos += 1; k <- TokenKind.FatArrow; break }
+                [(k == -1)] { k <- TokenKind.Eq; break }
+                break
+            }
+            [(k == -1 && str_eq(c0, "!"))] {
+                [(str_eq(str_sub(source, pos, pos + 1), "="))] { pos += 1; k <- TokenKind.BangEq; break }
+                [(k == -1)] { k <- TokenKind.Bang; break }
+                break
+            }
+            [(k == -1 && str_eq(c0, "<"))] {
+                [(str_eq(str_sub(source, pos, pos + 1), "="))] { pos += 1; k <- TokenKind.Lte; break }
+                [(k == -1 && str_eq(str_sub(source, pos, pos + 1), "<"))] { pos += 1; k <- TokenKind.Lshift; break }
+                [(k == -1 && str_eq(str_sub(source, pos, pos + 1), "-"))] { pos += 1; k <- TokenKind.Larrow; break }
+                [(k == -1)] { k <- TokenKind.Lt; break }
+                break
+            }
+            [(k == -1 && str_eq(c0, ">"))] {
+                [(str_eq(str_sub(source, pos, pos + 1), "="))] { pos += 1; k <- TokenKind.Gte; break }
+                [(k == -1 && str_eq(str_sub(source, pos, pos + 1), ">"))] { pos += 1; k <- TokenKind.Rshift; break }
+                [(k == -1)] { k <- TokenKind.Gt; break }
+                break
+            }
+            [(k == -1 && str_eq(c0, "&"))] {
+                [(str_eq(str_sub(source, pos, pos + 1), "&"))] { pos += 1; k <- TokenKind.AndAnd; break }
+                [(k == -1)] { k <- TokenKind.Amp; break }
+                break
+            }
+            [(k == -1 && str_eq(c0, "|"))] {
+                [(str_eq(str_sub(source, pos, pos + 1), "|"))] { pos += 1; k <- TokenKind.OrOr; break }
+                [(k == -1)] { k <- TokenKind.Pipe; break }
+                break
+            }
+            [(k == -1 && str_eq(c0, ":"))] {
+                [(str_eq(str_sub(source, pos, pos + 1), "="))] { pos += 1; k <- TokenKind.ColonEq; break }
+                [(k == -1)] { k <- TokenKind.Colon; break }
+                break
+            }
+
+            // Anything else is E01; lexer_next returns an EOF token, which
+            // makes the dump loop stop right here.
+            [(k == -1)] {
+                has_err <- 1
+                eprint(diag_line(path, line, 1, str_cat(str_cat("unexpected character '", c0), "'")))
+                k <- TokenKind.Eof
+                break
+            }
+
+            // make_token(): attach and clear pending comment trivia.
+            vec_push(toks, Token { kind: k, start: start, length: pos - start, line: line, comment_start: pend_c, comment_length: pend_l })
+            pend_c <- -1
+            pend_l <- 0
+
+            // The stream ends at the first EOF token; '\n' bumps the line
+            // counter after its NEWLINE token was made, like make_token.
+            [(k == TokenKind.Eof)] { eof <- true; break }
+            [(k == TokenKind.Newline)] { line += 1; break }
+            break
+        }
+    }
+    has_err
+}
+
+// dump_tokens() in src/main.c: print every token but NEWLINE, stopping at
+// EOF (which lex_scan already made the last token).
+lex_dump source:str path:str -> i64 -> {
+    toks = vec_new()
+    has_err = lex_scan(source, path, toks)
+    count = vec_len(toks)
+    [j <- 0..count] {
+        k = tk_kind(toks, j)
+        [(k != TokenKind.Eof && k != TokenKind.Newline)] {
+            nm = token_kind_name(k)
+            lexed = k == TokenKind.Ident || k == TokenKind.Int || k == TokenKind.Float || k == TokenKind.String
+            print(lexed ? str_cat(str_cat(nm, " "), tk_lex(source, toks, j)) : nm)
+            break
+        }
+    }
+    has_err
+}
