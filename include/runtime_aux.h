@@ -735,4 +735,237 @@ static const char TIQ_RUNTIME_PRELUDE_AUX8[] =
     "    return r;\n"
     "}\n";
 
+// M13.1-P3: growable arrays (LANGUAGE_SPEC §19.7). Type-generic byte
+// buffer; element size is fixed by the first push. Out-of-range access
+// and pop-on-empty abort deterministically. Memory policy: leak, never
+// dangle (§16.4 does not apply to vecs). Kept in its own chunk to stay
+// under the ISO C 4095-character string-literal limit.
+static const char TIQ_RUNTIME_PRELUDE_AUX9[] =
+    "typedef struct { unsigned char *data; int64_t len; int64_t cap; int64_t elem_size; } TiqVec;\n\n"
+
+    "static TiqVec *tiq_vec_new(void) {\n"
+    "    TiqVec *v = (TiqVec *)tiq_alloc(sizeof(TiqVec));\n"
+    "    v->data = NULL;\n"
+    "    v->len = 0;\n"
+    "    v->cap = 0;\n"
+    "    v->elem_size = 0;\n"
+    "    return v;\n"
+    "}\n\n"
+
+    "static void tiq_vec_reserve(TiqVec *v, int64_t elem_size) {\n"
+    "    if (v->elem_size == 0) v->elem_size = elem_size;\n"
+    "    if (v->len < v->cap) return;\n"
+    "    int64_t nc = v->cap == 0 ? 8 : v->cap * 2;\n"
+    "    unsigned char *nd = (unsigned char *)tiq_alloc((size_t)(nc * v->elem_size));\n"
+    "    if (v->len > 0) memcpy(nd, v->data, (size_t)(v->len * v->elem_size));\n"
+    "    v->data = nd;\n"
+    "    v->cap = nc;\n"
+    "}\n\n"
+
+    "static int64_t tiq_vec_len(TiqVec *v) {\n"
+    "    return v->len;\n"
+    "}\n\n"
+
+    "static unsigned char *tiq_vec_slot(TiqVec *v, int64_t i) {\n"
+    "    if (i < 0 || i >= v->len) {\n"
+    "        fprintf(stderr, \"tiq: vec index %lld out of bounds for vec of length %lld\\n\",\n"
+    "                (long long)i, (long long)v->len);\n"
+    "        exit(1);\n"
+    "    }\n"
+    "    return v->data + (size_t)(i * v->elem_size);\n"
+    "}\n\n"
+
+    "static unsigned char *tiq_vec_push_slot(TiqVec *v, int64_t elem_size) {\n"
+    "    tiq_vec_reserve(v, elem_size);\n"
+    "    return v->data + (size_t)(v->len++ * v->elem_size);\n"
+    "}\n\n"
+
+    "static int64_t tiq_vec_push_i64(TiqVec *v, int64_t x) {\n"
+    "    memcpy(tiq_vec_push_slot(v, (int64_t)sizeof(int64_t)), &x, sizeof(int64_t));\n"
+    "    return v->len;\n"
+    "}\n\n"
+
+    "static int64_t tiq_vec_push_str(TiqVec *v, const char *s) {\n"
+    "    const char *d = tiq_str_dup(s ? s : \"\");\n"
+    "    memcpy(tiq_vec_push_slot(v, (int64_t)sizeof(const char *)), &d, sizeof(const char *));\n"
+    "    return v->len;\n"
+    "}\n\n"
+
+    "static int64_t tiq_vec_set_str(TiqVec *v, int64_t i, const char *s) {\n"
+    "    const char *d = tiq_str_dup(s ? s : \"\");\n"
+    "    memcpy(tiq_vec_slot(v, i), &d, sizeof(const char *));\n"
+    "    return 0;\n"
+    "}\n\n"
+
+    "static int64_t tiq_vec_set_i64(TiqVec *v, int64_t i, int64_t x) {\n"
+    "    memcpy(tiq_vec_slot(v, i), &x, sizeof(int64_t));\n"
+    "    return 0;\n"
+    "}\n\n"
+
+    "static unsigned char *tiq_vec_pop(TiqVec *v) {\n"
+    "    if (v->len == 0) {\n"
+    "        fprintf(stderr, \"tiq: vec_pop on empty vec\\n\");\n"
+    "        exit(1);\n"
+    "    }\n"
+    "    v->len--;\n"
+    "    return v->data + (size_t)(v->len * v->elem_size);\n"
+    "}\n";
+
+// M13.1-P4: string builder (LANGUAGE_SPEC §19.8). NUL-terminated byte
+// buffer growing by doubling from capacity 16, so append is amortized
+// O(1); to_str returns a fresh heap snapshot (owned per §16.4). Handle
+// and buffer: leak, never dangle. Fresh chunk to stay under the ISO C
+// 4095-character string-literal limit.
+static const char TIQ_RUNTIME_PRELUDE_AUX10[] =
+    "typedef struct { char *data; int64_t len; int64_t cap; } TiqStrBuf;\n\n"
+
+    "static TiqStrBuf *tiq_str_buf_new(void) {\n"
+    "    TiqStrBuf *b = (TiqStrBuf *)tiq_alloc(sizeof(TiqStrBuf));\n"
+    "    b->cap = 16;\n"
+    "    b->data = (char *)tiq_alloc((size_t)b->cap);\n"
+    "    b->data[0] = '\\0';\n"
+    "    b->len = 0;\n"
+    "    return b;\n"
+    "}\n\n"
+
+    "static int64_t tiq_str_buf_len(TiqStrBuf *b) {\n"
+    "    return b->len;\n"
+    "}\n\n"
+
+    "static int64_t tiq_str_buf_append(TiqStrBuf *b, const char *s) {\n"
+    "    size_t n = s ? strlen(s) : 0;\n"
+    "    if (n == 0) return b->len;\n"
+    "    int64_t need = b->len + (int64_t)n + 1;\n"
+    "    if (need > b->cap) {\n"
+    "        int64_t nc = b->cap;\n"
+    "        while (nc < need) nc *= 2;\n"
+    "        char *nd = (char *)tiq_alloc((size_t)nc);\n"
+    "        memcpy(nd, b->data, (size_t)b->len + 1);\n"
+    "        b->data = nd;\n"
+    "        b->cap = nc;\n"
+    "    }\n"
+    "    memcpy(b->data + b->len, s, n);\n"
+    "    b->len += (int64_t)n;\n"
+    "    b->data[b->len] = '\\0';\n"
+    "    return b->len;\n"
+    "}\n\n"
+
+    "static const char *tiq_str_buf_to_str(TiqStrBuf *b) {\n"
+    "    char *s = (char *)tiq_alloc((size_t)b->len + 1);\n"
+    "    memcpy(s, b->data, (size_t)b->len + 1);\n"
+    "    return s;\n"
+    "}\n";
+
+// M13.1-P5: hash map with str keys and int values (LANGUAGE_SPEC §19.9).
+// FNV-1a 64-bit (fixed constants, never seeded), open addressing with
+// linear probing over a power-of-two bucket array (initial 8, load factor
+// <= 0.7, deterministic doubling rehash in insertion order). Entries live
+// in separate insertion-order parallel arrays so iteration never touches
+// bucket order. Keys are duplicated on first insert (map-owned); handle,
+// buckets, entries, and keys leak, never dangle. Fresh chunk to stay under
+// the ISO C 4095-character string-literal limit.
+static const char TIQ_RUNTIME_PRELUDE_AUX11[] =
+    "typedef struct { const char **keys; int64_t *vals; int64_t len; int64_t cap; int64_t *buckets; int64_t nbuckets; } TiqMap;\n\n"
+
+    "static uint64_t tiq_map_hash(const char *s) {\n"
+    "    uint64_t h = 14695981039346656037ULL;\n"
+    "    while (*s) {\n"
+    "        h ^= (uint64_t)(unsigned char)*s++;\n"
+    "        h *= 1099511628211ULL;\n"
+    "    }\n"
+    "    return h;\n"
+    "}\n\n"
+
+    "static TiqMap *tiq_map_new(void) {\n"
+    "    TiqMap *m = (TiqMap *)tiq_alloc(sizeof(TiqMap));\n"
+    "    m->keys = NULL;\n"
+    "    m->vals = NULL;\n"
+    "    m->len = 0;\n"
+    "    m->cap = 0;\n"
+    "    m->nbuckets = 8;\n"
+    "    m->buckets = (int64_t *)tiq_alloc((size_t)m->nbuckets * sizeof(int64_t));\n"
+    "    for (int64_t i = 0; i < m->nbuckets; i++) m->buckets[i] = -1;\n"
+    "    return m;\n"
+    "}\n\n"
+
+    "static void tiq_map_place(TiqMap *m, int64_t e) {\n"
+    "    int64_t b = (int64_t)(tiq_map_hash(m->keys[e]) & (uint64_t)(m->nbuckets - 1));\n"
+    "    while (m->buckets[b] >= 0) b = (b + 1) & (m->nbuckets - 1);\n"
+    "    m->buckets[b] = e;\n"
+    "}\n\n"
+
+    "static void tiq_map_rehash(TiqMap *m) {\n"
+    "    m->nbuckets *= 2;\n"
+    "    m->buckets = (int64_t *)tiq_alloc((size_t)m->nbuckets * sizeof(int64_t));\n"
+    "    for (int64_t i = 0; i < m->nbuckets; i++) m->buckets[i] = -1;\n"
+    "    for (int64_t e = 0; e < m->len; e++) tiq_map_place(m, e);\n"
+    "}\n\n"
+
+    "static int64_t tiq_map_find(TiqMap *m, const char *k) {\n"
+    "    int64_t b = (int64_t)(tiq_map_hash(k) & (uint64_t)(m->nbuckets - 1));\n"
+    "    for (;;) {\n"
+    "        int64_t e = m->buckets[b];\n"
+    "        if (e < 0) return -1;\n"
+    "        if (strcmp(m->keys[e], k) == 0) return e;\n"
+    "        b = (b + 1) & (m->nbuckets - 1);\n"
+    "    }\n"
+    "}\n\n"
+
+    "static int64_t tiq_map_set(TiqMap *m, const char *k, int64_t v) {\n"
+    "    const char *kk = k ? k : \"\";\n"
+    "    int64_t e = tiq_map_find(m, kk);\n"
+    "    if (e >= 0) {\n"
+    "        m->vals[e] = v;\n"
+    "        return m->len;\n"
+    "    }\n"
+    "    if ((m->len + 1) * 10 > m->nbuckets * 7) tiq_map_rehash(m);\n"
+    "    if (m->len == m->cap) {\n"
+    "        int64_t nc = m->cap == 0 ? 8 : m->cap * 2;\n"
+    "        const char **nk = (const char **)tiq_alloc((size_t)nc * sizeof(const char *));\n"
+    "        int64_t *nv = (int64_t *)tiq_alloc((size_t)nc * sizeof(int64_t));\n"
+    "        if (m->len > 0) {\n"
+    "            memcpy(nk, m->keys, (size_t)m->len * sizeof(const char *));\n"
+    "            memcpy(nv, m->vals, (size_t)m->len * sizeof(int64_t));\n"
+    "        }\n"
+    "        m->keys = nk;\n"
+    "        m->vals = nv;\n"
+    "        m->cap = nc;\n"
+    "    }\n"
+    "    m->keys[m->len] = tiq_str_dup(kk);\n"
+    "    m->vals[m->len] = v;\n"
+    "    tiq_map_place(m, m->len);\n"
+    "    m->len++;\n"
+    "    return m->len;\n"
+    "}\n\n"
+
+    "static int64_t tiq_map_get(TiqMap *m, const char *k) {\n"
+    "    int64_t e = tiq_map_find(m, k ? k : \"\");\n"
+    "    return e >= 0 ? m->vals[e] : -1;\n"
+    "}\n\n"
+
+    "static int64_t tiq_map_has(TiqMap *m, const char *k) {\n"
+    "    return tiq_map_find(m, k ? k : \"\") >= 0 ? 1 : 0;\n"
+    "}\n\n"
+
+    "static int64_t tiq_map_len(TiqMap *m) {\n"
+    "    return m->len;\n"
+    "}\n\n"
+
+    "static int64_t tiq_map_index(TiqMap *m, int64_t i) {\n"
+    "    if (i < 0 || i >= m->len) {\n"
+    "        fprintf(stderr, \"tiq: map index %lld out of bounds for map of length %lld\\n\",\n"
+    "                (long long)i, (long long)m->len);\n"
+    "        exit(1);\n"
+    "    }\n"
+    "    return i;\n"
+    "}\n\n"
+
+    "static const char *tiq_map_key_at(TiqMap *m, int64_t i) {\n"
+    "    return m->keys[tiq_map_index(m, i)];\n"
+    "}\n\n"
+
+    "static int64_t tiq_map_val_at(TiqMap *m, int64_t i) {\n"
+    "    return m->vals[tiq_map_index(m, i)];\n"
+    "}\n";
+
 #endif

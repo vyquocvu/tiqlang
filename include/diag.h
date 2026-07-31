@@ -32,7 +32,9 @@ typedef enum {
     ERR_BORROW = 23,           // M9.1: borrow rule violations (LANGUAGE_SPEC §16.3)
     ERR_DUPLICATE_ENUM = 24,   // M13.1-P2: duplicate enum name / enum-struct name collision (§17.5)
     ERR_DUPLICATE_VARIANT = 25,// M13.1-P2: duplicate variant name within one enum (§17.5)
-    ERR_UNKNOWN_VARIANT = 26   // M13.1-P2: Name.X where X is not a variant of enum Name (§17.5)
+    ERR_UNKNOWN_VARIANT = 26,  // M13.1-P2: Name.X where X is not a variant of enum Name (§17.5)
+    ERR_MODULE_NOT_FOUND = 27, // M13.1-P6: import of a missing/unreadable file (§17.6)
+    ERR_CIRCULAR_IMPORT = 28   // M13.1-P6: cyclic import chain (§17.6)
 } ErrorCode;
 // ERR_EXPECTED_PRINT/ERR_EXPECTED_STRING (dead since the print statement was
 // removed) were retired before this numbering was first pinned and printed,

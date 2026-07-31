@@ -11,6 +11,7 @@
 #include "../include/semantic.h"
 #include "../include/type.h"
 #include "../include/emit_c.h"
+#include "../include/module.h"
 
 #define TIQ_VERSION "0.1.0-dev"
 
@@ -34,9 +35,13 @@ static char *read_all(const char *path) {
 
 
 static int compile_file_to_c_stream(const char *input, FILE *out, DiagContext *diag) {
-    char *source = read_all(input);
-    compile_to_c(input, source, out, diag);
-    free(source);
+    // M13.1-P6: DFS-load the root file and its imports (canonical-path
+    // dedupe, cycle detection), then compile the post-order module list
+    // into a single C translation unit (LANGUAGE_SPEC §17.6).
+    Program prog;
+    if (!program_load(&prog, input, diag)) { program_free(&prog); return 1; }
+    compile_modules_to_c(prog.sem, prog.count, input, out, diag);
+    program_free(&prog);
     if (diag->has_error) return 1;
     if (ferror(out)) { fprintf(stderr, "tiq: cannot write generated C: %s\n", strerror(errno)); return 1; }
     return 0;
@@ -171,22 +176,18 @@ static int dump_typed_ast(const char *input, DiagContext *diag) {
 static int cmd_check(const char *input) {
     DiagContext diag;
     diag_init(&diag);
-    char *source = read_all(input);
-    Parser parser;
-    parser_init(&parser, source, input, &diag);
-    int count;
-    AstNode **stmts = parser_parse(&parser, &count);
-    if (diag.has_error) {
-        parser_free(&parser);
-        free(source);
+    // M13.1-P6: checking resolves imports too, so cross-module symbols
+    // are visible (flat namespace over the post-order module list).
+    Program prog;
+    if (!program_load(&prog, input, &diag)) {
+        program_free(&prog);
         return 1;
     }
     TypePool pool;
     type_pool_init(&pool);
-    semantic_check(stmts, count, input, &diag, &pool);
-    parser_free(&parser);
+    semantic_check_modules(prog.sem, prog.count, &diag, &pool);
+    program_free(&prog);
     type_pool_free(&pool);
-    free(source);
     return diag.has_error ? 1 : 0;
 }
 

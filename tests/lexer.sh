@@ -99,4 +99,12 @@ IDENT Color'
 assert_lexer "enum_near_miss" 'enums enu' 'IDENT enums
 IDENT enu'
 
+# M13.1-P6: 'import' is a reserved word (LANGUAGE_SPEC §4, §17.6).
+assert_lexer "import_keyword" 'import "lib.tiq"' 'IMPORT
+STRING "lib.tiq"'
+
+# Near-miss identifiers must stay identifiers.
+assert_lexer "import_near_miss" 'imports impor' 'IDENT imports
+IDENT impor'
+
 echo "lexer: ok"

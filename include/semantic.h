@@ -30,6 +30,15 @@ typedef enum {
     TYPE_U64,
     TYPE_F32,
     TYPE_NEVER,
+    // M13.1-P3: growable array handle (LANGUAGE_SPEC §19.7); element type
+    // lives in element_type, NULL until the first vec_push establishes it.
+    TYPE_VEC,
+    // M13.1-P4: growable string buffer handle (LANGUAGE_SPEC §19.8);
+    // not parametrized — the contents are always bytes.
+    TYPE_STRBUF,
+    // M13.1-P5: insertion-ordered hash map handle (LANGUAGE_SPEC §19.9);
+    // not parametrized — keys are always str and values always int.
+    TYPE_MAP,
     // Canonical aliases: the inference defaults TYPE_INT/TYPE_FLOAT are
     // i64/f64 (LANGUAGE_SPEC §11); sharing values keeps pooled types unique.
     TYPE_I64 = TYPE_INT,
@@ -69,6 +78,18 @@ typedef struct Environment {
 typedef struct TypePool TypePool;
 
 void semantic_check(AstNode **stmts, int count, const char *path, DiagContext *diag, TypePool *pool);
+
+// M13.1-P6: one module's top-level statements (imports already stripped)
+// plus the path used for its diagnostics. A multi-file program is checked
+// as the post-order module sequence over one shared registry set, so
+// struct/enum registries and function symbols span modules (§17.6).
+typedef struct {
+    AstNode **stmts;
+    int count;
+    const char *path;
+} SemanticModule;
+
+void semantic_check_modules(SemanticModule *mods, int mod_count, DiagContext *diag, TypePool *pool);
 
 // Environment primitives, exposed for the unit test harness (tests/unit/).
 void env_init(Environment *env, Environment *parent);

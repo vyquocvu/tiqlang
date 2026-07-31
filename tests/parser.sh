@@ -224,4 +224,15 @@ BINDING x
   FIELD_ACCESS Red
     IDENT Color'
 
+# M13.1-P6: import declarations parse at the top of a file; the path is
+# a string literal (LANGUAGE_SPEC §17.6, GRAMMAR import_decl).
+assert_parser "import_decl" 'import "lib.tiq"
+x = 1' 'IMPORT "lib.tiq"
+BINDING x
+  INT 1'
+
+assert_parser "import_two" 'import "a.tiq"
+import "sub/b.tiq"' 'IMPORT "a.tiq"
+IMPORT "sub/b.tiq"'
+
 echo "parser: ok"

@@ -40,6 +40,11 @@ SemanticType *type_get_result(TypePool *pool, SemanticType *inner, SemanticType 
 // referent type; refs only appear as function parameter types (LANGUAGE_SPEC §16.3).
 SemanticType *type_get_ref(TypePool *pool, SemanticType *element, bool is_mut);
 
+// M13.1-P3: Growable array types (LANGUAGE_SPEC §19.7). Structural linear
+// interning on the element type; element == NULL is the canonical
+// "element type not yet established" vec returned by vec_new().
+SemanticType *type_get_vec(TypePool *pool, SemanticType *element);
+
 // User-facing type name for diagnostics ("expected <T>, found <U>"),
 // e.g. "int", "str", "[3]int", "[]int". The parser keeps its own
 // TYPE_* dump format for golden ASTs.

@@ -1303,4 +1303,159 @@ pop_status=0
 printf 'tiq: vec_pop on empty vec\n' > "$TMP_DIR/p3_vec_pop_empty.err.expected"
 cmp "$TMP_DIR/p3_vec_pop_empty.err" "$TMP_DIR/p3_vec_pop_empty.err.expected"
 
+# M13.1-P4: StrBuf end-to-end — append/len/to_str; to_str is a snapshot,
+# later appends do not change it (LANGUAGE_SPEC §19.8). Output pinned.
+cat > "$TMP_DIR/p4_strbuf.tiq" <<'EOF'
+sb = str_buf_new()
+print(str_buf_len(sb))
+n = str_buf_append(sb, "Hello")
+print(n)
+str_buf_append(sb, ", ")
+str_buf_append(sb, "World")
+str_buf_append(sb, "")
+s = str_buf_to_str(sb)
+print(s)
+print(str_buf_len(sb))
+str_buf_append(sb, "!")
+t = str_buf_to_str(sb)
+print(t)
+print(s)
+print(len(t))
+EOF
+./build/tiq build "$TMP_DIR/p4_strbuf.tiq" -o "$TMP_DIR/p4_strbuf"
+"$TMP_DIR/p4_strbuf" > "$TMP_DIR/p4_strbuf.out"
+printf '0\n5\nHello, World\n12\nHello, World!\nHello, World\n13\n' > "$TMP_DIR/p4_strbuf.expected"
+cmp "$TMP_DIR/p4_strbuf.out" "$TMP_DIR/p4_strbuf.expected"
+
+# M13.1-P4: stress — 1000 appends of a 16-byte chunk accumulate 16000 bytes
+# (>= 10 KB) through the doubling growth path; exact length and boundary
+# substrings pinned. This is the O(n) guarantee the Tiq emitter port (S4)
+# relies on; an O(n²) concat regression would time this out (§19.8).
+cat > "$TMP_DIR/p4_strbuf_stress.tiq" <<'EOF'
+sb = str_buf_new()
+[0..1000] { str_buf_append(sb, "0123456789ABCDEF") }
+print(str_buf_len(sb))
+s = str_buf_to_str(sb)
+print(len(s))
+print(str_sub(s, 0, 16))
+print(str_sub(s, 15984, 16000))
+EOF
+./build/tiq build "$TMP_DIR/p4_strbuf_stress.tiq" -o "$TMP_DIR/p4_strbuf_stress"
+"$TMP_DIR/p4_strbuf_stress" > "$TMP_DIR/p4_strbuf_stress.out"
+printf '16000\n16000\n0123456789ABCDEF\n0123456789ABCDEF\n' > "$TMP_DIR/p4_strbuf_stress.expected"
+cmp "$TMP_DIR/p4_strbuf_stress.out" "$TMP_DIR/p4_strbuf_stress.expected"
+
+# M13.1-P4: str_buf_to_str results are heap-owned and freed at scope end in
+# reverse declaration order, like str_sub in the p1_owned golden (§16.4);
+# the strbuf handle itself is never freed (leak-never-dangle, §19.8).
+cat > "$TMP_DIR/p4_owned.tiq" <<'EOF'
+sb = str_buf_new()
+str_buf_append(sb, "abc")
+a = str_buf_to_str(sb)
+b = str_sub("hello", 0, 2)
+print(a)
+print(b)
+EOF
+./build/tiq emit-c "$TMP_DIR/p4_owned.tiq" > "$TMP_DIR/p4_owned.c"
+grep -o 'free((void \*)[a-z]*);' "$TMP_DIR/p4_owned.c" > "$TMP_DIR/p4_owned.frees" || true
+printf 'free((void *)b);\nfree((void *)a);\n' > "$TMP_DIR/p4_owned.frees.expected"
+cmp "$TMP_DIR/p4_owned.frees" "$TMP_DIR/p4_owned.frees.expected"
+cc -std=c11 -g -fsanitize=address,undefined -o "$TMP_DIR/p4_owned_asan" "$TMP_DIR/p4_owned.c"
+ASAN_OPTIONS=detect_leaks=0 "$TMP_DIR/p4_owned_asan" > "$TMP_DIR/p4_owned.out"
+printf 'abc\nhe\n' > "$TMP_DIR/p4_owned.expected"
+cmp "$TMP_DIR/p4_owned.out" "$TMP_DIR/p4_owned.expected"
+
+# M13.1-P5: Map end-to-end — set/get/has/len, overwrite keeps the length,
+# updates the value, and keeps the insertion position; a missing key yields
+# -1 and map_has false (LANGUAGE_SPEC §19.9). Output pinned.
+cat > "$TMP_DIR/p5_map.tiq" <<'EOF'
+m = map_new()
+print(map_len(m))
+n = map_set(m, "alpha", 1)
+print(n)
+map_set(m, "beta", 2)
+print(map_get(m, "alpha"))
+print(map_get(m, "beta"))
+print(map_has(m, "alpha"))
+print(map_has(m, "gamma"))
+print(map_get(m, "gamma"))
+map_set(m, "alpha", 42)
+print(map_len(m))
+print(map_get(m, "alpha"))
+print(map_key_at(m, 0))
+print(map_key_at(m, 1))
+print(map_val_at(m, 0))
+print(map_has(m, ""))
+map_set(m, "", 7)
+print(map_get(m, ""))
+print(map_len(m))
+EOF
+./build/tiq build "$TMP_DIR/p5_map.tiq" -o "$TMP_DIR/p5_map"
+"$TMP_DIR/p5_map" > "$TMP_DIR/p5_map.out"
+printf '0\n1\n1\n2\ntrue\nfalse\n-1\n2\n42\nalpha\nbeta\n42\nfalse\n7\n3\n' > "$TMP_DIR/p5_map.expected"
+cmp "$TMP_DIR/p5_map.out" "$TMP_DIR/p5_map.expected"
+
+# M13.1-P5: determinism — 12 keys cross the 0.7 load factor twice (8 -> 16
+# -> 32 buckets), a mid-stream overwrite must not move its key, and
+# map_key_at/map_val_at iteration must reproduce insertion order exactly.
+# Golden pinned AND the binary is run twice with byte-identical output
+# (iteration never depends on bucket layout, §19.9).
+cat > "$TMP_DIR/p5_map_iter.tiq" <<'EOF'
+m = map_new()
+map_set(m, "one", 1)
+map_set(m, "two", 2)
+map_set(m, "three", 3)
+map_set(m, "four", 4)
+map_set(m, "five", 5)
+map_set(m, "six", 6)
+map_set(m, "seven", 7)
+map_set(m, "three", 33)
+map_set(m, "eight", 8)
+map_set(m, "nine", 9)
+map_set(m, "ten", 10)
+map_set(m, "eleven", 11)
+map_set(m, "twelve", 12)
+n = map_len(m)
+print(n)
+[0..n] {
+    print(map_key_at(m, i))
+    print(map_val_at(m, i))
+}
+EOF
+./build/tiq build "$TMP_DIR/p5_map_iter.tiq" -o "$TMP_DIR/p5_map_iter"
+"$TMP_DIR/p5_map_iter" > "$TMP_DIR/p5_map_iter.out"
+printf '12\none\n1\ntwo\n2\nthree\n33\nfour\n4\nfive\n5\nsix\n6\nseven\n7\neight\n8\nnine\n9\nten\n10\neleven\n11\ntwelve\n12\n' > "$TMP_DIR/p5_map_iter.expected"
+cmp "$TMP_DIR/p5_map_iter.out" "$TMP_DIR/p5_map_iter.expected"
+"$TMP_DIR/p5_map_iter" > "$TMP_DIR/p5_map_iter.out2"
+cmp "$TMP_DIR/p5_map_iter.out" "$TMP_DIR/p5_map_iter.out2"
+
+# M13.1-P5: map_key_at out of range aborts deterministically (§19.9).
+cat > "$TMP_DIR/p5_map_oob.tiq" <<'EOF'
+m = map_new()
+map_set(m, "a", 1)
+k = map_key_at(m, 1)
+print(k)
+EOF
+./build/tiq build "$TMP_DIR/p5_map_oob.tiq" -o "$TMP_DIR/p5_map_oob"
+map_oob_status=0
+"$TMP_DIR/p5_map_oob" > "$TMP_DIR/p5_map_oob.out" 2> "$TMP_DIR/p5_map_oob.err" || map_oob_status=$?
+[ "$map_oob_status" -eq 1 ]
+printf 'tiq: map index 1 out of bounds for map of length 1\n' > "$TMP_DIR/p5_map_oob.err.expected"
+cmp "$TMP_DIR/p5_map_oob.err" "$TMP_DIR/p5_map_oob.err.expected"
+[ ! -s "$TMP_DIR/p5_map_oob.out" ]
+
+# M13.1-P5: map_val_at with a negative index aborts the same way (§19.9).
+cat > "$TMP_DIR/p5_map_oob_neg.tiq" <<'EOF'
+m = map_new()
+map_set(m, "a", 1)
+v = map_val_at(m, 0 - 1)
+print(v)
+EOF
+./build/tiq build "$TMP_DIR/p5_map_oob_neg.tiq" -o "$TMP_DIR/p5_map_oob_neg"
+map_neg_status=0
+"$TMP_DIR/p5_map_oob_neg" > /dev/null 2> "$TMP_DIR/p5_map_oob_neg.err" || map_neg_status=$?
+[ "$map_neg_status" -eq 1 ]
+printf 'tiq: map index -1 out of bounds for map of length 1\n' > "$TMP_DIR/p5_map_oob_neg.err.expected"
+cmp "$TMP_DIR/p5_map_oob_neg.err" "$TMP_DIR/p5_map_oob_neg.err.expected"
+
 echo "smoke: ok"

@@ -68,7 +68,8 @@ typedef enum {
     TOK_FAT_ARROW,
     TOK_QUESTION_QUESTION,
     TOK_UNDERSCORE,
-    TOK_DOT
+    TOK_DOT,
+    TOK_IMPORT
 } TokenKind;
 
 typedef struct {

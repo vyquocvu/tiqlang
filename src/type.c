@@ -151,6 +151,12 @@ SemanticType *type_get_ref(TypePool *pool, SemanticType *element, bool is_mut) {
     return intern(pool, is_mut ? TYPE_REF_MUT : TYPE_REF, element, 0, 0);
 }
 
+// M13.1-P3: vec types share the generic linear interner (no hashing;
+// deterministic pool order is load-bearing for emission).
+SemanticType *type_get_vec(TypePool *pool, SemanticType *element) {
+    return intern(pool, TYPE_VEC, element, 0, 0);
+}
+
 static const char *kind_display_name(PrimitiveType kind) {
     switch (kind) {
         case TYPE_INT: return "int";
@@ -175,6 +181,9 @@ static const char *kind_display_name(PrimitiveType kind) {
         case TYPE_U64: return "u64";
         case TYPE_F32: return "f32";
         case TYPE_NEVER: return "never";
+        case TYPE_VEC: return "vec";
+        case TYPE_STRBUF: return "strbuf";
+        case TYPE_MAP: return "map";
         default: return "unknown";
     }
 }
@@ -208,6 +217,11 @@ void type_display(const SemanticType *t, char *buf, size_t cap) {
         type_display(t->element_type, elem, sizeof elem);
         snprintf(buf, cap, "&%s%s", t->kind == TYPE_REF_MUT ? "mut " : "",
                  elem[0] ? elem : "unknown");
+    } else if (t->kind == TYPE_VEC && t->element_type) {
+        // M13.1-P3: an unestablished vec (NULL element) displays as "vec".
+        char elem[96] = "";
+        type_display(t->element_type, elem, sizeof elem);
+        snprintf(buf, cap, "vec<%s>", elem[0] ? elem : "unknown");
     } else {
         snprintf(buf, cap, "%s", kind_display_name(t->kind));
     }

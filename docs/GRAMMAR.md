@@ -25,7 +25,8 @@ Implementation status annotation (see also LANGUAGE_SPEC §17 for the complete t
 - 🔴 **Fail-closed** — parsed but rejected at semantic analysis (no code produced)
 
 ```ebnf
-program       = { top_item } ;                                      (* ✅ *)
+program       = { import_decl }, { top_item } ;                    (* ✅ — imports must precede all other top items (M13.1-P6) *)
+import_decl   = "import", string_literal ;                          (* ✅ — M13.1-P6; path relative to importing file *)
 top_item      = function_def | struct_def | enum_def | binding | statement ; (* ✅ *)
 
 function_def  = identifier, { param }, "->", [ type, "->" ], expression ;  (* ✅ — param:type M12.4 *)

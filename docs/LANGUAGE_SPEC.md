@@ -13,6 +13,7 @@ Tiq is a statically typed, ahead-of-time compiled language for small command-lin
 - Newlines separate statements unless grouping is open.
 - `//` starts a line comment.
 - Top-level statements execute in source order inside an implicit program entry point.
+- A program may span multiple files connected by `import` declarations (§17.6). All loaded files share one flat global namespace and compile into a single unit.
 
 ## 3. Design constraints
 
@@ -29,10 +30,10 @@ Identifiers match `[A-Za-z_][A-Za-z0-9_]*`.
 Reserved words in v0.1 (matching the lexer exactly):
 
 ```text
-break chan defer enum false match move mut skip spawn struct true until while
+break chan defer enum false import match move mut skip spawn struct true until while
 ```
 
-`while` and `until` are clause keywords only: they appear in stream generator bounds and predicate slicing (§14). There are no `while`/`for` statement forms (§10). `chan`, `spawn`, `match`, `struct`, and `mut` are reserved for provisional or rejected constructs (§17). `enum` declares named integer constant sets (§17.5).
+`while` and `until` are clause keywords only: they appear in stream generator bounds and predicate slicing (§14). There are no `while`/`for` statement forms (§10). `chan`, `spawn`, `match`, `struct`, and `mut` are reserved for provisional or rejected constructs (§17). `enum` declares named integer constant sets (§17.5). `import` loads another source file into the program (§17.6).
 
 Literals:
 
@@ -443,7 +444,7 @@ Every borrow ends when the call returns. Because borrows cannot be stored, retur
 
 ### 16.4 Scope-bound destruction of owned strings
 
-An immutable binding (`=`) whose initializer is a direct call to a heap-allocating builtin — `fs_read`, `json_encode_str`, `json_get`, `json_arr_get`, `net_fetch`, or any other builtin documented as returning a heap-allocated `str` owned per this section (§19), including `str_sub` and `fs_list` — owns the resulting string. Owned strings are destroyed at the end of the enclosing scope, in reverse declaration order, after that scope's deferred actions have run.
+An immutable binding (`=`) whose initializer is a direct call to a heap-allocating builtin — `fs_read`, `json_encode_str`, `json_get`, `json_arr_get`, `net_fetch`, or any other builtin documented as returning a heap-allocated `str` owned per this section (§19), including `str_sub`, `fs_list`, and `str_buf_to_str` — owns the resulting string. Owned strings are destroyed at the end of the enclosing scope, in reverse declaration order, after that scope's deferred actions have run.
 
 Heap-allocating builtins always return fresh heap storage, including their empty-string failure results. If the runtime cannot allocate, the program terminates deterministically with exit code 1 and the message `tiq: out of memory`.
 
@@ -575,6 +576,39 @@ Rules (all violations are compile-time errors with source location):
 - Using a bare enum name as a value (for example `x = Color`) is rejected (E09: "enum 'Color' is not a value; use Color.<variant>").
 
 Status: implemented — enum declarations and variant references are fully specified, compiled, and tested (M13.1-P2).
+
+### 17.6 Modules (`import`) (implemented)
+
+`import` loads another Tiq source file into the program:
+
+```tiq
+import "lib/util.tiq"
+```
+
+Syntax and position:
+- The operand is a **string literal** path; anything else is a parse error (E04: "expected string literal path after 'import'"). Escape sequences inside the path are not interpreted: the characters between the quotes are used verbatim.
+- Imports are allowed **only at the top of a file**, before any other top-level item. An `import` after a non-import item is rejected (E04: "import must appear before any other top-level item"). `import` inside a block is a parse error (E05).
+- There are no aliases, re-exports, or conditional imports.
+
+Resolution and loading:
+- The path is resolved **relative to the directory of the importing file** (POSIX `/` separators).
+- Modules are loaded depth-first from the root file, in import declaration order.
+- Each file is loaded **at most once**: files are deduplicated by canonical (fully resolved) filesystem path, so the same file imported via different relative spellings loads a single time. Re-imports are skipped silently (diamond imports are legal).
+- A missing or unreadable module is rejected with E27 ("module not found"), reporting the path as written and the source location of the `import`.
+- A cyclic import chain is rejected with E28 ("circular import"), reporting the cycle chain.
+
+Semantics:
+- All loaded modules share **one flat global namespace**: top-level functions, structs, enums, and bindings from every module are visible everywhere. Duplicate top-level definitions across modules are rejected with the same diagnostics as duplicates within one file (E09 duplicate struct, E24 duplicate enum / enum-struct collision).
+- The program compiles into a **single C translation unit**. Modules are emitted in dependency post-order (imported files first; DFS by import declaration order, first visit wins), so top-level statements of an imported module execute before the statements of its importer. Emission is deterministic and contains no filesystem paths.
+- Declaration-before-use rules (§17.2, §17.5) apply to the post-order concatenation of all modules.
+
+Rules (all violations are compile-time errors with source location):
+- The imported file must exist and be readable (E27: `module not found: "<path as written>"`).
+- The import graph must be acyclic (E28: `circular import: a.tiq -> b.tiq -> a.tiq`).
+- `import` must precede every other top-level item in its file (E04).
+- The import operand must be a string literal (E04).
+
+Status: implemented — multi-file programs, canonical-path dedupe, cycle detection, and deterministic post-order emission are fully specified, compiled, and tested (M13.1-P6).
 
 ## 18. Program entry
 
@@ -716,6 +750,47 @@ A vec binding holds a handle with reference semantics: the builtins mutate the v
 **Runtime behavior.** Storage grows by doubling from an initial capacity of 8 elements; growth order is deterministic. Out-of-range access aborts deterministically instead of invoking undefined behavior: `vec_get` or `vec_set` with `i < 0` or `i >= vec_len(v)` prints `tiq: vec index <i> out of bounds for vec of length <len>` to standard error and exits with code 1; `vec_pop` on an empty vec prints `tiq: vec_pop on empty vec` to standard error and exits with code 1. Struct elements are copied into and out of the vec by value (a shallow copy of the struct's fields). `str` elements are copied on `vec_push`/`vec_set` (the vec owns fresh heap copies), so a vec never retains a pointer into a string it does not own; `vec_get`/`vec_pop` on a `str` vec return pointers into the vec's copies, which are not owned by the caller.
 
 **Memory policy.** Vec storage follows leak-never-dangle: neither the vec handle, its element buffer, nor its `str` element copies are ever freed by generated code, and vecs do not participate in the §16.4 owned-string destruction rules (`vec_new` is not an owned-string builtin, and `vec_get`/`vec_pop` results are never destruction-owners). This is an accepted bootstrap leak, documented in `MEMORY_MODEL.md`.
+
+### 19.8 String builder (StrBuf)
+
+A strbuf is a growable, heap-allocated byte buffer for building strings incrementally in amortized linear time (repeated `str_cat` is O(n²); repeated `str_buf_append` is O(n)). There is no strbuf type syntax (no `StrBuf` annotations and no change to the grammar); strbufs are created and used exclusively through builtin functions:
+
+- `str_buf_new()` takes no arguments and returns a new empty strbuf.
+- `str_buf_append(sb, s)` appends the bytes of the `str` argument `s` to the end of `sb` and returns the new length in bytes as `int`. Appending the empty string is a no-op that returns the current length. The argument's bytes are copied into the buffer; the strbuf never retains a pointer to `s`.
+- `str_buf_to_str(sb)` returns the current contents of `sb` as a heap-allocated `str` (owned per §16.4). The result is a fresh snapshot copy: later appends to `sb` do not change a previously taken snapshot, and taking a snapshot does not disturb the buffer.
+- `str_buf_len(sb)` returns the current length in bytes as `int`.
+
+A strbuf binding holds a handle with reference semantics: the builtins mutate the buffer through the handle, so an immutable binding to a strbuf permits `str_buf_append` on its contents (only rebinding the name is restricted).
+
+**Typing.** The handle type is `strbuf` (typed IR: `TYPE_STRBUF`); it is not parametrized. The first argument of `str_buf_append`, `str_buf_to_str`, and `str_buf_len` must be a strbuf, and the second argument of `str_buf_append` must be a `str`; anything else is rejected with E09 at compile time ("<builtin> argument: expected strbuf, found <T>", "str_buf_append value: expected str, found <T>"). All four builtins reject wrong arity with E12.
+
+**Runtime behavior.** The internal buffer is NUL-terminated and grows by doubling from an initial capacity of 16 bytes; growth order is deterministic and `str_buf_append` is amortized O(1) per appended byte. Allocation failure aborts deterministically through the shared runtime allocator: `tiq: out of memory` to standard error, exit code 1 — never undefined behavior. No strbuf operation raises any other runtime error.
+
+**Memory policy.** The strbuf handle and its internal buffer follow leak-never-dangle: generated code never frees them, and the handle does not participate in the §16.4 owned-string destruction rules. The `str_buf_to_str` result, by contrast, is a fresh heap string owned per §16.4 exactly like `str_sub`: an immutable binding initialized from a direct `str_buf_to_str` call owns the snapshot and it is freed at scope end in reverse declaration order. See `MEMORY_MODEL.md`.
+
+### 19.9 Hash map (Map)
+
+A map is a growable, heap-allocated hash table from `str` keys to `int` values. Keys are always `str` and values are always `int` — there are no other key or value types; values beyond `int` are expressed as indices into vecs (§19.7) by user code. There is no map type syntax (no `Map` annotations and no change to the grammar); maps are created and used exclusively through builtin functions:
+
+- `map_new()` takes no arguments and returns a new empty map.
+- `map_set(m, k, v)` associates the `str` key `k` with the `int` value `v` and returns the number of distinct keys after the operation as `int`. If `k` is already present, its value is overwritten and its iteration position is unchanged.
+- `map_get(m, k)` returns the value associated with `k` as `int`, or `-1` if `k` is absent. A missing key is never a runtime error; programs that store `-1` as a legitimate value must use `map_has` to distinguish absence.
+- `map_has(m, k)` returns `true` if `k` is present and `false` otherwise, as `bool`. It allocates nothing.
+- `map_len(m)` returns the number of distinct keys as `int`.
+- `map_key_at(m, i)` returns the key at insertion-order position `i` (0-based) as `str`.
+- `map_val_at(m, i)` returns the value at insertion-order position `i` (0-based) as `int`.
+
+A map binding holds a handle with reference semantics: the builtins mutate the map through the handle, so an immutable binding to a map permits `map_set` on its contents (only rebinding the name is restricted).
+
+**Insertion-order iteration.** The first `map_set` of a key fixes that key's iteration position permanently; overwriting the value of an existing key never moves it. `map_key_at`/`map_val_at` with `0 <= i < map_len(m)` therefore visit the keys in exactly the order in which they were first inserted, identical across runs and platforms — iteration order never depends on hash values, bucket layout, or rehashing. There is no delete operation in v1: scoped tables (for example, compiler symbol tables) are expressed by snapshotting `map_len` at scope entry and iterating only positions below the snapshot after scope exit (the len-snapshot scoping idiom); stale keys above a snapshot are simply left in place.
+
+**Typing.** The handle type is `map` (typed IR: `TYPE_MAP`); it is not parametrized — keys are fixed `str` and values fixed `int`. The first argument of every builtin except `map_new` must be a map, the key argument of `map_set`/`map_get`/`map_has` must be a `str`, the value argument of `map_set` must be an `int`, and the index argument of `map_key_at`/`map_val_at` must be an `int`; anything else is rejected with E09 at compile time ("<builtin> argument: expected map, found <T>", "<builtin> key: expected str, found <T>", "map_set value: expected int, found <T>", "<builtin> index: expected int, found <T>"). All seven builtins reject wrong arity with E12.
+
+**Runtime behavior.** The table hashes keys with FNV-1a 64-bit using the standard fixed constants (offset basis `14695981039346656037`, prime `1099511628211`) — never seeded from the environment — and resolves collisions with open addressing and linear probing over a power-of-two bucket array (initial 8 buckets). Entries additionally live in a separate insertion-order array, so iteration never touches bucket order. The load factor is kept at or below 0.7: exceeding it doubles the bucket count and rehashes all entries in insertion order, which is fully deterministic. Key bytes are copied into a fresh heap allocation on first insert (the map owns its keys and never retains a pointer to a caller's string). Allocation failure aborts deterministically through the shared runtime allocator (`tiq: out of memory` to standard error, exit code 1). `map_key_at` or `map_val_at` with `i < 0` or `i >= map_len(m)` prints `tiq: map index <i> out of bounds for map of length <len>` to standard error and exits with code 1 — never undefined behavior.
+
+**Ownership of `map_key_at` results.** `map_key_at` returns an interior pointer to the map's own key copy, exactly like `vec_get` on a `str` vec (§19.7) — not a fresh copy, and therefore *not* owned per §16.4 (a binding initialized from `map_key_at` never frees it). This is safe because map keys are never freed or moved after insert (leak-never-dangle), and it keeps the S3 symbol-table iteration hot path allocation-free.
+
+**Memory policy.** The map handle, its bucket array, its entry arrays, and its key copies follow leak-never-dangle: generated code never frees them, and no map builtin participates in the §16.4 owned-string destruction rules. This is an accepted bootstrap leak, documented in `MEMORY_MODEL.md`.
 
 ## 20. Bootstrap conformance
 

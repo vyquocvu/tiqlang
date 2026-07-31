@@ -748,4 +748,159 @@ BINDING x <TYPE_INT>
     IDENT v <TYPE_VEC:TYPE_INT>
     INT 0 <TYPE_INT>'
 
+# M13.1-P4: StrBuf builtins (LANGUAGE_SPEC §19.8).
+assert_semantic "strbuf_new_bad_arity" 'sb = str_buf_new(1)
+' "$TMP_DIR/strbuf_new_bad_arity.tiq:1: error[E12]: str_buf_new expects no arguments"
+
+assert_semantic "strbuf_append_bad_arity" 'sb = str_buf_new()
+n = str_buf_append(sb)
+' "$TMP_DIR/strbuf_append_bad_arity.tiq:2: error[E12]: str_buf_append expects exactly 2 arguments"
+
+assert_semantic "strbuf_to_str_bad_arity" 's = str_buf_to_str()
+' "$TMP_DIR/strbuf_to_str_bad_arity.tiq:1: error[E12]: str_buf_to_str expects exactly 1 argument"
+
+assert_semantic "strbuf_len_bad_arity" 'sb = str_buf_new()
+n = str_buf_len(sb, 1)
+' "$TMP_DIR/strbuf_len_bad_arity.tiq:2: error[E12]: str_buf_len expects exactly 1 argument"
+
+assert_semantic "strbuf_append_bad_buf_type" 'n = str_buf_append(1, "a")
+' "$TMP_DIR/strbuf_append_bad_buf_type.tiq:1: error[E09]: str_buf_append argument: expected strbuf, found int"
+
+assert_semantic "strbuf_to_str_bad_buf_type" 'x = "s"
+s = str_buf_to_str(x)
+' "$TMP_DIR/strbuf_to_str_bad_buf_type.tiq:2: error[E09]: str_buf_to_str argument: expected strbuf, found str"
+
+assert_semantic "strbuf_len_bad_buf_type" 'x = 1
+n = str_buf_len(x)
+' "$TMP_DIR/strbuf_len_bad_buf_type.tiq:2: error[E09]: str_buf_len argument: expected strbuf, found int"
+
+assert_semantic "strbuf_append_bad_value_type" 'sb = str_buf_new()
+str_buf_append(sb, 7)
+' "$TMP_DIR/strbuf_append_bad_value_type.tiq:2: error[E09]: str_buf_append value: expected str, found int"
+
+# The typed IR shows TYPE_STRBUF for the handle; to_str yields TYPE_STR.
+assert_semantic_ast "typed_strbuf" 'sb = str_buf_new()
+n = str_buf_append(sb, "hi")
+s = str_buf_to_str(sb)
+m = str_buf_len(sb)' 'BINDING sb <TYPE_STRBUF>
+  CALL <TYPE_STRBUF>
+    IDENT str_buf_new
+BINDING n <TYPE_INT>
+  CALL <TYPE_INT>
+    IDENT str_buf_append
+    IDENT sb <TYPE_STRBUF>
+    STRING "hi" <TYPE_STR>
+BINDING s <TYPE_STR>
+  CALL <TYPE_STR>
+    IDENT str_buf_to_str
+    IDENT sb <TYPE_STRBUF>
+BINDING m <TYPE_INT>
+  CALL <TYPE_INT>
+    IDENT str_buf_len
+    IDENT sb <TYPE_STRBUF>'
+
+# M13.1-P5: Map builtins (LANGUAGE_SPEC §19.9).
+assert_semantic "map_new_bad_arity" 'm = map_new(1)
+' "$TMP_DIR/map_new_bad_arity.tiq:1: error[E12]: map_new expects no arguments"
+
+assert_semantic "map_set_bad_arity" 'm = map_new()
+n = map_set(m, "k")
+' "$TMP_DIR/map_set_bad_arity.tiq:2: error[E12]: map_set expects exactly 3 arguments"
+
+assert_semantic "map_get_bad_arity" 'm = map_new()
+v = map_get(m)
+' "$TMP_DIR/map_get_bad_arity.tiq:2: error[E12]: map_get expects exactly 2 arguments"
+
+assert_semantic "map_has_bad_arity" 'm = map_new()
+h = map_has(m, "k", 1)
+' "$TMP_DIR/map_has_bad_arity.tiq:2: error[E12]: map_has expects exactly 2 arguments"
+
+assert_semantic "map_len_bad_arity" 'n = map_len()
+' "$TMP_DIR/map_len_bad_arity.tiq:1: error[E12]: map_len expects exactly 1 argument"
+
+assert_semantic "map_key_at_bad_arity" 'm = map_new()
+k = map_key_at(m)
+' "$TMP_DIR/map_key_at_bad_arity.tiq:2: error[E12]: map_key_at expects exactly 2 arguments"
+
+assert_semantic "map_val_at_bad_arity" 'm = map_new()
+v = map_val_at(m, 0, 1)
+' "$TMP_DIR/map_val_at_bad_arity.tiq:2: error[E12]: map_val_at expects exactly 2 arguments"
+
+assert_semantic "map_set_bad_map_type" 'n = map_set(1, "k", 2)
+' "$TMP_DIR/map_set_bad_map_type.tiq:1: error[E09]: map_set argument: expected map, found int"
+
+assert_semantic "map_get_bad_map_type" 'x = "s"
+v = map_get(x, "k")
+' "$TMP_DIR/map_get_bad_map_type.tiq:2: error[E09]: map_get argument: expected map, found str"
+
+assert_semantic "map_len_bad_map_type" 'x = 1
+n = map_len(x)
+' "$TMP_DIR/map_len_bad_map_type.tiq:2: error[E09]: map_len argument: expected map, found int"
+
+assert_semantic "map_set_bad_key_type" 'm = map_new()
+map_set(m, 1, 2)
+' "$TMP_DIR/map_set_bad_key_type.tiq:2: error[E09]: map_set key: expected str, found int"
+
+assert_semantic "map_get_bad_key_type" 'm = map_new()
+v = map_get(m, 1)
+' "$TMP_DIR/map_get_bad_key_type.tiq:2: error[E09]: map_get key: expected str, found int"
+
+assert_semantic "map_has_bad_key_type" 'm = map_new()
+h = map_has(m, 1)
+' "$TMP_DIR/map_has_bad_key_type.tiq:2: error[E09]: map_has key: expected str, found int"
+
+assert_semantic "map_set_bad_value_type" 'm = map_new()
+map_set(m, "k", "v")
+' "$TMP_DIR/map_set_bad_value_type.tiq:2: error[E09]: map_set value: expected int, found str"
+
+assert_semantic "map_key_at_bad_index" 'm = map_new()
+k = map_key_at(m, "0")
+' "$TMP_DIR/map_key_at_bad_index.tiq:2: error[E09]: map_key_at index: expected int, found str"
+
+assert_semantic "map_val_at_bad_index" 'm = map_new()
+v = map_val_at(m, "0")
+' "$TMP_DIR/map_val_at_bad_index.tiq:2: error[E09]: map_val_at index: expected int, found str"
+
+# The typed IR shows TYPE_MAP for the handle; get/len/val_at yield TYPE_INT,
+# has yields TYPE_BOOL, key_at yields TYPE_STR.
+assert_semantic_ast "typed_map" 'm = map_new()
+n = map_set(m, "a", 1)
+v = map_get(m, "a")
+h = map_has(m, "a")
+l = map_len(m)
+k = map_key_at(m, 0)
+w = map_val_at(m, 0)' 'BINDING m <TYPE_MAP>
+  CALL <TYPE_MAP>
+    IDENT map_new
+BINDING n <TYPE_INT>
+  CALL <TYPE_INT>
+    IDENT map_set
+    IDENT m <TYPE_MAP>
+    STRING "a" <TYPE_STR>
+    INT 1 <TYPE_INT>
+BINDING v <TYPE_INT>
+  CALL <TYPE_INT>
+    IDENT map_get
+    IDENT m <TYPE_MAP>
+    STRING "a" <TYPE_STR>
+BINDING h <TYPE_BOOL>
+  CALL <TYPE_BOOL>
+    IDENT map_has
+    IDENT m <TYPE_MAP>
+    STRING "a" <TYPE_STR>
+BINDING l <TYPE_INT>
+  CALL <TYPE_INT>
+    IDENT map_len
+    IDENT m <TYPE_MAP>
+BINDING k <TYPE_STR>
+  CALL <TYPE_STR>
+    IDENT map_key_at
+    IDENT m <TYPE_MAP>
+    INT 0 <TYPE_INT>
+BINDING w <TYPE_INT>
+  CALL <TYPE_INT>
+    IDENT map_val_at
+    IDENT m <TYPE_MAP>
+    INT 0 <TYPE_INT>'
+
 echo "semantic: ok"

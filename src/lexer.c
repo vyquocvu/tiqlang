@@ -148,6 +148,8 @@ static TokenKind identifier_type(Lexer *lexer, const char *start) {
         case 'c': return check_keyword(lexer, start, 1, 3, "han", TOK_CHAN);
         case 'd': return check_keyword(lexer, start, 1, 4, "efer", TOK_DEFER);
         case 'e': return check_keyword(lexer, start, 1, 3, "num", TOK_ENUM);
+        // M13.1-P6: 'import' is a reserved word (LANGUAGE_SPEC §4, §17.6).
+        case 'i': return check_keyword(lexer, start, 1, 5, "mport", TOK_IMPORT);
         case 'f':
             if (lexer->current - start > 1) {
                 switch (start[1]) {
@@ -341,6 +343,7 @@ const char *token_kind_name(TokenKind kind) {
         case TOK_QUESTION_QUESTION: return "QUESTION_QUESTION";
         case TOK_UNDERSCORE: return "UNDERSCORE";
         case TOK_DOT: return "DOT";
+        case TOK_IMPORT: return "IMPORT";
     }
     return "UNKNOWN";
 }

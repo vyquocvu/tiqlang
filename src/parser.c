@@ -695,6 +695,22 @@ static AstNode *statement(Parser *parser) {
 }
 
 static AstNode *declaration(Parser *parser) {
+    // M13.1-P6: import declaration — the operand must be a string literal
+    // path (LANGUAGE_SPEC §17.6). Position (before any other top-level
+    // item) is enforced in parser_parse; inside blocks 'import' has no
+    // parse path and fails closed with E05.
+    if (match(parser, TOK_IMPORT)) {
+        AstNode *node = allocate_node(parser, AST_IMPORT);
+        node->as.import_stmt.path.kind = TOK_EOF;
+        if (check(parser, TOK_STRING)) {
+            node->as.import_stmt.path = parser->current;
+            advance(parser);
+        } else {
+            error_at_current(parser, ERR_UNEXPECTED_TOKEN,
+                             "expected string literal path after 'import'");
+        }
+        return node;
+    }
     // M12.6: struct definition
     if (match(parser, TOK_STRUCT)) {
         AstNode *node = allocate_node(parser, AST_STRUCT_DEF);
@@ -859,10 +875,19 @@ AstNode **parser_parse(Parser *parser, int *out_count) {
     AstNode **statements = NULL;
     int count = 0;
     int capacity = 0;
+    // M13.1-P6: imports form a prefix of the file; one past a non-import
+    // item is rejected (LANGUAGE_SPEC §17.6, fail closed).
+    bool seen_non_import = false;
     while (!match(parser, TOK_EOF)) {
         while (check(parser, TOK_NEWLINE)) advance(parser);
         AstNode *decl = declaration(parser);
         if (parser->diag->fatal_error) break;
+        if (decl && decl->kind == AST_IMPORT && seen_non_import) {
+            diag_error(parser->diag, parser->lexer.path, decl->token.line,
+                       ERR_UNEXPECTED_TOKEN,
+                       "import must appear before any other top-level item");
+        }
+        if (decl && decl->kind != AST_IMPORT) seen_non_import = true;
         if (count + 1 > capacity) {
             int new_cap = capacity < 8 ? 8 : capacity * 2;
             statements = arena_realloc(&parser->arena, statements,
@@ -903,6 +928,9 @@ static const char *type_kind_name(PrimitiveType kind) {
         case TYPE_U64: return "TYPE_U64";
         case TYPE_F32: return "TYPE_F32";
         case TYPE_NEVER: return "TYPE_NEVER";
+        case TYPE_VEC: return "TYPE_VEC";
+        case TYPE_STRBUF: return "TYPE_STRBUF";
+        case TYPE_MAP: return "TYPE_MAP";
         case TYPE_OPTION: return "TYPE_OPTION";
         case TYPE_RESULT: return "TYPE_RESULT";
         case TYPE_STRUCT: return "TYPE_STRUCT";
@@ -923,6 +951,11 @@ static void dump_type_display(SemanticType *t, char *buf, size_t cap) {
         char elem[96] = "";
         dump_type_display(t->element_type, elem, sizeof elem);
         snprintf(buf, cap, "TYPE_SLICE%s%s", elem[0] ? ":" : "", elem);
+    } else if (t->kind == TYPE_VEC) {
+        // M13.1-P3: TYPE_VEC or TYPE_VEC:TYPE_<elem> once established.
+        char elem[96] = "";
+        dump_type_display(t->element_type, elem, sizeof elem);
+        snprintf(buf, cap, "TYPE_VEC%s%s", elem[0] ? ":" : "", elem);
     } else if (t->kind == TYPE_OPTION) {
         char inner[96] = "";
         dump_type_display(t->inner_type, inner, sizeof inner);
@@ -1084,6 +1117,11 @@ void ast_print(AstNode *node, int indent) {
                 printf("VARIANT %.*s\n", (int)node->as.enum_def.variants[i].length,
                        node->as.enum_def.variants[i].start);
             }
+            break;
+        case AST_IMPORT:
+            // M13.1-P6: the path token includes its quotes.
+            printf("IMPORT %.*s%s\n", (int)node->as.import_stmt.path.length,
+                   node->as.import_stmt.path.start, t_str);
             break;
         default:
             printf("UNKNOWN%s\n", t_str);

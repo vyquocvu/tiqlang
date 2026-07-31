@@ -28,7 +28,8 @@ typedef enum {
     AST_RECORD_LIT,
     AST_MATCH,
     AST_SPAWN,
-    AST_CHAN
+    AST_CHAN,
+    AST_IMPORT
 } AstKind;
 
 typedef struct AstNode AstNode;
@@ -184,6 +185,12 @@ struct AstNode {
         struct {
             AstNode *expr;
         } defer;
+
+        // M13.1-P6: import "path.tiq" — path is the string literal token
+        // (quotes included); resolved by the module loader (§17.6).
+        struct {
+            Token path;
+        } import_stmt;
     } as;
 };
 

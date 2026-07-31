@@ -106,6 +106,8 @@ static bool is_owned_str_builtin_call(AstNode *expr) {
         {"str_cat", 7}, {"int_str", 7}, {"http_header", 11},
         // M13.1-P1: fresh heap results (LANGUAGE_SPEC §19.5, §19.6).
         {"str_sub", 7}, {"fs_list", 7},
+        // M13.1-P4: fresh heap snapshot of the buffer (LANGUAGE_SPEC §19.8).
+        {"str_buf_to_str", 14},
     };
     if (!expr || expr->kind != AST_CALL || expr->as.call.is_bracket_call) return false;
     if (!expr->as.call.callee || expr->as.call.callee->kind != AST_IDENTIFIER) return false;
@@ -212,6 +214,18 @@ static bool is_safe_builtin_callee(AstNode *callee) {
         {"http_header", 11},
         // M13.1-P1: read their string arguments without retaining them.
         {"str_sub", 7}, {"str_eq", 6}, {"eprint", 6}, {"fs_list", 7},
+        // M13.1-P3: vec builtins copy str elements on push/set (§19.7),
+        // so they never retain a caller's string.
+        {"vec_new", 7}, {"vec_push", 8}, {"vec_get", 7},
+        {"vec_set", 7}, {"vec_len", 7}, {"vec_pop", 7},
+        // M13.1-P4: str_buf_append copies its str argument's bytes into the
+        // buffer (§19.8), so no strbuf builtin ever retains a caller's string.
+        {"str_buf_new", 11}, {"str_buf_append", 14},
+        {"str_buf_to_str", 14}, {"str_buf_len", 11},
+        // M13.1-P5: map_set duplicates its key and map_get/map_has only read
+        // theirs (§19.9), so no map builtin ever retains a caller's string.
+        {"map_new", 7}, {"map_set", 7}, {"map_get", 7}, {"map_has", 7},
+        {"map_len", 7}, {"map_key_at", 10}, {"map_val_at", 10},
     };
     if (!callee || callee->kind != AST_IDENTIFIER) return false;
     Token n = callee->as.identifier.name;
@@ -243,6 +257,7 @@ static bool mut_uses_ok(AstNode *n, Token name) {
     switch (n->kind) {
         case AST_LITERAL: case AST_BREAK: case AST_SKIP:
         case AST_STRUCT_DEF: case AST_ENUM_DEF: case AST_CHAN:
+        case AST_IMPORT:
             return true;
         case AST_IDENTIFIER:
             return !tok_name_eq(n->as.identifier.name, name);
@@ -776,6 +791,108 @@ static void emit_expr(AstNode *node, EmitContext *ctx) {
             }
             if (node->as.call.callee && node->as.call.callee->kind == AST_IDENTIFIER) {
                 Token name = node->as.call.callee->as.identifier.name;
+                // M13.1-P3: Vec builtins (LANGUAGE_SPEC §19.7). Emission is
+                // keyed off the established element type on the vec argument;
+                // the semantic checker rejected everything else.
+                {
+                    bool vnew  = name.length == 7 && memcmp(name.start, "vec_new", 7) == 0;
+                    bool vpush = name.length == 8 && memcmp(name.start, "vec_push", 8) == 0;
+                    bool vget  = name.length == 7 && memcmp(name.start, "vec_get", 7) == 0;
+                    bool vset  = name.length == 7 && memcmp(name.start, "vec_set", 7) == 0;
+                    bool vlen  = name.length == 7 && memcmp(name.start, "vec_len", 7) == 0;
+                    bool vpop  = name.length == 7 && memcmp(name.start, "vec_pop", 7) == 0;
+                    if (vnew && node->as.call.arg_count == 0) {
+                        fputs("tiq_vec_new()", ctx->out);
+                        break;
+                    }
+                    if ((vpush || vget || vset || vlen || vpop) &&
+                        node->as.call.arg_count >= 1 && node->as.call.args[0]) {
+                        AstNode *a0 = node->as.call.args[0];
+                        SemanticType *vt = a0->semantic_type;
+                        SemanticType *elem = (vt && vt->kind == TYPE_VEC) ? vt->element_type : NULL;
+                        if (vlen && node->as.call.arg_count == 1) {
+                            fputs("tiq_vec_len(", ctx->out);
+                            emit_expr(a0, ctx);
+                            fputs(")", ctx->out);
+                            break;
+                        }
+                        if (vpush && node->as.call.arg_count == 2 && elem) {
+                            if (elem->kind == TYPE_STR) {
+                                fputs("tiq_vec_push_str(", ctx->out);
+                                emit_expr(a0, ctx);
+                                fputs(", ", ctx->out);
+                                emit_expr(node->as.call.args[1], ctx);
+                                fputs(")", ctx->out);
+                            } else if (elem->kind == TYPE_STRUCT && elem->struct_name) {
+                                // Struct rvalues gain an address via a C11
+                                // compound-literal array: (Name[]){ expr }.
+                                fputs("(memcpy(tiq_vec_push_slot(", ctx->out);
+                                emit_expr(a0, ctx);
+                                fprintf(ctx->out, ", (int64_t)sizeof(%s)), (%s[]){ ",
+                                        elem->struct_name, elem->struct_name);
+                                emit_expr(node->as.call.args[1], ctx);
+                                fprintf(ctx->out, " }, sizeof(%s)), tiq_vec_len(", elem->struct_name);
+                                emit_expr(a0, ctx);
+                                fputs("))", ctx->out);
+                            } else {
+                                fputs("tiq_vec_push_i64(", ctx->out);
+                                emit_expr(a0, ctx);
+                                fputs(", ", ctx->out);
+                                emit_expr(node->as.call.args[1], ctx);
+                                fputs(")", ctx->out);
+                            }
+                            break;
+                        }
+                        if (vget && node->as.call.arg_count == 2 && elem) {
+                            if (elem->kind == TYPE_STR) fputs("(*(const char **)(void *)tiq_vec_slot(", ctx->out);
+                            else if (elem->kind == TYPE_STRUCT && elem->struct_name)
+                                fprintf(ctx->out, "(*(%s *)(void *)tiq_vec_slot(", elem->struct_name);
+                            else fputs("(*(int64_t *)(void *)tiq_vec_slot(", ctx->out);
+                            emit_expr(a0, ctx);
+                            fputs(", ", ctx->out);
+                            emit_expr(node->as.call.args[1], ctx);
+                            fputs("))", ctx->out);
+                            break;
+                        }
+                        if (vset && node->as.call.arg_count == 3 && elem) {
+                            if (elem->kind == TYPE_STR) {
+                                fputs("tiq_vec_set_str(", ctx->out);
+                                emit_expr(a0, ctx);
+                                fputs(", ", ctx->out);
+                                emit_expr(node->as.call.args[1], ctx);
+                                fputs(", ", ctx->out);
+                                emit_expr(node->as.call.args[2], ctx);
+                                fputs(")", ctx->out);
+                            } else if (elem->kind == TYPE_STRUCT && elem->struct_name) {
+                                fputs("(memcpy(tiq_vec_slot(", ctx->out);
+                                emit_expr(a0, ctx);
+                                fputs(", ", ctx->out);
+                                emit_expr(node->as.call.args[1], ctx);
+                                fprintf(ctx->out, "), (%s[]){ ", elem->struct_name);
+                                emit_expr(node->as.call.args[2], ctx);
+                                fprintf(ctx->out, " }, sizeof(%s)), (int64_t)0)", elem->struct_name);
+                            } else {
+                                fputs("tiq_vec_set_i64(", ctx->out);
+                                emit_expr(a0, ctx);
+                                fputs(", ", ctx->out);
+                                emit_expr(node->as.call.args[1], ctx);
+                                fputs(", ", ctx->out);
+                                emit_expr(node->as.call.args[2], ctx);
+                                fputs(")", ctx->out);
+                            }
+                            break;
+                        }
+                        if (vpop && node->as.call.arg_count == 1 && elem) {
+                            if (elem->kind == TYPE_STR) fputs("(*(const char **)(void *)tiq_vec_pop(", ctx->out);
+                            else if (elem->kind == TYPE_STRUCT && elem->struct_name)
+                                fprintf(ctx->out, "(*(%s *)(void *)tiq_vec_pop(", elem->struct_name);
+                            else fputs("(*(int64_t *)(void *)tiq_vec_pop(", ctx->out);
+                            emit_expr(a0, ctx);
+                            fputs("))", ctx->out);
+                            break;
+                        }
+                    }
+                }
                 typedef struct { const char *tiq; int len; const char *c; } Btn;
                 static const Btn btn[] = {
                     {"fs_read", 7, "tiq_fs_read"}, {"fs_write", 8, "tiq_fs_write"},
@@ -799,6 +916,24 @@ static void emit_expr(AstNode *node, EmitContext *ctx) {
                     {"http_header", 11, "tiq_http_header"},
                     {"str_sub", 7, "tiq_str_sub"}, {"str_eq", 6, "tiq_str_eq"},
                     {"eprint", 6, "tiq_eprint"}, {"fs_list", 7, "tiq_fs_list"},
+                    // M13.1-P4: StrBuf builtins (LANGUAGE_SPEC §19.8); every
+                    // signature is homogeneous, so the generic mapping fits.
+                    {"str_buf_new", 11, "tiq_str_buf_new"},
+                    {"str_buf_append", 14, "tiq_str_buf_append"},
+                    {"str_buf_to_str", 14, "tiq_str_buf_to_str"},
+                    {"str_buf_len", 11, "tiq_str_buf_len"},
+                    // M13.1-P5: Map builtins (LANGUAGE_SPEC §19.9); the map is
+                    // unparametrized (str keys, int values), so every emission
+                    // is a plain call and the generic mapping fits — including
+                    // the heterogeneous map_set, whose checking alone needed
+                    // the dedicated per-builtin path.
+                    {"map_new", 7, "tiq_map_new"},
+                    {"map_set", 7, "tiq_map_set"},
+                    {"map_get", 7, "tiq_map_get"},
+                    {"map_has", 7, "tiq_map_has"},
+                    {"map_len", 7, "tiq_map_len"},
+                    {"map_key_at", 10, "tiq_map_key_at"},
+                    {"map_val_at", 10, "tiq_map_val_at"},
                 };
                 const char *builtin_fn = NULL;
                 for (int bi = 0; bi < (int)(sizeof btn / sizeof btn[0]); bi++) {
@@ -1144,6 +1279,12 @@ static void emit_type_name(PrimitiveType kind, FILE *out) {
         case TYPE_NEVER:    fputs("void", out); break;
         case TYPE_OPTION:   fputs("TiqOption", out); break;
         case TYPE_RESULT:   fputs("TiqResult", out); break;
+        // M13.1-P3: vec handles are pointers to the runtime TiqVec.
+        case TYPE_VEC:      fputs("TiqVec *", out); break;
+        // M13.1-P4: strbuf handles are pointers to the runtime TiqStrBuf.
+        case TYPE_STRBUF:   fputs("TiqStrBuf *", out); break;
+        // M13.1-P5: map handles are pointers to the runtime TiqMap.
+        case TYPE_MAP:      fputs("TiqMap *", out); break;
         default:           fputs("int64_t", out); break;
     }
 }
@@ -1557,28 +1698,40 @@ static void emit_stream_gen_def(const char *name, AstNode *node, Token *params, 
     }
 }
 
-void compile_to_c(const char *source_path, const char *source, FILE *out, DiagContext *diag) {
-    EmitContext ectx = { out, diag, source_path, {{0, 0, 0}}, 0, NULL,
+void compile_modules_to_c(SemanticModule *mods, int mod_count, const char *root_path,
+                          FILE *out, DiagContext *diag) {
+    EmitContext ectx = { out, diag, root_path, {{0, 0, 0}}, 0, NULL,
                          {{NULL, 0, 0, false, NULL, NULL, 0}}, 0,
                          {NULL}, {0}, 0, NULL, 0, NULL, 0 };
     EmitContext *ctx = &ectx;
-    Parser parser;
-    parser_init(&parser, source, source_path, diag);
-    int count;
-    AstNode **stmts = parser_parse(&parser, &count);
-    if (diag->has_error) { parser_free(&parser); return; }
-    // M13.1-P2: enum variant use sites resolve against the top-level list.
+
+    // M13.1-P6: flatten the post-order module sequence into one top-level
+    // statement list; stray AST_IMPORT nodes are stripped (the loader
+    // already resolved them), so no later phase ever sees an import.
+    int count = 0;
+    for (int m = 0; m < mod_count; m++) count += mods[m].count;
+    AstNode **stmts = malloc(sizeof(AstNode *) * (size_t)(count > 0 ? count : 1));
+    if (!stmts) { fprintf(stderr, "tiq: out of memory\n"); exit(1); }
+    count = 0;
+    for (int m = 0; m < mod_count; m++) {
+        for (int i = 0; i < mods[m].count; i++) {
+            if (mods[m].stmts[i] && mods[m].stmts[i]->kind != AST_IMPORT)
+                stmts[count++] = mods[m].stmts[i];
+        }
+    }
+    // M13.1-P2/P6: enum variant use sites resolve against the full
+    // concatenated list, so enums defined in imported modules resolve too.
     ctx->top_stmts = stmts;
     ctx->top_count = count;
 
     TypePool pool;
     type_pool_init(&pool);
-    semantic_check(stmts, count, source_path, diag, &pool);
-    if (diag->has_error) { parser_free(&parser); type_pool_free(&pool); return; }
+    semantic_check_modules(mods, mod_count, diag, &pool);
+    if (diag->has_error) { free(stmts); type_pool_free(&pool); return; }
 
     for (int i = 0; i < count && !diag->fatal_error; i++)
         emit_check_node(stmts[i], ctx);
-    if (diag->has_error) { parser_free(&parser); type_pool_free(&pool); return; }
+    if (diag->has_error) { free(stmts); type_pool_free(&pool); return; }
 
     // Collect stream gen bindings
     typedef struct { const char *name; AstNode *gen; Token *params; int param_count; } StreamGenDef;
@@ -1641,6 +1794,9 @@ void compile_to_c(const char *source_path, const char *source, FILE *out, DiagCo
     fputs(TIQ_RUNTIME_PRELUDE_AUX6, ctx->out);
     fputs(TIQ_RUNTIME_PRELUDE_AUX7, ctx->out);
     fputs(TIQ_RUNTIME_PRELUDE_AUX8, ctx->out);
+    fputs(TIQ_RUNTIME_PRELUDE_AUX9, ctx->out);
+    fputs(TIQ_RUNTIME_PRELUDE_AUX10, ctx->out);
+    fputs(TIQ_RUNTIME_PRELUDE_AUX11, ctx->out);
 
     // M12.6: Emit struct definitions (before function declarations so types are visible)
     for (int i = 0; i < count; i++) {
@@ -1855,6 +2011,21 @@ void compile_to_c(const char *source_path, const char *source, FILE *out, DiagCo
     // Free stream gen names
     for (int g = 0; g < stream_gen_count; g++) free((void*)stream_gens[g].name);
 
-    parser_free(&parser);
+    free(stmts);
     type_pool_free(&pool);
+}
+
+// Single-source convenience wrapper (unit tests, plan 2.1): parse one
+// buffer and compile it as a one-module program. Import declarations are
+// not resolved on this path — use program_load + compile_modules_to_c.
+void compile_to_c(const char *source_path, const char *source, FILE *out, DiagContext *diag) {
+    Parser parser;
+    parser_init(&parser, source, source_path, diag);
+    int count;
+    AstNode **stmts = parser_parse(&parser, &count);
+    if (!diag->has_error) {
+        SemanticModule mod = { stmts, count, source_path };
+        compile_modules_to_c(&mod, 1, source_path, out, diag);
+    }
+    parser_free(&parser);
 }
