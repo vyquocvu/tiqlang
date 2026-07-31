@@ -1566,4 +1566,28 @@ EOF
 printf '42\n' > "$TMP_DIR/p8_map_across.expected"
 cmp "$TMP_DIR/p8_map_across.out" "$TMP_DIR/p8_map_across.expected"
 
+# M13.1-P9: a vec filled from user-function returns crosses an annotated
+# vec[int] parameter boundary (was a false E09 "expected vec<int>, found
+# vec<int>" — element types compared by pooled-pointer identity while
+# type_get_func interns function return types per-arity). Output pinned:
+# f(1)=2, f(2)=3, so sum(v)=5 and vec_get(v,1)+1 = 4.
+cat > "$TMP_DIR/p9_vec_helper_fill.tiq" <<'EOF'
+f x:int -> int -> x + 1
+sum v:vec[int] -> int -> {
+  total <- 0
+  n = vec_len(v)
+  [0..n] { total += vec_get(v, i) }
+  total
+}
+v = vec_new()
+vec_push(v, f(1))
+vec_push(v, f(2))
+print(sum(v))
+print(vec_get(v, 1) + 1)
+EOF
+./build/tiq build "$TMP_DIR/p9_vec_helper_fill.tiq" -o "$TMP_DIR/p9_vec_helper_fill"
+"$TMP_DIR/p9_vec_helper_fill" > "$TMP_DIR/p9_vec_helper_fill.out"
+printf '5\n4\n' > "$TMP_DIR/p9_vec_helper_fill.expected"
+cmp "$TMP_DIR/p9_vec_helper_fill.out" "$TMP_DIR/p9_vec_helper_fill.expected"
+
 echo "smoke: ok"

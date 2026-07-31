@@ -268,11 +268,20 @@ static bool vec_elem_type_ok(SemanticType *t) {
 
 // M13.1-P3: Element unification is stricter than unify(): struct elements
 // must be the same pooled struct type (nominal), not just kind-equal.
+// M13.1-P9: the comparison is structural, never pointer identity —
+// type_get_func interns function return types per-arity, so an int
+// returned by a user function is a distinct pooled TYPE_INT instance from
+// the canonical one. Primitives compare by kind; named structs stay
+// nominal (struct types are pointer-unique per name in the pool).
+static bool vec_elem_same(SemanticType *expected, SemanticType *found) {
+    return expected->kind == found->kind &&
+           (expected->kind != TYPE_STRUCT || expected == found);
+}
+
 static void vec_unify_elem(SemanticContext *ctx, int line, SemanticType *expected,
                            SemanticType *found, const char *context) {
     if (!found || found->kind == TYPE_UNKNOWN) return;
-    if (expected->kind == found->kind &&
-        (expected->kind != TYPE_STRUCT || expected == found)) return;
+    if (vec_elem_same(expected, found)) return;
     char want[96];
     char got[96];
     char msg[320];
@@ -1196,7 +1205,7 @@ static void check_node(SemanticContext *ctx, AstNode *node) {
                             if (unify(ctx, node->token.line, cpt, at, where) && at &&
                                 cpt->kind == TYPE_VEC && at->kind == TYPE_VEC) {
                                 if (at->element_type && cpt->element_type &&
-                                    at->element_type != cpt->element_type) {
+                                    !vec_elem_same(cpt->element_type, at->element_type)) {
                                     char want[96], got[96], msg[320];
                                     type_display(cpt, want, sizeof want);
                                     type_display(at, got, sizeof got);
@@ -1508,7 +1517,7 @@ static void check_node(SemanticContext *ctx, AstNode *node) {
                         node->as.function.body && node->as.function.body->semantic_type) {
                         SemanticType *bt = (SemanticType *)node->as.function.body->semantic_type;
                         if (bt->kind == TYPE_VEC && bt->element_type &&
-                            bt->element_type != ret_annot->element_type) {
+                            !vec_elem_same(ret_annot->element_type, bt->element_type)) {
                             char want[96], got[96], msg[320];
                             type_display(ret_annot, want, sizeof want);
                             type_display(bt, got, sizeof got);

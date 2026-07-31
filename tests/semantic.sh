@@ -958,4 +958,80 @@ assert_semantic_ast "p8_typed_vec_return" 'f v:vec[int] b:strbuf m:map -> vec[in
   PARAM m
   IDENT v <TYPE_VEC:TYPE_INT>'
 
+# M13.1-P9: vec element types compare structurally, not by pooled-pointer
+# identity. A user function's return type is interned per-arity
+# (type_get_func), so f(1) carries a TYPE_INT instance distinct from the
+# canonical one; a vec established via vec_push(v, f(1)) must still be
+# accepted by a vec[int] parameter (was a false E09 "expected vec<int>,
+# found vec<int>").
+assert_semantic_ast "p9_vec_helper_elem_param" 'f x:int -> int -> x + 1
+g v:vec[int] -> int -> vec_len(v)
+v = vec_new()
+vec_push(v, f(1))
+n = g(v)
+' 'FUNCTION f <TYPE_INT>
+  PARAM x
+  BINARY PLUS <TYPE_INT>
+    IDENT x <TYPE_INT>
+    INT 1 <TYPE_INT>
+FUNCTION g <TYPE_INT>
+  PARAM v
+  CALL <TYPE_INT>
+    IDENT vec_len
+    IDENT v <TYPE_VEC:TYPE_INT>
+BINDING v <TYPE_VEC>
+  CALL <TYPE_VEC>
+    IDENT vec_new
+CALL <TYPE_INT>
+  IDENT vec_push
+  IDENT v <TYPE_VEC:TYPE_INT>
+  CALL <TYPE_INT>
+    IDENT f <TYPE_INT>
+    INT 1 <TYPE_INT>
+BINDING n <TYPE_INT>
+  CALL <TYPE_INT>
+    IDENT g <TYPE_INT>
+    IDENT v <TYPE_VEC:TYPE_INT>'
+
+# M13.1-P9: the vec[int] return-annotation check has the same structural
+# rule (expression bodies carry the full vec<T> element).
+assert_semantic_ast "p9_vec_helper_elem_return" 'h x:int -> int -> x
+v = vec_new()
+vec_push(v, h(1))
+f a:int -> vec[int] -> v
+' 'FUNCTION h <TYPE_INT>
+  PARAM x
+  IDENT x <TYPE_INT>
+BINDING v <TYPE_VEC>
+  CALL <TYPE_VEC>
+    IDENT vec_new
+CALL <TYPE_INT>
+  IDENT vec_push
+  IDENT v <TYPE_VEC:TYPE_INT>
+  CALL <TYPE_INT>
+    IDENT h <TYPE_INT>
+    INT 1 <TYPE_INT>
+FUNCTION f <TYPE_VEC:TYPE_INT>
+  PARAM a
+  IDENT v <TYPE_VEC:TYPE_INT>'
+
+# M13.1-P9 true negative: structural comparison must not over-accept — a
+# helper-established vec<int> into a vec[str] parameter is still E09.
+assert_semantic "p9_vec_helper_elem_param_neg" 'h x:int -> int -> x
+f v:vec[str] -> int -> vec_len(v)
+v = vec_new()
+vec_push(v, h(1))
+f(v)
+' "$TMP_DIR/p9_vec_helper_elem_param_neg.tiq:5: error[E09]: argument 1: expected vec<str>, found vec<int>"
+
+# M13.1-P9 true negative: named-struct elements stay nominal — vec<A>
+# into a vec[B] parameter is E09 even though the shapes match.
+assert_semantic "p9_vec_struct_elem_nominal_neg" 'struct A { x: int }
+struct B { x: int }
+f v:vec[B] -> int -> vec_len(v)
+v = vec_new()
+vec_push(v, A { x: 1 })
+f(v)
+' "$TMP_DIR/p9_vec_struct_elem_nominal_neg.tiq:6: error[E09]: argument 1: expected vec<B>, found vec<A>"
+
 echo "semantic: ok"
