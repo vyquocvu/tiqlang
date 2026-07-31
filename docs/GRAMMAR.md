@@ -26,13 +26,14 @@ Implementation status annotation (see also LANGUAGE_SPEC §17 for the complete t
 
 ```ebnf
 program       = { top_item } ;                                      (* ✅ *)
-top_item      = function_def | struct_def | binding | statement ;   (* ✅ *)
+top_item      = function_def | struct_def | enum_def | binding | statement ; (* ✅ *)
 
 function_def  = identifier, { param }, "->", [ type, "->" ], expression ;  (* ✅ — param:type M12.4 *)
 param         = identifier, [ ":", param_type ] ;                        (* ✅ — M12.4 *)
 param_type    = [ "&", [ "mut" ] ], type ;                           (* ✅ — M9.1 borrowed params *)
 struct_def    = "struct", identifier, "{", { field_def, [ "," ] }, "}" ; (* ✅ — M12.6 *)
 field_def     = identifier, ":", type ;                              (* ✅ — M12.6 *)
+enum_def      = "enum", identifier, "{", { identifier, [ "," ] }, "}" ; (* ✅ — M13.1-P2; variants auto-numbered 0..n-1 *)
 binding       = identifier, "=", expression ;                       (* ✅ *)
 mutable_def   = identifier, "<-", expression ;                     (* ✅ *)
 statement     = assign_stmt | bracket_loop | control_stmt | defer_stmt | expression ; (* ✅ *)

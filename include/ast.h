@@ -24,6 +24,7 @@ typedef enum {
     AST_ARRAY_FILL,
     AST_FIELD_ACCESS,
     AST_STRUCT_DEF,
+    AST_ENUM_DEF,
     AST_RECORD_LIT,
     AST_MATCH,
     AST_SPAWN,
@@ -151,6 +152,13 @@ struct AstNode {
             Token *field_types;
             int field_count;
         } struct_def;
+
+        // M13.1-P2: enum Name { A, B, C } — variants auto-numbered 0..n-1.
+        struct {
+            Token name;
+            Token *variants;
+            int variant_count;
+        } enum_def;
 
         struct {
             Token struct_name;

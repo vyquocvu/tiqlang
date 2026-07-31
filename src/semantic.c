@@ -66,6 +66,14 @@ typedef struct {
     SemanticType *type;
 } StructEntry;
 
+// M13.1-P2: Enum registry entry; variants are stored in declaration order
+// (insertion order, deterministic) and their values are their indices.
+typedef struct {
+    char *name;
+    char **variants;
+    int variant_count;
+} EnumEntry;
+
 // M9.1: Function registry entry; call sites need the definition to see
 // per-parameter borrow kinds (the pooled function type is arity-only).
 typedef struct {
@@ -88,6 +96,10 @@ typedef struct {
     FuncEntry *funcs;
     int func_count;
     int func_capacity;
+    // M13.1-P2: enum registry
+    EnumEntry *enums;
+    int enum_count;
+    int enum_capacity;
 } SemanticContext;
 
 static SemanticType *ty(SemanticContext *ctx, PrimitiveType kind) {
@@ -144,6 +156,55 @@ static void struct_register(SemanticContext *ctx, const char *name, SemanticType
     ctx->structs[ctx->struct_count].name = strdup(name);
     ctx->structs[ctx->struct_count].type = type;
     ctx->struct_count++;
+}
+
+// M13.1-P2: Enum registry helpers (LANGUAGE_SPEC §17.5).
+static EnumEntry *enum_lookup(SemanticContext *ctx, Token name) {
+    for (int i = 0; i < ctx->enum_count; i++) {
+        if ((int)strlen(ctx->enums[i].name) == (int)name.length &&
+            memcmp(ctx->enums[i].name, name.start, name.length) == 0) {
+            return &ctx->enums[i];
+        }
+    }
+    return NULL;
+}
+
+// Returns the variant's declaration index (its value), or -1 if unknown.
+static int enum_variant_index(EnumEntry *e, Token variant) {
+    for (int i = 0; i < e->variant_count; i++) {
+        if ((int)strlen(e->variants[i]) == (int)variant.length &&
+            memcmp(e->variants[i], variant.start, variant.length) == 0) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+static void enum_register(SemanticContext *ctx, Token name, Token *variants, int variant_count) {
+    if (ctx->enum_count + 1 > ctx->enum_capacity) {
+        int new_cap = ctx->enum_capacity < 8 ? 8 : ctx->enum_capacity * 2;
+        ctx->enums = realloc(ctx->enums, sizeof(EnumEntry) * (size_t)new_cap);
+        if (!ctx->enums) { fprintf(stderr, "out of memory\n"); exit(1); }
+        ctx->enum_capacity = new_cap;
+    }
+    EnumEntry *e = &ctx->enums[ctx->enum_count];
+    e->name = malloc((size_t)name.length + 1);
+    if (!e->name) { fprintf(stderr, "out of memory\n"); exit(1); }
+    memcpy(e->name, name.start, name.length);
+    e->name[name.length] = '\0';
+    e->variant_count = variant_count;
+    e->variants = NULL;
+    if (variant_count > 0) {
+        e->variants = malloc(sizeof(char *) * (size_t)variant_count);
+        if (!e->variants) { fprintf(stderr, "out of memory\n"); exit(1); }
+        for (int i = 0; i < variant_count; i++) {
+            e->variants[i] = malloc((size_t)variants[i].length + 1);
+            if (!e->variants[i]) { fprintf(stderr, "out of memory\n"); exit(1); }
+            memcpy(e->variants[i], variants[i].start, variants[i].length);
+            e->variants[i][variants[i].length] = '\0';
+        }
+    }
+    ctx->enum_count++;
 }
 
 // M9.1: Function registry helpers.
@@ -232,6 +293,15 @@ static void check_node(SemanticContext *ctx, AstNode *node) {
             Symbol *sym = env_lookup(ctx->current_env, node->as.identifier.name);
             if (!sym) {
                 char msg[256];
+                // M13.1-P2: a bare enum name is not a value (§17.5).
+                if (enum_lookup(ctx, id_name)) {
+                    snprintf(msg, sizeof(msg), "enum '%.*s' is not a value; use %.*s.<variant>",
+                             (int)id_name.length, id_name.start,
+                             (int)id_name.length, id_name.start);
+                    diag_error(ctx->diag, ctx->path, node->token.line, ERR_TYPE_MISMATCH, msg);
+                    node->semantic_type = ty(ctx, TYPE_UNKNOWN);
+                    break;
+                }
                 snprintf(msg, sizeof(msg), "undefined symbol '%.*s'",
                          (int)node->as.identifier.name.length, node->as.identifier.name.start);
                 diag_error(ctx->diag, ctx->path, node->token.line, ERR_UNDEFINED_SYMBOL, msg);
@@ -500,8 +570,9 @@ static void check_node(SemanticContext *ctx, AstNode *node) {
                     typedef struct {
                         const char *name; int name_len; int arity;
                         PrimitiveType expected; PrimitiveType ret;
-                        // M10.3: optional distinct type for the second argument;
-                        // TYPE_UNKNOWN (0) means "same as expected".
+                        // M10.3: optional distinct type for the second and
+                        // later arguments; TYPE_UNKNOWN (0) means "same as
+                        // expected".
                         PrimitiveType expected2;
                     } Builtin;
                     static const Builtin builtins[] = {
@@ -530,6 +601,12 @@ static void check_node(SemanticContext *ctx, AstNode *node) {
                         // M10.13: String utilities (LANGUAGE_SPEC §19.5).
                         {"str_cat",        7, 2, TYPE_STR, TYPE_STR, TYPE_UNKNOWN},
                         {"int_str",        7, 1, TYPE_INT, TYPE_STR, TYPE_UNKNOWN},
+                        // M13.1-P1: substring, byte equality, stderr print,
+                        // directory listing (LANGUAGE_SPEC §12, §19.5, §19.6).
+                        {"str_sub",        7, 3, TYPE_STR, TYPE_STR, TYPE_INT},
+                        {"str_eq",         6, 2, TYPE_STR, TYPE_BOOL, TYPE_UNKNOWN},
+                        {"eprint",         6, 1, TYPE_STR, TYPE_INT, TYPE_UNKNOWN},
+                        {"fs_list",        7, 1, TYPE_STR, TYPE_STR, TYPE_UNKNOWN},
                         {"net_fetch",      9, 1, TYPE_STR, TYPE_STR, TYPE_UNKNOWN},
                         // M10.8: TCP socket primitives (LANGUAGE_SPEC §19.3).
                         {"net_listen",    10, 1, TYPE_INT, TYPE_INT, TYPE_UNKNOWN},
@@ -574,7 +651,7 @@ static void check_node(SemanticContext *ctx, AstNode *node) {
                                 SemanticType *at = node->as.call.args[ai]->semantic_type;
                                 if (!at) continue;
                                 PrimitiveType want = builtins[bi].expected;
-                                if (ai == 1 && builtins[bi].expected2 != TYPE_UNKNOWN)
+                                if (ai >= 1 && builtins[bi].expected2 != TYPE_UNKNOWN)
                                     want = builtins[bi].expected2;
                                 // str parameters also accept borrowed str_view slices.
                                 if (want == TYPE_STR && at->kind == TYPE_STR_VIEW)
@@ -1236,6 +1313,25 @@ static void check_node(SemanticContext *ctx, AstNode *node) {
             break;
         }
         case AST_FIELD_ACCESS: {
+            // M13.1-P2: Name.Variant resolves through the enum registry first;
+            // an identifier target naming a declared enum wins over any
+            // same-named value binding (LANGUAGE_SPEC §17.5).
+            AstNode *fa_target = node->as.field_access.target;
+            if (fa_target && fa_target->kind == AST_IDENTIFIER) {
+                EnumEntry *ee = enum_lookup(ctx, fa_target->as.identifier.name);
+                if (ee) {
+                    if (enum_variant_index(ee, node->as.field_access.field) < 0) {
+                        char msg[160];
+                        snprintf(msg, sizeof msg, "unknown variant '%.*s' in enum '%s'",
+                                 (int)node->as.field_access.field.length,
+                                 node->as.field_access.field.start, ee->name);
+                        diag_error(ctx->diag, ctx->path, node->token.line, ERR_UNKNOWN_VARIANT, msg);
+                    }
+                    fa_target->semantic_type = ty(ctx, TYPE_INT);
+                    node->semantic_type = ty(ctx, TYPE_INT);
+                    break;
+                }
+            }
             check_node(ctx, node->as.field_access.target);
             SemanticType *tt = node->as.field_access.target ? (SemanticType *)node->as.field_access.target->semantic_type : NULL;
             SemanticType *ft = ty(ctx, TYPE_UNKNOWN);
@@ -1314,6 +1410,13 @@ static void check_node(SemanticContext *ctx, AstNode *node) {
                          (int)name.length, name.start);
                 diag_error(ctx->diag, ctx->path, node->token.line, ERR_TYPE_MISMATCH, msg);
             }
+            // M13.1-P2: struct and enum names share a namespace (§17.5).
+            if (enum_lookup(ctx, name)) {
+                char msg[128];
+                snprintf(msg, sizeof msg, "struct '%.*s' conflicts with enum '%.*s'",
+                         (int)name.length, name.start, (int)name.length, name.start);
+                diag_error(ctx->diag, ctx->path, node->token.line, ERR_DUPLICATE_ENUM, msg);
+            }
             // Resolve field types
             SemanticType **field_types = NULL;
             if (node->as.struct_def.field_count > 0) {
@@ -1342,6 +1445,39 @@ static void check_node(SemanticContext *ctx, AstNode *node) {
             struct_register(ctx, name_buf, st);
             free(field_types);
             node->semantic_type = st;
+            break;
+        }
+        case AST_ENUM_DEF: {
+            // M13.1-P2: register the enum; variants keep declaration order so
+            // their values (indices) and the emitted constants are
+            // deterministic (LANGUAGE_SPEC §17.5).
+            Token name = node->as.enum_def.name;
+            if (enum_lookup(ctx, name)) {
+                char msg[128];
+                snprintf(msg, sizeof msg, "duplicate enum definition '%.*s'",
+                         (int)name.length, name.start);
+                diag_error(ctx->diag, ctx->path, node->token.line, ERR_DUPLICATE_ENUM, msg);
+            }
+            if (struct_lookup(ctx, name)) {
+                char msg[128];
+                snprintf(msg, sizeof msg, "enum '%.*s' conflicts with struct '%.*s'",
+                         (int)name.length, name.start, (int)name.length, name.start);
+                diag_error(ctx->diag, ctx->path, node->token.line, ERR_DUPLICATE_ENUM, msg);
+            }
+            for (int i = 0; i < node->as.enum_def.variant_count; i++) {
+                for (int j = 0; j < i; j++) {
+                    Token a = node->as.enum_def.variants[i];
+                    Token b = node->as.enum_def.variants[j];
+                    if (a.length == b.length && memcmp(a.start, b.start, a.length) == 0) {
+                        char msg[160];
+                        snprintf(msg, sizeof msg, "duplicate variant '%.*s' in enum '%.*s'",
+                                 (int)a.length, a.start, (int)name.length, name.start);
+                        diag_error(ctx->diag, ctx->path, node->token.line, ERR_DUPLICATE_VARIANT, msg);
+                        break;
+                    }
+                }
+            }
+            enum_register(ctx, name, node->as.enum_def.variants, node->as.enum_def.variant_count);
             break;
         }
         case AST_RECORD_LIT: {
@@ -1410,6 +1546,9 @@ void semantic_check(AstNode **stmts, int count, const char *path, DiagContext *d
     ctx.funcs = NULL;
     ctx.func_count = 0;
     ctx.func_capacity = 0;
+    ctx.enums = NULL;
+    ctx.enum_count = 0;
+    ctx.enum_capacity = 0;
     Environment global_env;
     env_init(&global_env, NULL);
     ctx.current_env = &global_env;
@@ -1427,4 +1566,13 @@ void semantic_check(AstNode **stmts, int count, const char *path, DiagContext *d
         free(ctx.funcs[i].name);
     }
     free(ctx.funcs);
+    // M13.1-P2: free enum registry
+    for (int i = 0; i < ctx.enum_count; i++) {
+        for (int j = 0; j < ctx.enums[i].variant_count; j++) {
+            free(ctx.enums[i].variants[j]);
+        }
+        free(ctx.enums[i].variants);
+        free(ctx.enums[i].name);
+    }
+    free(ctx.enums);
 }

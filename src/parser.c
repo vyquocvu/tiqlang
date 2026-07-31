@@ -724,6 +724,30 @@ static AstNode *declaration(Parser *parser) {
         consume(parser, TOK_RBRACE, ERR_UNEXPECTED_TOKEN, "expected '}' after struct fields");
         return node;
     }
+    // M13.1-P2: enum definition — bare identifiers, auto-numbered 0..n-1;
+    // no explicit values or payloads (LANGUAGE_SPEC §17.5).
+    if (match(parser, TOK_ENUM)) {
+        AstNode *node = allocate_node(parser, AST_ENUM_DEF);
+        consume(parser, TOK_IDENT, ERR_UNEXPECTED_TOKEN, "expected enum name after 'enum'");
+        node->as.enum_def.name = parser->previous;
+        consume(parser, TOK_LBRACE, ERR_UNEXPECTED_TOKEN, "expected '{' after enum name");
+        int capacity = 0;
+        while (!check(parser, TOK_RBRACE) && !check(parser, TOK_EOF)) {
+            if (node->as.enum_def.variant_count + 1 > capacity) {
+                int new_cap = capacity < 4 ? 4 : capacity * 2;
+                node->as.enum_def.variants = arena_realloc(&parser->arena, node->as.enum_def.variants,
+                                                           sizeof(Token) * capacity,
+                                                           sizeof(Token) * new_cap);
+                capacity = new_cap;
+            }
+            consume(parser, TOK_IDENT, ERR_UNEXPECTED_TOKEN, "expected variant name");
+            node->as.enum_def.variants[node->as.enum_def.variant_count] = parser->previous;
+            node->as.enum_def.variant_count++;
+            if (check(parser, TOK_COMMA)) advance(parser);
+        }
+        consume(parser, TOK_RBRACE, ERR_UNEXPECTED_TOKEN, "expected '}' after enum variants");
+        return node;
+    }
     if (check(parser, TOK_IDENT)) {
         Token name = parser->current;
         Lexer peek_lexer = parser->lexer;
@@ -1046,6 +1070,20 @@ void ast_print(AstNode *node, int indent) {
         case AST_DEFER:
             printf("DEFER%s\n", t_str);
             ast_print(node->as.defer.expr, indent + 1);
+            break;
+        case AST_FIELD_ACCESS:
+            printf("FIELD_ACCESS %.*s%s\n", (int)node->as.field_access.field.length,
+                   node->as.field_access.field.start, t_str);
+            ast_print(node->as.field_access.target, indent + 1);
+            break;
+        case AST_ENUM_DEF:
+            printf("ENUM_DEF %.*s%s\n", (int)node->as.enum_def.name.length,
+                   node->as.enum_def.name.start, t_str);
+            for (int i = 0; i < node->as.enum_def.variant_count; i++) {
+                for (int j = 0; j < indent + 1; j++) printf("  ");
+                printf("VARIANT %.*s\n", (int)node->as.enum_def.variants[i].length,
+                       node->as.enum_def.variants[i].start);
+            }
             break;
         default:
             printf("UNKNOWN%s\n", t_str);

@@ -82,7 +82,7 @@ tiq check app.tiq
 tiq emit-c app.tiq
 ```
 
-Developer tooling such as `tiq fmt` and `tiq test` will be written in Tiq itself after self-hosting (POST_BOOTSTRAP_ROADMAP M21) and remains part of the canonical `tiq` tool.
+Developer tooling such as `tiq fmt` and `tiq test` will be written in Tiq itself after self-hosting (POST_BOOTSTRAP_ROADMAP M14) and remains part of the canonical `tiq` tool.
 
 The compiler, formatter, diagnostics, build metadata, and standard library versions are considered part of language compatibility.
 

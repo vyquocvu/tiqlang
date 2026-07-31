@@ -62,6 +62,7 @@ typedef enum {
     TOK_CHAN,
     TOK_MATCH,
     TOK_STRUCT,
+    TOK_ENUM,
     TOK_MUT,
     TOK_SEMICOLON,
     TOK_FAT_ARROW,

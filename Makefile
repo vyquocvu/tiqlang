@@ -45,6 +45,7 @@ test: $(TIQ) test-unit
 	sh tests/parser.sh
 	sh tests/semantic.sh
 	sh tests/examples.sh
+	sh tests/determinism.sh
 	sh tests/check.sh
 	sh tests/run.sh
 

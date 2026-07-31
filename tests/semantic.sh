@@ -616,4 +616,136 @@ assert_semantic "propagate_non_option" 'x = 1
 y = x?
 ' "$TMP_DIR/propagate_non_option.tiq:2: error[E09]: propagation operator requires Option or Result operand"
 
+# M13.1-P1: str_sub / str_eq / eprint / fs_list builtins (LANGUAGE_SPEC §19.5, §19.6).
+assert_semantic "str_sub_bad_arity" 'x = str_sub("abc", 0)
+' "$TMP_DIR/str_sub_bad_arity.tiq:1: error[E12]: str_sub expects exactly 3 arguments"
+
+assert_semantic "str_sub_bad_str_type" 'x = str_sub(1, 0, 1)
+' "$TMP_DIR/str_sub_bad_str_type.tiq:1: error[E09]: str_sub argument: expected str, found int"
+
+assert_semantic "str_sub_bad_index_type" 'x = str_sub("abc", "0", 1)
+' "$TMP_DIR/str_sub_bad_index_type.tiq:1: error[E09]: str_sub argument: expected int, found str"
+
+assert_semantic "str_eq_bad_arity" 'x = str_eq("a")
+' "$TMP_DIR/str_eq_bad_arity.tiq:1: error[E12]: str_eq expects exactly 2 arguments"
+
+assert_semantic "str_eq_bad_type" 'x = str_eq("a", 1)
+' "$TMP_DIR/str_eq_bad_type.tiq:1: error[E09]: str_eq argument: expected str, found int"
+
+assert_semantic "eprint_bad_arity" 'x = eprint("a", "b")
+' "$TMP_DIR/eprint_bad_arity.tiq:1: error[E12]: eprint expects exactly 1 argument"
+
+assert_semantic "eprint_bad_type" 'x = eprint(42)
+' "$TMP_DIR/eprint_bad_type.tiq:1: error[E09]: eprint argument: expected str, found int"
+
+assert_semantic "fs_list_bad_arity" 'x = fs_list()
+' "$TMP_DIR/fs_list_bad_arity.tiq:1: error[E12]: fs_list expects exactly 1 argument"
+
+assert_semantic "fs_list_bad_type" 'x = fs_list(42)
+' "$TMP_DIR/fs_list_bad_type.tiq:1: error[E09]: fs_list argument: expected str, found int"
+
+# M13.1-P2: enum declarations (LANGUAGE_SPEC §17.5).
+assert_semantic "enum_duplicate" 'enum Color { Red }
+enum Color { Blue }
+' "$TMP_DIR/enum_duplicate.tiq:2: error[E24]: duplicate enum definition 'Color'"
+
+assert_semantic "enum_struct_collision" 'struct Point { x: i64 }
+enum Point { A }
+' "$TMP_DIR/enum_struct_collision.tiq:2: error[E24]: enum 'Point' conflicts with struct 'Point'"
+
+assert_semantic "struct_enum_collision" 'enum Color { Red }
+struct Color { x: i64 }
+' "$TMP_DIR/struct_enum_collision.tiq:2: error[E24]: struct 'Color' conflicts with enum 'Color'"
+
+assert_semantic "enum_duplicate_variant" 'enum Color { Red, Green, Red }
+' "$TMP_DIR/enum_duplicate_variant.tiq:1: error[E25]: duplicate variant 'Red' in enum 'Color'"
+
+assert_semantic "enum_unknown_variant" 'enum Color { Red, Green }
+x = Color.Purple
+' "$TMP_DIR/enum_unknown_variant.tiq:2: error[E26]: unknown variant 'Purple' in enum 'Color'"
+
+assert_semantic "enum_bare_as_value" 'enum Color { Red }
+x = Color
+' "$TMP_DIR/enum_bare_as_value.tiq:2: error[E09]: enum 'Color' is not a value; use Color.<variant>"
+
+# Variant references are plain ints in the typed IR; the enum wins in
+# field-access target position.
+assert_semantic_ast "typed_enum_variant" 'enum Color { Red, Green }
+x = Color.Green' 'ENUM_DEF Color
+  VARIANT Red
+  VARIANT Green
+BINDING x <TYPE_INT>
+  FIELD_ACCESS Green <TYPE_INT>
+    IDENT Color <TYPE_INT>'
+
+# M13.1-P3: Vec builtins (LANGUAGE_SPEC §19.7).
+assert_semantic "vec_new_bad_arity" 'v = vec_new(1)
+' "$TMP_DIR/vec_new_bad_arity.tiq:1: error[E12]: vec_new expects no arguments"
+
+assert_semantic "vec_push_bad_arity" 'v = vec_new()
+n = vec_push(v)
+' "$TMP_DIR/vec_push_bad_arity.tiq:2: error[E12]: vec_push expects exactly 2 arguments"
+
+assert_semantic "vec_set_bad_arity" 'v = vec_new()
+vec_push(v, 1)
+vec_set(v, 0)
+' "$TMP_DIR/vec_set_bad_arity.tiq:3: error[E12]: vec_set expects exactly 3 arguments"
+
+assert_semantic "vec_len_bad_vec_type" 'x = 1
+n = vec_len(x)
+' "$TMP_DIR/vec_len_bad_vec_type.tiq:2: error[E09]: vec_len argument: expected vec, found int"
+
+assert_semantic "vec_push_bad_vec_type" 'n = vec_push(1, 2)
+' "$TMP_DIR/vec_push_bad_vec_type.tiq:1: error[E09]: vec_push argument: expected vec, found int"
+
+assert_semantic "vec_push_elem_mismatch" 'v = vec_new()
+vec_push(v, 1)
+vec_push(v, "s")
+' "$TMP_DIR/vec_push_elem_mismatch.tiq:3: error[E09]: vec_push element: expected int, found str"
+
+assert_semantic "vec_set_elem_mismatch" 'v = vec_new()
+vec_push(v, "a")
+vec_set(v, 0, 1)
+' "$TMP_DIR/vec_set_elem_mismatch.tiq:3: error[E09]: vec_set element: expected str, found int"
+
+assert_semantic "vec_get_bad_index" 'v = vec_new()
+vec_push(v, 1)
+x = vec_get(v, "0")
+' "$TMP_DIR/vec_get_bad_index.tiq:3: error[E09]: vec_get index: expected int, found str"
+
+assert_semantic "vec_push_bad_elem_kind" 'v = vec_new()
+vec_push(v, 1 == 1)
+' "$TMP_DIR/vec_push_bad_elem_kind.tiq:2: error[E09]: vec_push element must be int, str, or a struct"
+
+# Fail-closed rule: only vec_push establishes the element type; get/set/pop
+# on a vec that never saw a push are compile-time errors (§19.7).
+assert_semantic "vec_get_unestablished" 'v = vec_new()
+x = vec_get(v, 0)
+' "$TMP_DIR/vec_get_unestablished.tiq:2: error[E09]: vec_get on a vec with no established element type (no vec_push yet)"
+
+assert_semantic "vec_set_unestablished" 'v = vec_new()
+vec_set(v, 0, 1)
+' "$TMP_DIR/vec_set_unestablished.tiq:2: error[E09]: vec_set on a vec with no established element type (no vec_push yet)"
+
+assert_semantic "vec_pop_unestablished" 'v = vec_new()
+x = vec_pop(v)
+' "$TMP_DIR/vec_pop_unestablished.tiq:2: error[E09]: vec_pop on a vec with no established element type (no vec_push yet)"
+
+# The typed IR shows TYPE_VEC, parametrized by the established element type.
+assert_semantic_ast "typed_vec" 'v = vec_new()
+n = vec_push(v, 7)
+x = vec_get(v, 0)' 'BINDING v <TYPE_VEC>
+  CALL <TYPE_VEC>
+    IDENT vec_new
+BINDING n <TYPE_INT>
+  CALL <TYPE_INT>
+    IDENT vec_push
+    IDENT v <TYPE_VEC:TYPE_INT>
+    INT 7 <TYPE_INT>
+BINDING x <TYPE_INT>
+  CALL <TYPE_INT>
+    IDENT vec_get
+    IDENT v <TYPE_VEC:TYPE_INT>
+    INT 0 <TYPE_INT>'
+
 echo "semantic: ok"

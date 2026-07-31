@@ -36,7 +36,7 @@ tiq run <file.tiq> [-- program-args]
 tiq build <package> --release
 ```
 
-Developer tooling was removed from the C11 bootstrap compiler on 2026-07-30 and will be rewritten in Tiq after self-hosting (POST_BOOTSTRAP_ROADMAP M21):
+Developer tooling was removed from the C11 bootstrap compiler on 2026-07-30 and will be rewritten in Tiq after self-hosting (POST_BOOTSTRAP_ROADMAP M14):
 
 ```text
 tiq fmt [--check] [--output <file>] [--use-tabs] [--indent-width <n>] [file]

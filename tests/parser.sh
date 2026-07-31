@@ -206,4 +206,22 @@ assert_parser "defer_stmt" '{defer 1}' 'BLOCK
   DEFER
     INT 1'
 
+# M13.1-P2: enum declarations parse at top level; variants are bare
+# identifiers in declaration order (LANGUAGE_SPEC §17.5, GRAMMAR enum_def).
+assert_parser "enum_def" 'enum Color { Red, Green, Blue }' 'ENUM_DEF Color
+  VARIANT Red
+  VARIANT Green
+  VARIANT Blue'
+
+assert_parser "enum_def_trailing_comma" 'enum Status { Ok, Err, }' 'ENUM_DEF Status
+  VARIANT Ok
+  VARIANT Err'
+
+assert_parser "enum_variant_ref" 'enum Color { Red }
+x = Color.Red' 'ENUM_DEF Color
+  VARIANT Red
+BINDING x
+  FIELD_ACCESS Red
+    IDENT Color'
+
 echo "parser: ok"

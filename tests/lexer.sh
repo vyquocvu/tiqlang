@@ -91,4 +91,12 @@ STAR
 SLASH
 PERCENT'
 
+# M13.1-P2: 'enum' is a reserved word (LANGUAGE_SPEC §4).
+assert_lexer "enum_keyword" 'enum Color' 'ENUM
+IDENT Color'
+
+# Near-miss identifiers must stay identifiers.
+assert_lexer "enum_near_miss" 'enums enu' 'IDENT enums
+IDENT enu'
+
 echo "lexer: ok"

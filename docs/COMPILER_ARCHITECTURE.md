@@ -49,7 +49,7 @@ src/diag.c        structured diagnostics
 src/arena.c       AST arena allocator
 ```
 
-The bootstrap compiler contains only the core pipeline. The former C tooling modules (formatter, test runner, benchmark, manifest, cache, LSP server) were removed on 2026-07-30 and will be rewritten in Tiq after self-hosting (POST_BOOTSTRAP_ROADMAP M21).
+The bootstrap compiler contains only the core pipeline. The former C tooling modules (formatter, test runner, benchmark, manifest, cache, LSP server) were removed on 2026-07-30 and will be rewritten in Tiq after self-hosting (POST_BOOTSTRAP_ROADMAP M14).
 
 There is no separate `src/source.c`, `src/resolve.c`, or `src/ir.c`: source loading lives in `main.c`, resolution and checking are combined in `semantic.c`, and the emitter walks the typed AST directly without a lower-level IR. The C backend was split out of `main.c` into `src/emit_c.c` in 2026-07-27; all emitter state is carried in an `EmitContext` (no mutable globals), so `compile_to_c` is re-entrant and unit-tested in `tests/unit/test_main.c`.
 

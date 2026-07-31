@@ -193,9 +193,9 @@ Status: done (M4.1 `move`, M4.2 `defer`; remaining ownership work in M9)
 
 ## M5 — Tooling
 
-Status: removed from bootstrap (2026-07-30); superseded by POST_BOOTSTRAP_ROADMAP M21
+Status: removed from bootstrap (2026-07-30); superseded by POST_BOOTSTRAP_ROADMAP M14
 
-The M5 tooling (formatter, test runner, package manifests, module cache, LSP baseline, benchmark tool) was completed in C and later removed from the bootstrap compiler to keep the C11 codebase limited to the core pipeline. It will be rewritten in Tiq after self-hosting (M13); see `POST_BOOTSTRAP_ROADMAP.md` M21. The C implementations remain in git history. The checklist below is kept as a historical record.
+The M5 tooling (formatter, test runner, package manifests, module cache, LSP baseline, benchmark tool) was completed in C and later removed from the bootstrap compiler to keep the C11 codebase limited to the core pipeline. It will be rewritten in Tiq after self-hosting (M13); see `POST_BOOTSTRAP_ROADMAP.md` M14. The C implementations remain in git history. The checklist below is kept as a historical record.
 
 ### M5.1 — Formatter
 

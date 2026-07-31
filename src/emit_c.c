@@ -72,11 +72,29 @@ typedef struct EmitContext {
     int hoist_count;
     AstNode *hoist_emitting; // temp whose own initializer is being emitted
     int tmp_counter;         // monotonic across the whole translation unit
+    // M13.1-P2: the top-level statement list, scanned for enum definitions
+    // so Name.Variant use sites resolve to their constants (declaration
+    // order, deterministic; mirrors the semantic enum registry).
+    AstNode **top_stmts;
+    int top_count;
 } EmitContext;
 
 static void emit_expr(AstNode *node, EmitContext *ctx);
 static void emit_stmt(AstNode *node, EmitContext *ctx, int indent);
 static void emit_type_name(PrimitiveType kind, FILE *out);
+
+// M13.1-P2: find a top-level enum definition by name; NULL when absent.
+static AstNode *emit_enum_lookup(EmitContext *ctx, Token name) {
+    for (int i = 0; i < ctx->top_count; i++) {
+        AstNode *e = ctx->top_stmts[i];
+        if (e && e->kind == AST_ENUM_DEF &&
+            e->as.enum_def.name.length == name.length &&
+            memcmp(e->as.enum_def.name.start, name.start, name.length) == 0) {
+            return e;
+        }
+    }
+    return NULL;
+}
 
 // M9.2: an immutable binding whose initializer is a direct call to one of
 // these builtins owns the returned heap string (LANGUAGE_SPEC §16.4).
@@ -86,6 +104,8 @@ static bool is_owned_str_builtin_call(AstNode *expr) {
         {"json_arr_get", 12}, {"net_fetch", 9}, {"net_recv", 8},
         {"http_method", 11}, {"http_path", 9}, {"json_set", 8}, {"json_del", 8},
         {"str_cat", 7}, {"int_str", 7}, {"http_header", 11},
+        // M13.1-P1: fresh heap results (LANGUAGE_SPEC §19.5, §19.6).
+        {"str_sub", 7}, {"fs_list", 7},
     };
     if (!expr || expr->kind != AST_CALL || expr->as.call.is_bracket_call) return false;
     if (!expr->as.call.callee || expr->as.call.callee->kind != AST_IDENTIFIER) return false;
@@ -190,6 +210,8 @@ static bool is_safe_builtin_callee(AstNode *callee) {
         {"ev_loop", 7}, {"ev_add", 6}, {"ev_wait", 7}, {"ev_ready", 8},
         {"json_set", 8}, {"json_del", 8}, {"str_cat", 7}, {"int_str", 7},
         {"http_header", 11},
+        // M13.1-P1: read their string arguments without retaining them.
+        {"str_sub", 7}, {"str_eq", 6}, {"eprint", 6}, {"fs_list", 7},
     };
     if (!callee || callee->kind != AST_IDENTIFIER) return false;
     Token n = callee->as.identifier.name;
@@ -220,7 +242,7 @@ static bool mut_uses_ok(AstNode *n, Token name) {
     if (!n) return true;
     switch (n->kind) {
         case AST_LITERAL: case AST_BREAK: case AST_SKIP:
-        case AST_STRUCT_DEF: case AST_CHAN:
+        case AST_STRUCT_DEF: case AST_ENUM_DEF: case AST_CHAN:
             return true;
         case AST_IDENTIFIER:
             return !tok_name_eq(n->as.identifier.name, name);
@@ -775,6 +797,8 @@ static void emit_expr(AstNode *node, EmitContext *ctx) {
                     {"json_set", 8, "tiq_json_set"}, {"json_del", 8, "tiq_json_del"},
                     {"str_cat", 7, "tiq_str_cat"}, {"int_str", 7, "tiq_int_str"},
                     {"http_header", 11, "tiq_http_header"},
+                    {"str_sub", 7, "tiq_str_sub"}, {"str_eq", 6, "tiq_str_eq"},
+                    {"eprint", 6, "tiq_eprint"}, {"fs_list", 7, "tiq_fs_list"},
                 };
                 const char *builtin_fn = NULL;
                 for (int bi = 0; bi < (int)(sizeof btn / sizeof btn[0]); bi++) {
@@ -1015,11 +1039,25 @@ static void emit_expr(AstNode *node, EmitContext *ctx) {
             }
             break;
         }
-        case AST_FIELD_ACCESS:
+        case AST_FIELD_ACCESS: {
+            // M13.1-P2: Name.Variant emits its enum constant; the enum wins
+            // in field-access target position, matching the semantic
+            // checker's resolution rule (LANGUAGE_SPEC §17.5).
+            AstNode *fa_target = node->as.field_access.target;
+            if (fa_target && fa_target->kind == AST_IDENTIFIER &&
+                emit_enum_lookup(ctx, fa_target->as.identifier.name)) {
+                fprintf(ctx->out, "tiq_enum_%.*s_%.*s",
+                        (int)fa_target->as.identifier.name.length,
+                        fa_target->as.identifier.name.start,
+                        (int)node->as.field_access.field.length,
+                        node->as.field_access.field.start);
+                break;
+            }
             emit_expr(node->as.field_access.target, ctx);
             fputs(".", ctx->out);
             fprintf(ctx->out, "%.*s", (int)node->as.field_access.field.length, node->as.field_access.field.start);
             break;
+        }
         case AST_RECORD_LIT: {
             // M12.6: Emit C struct initializer
             SemanticType *st = node->semantic_type;
@@ -1282,6 +1320,9 @@ static void emit_stmt(AstNode *node, EmitContext *ctx, int indent) {
         case AST_STRUCT_DEF:
             // M12.6: Struct definitions are emitted at the top level, not in statements
             break;
+        case AST_ENUM_DEF:
+            // M13.1-P2: enum constants are emitted at the top level
+            break;
         case AST_BREAK:
             // M9.2-B: destroy owned strings of every scope this break exits.
             emit_jump_frees(ctx, indent);
@@ -1519,13 +1560,16 @@ static void emit_stream_gen_def(const char *name, AstNode *node, Token *params, 
 void compile_to_c(const char *source_path, const char *source, FILE *out, DiagContext *diag) {
     EmitContext ectx = { out, diag, source_path, {{0, 0, 0}}, 0, NULL,
                          {{NULL, 0, 0, false, NULL, NULL, 0}}, 0,
-                         {NULL}, {0}, 0, NULL, 0 };
+                         {NULL}, {0}, 0, NULL, 0, NULL, 0 };
     EmitContext *ctx = &ectx;
     Parser parser;
     parser_init(&parser, source, source_path, diag);
     int count;
     AstNode **stmts = parser_parse(&parser, &count);
     if (diag->has_error) { parser_free(&parser); return; }
+    // M13.1-P2: enum variant use sites resolve against the top-level list.
+    ctx->top_stmts = stmts;
+    ctx->top_count = count;
 
     TypePool pool;
     type_pool_init(&pool);
@@ -1596,6 +1640,7 @@ void compile_to_c(const char *source_path, const char *source, FILE *out, DiagCo
     fputs(TIQ_RUNTIME_PRELUDE_AUX5, ctx->out);
     fputs(TIQ_RUNTIME_PRELUDE_AUX6, ctx->out);
     fputs(TIQ_RUNTIME_PRELUDE_AUX7, ctx->out);
+    fputs(TIQ_RUNTIME_PRELUDE_AUX8, ctx->out);
 
     // M12.6: Emit struct definitions (before function declarations so types are visible)
     for (int i = 0; i < count; i++) {
@@ -1611,6 +1656,24 @@ void compile_to_c(const char *source_path, const char *source, FILE *out, DiagCo
                 }
                 fprintf(ctx->out, "} %s;\n\n", st->struct_name);
             }
+        }
+    }
+
+    // M13.1-P2: Emit enum constants (declaration order, deterministic).
+    // An enum with no variants emits nothing (an empty enumerator list is
+    // not valid C11). Constants are plain C enum constants: no storage, no
+    // unused-variable warnings, and they promote to int64_t at every use.
+    for (int i = 0; i < count; i++) {
+        if (stmts[i] && stmts[i]->kind == AST_ENUM_DEF && stmts[i]->as.enum_def.variant_count > 0) {
+            Token en = stmts[i]->as.enum_def.name;
+            fputs("enum {\n", ctx->out);
+            for (int v = 0; v < stmts[i]->as.enum_def.variant_count; v++) {
+                Token vt = stmts[i]->as.enum_def.variants[v];
+                fprintf(ctx->out, "    tiq_enum_%.*s_%.*s = %d%s\n",
+                        (int)en.length, en.start, (int)vt.length, vt.start, v,
+                        v + 1 < stmts[i]->as.enum_def.variant_count ? "," : "");
+            }
+            fputs("};\n\n", ctx->out);
         }
     }
 
@@ -1652,7 +1715,8 @@ void compile_to_c(const char *source_path, const char *source, FILE *out, DiagCo
     // reassignments inside it (and its loops) find their declaration.
     emit_scope_push(ctx, stmts, count, false, NULL, NULL, 0);
     for (int i = 0; i < count; i++) {
-        if (stmts[i] && stmts[i]->kind != AST_FUNCTION && stmts[i]->kind != AST_STRUCT_DEF) {
+        if (stmts[i] && stmts[i]->kind != AST_FUNCTION && stmts[i]->kind != AST_STRUCT_DEF &&
+            stmts[i]->kind != AST_ENUM_DEF) {
             if (stmts[i]->kind == AST_BINDING && stmts[i]->as.binding.expr &&
                 stmts[i]->as.binding.expr->kind == AST_STREAM_GEN) {
                 // stream gen bindings are emitted via tiq_gen_* functions below

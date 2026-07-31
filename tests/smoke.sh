@@ -1105,4 +1105,202 @@ EOF
 printf 'localhost\ntext/html\n\n' > "$TMP_DIR/m1015_hdr.expected"
 cmp "$TMP_DIR/m1015_hdr.out" "$TMP_DIR/m1015_hdr.expected"
 
+# M13.1-P1: str_sub — byte substring [start, end); any invalid range
+# (start < 0, end < start, end > len) yields the empty string, never a
+# runtime error (LANGUAGE_SPEC §19.5).
+cat > "$TMP_DIR/p1_str_sub.tiq" <<'EOF'
+s = "Hello World"
+print(str_sub(s, 0, 5))
+print(str_sub(s, 6, 11))
+print(str_sub(s, 0, 11))
+print(len(str_sub(s, 3, 3)))
+print(len(str_sub(s, -1, 4)))
+print(len(str_sub(s, 4, 2)))
+print(len(str_sub(s, 0, 12)))
+print(len(str_sub(s, 12, 15)))
+print(len(str_sub("", 0, 0)))
+EOF
+./build/tiq build "$TMP_DIR/p1_str_sub.tiq" -o "$TMP_DIR/p1_str_sub"
+"$TMP_DIR/p1_str_sub" > "$TMP_DIR/p1_str_sub.out"
+printf 'Hello\nWorld\nHello World\n0\n0\n0\n0\n0\n0\n' > "$TMP_DIR/p1_str_sub.expected"
+cmp "$TMP_DIR/p1_str_sub.out" "$TMP_DIR/p1_str_sub.expected"
+
+# M13.1-P1: str_eq — byte equality, no allocation (LANGUAGE_SPEC §19.5).
+cat > "$TMP_DIR/p1_str_eq.tiq" <<'EOF'
+print(str_eq("abc", "abc"))
+print(str_eq("abc", "abd"))
+print(str_eq("", ""))
+print(str_eq("a", ""))
+print(str_eq("a", "ab"))
+EOF
+./build/tiq build "$TMP_DIR/p1_str_eq.tiq" -o "$TMP_DIR/p1_str_eq"
+"$TMP_DIR/p1_str_eq" > "$TMP_DIR/p1_str_eq.out"
+printf 'true\nfalse\ntrue\nfalse\nfalse\n' > "$TMP_DIR/p1_str_eq.expected"
+cmp "$TMP_DIR/p1_str_eq.out" "$TMP_DIR/p1_str_eq.expected"
+
+# M13.1-P1: eprint — identical formatting to print's str case (value plus
+# trailing newline) but on stderr; returns bytes written (LANGUAGE_SPEC §12).
+cat > "$TMP_DIR/p1_eprint.tiq" <<'EOF'
+n = eprint("to-stderr")
+print(n)
+EOF
+./build/tiq build "$TMP_DIR/p1_eprint.tiq" -o "$TMP_DIR/p1_eprint"
+"$TMP_DIR/p1_eprint" > "$TMP_DIR/p1_eprint.out" 2> "$TMP_DIR/p1_eprint.err"
+printf 'to-stderr\n' > "$TMP_DIR/p1_eprint.err.expected"
+cmp "$TMP_DIR/p1_eprint.err" "$TMP_DIR/p1_eprint.err.expected"
+printf '10\n' > "$TMP_DIR/p1_eprint.out.expected"
+cmp "$TMP_DIR/p1_eprint.out" "$TMP_DIR/p1_eprint.out.expected"
+
+# M13.1-P1: fs_list — directory entry names (excluding . and ..), strcmp-
+# sorted, joined with \n, no trailing newline; missing/unreadable dir
+# yields the empty string (LANGUAGE_SPEC §19.6).
+FS_LIST_DIR="$TMP_DIR/p1_fs_list_dir"
+mkdir -p "$FS_LIST_DIR/sub"
+: > "$FS_LIST_DIR/b.txt"
+: > "$FS_LIST_DIR/a.txt"
+: > "$FS_LIST_DIR/c"
+cat > "$TMP_DIR/p1_fs_list.tiq" <<'EOF'
+print(fs_list(cli_arg(0)))
+print(len(fs_list(cli_arg(1))))
+EOF
+./build/tiq build "$TMP_DIR/p1_fs_list.tiq" -o "$TMP_DIR/p1_fs_list"
+"$TMP_DIR/p1_fs_list" "$FS_LIST_DIR" "$TMP_DIR/p1_no_such_dir" > "$TMP_DIR/p1_fs_list.out"
+printf 'a.txt\nb.txt\nc\nsub\n0\n' > "$TMP_DIR/p1_fs_list.expected"
+cmp "$TMP_DIR/p1_fs_list.out" "$TMP_DIR/p1_fs_list.expected"
+
+# M13.1-P1: str_sub and fs_list results are heap-owned and freed at scope
+# end in reverse declaration order, like the m92 goldens (LANGUAGE_SPEC §16.4).
+mkdir -p "$TMP_DIR/p1_empty_dir"
+cat > "$TMP_DIR/p1_owned.tiq" <<'EOF'
+a = str_sub("hello", 1, 4)
+b = fs_list(cli_arg(0))
+print(a)
+print(b)
+EOF
+./build/tiq emit-c "$TMP_DIR/p1_owned.tiq" > "$TMP_DIR/p1_owned.c"
+grep -o 'free((void \*)[a-z]);' "$TMP_DIR/p1_owned.c" > "$TMP_DIR/p1_owned.frees" || true
+printf 'free((void *)b);\nfree((void *)a);\n' > "$TMP_DIR/p1_owned.frees.expected"
+cmp "$TMP_DIR/p1_owned.frees" "$TMP_DIR/p1_owned.frees.expected"
+cc -std=c11 -g -fsanitize=address,undefined -o "$TMP_DIR/p1_owned_asan" "$TMP_DIR/p1_owned.c"
+"$TMP_DIR/p1_owned_asan" "$TMP_DIR/p1_empty_dir" > "$TMP_DIR/p1_owned.out"
+printf 'ell\n\n' > "$TMP_DIR/p1_owned.expected"
+cmp "$TMP_DIR/p1_owned.out" "$TMP_DIR/p1_owned.expected"
+
+# M13.1-P2: enums end-to-end — declaration, Name.Variant in bindings,
+# comparisons, match scrutinee/patterns, and function arguments; variants
+# are plain i64 values numbered 0..n-1 (LANGUAGE_SPEC §17.5). Output pinned.
+cat > "$TMP_DIR/p2_enum.tiq" <<'EOF'
+enum Color { Red, Green, Blue }
+enum Status { Ok, Err }
+print(Color.Red)
+print(Color.Green)
+print(Color.Blue)
+print(Status.Err)
+c = Color.Blue
+print(c == Color.Blue ? 1 : 0)
+print(c == Color.Red ? 1 : 0)
+name = match c { Color.Red => "red", Color.Green => "green", Color.Blue => "blue", _ => "?" }
+print(name)
+pick s -> s == Status.Ok ? 100 : 200
+print(pick(Status.Ok))
+print(pick(Status.Err))
+EOF
+./build/tiq build "$TMP_DIR/p2_enum.tiq" -o "$TMP_DIR/p2_enum"
+"$TMP_DIR/p2_enum" > "$TMP_DIR/p2_enum.out"
+printf '0\n1\n2\n1\n1\n0\nblue\n100\n200\n' > "$TMP_DIR/p2_enum.expected"
+cmp "$TMP_DIR/p2_enum.out" "$TMP_DIR/p2_enum.expected"
+
+# The emitted C names each variant as a deterministic, readable enum
+# constant tiq_enum_<Name>_<Variant>, and use sites emit the constant name.
+./build/tiq emit-c "$TMP_DIR/p2_enum.tiq" > "$TMP_DIR/p2_enum.c"
+grep -q 'tiq_enum_Color_Red = 0' "$TMP_DIR/p2_enum.c"
+grep -q 'tiq_enum_Color_Blue = 2' "$TMP_DIR/p2_enum.c"
+grep -q 'tiq_enum_Status_Err = 1' "$TMP_DIR/p2_enum.c"
+
+# M13.1-P3: int vec end-to-end — growth past the initial capacity of 8,
+# push/get/set/len/pop (LANGUAGE_SPEC §19.7). Output pinned.
+cat > "$TMP_DIR/p3_vec_int.tiq" <<'EOF'
+v = vec_new()
+[0..12] { vec_push(v, i * 2) }
+print(vec_len(v))
+print(vec_get(v, 0))
+print(vec_get(v, 11))
+vec_set(v, 5, 100)
+print(vec_get(v, 5))
+print(vec_pop(v))
+print(vec_len(v))
+EOF
+./build/tiq build "$TMP_DIR/p3_vec_int.tiq" -o "$TMP_DIR/p3_vec_int"
+"$TMP_DIR/p3_vec_int" > "$TMP_DIR/p3_vec_int.out"
+printf '12\n0\n22\n100\n22\n11\n' > "$TMP_DIR/p3_vec_int.expected"
+cmp "$TMP_DIR/p3_vec_int.out" "$TMP_DIR/p3_vec_int.expected"
+
+# M13.1-P3: str vec — elements are copied on push (§19.7). Output pinned.
+cat > "$TMP_DIR/p3_vec_str.tiq" <<'EOF'
+v = vec_new()
+vec_push(v, "alpha")
+vec_push(v, "beta")
+vec_set(v, 0, "gamma")
+print(vec_get(v, 0))
+print(vec_get(v, 1))
+print(vec_pop(v))
+print(vec_len(v))
+EOF
+./build/tiq build "$TMP_DIR/p3_vec_str.tiq" -o "$TMP_DIR/p3_vec_str"
+"$TMP_DIR/p3_vec_str" > "$TMP_DIR/p3_vec_str.out"
+printf 'gamma\nbeta\nbeta\n1\n' > "$TMP_DIR/p3_vec_str.expected"
+cmp "$TMP_DIR/p3_vec_str.out" "$TMP_DIR/p3_vec_str.expected"
+
+# M13.1-P3: struct vec — elements copied in and out by value (§19.7).
+cat > "$TMP_DIR/p3_vec_struct.tiq" <<'EOF'
+struct Point {
+  x: i64,
+  y: i64
+}
+v = vec_new()
+p = Point { x: 3, y: 4 }
+vec_push(v, p)
+vec_push(v, Point { x: 7, y: 9 })
+g = vec_get(v, 1)
+print(g.x)
+print(g.y)
+h = vec_pop(v)
+print(h.y)
+print(vec_len(v))
+print(vec_get(v, 0).x)
+EOF
+./build/tiq build "$TMP_DIR/p3_vec_struct.tiq" -o "$TMP_DIR/p3_vec_struct"
+"$TMP_DIR/p3_vec_struct" > "$TMP_DIR/p3_vec_struct.out"
+printf '7\n9\n9\n1\n3\n' > "$TMP_DIR/p3_vec_struct.expected"
+cmp "$TMP_DIR/p3_vec_struct.out" "$TMP_DIR/p3_vec_struct.expected"
+
+# M13.1-P3: out-of-range vec_get aborts deterministically — exact stderr
+# message and exit code 1, never UB (§19.7).
+cat > "$TMP_DIR/p3_vec_oob.tiq" <<'EOF'
+v = vec_new()
+vec_push(v, 5)
+print(vec_get(v, 3))
+EOF
+./build/tiq build "$TMP_DIR/p3_vec_oob.tiq" -o "$TMP_DIR/p3_vec_oob"
+oob_status=0
+"$TMP_DIR/p3_vec_oob" > "$TMP_DIR/p3_vec_oob.out" 2> "$TMP_DIR/p3_vec_oob.err" || oob_status=$?
+[ "$oob_status" -eq 1 ]
+printf 'tiq: vec index 3 out of bounds for vec of length 1\n' > "$TMP_DIR/p3_vec_oob.err.expected"
+cmp "$TMP_DIR/p3_vec_oob.err" "$TMP_DIR/p3_vec_oob.err.expected"
+[ ! -s "$TMP_DIR/p3_vec_oob.out" ]
+
+# M13.1-P3: vec_pop on an empty vec aborts deterministically (§19.7).
+cat > "$TMP_DIR/p3_vec_pop_empty.tiq" <<'EOF'
+v = vec_new()
+vec_push(v, 1)
+x = vec_pop(v)
+y = vec_pop(v)
+EOF
+./build/tiq build "$TMP_DIR/p3_vec_pop_empty.tiq" -o "$TMP_DIR/p3_vec_pop_empty"
+pop_status=0
+"$TMP_DIR/p3_vec_pop_empty" > /dev/null 2> "$TMP_DIR/p3_vec_pop_empty.err" || pop_status=$?
+[ "$pop_status" -eq 1 ]
+printf 'tiq: vec_pop on empty vec\n' > "$TMP_DIR/p3_vec_pop_empty.err.expected"
+cmp "$TMP_DIR/p3_vec_pop_empty.err" "$TMP_DIR/p3_vec_pop_empty.err.expected"
+
 echo "smoke: ok"

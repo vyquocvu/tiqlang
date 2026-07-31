@@ -45,6 +45,14 @@ assert_diagnostic "bracket_loop_old_pipe" '[0..10 | i]' "expected '{' to open lo
 assert_diagnostic "bracket_loop_binder_missing" '[j <- 0..3, 0..2] { 0 }' "expected loop binder after ','"
 assert_diagnostic "bracket_loop_dup_binder" '[j <- 0..3, j <- 0..2] { 0 }' "duplicate loop binder"
 
+# M13.1-P2: malformed enum declarations fail closed at parse time
+# (LANGUAGE_SPEC §17.5; no explicit values, top level only).
+assert_diagnostic "enum_no_name" 'enum { A }' "expected enum name after 'enum'"
+assert_diagnostic "enum_no_lbrace" 'enum Color A' "expected '{' after enum name"
+assert_diagnostic "enum_no_rbrace" 'enum Color { A' "expected '}' after enum variants"
+assert_diagnostic "enum_explicit_value" 'enum Color { A = 1 }' "expected variant name"
+assert_diagnostic "enum_in_block" '{ enum Color { A } }' "expected expression"
+
 # Regression: parser must terminate on invalid input (fuzz findings 0.4).
 # Each case previously looped forever because errors neither consumed a
 # token nor stopped parsing. 10s alarm converts a hang into a failure.

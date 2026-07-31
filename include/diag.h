@@ -29,7 +29,10 @@ typedef enum {
     ERR_LITERAL_RANGE = 20,
     ERR_EMPTY_ARRAY = 21,
     ERR_TYPE_ANNOTATION = 22,  // M12.7.2.D: param:type annotation not supported in v0.1
-    ERR_BORROW = 23            // M9.1: borrow rule violations (LANGUAGE_SPEC §16.3)
+    ERR_BORROW = 23,           // M9.1: borrow rule violations (LANGUAGE_SPEC §16.3)
+    ERR_DUPLICATE_ENUM = 24,   // M13.1-P2: duplicate enum name / enum-struct name collision (§17.5)
+    ERR_DUPLICATE_VARIANT = 25,// M13.1-P2: duplicate variant name within one enum (§17.5)
+    ERR_UNKNOWN_VARIANT = 26   // M13.1-P2: Name.X where X is not a variant of enum Name (§17.5)
 } ErrorCode;
 // ERR_EXPECTED_PRINT/ERR_EXPECTED_STRING (dead since the print statement was
 // removed) were retired before this numbering was first pinned and printed,

@@ -29,10 +29,10 @@ Identifiers match `[A-Za-z_][A-Za-z0-9_]*`.
 Reserved words in v0.1 (matching the lexer exactly):
 
 ```text
-break chan defer false match move mut skip spawn struct true until while
+break chan defer enum false match move mut skip spawn struct true until while
 ```
 
-`while` and `until` are clause keywords only: they appear in stream generator bounds and predicate slicing (§14). There are no `while`/`for` statement forms (§10). `chan`, `spawn`, `match`, `struct`, and `mut` are reserved for provisional or rejected constructs (§17).
+`while` and `until` are clause keywords only: they appear in stream generator bounds and predicate slicing (§14). There are no `while`/`for` statement forms (§10). `chan`, `spawn`, `match`, `struct`, and `mut` are reserved for provisional or rejected constructs (§17). `enum` declares named integer constant sets (§17.5).
 
 Literals:
 
@@ -443,7 +443,7 @@ Every borrow ends when the call returns. Because borrows cannot be stored, retur
 
 ### 16.4 Scope-bound destruction of owned strings
 
-An immutable binding (`=`) whose initializer is a direct call to a heap-allocating builtin — `fs_read`, `json_encode_str`, `json_get`, `json_arr_get`, or `net_fetch` — owns the resulting string. Owned strings are destroyed at the end of the enclosing scope, in reverse declaration order, after that scope's deferred actions have run.
+An immutable binding (`=`) whose initializer is a direct call to a heap-allocating builtin — `fs_read`, `json_encode_str`, `json_get`, `json_arr_get`, `net_fetch`, or any other builtin documented as returning a heap-allocated `str` owned per this section (§19), including `str_sub` and `fs_list` — owns the resulting string. Owned strings are destroyed at the end of the enclosing scope, in reverse declaration order, after that scope's deferred actions have run.
 
 Heap-allocating builtins always return fresh heap storage, including their empty-string failure results. If the runtime cannot allocate, the program terminates deterministically with exit code 1 and the message `tiq: out of memory`.
 
@@ -475,7 +475,7 @@ This section is normative for the bootstrap compiler's observable boundary. Ever
 
 | Tier | Meaning | Example |
 |------|---------|---------|
-| **Implemented** | Fully specified, compiled, and tested | `[0..10] { print(i) }`, `move x`, `defer`, `struct`, `f(&mut x)` |
+| **Implemented** | Fully specified, compiled, and tested | `[0..10] { print(i) }`, `move x`, `defer`, `struct`, `enum`, `f(&mut x)` |
 | **Provisional** | Parsed and partially checked; semantics may change | `match` |
 | **Fail-closed** | Parsed but rejected at semantic analysis; no code produced | `spawn`, `chan`, `b = &x` |
 | **Reserved** | Keyword exists in lexer; no parse path exists yet | `mut` (standalone) |
@@ -550,6 +550,31 @@ These keywords are recognized by the lexer and reserved for future milestones. T
 | `until` | Stream generator bounds only; no `until` loop statement |
 | `chan` | M7 channel type — lexes but semantic-rejects (§17.3) |
 | `spawn` | M7 concurrent spawn — lexes but semantic-rejects (§17.3) |
+
+### 17.5 Enum declarations (implemented)
+
+`enum` declares a named set of integer constants at top level:
+
+```tiq
+enum Color { Red, Green, Blue }
+```
+
+- Variants are bare identifiers, comma-separated, auto-numbered from `0` in declaration order (`Red = 0`, `Green = 1`, `Blue = 2`).
+- Explicit variant values (`= n`), payloads (tagged unions), and generics are not supported; attempting them is a parse error (fail closed).
+- A variant is referenced as `Name.Variant` and is a plain `i64` value, usable anywhere an `i64` is: bindings, comparisons, match scrutinees and patterns, function arguments.
+- In field-access position (`Name.Variant`), an identifier that names a declared enum resolves to the enum; the enum takes precedence over any same-named value binding.
+- An enum must be declared before its first use (top-level source order), like structs.
+- `enum` declarations are accepted at top level only; `enum` inside a block is a parse error (E05).
+- The C backend emits each enum as an anonymous C enumeration of constants named `tiq_enum_<Name>_<Variant>` in declaration order, and a `Name.Variant` expression emits its constant name. Emission is deterministic (declaration order, no hashing). An enum with zero variants is legal and emits no constants.
+
+Rules (all violations are compile-time errors with source location):
+- Enum names must be unique within a module (E24: "duplicate enum definition").
+- An enum name must not collide with a struct name, in either declaration order (E24: "enum '…' conflicts with struct '…'" / "struct '…' conflicts with enum '…'").
+- Variant names must be unique within an enum (E25: "duplicate variant").
+- Referencing a variant that does not exist (`Name.X`) is rejected (E26: "unknown variant").
+- Using a bare enum name as a value (for example `x = Color`) is rejected (E09: "enum 'Color' is not a value; use Color.<variant>").
+
+Status: implemented — enum declarations and variant references are fully specified, compiled, and tested (M13.1-P2).
 
 ## 18. Program entry
 
@@ -661,8 +686,36 @@ All reject wrong arity with E12 and non-`int` arguments with E09 at compile time
 
 - `str_cat(a, b)` takes exactly two `str` arguments and returns their concatenation as a heap-allocated `str` (owned per §16.4). Either argument may be empty. The result is a fresh buffer of length `len(a) + len(b)`.
 - `int_str(n)` takes exactly one `int` argument and returns its decimal string representation as a heap-allocated `str` (owned per §16.4). For example, `int_str(42)` yields `"42"` and `int_str(-7)` yields `"-7"`.
+- `str_sub(s, start, end)` takes a `str` and two `int` arguments and returns the bytes of `s` in the half-open range `[start, end)` as a heap-allocated `str` (owned per §16.4). The range is valid exactly when `0 <= start` and `start <= end` and `end <= len(s)`; any invalid range (`start < 0`, `end < start`, or `end > len(s)`) yields the empty string — always fresh heap storage, never a runtime error.
+- `str_eq(a, b)` takes exactly two `str` arguments and returns `true` if the two strings are byte-for-byte equal and `false` otherwise, as `bool`. It allocates nothing.
 
-Wrong arity is rejected with E12 and non-`str` arguments with E09 at compile time (`int_str` checks `int`).
+Wrong arity is rejected with E12 and wrong argument types with E09 at compile time (`int_str` checks `int`; `str_sub` checks `str`, `int`, `int`).
+
+### 19.6 System utilities
+
+- `eprint(s)` takes exactly one `str` argument and writes its bytes and a trailing newline to standard error, formatted exactly like `print` (§12) formats a `str` for standard output. It returns the number of bytes written as `int` (`-1` on a write error). It allocates nothing.
+- `fs_list(dir)` takes exactly one `str` argument and returns the entry names of directory `dir` as a heap-allocated `str` (owned per §16.4). The entries `.` and `..` are excluded; the remaining names are sorted bytewise (`strcmp` order, mandatory for deterministic output) and joined with `\n`, with no trailing newline. A nonexistent or unreadable directory, or a directory with no entries, yields the empty string — always fresh heap storage, never a runtime error. The bootstrap implementation uses POSIX `opendir`/`readdir`/`closedir`; these are documented platform API dependencies of generated programs.
+
+Wrong arity is rejected with E12 and non-`str` arguments with E09 at compile time.
+
+### 19.7 Growable arrays (Vec)
+
+A vec is a growable, heap-allocated array. There is no vec type syntax (no `Vec[T]` annotations and no change to the grammar); vecs are created and used exclusively through builtin functions:
+
+- `vec_new()` takes no arguments and returns a new empty vec.
+- `vec_push(v, x)` appends `x` to the end of `v` and returns the new length as `int`.
+- `vec_get(v, i)` returns the element at index `i` (0-based).
+- `vec_set(v, i, x)` overwrites the element at index `i` with `x` and returns `0` as `int`.
+- `vec_len(v)` returns the number of elements as `int`.
+- `vec_pop(v)` removes and returns the last element.
+
+A vec binding holds a handle with reference semantics: the builtins mutate the vec through the handle, so an immutable binding to a vec permits `vec_push`/`vec_set`/`vec_pop` on its contents (only rebinding the name is restricted).
+
+**Element typing.** A vec's element type `T` is fixed by the first `vec_push` on that binding. `T` must be `int`, `str`, or a named struct; a first push of any other type is rejected with E09 ("vec_push element must be int, str, or a struct"). Every later `vec_push` and `vec_set` element must match `T` exactly — including the struct name for struct elements — and `vec_get`/`vec_pop` return `T`. A mismatched element is rejected with E09 at compile time. Only `vec_push` establishes `T`: calling `vec_get`, `vec_set`, or `vec_pop` on a vec whose element type was never established is rejected fail-closed with E09 ("... on a vec with no established element type (no vec_push yet)"). `vec_len` is permitted on an unestablished vec and returns `0` elements' worth of length. All six builtins reject wrong arity with E12, a non-vec first argument with E09, and a non-`int` index with E09 at compile time.
+
+**Runtime behavior.** Storage grows by doubling from an initial capacity of 8 elements; growth order is deterministic. Out-of-range access aborts deterministically instead of invoking undefined behavior: `vec_get` or `vec_set` with `i < 0` or `i >= vec_len(v)` prints `tiq: vec index <i> out of bounds for vec of length <len>` to standard error and exits with code 1; `vec_pop` on an empty vec prints `tiq: vec_pop on empty vec` to standard error and exits with code 1. Struct elements are copied into and out of the vec by value (a shallow copy of the struct's fields). `str` elements are copied on `vec_push`/`vec_set` (the vec owns fresh heap copies), so a vec never retains a pointer into a string it does not own; `vec_get`/`vec_pop` on a `str` vec return pointers into the vec's copies, which are not owned by the caller.
+
+**Memory policy.** Vec storage follows leak-never-dangle: neither the vec handle, its element buffer, nor its `str` element copies are ever freed by generated code, and vecs do not participate in the §16.4 owned-string destruction rules (`vec_new` is not an owned-string builtin, and `vec_get`/`vec_pop` results are never destruction-owners). This is an accepted bootstrap leak, documented in `MEMORY_MODEL.md`.
 
 ## 20. Bootstrap conformance
 
