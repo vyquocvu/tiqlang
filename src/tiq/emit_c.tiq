@@ -47,6 +47,84 @@ ec_assign_op k:i64 -> str -> match k {
     _ => "="
 }
 
+ec_kind types:vec[int] tp:vec[int] ni:i64 -> i64 -> {
+    t = vec_get(types, ni)
+    t == 0 - 1 ? TY.Unknown : vec_get(tp, t * 8 + TF.Kind)
+}
+
+ec_array_len types:vec[int] tp:vec[int] ni:i64 -> i64 -> {
+    t = vec_get(types, ni)
+    t == 0 - 1 ? 0 : vec_get(tp, t * 8 + TF.Len)
+}
+
+ec_kind_type k:i64 -> str -> match k {
+    TY.Float => "double",
+    TY.Str => "const char *",
+    TY.I8 => "int8_t",
+    TY.I16 => "int16_t",
+    TY.I32 => "int32_t",
+    TY.U8 => "uint8_t",
+    TY.U16 => "uint16_t",
+    TY.U32 => "uint32_t",
+    TY.U64 => "uint64_t",
+    TY.F32 => "float",
+    _ => "int64_t"
+}
+
+// Backend preflight. A partial self-hosting package must still fail closed:
+// find the first slice node before any C bytes are written. Later packages
+// extend this traversal as each currently unsupported family is promoted.
+ec_find_slice nodes:vec[int] kids:vec[int] ni:i64 -> i64 -> {
+    found <- 0 - 1
+    [(ni != 0 - 1)] {
+        k = nd_get(nodes, ni, NF.Kind)
+        ?[k == AstKind.Call && nd_get(nodes, ni, NF.F2) == 1] { found <- ni; break }
+        ?[k == AstKind.Binary] {
+            found <- ec_find_slice(nodes, kids, nd_get(nodes, ni, NF.A))
+            ?[found == 0 - 1] { found <- ec_find_slice(nodes, kids, nd_get(nodes, ni, NF.B)) }
+            break
+        }
+        ?[k == AstKind.Unary || k == AstKind.Binding || k == AstKind.Function || k == AstKind.Defer || k == AstKind.FieldAccess || k == AstKind.Spawn] {
+            found <- ec_find_slice(nodes, kids, nd_get(nodes, ni, NF.A)); break
+        }
+        ?[k == AstKind.Conditional] {
+            found <- ec_find_slice(nodes, kids, nd_get(nodes, ni, NF.A))
+            ?[found == 0 - 1] { found <- ec_find_slice(nodes, kids, nd_get(nodes, ni, NF.B)) }
+            ?[found == 0 - 1] { found <- ec_find_slice(nodes, kids, nd_get(nodes, ni, NF.C)) }
+            break
+        }
+        ?[k == AstKind.Assign || k == AstKind.ArrayFill || k == AstKind.MatchArm] {
+            found <- ec_find_slice(nodes, kids, nd_get(nodes, ni, NF.B))
+            ?[found == 0 - 1] { found <- ec_find_slice(nodes, kids, nd_get(nodes, ni, NF.A)) }
+            break
+        }
+        ?[k == AstKind.BracketLoop] {
+            found <- ec_find_slice(nodes, kids, nd_get(nodes, ni, NF.A))
+            ?[found == 0 - 1] {
+                s = nd_get(nodes, ni, NF.L1s); n = nd_get(nodes, ni, NF.L1n); j <- 0
+                [j < n && found == 0 - 1] { found <- ec_find_slice(nodes, kids, vec_get(kids, s + j)); j <- j + 1 }
+            }
+            ?[found == 0 - 1] { found <- ec_find_slice(nodes, kids, nd_get(nodes, ni, NF.B)) }
+            break
+        }
+        ?[k == AstKind.Call || k == AstKind.Block || k == AstKind.Array || k == AstKind.RecordLit || k == AstKind.Match] {
+            ?[k == AstKind.Call || k == AstKind.Match] { found <- ec_find_slice(nodes, kids, nd_get(nodes, ni, NF.A)) }
+            ?[found == 0 - 1] {
+                s = nd_get(nodes, ni, NF.L1s); n = nd_get(nodes, ni, NF.L1n); j <- 0
+                [j < n && found == 0 - 1] { found <- ec_find_slice(nodes, kids, vec_get(kids, s + j)); j <- j + 1 }
+            }
+            ?[found == 0 - 1 && k == AstKind.Block] { found <- ec_find_slice(nodes, kids, nd_get(nodes, ni, NF.A)) }
+            ?[found == 0 - 1 && k == AstKind.Block] {
+                s = nd_get(nodes, ni, NF.L2s); n = nd_get(nodes, ni, NF.L2n); j <- 0
+                [j < n && found == 0 - 1] { found <- ec_find_slice(nodes, kids, vec_get(kids, s + j)); j <- j + 1 }
+            }
+            break
+        }
+        break
+    }
+    found
+}
+
 ec_type tp:vec[int] tpn:vec[str] types:vec[int] ni:i64 -> str -> {
     r <- "int64_t"
     t = vec_get(types, ni)
@@ -118,8 +196,29 @@ ec_expr src:str toks:vec[Token] nodes:vec[int] kids:vec[int] types:vec[int] tp:v
         cname <- ""
         ?[nd_get(nodes, callee, NF.Kind) == AstKind.Identifier] { cname <- tk_lex(src, toks, nd_get(nodes, callee, NF.Name)) }
         s = nd_get(nodes, ni, NF.L1s); n = nd_get(nodes, ni, NF.L1n)
+        is_bracket = nd_get(nodes, ni, NF.F1)
+        is_slice = nd_get(nodes, ni, NF.F2)
+        ?[is_bracket == 1 && is_slice == 0 && ec_kind(types, tp, callee) == TY.Array] {
+            idx = vec_get(kids, s)
+            alen = ec_array_len(types, tp, callee)
+            ec_put(b, "((uint64_t)(")
+            ec_expr(src, toks, nodes, kids, types, tp, tpn, b, idx)
+            ec_put(b, ") < (uint64_t)("); ec_put(b, int_str(alen)); ec_put(b, ") ? ")
+            ec_expr(src, toks, nodes, kids, types, tp, tpn, b, callee)
+            ec_put(b, "["); ec_expr(src, toks, nodes, kids, types, tp, tpn, b, idx); ec_put(b, "] : (fprintf(stderr, \"tiq: index %lld out of bounds for array of length ")
+            ec_put(b, int_str(alen)); ec_put(b, "\\n\", (long long)(")
+            ec_expr(src, toks, nodes, kids, types, tp, tpn, b, idx)
+            ec_put(b, ")), exit(1), ")
+            ec_expr(src, toks, nodes, kids, types, tp, tpn, b, callee)
+            ec_put(b, "["); ec_expr(src, toks, nodes, kids, types, tp, tpn, b, idx); ec_put(b, "]))")
+            done <- 1
+        }
+        ?[done == 0 && is_bracket == 0 && str_eq(cname, "len") && n == 1] {
+            ai = vec_get(kids, s)
+            ?[ec_kind(types, tp, ai) == TY.Array] { ec_put(b, int_str(ec_array_len(types, tp, ai))); done <- 1 }
+        }
         is_print = str_eq(cname, "print")
-        ?[is_print] {
+        ?[done == 0 && is_print] {
             ai = vec_get(kids, s)
             at = vec_get(types, ai)
             ak = at == 0 - 1 ? TY.Int : vec_get(tp, at * 8 + TF.Kind)
@@ -146,6 +245,30 @@ ec_expr src:str toks:vec[Token] nodes:vec[int] kids:vec[int] types:vec[int] tp:v
         }
         done <- 1
     }
+    ?[done == 0 && k == AstKind.Array] {
+        ec_put(b, "{")
+        s = nd_get(nodes, ni, NF.L1s); n = nd_get(nodes, ni, NF.L1n)
+        j <- 0
+        [j < n] {
+            ?[j > 0] { ec_put(b, ", ") }
+            ec_expr(src, toks, nodes, kids, types, tp, tpn, b, vec_get(kids, s + j))
+            j <- j + 1
+        }
+        ec_put(b, "}")
+        done <- 1
+    }
+    ?[done == 0 && k == AstKind.ArrayFill] {
+        ec_put(b, "{")
+        n = ec_array_len(types, tp, ni)
+        j <- 0
+        [j < n] {
+            ?[j > 0] { ec_put(b, ", ") }
+            ec_expr(src, toks, nodes, kids, types, tp, tpn, b, nd_get(nodes, ni, NF.A))
+            j <- j + 1
+        }
+        ec_put(b, "}")
+        done <- 1
+    }
     ?[done == 0] { ec_put(b, "0") }
     0
 }
@@ -155,18 +278,44 @@ ec_stmt src:str toks:vec[Token] nodes:vec[int] kids:vec[int] types:vec[int] tp:v
     ec_indent(b, indent)
     done <- 0
     ?[k == AstKind.Binding] {
-        ec_put(b, ec_type(tp, tpn, types, ni)); ec_put(b, " ")
-        ec_put(b, tk_lex(src, toks, nd_get(nodes, ni, NF.Name))); ec_put(b, " = ")
+        nk = ec_kind(types, tp, ni)
+        ?[nk == TY.Array] {
+            t = vec_get(types, ni); et = vec_get(tp, t * 8 + TF.Elem)
+            ek = et == 0 - 1 ? TY.Int : vec_get(tp, et * 8 + TF.Kind)
+            ec_put(b, ec_kind_type(ek)); ec_put(b, " ")
+            ec_put(b, tk_lex(src, toks, nd_get(nodes, ni, NF.Name))); ec_put(b, "[")
+            ec_put(b, int_str(vec_get(tp, t * 8 + TF.Len))); ec_put(b, "] = ")
+        }
+        ?[nk != TY.Array] {
+            ec_put(b, ec_type(tp, tpn, types, ni)); ec_put(b, " ")
+            ec_put(b, tk_lex(src, toks, nd_get(nodes, ni, NF.Name))); ec_put(b, " = ")
+        }
         ec_expr(src, toks, nodes, kids, types, tp, tpn, b, nd_get(nodes, ni, NF.A))
         ec_put(b, ";\n"); done <- 1
     }
     ?[done == 0 && k == AstKind.Assign] {
         is_def = nd_get(nodes, ni, NF.F1)
-        ?[is_def == 1] { ec_put(b, ec_type(tp, tpn, types, ni)); ec_put(b, " ") }
-        ec_put(b, tk_lex(src, toks, nd_get(nodes, ni, NF.Name))); ec_put(b, " ")
-        ec_put(b, is_def == 1 ? "=" : ec_assign_op(nd_get(nodes, ni, NF.Op))); ec_put(b, " ")
-        ec_expr(src, toks, nodes, kids, types, tp, tpn, b, nd_get(nodes, ni, NF.A))
-        ec_put(b, ";\n"); done <- 1
+        idx = nd_get(nodes, ni, NF.B)
+        ?[idx != 0 - 1] {
+            alen = ec_array_len(types, tp, ni)
+            ec_put(b, "if ((uint64_t)(")
+            ec_expr(src, toks, nodes, kids, types, tp, tpn, b, idx)
+            ec_put(b, ") >= (uint64_t)("); ec_put(b, int_str(alen)); ec_put(b, ")) { fprintf(stderr, \"tiq: index out of bounds for array of length ")
+            ec_put(b, int_str(alen)); ec_put(b, "\\n\"); exit(1); }\n")
+            ec_indent(b, indent)
+            ec_put(b, tk_lex(src, toks, nd_get(nodes, ni, NF.Name)))
+            ec_put(b, "["); ec_expr(src, toks, nodes, kids, types, tp, tpn, b, idx); ec_put(b, "] ")
+            ec_put(b, ec_assign_op(nd_get(nodes, ni, NF.Op))); ec_put(b, " ")
+            ec_expr(src, toks, nodes, kids, types, tp, tpn, b, nd_get(nodes, ni, NF.A))
+            ec_put(b, ";\n"); done <- 1
+        }
+        ?[done == 0] {
+            ?[is_def == 1] { ec_put(b, ec_type(tp, tpn, types, ni)); ec_put(b, " ") }
+            ec_put(b, tk_lex(src, toks, nd_get(nodes, ni, NF.Name))); ec_put(b, " ")
+            ec_put(b, is_def == 1 ? "=" : ec_assign_op(nd_get(nodes, ni, NF.Op))); ec_put(b, " ")
+            ec_expr(src, toks, nodes, kids, types, tp, tpn, b, nd_get(nodes, ni, NF.A))
+            ec_put(b, ";\n"); done <- 1
+        }
     }
     ?[done == 0 && k == AstKind.Break] { ec_put(b, "break;\n"); done <- 1 }
     ?[done == 0 && k == AstKind.Skip] { ec_put(b, "continue;\n"); done <- 1 }
@@ -230,7 +379,7 @@ ec_function src:str toks:vec[Token] nodes:vec[int] kids:vec[int] types:vec[int] 
 
 emit_c_program src:str toks:vec[Token] nodes:vec[int] kids:vec[int] tops:vec[int] types:vec[int] tp:vec[int] tpn:vec[str] -> str -> {
     b = str_buf_new()
-    ec_put(b, "#include <stdint.h>\n#include <stdio.h>\n#include <stdbool.h>\n\n")
+    ec_put(b, "#include <stdint.h>\n#include <stdio.h>\n#include <stdbool.h>\n#include <stdlib.h>\n\n")
     n = vec_len(tops)
     j <- 0; [j < n] { ni = vec_get(tops, j); ?[nd_get(nodes, ni, NF.Kind) == AstKind.Function] { ec_function(src, toks, nodes, kids, types, tp, tpn, b, ni, 0) }; j <- j + 1 }
     ec_put(b, "\nint main(void) {\n")

@@ -67,9 +67,35 @@ case_run "while_loop" 'n <- 0
 print(n)'
 case_run "function" 'add a b -> a + b
 print(add(20, 22))'
+case_run "array_read_len" 'xs = [4, 8, 15, 16]
+print(xs[2])
+print(len(xs))'
+case_run "array_fill" 'xs = [7; 3]
+print(xs[0] + xs[1] + xs[2])'
+case_run "array_assign" 'xs <- [1, 2, 3]
+xs[1] <- 9
+xs[2] += 4
+print(xs[0] + xs[1] + xs[2])'
+case_run "array_oob_read" 'xs = [1, 2]
+print(xs[2])'
+case_run "array_oob_write" 'xs <- [1, 2]
+xs[3] <- 9'
+
+# Unsupported backend paths must fail closed before writing partial C.
+printf '%s\n' 'xs = [1, 2, 3]
+tail = xs[1..]
+print(len(tail))' >"$TMP_DIR/unsupported_slice.tiq"
+"$SELFHOST" "$TMP_DIR/unsupported_slice.tiq" >"$TMP_DIR/unsupported_slice.out" 2>"$TMP_DIR/unsupported_slice.err"
+unsupported_rc=$?
+if [ "$unsupported_rc" -eq 0 ] || [ -s "$TMP_DIR/unsupported_slice.out" ] ||
+   ! grep -q 'unsupported_slice.tiq:2: error\[E07\]: self-hosted C emitter does not support slice expressions yet' "$TMP_DIR/unsupported_slice.err"; then
+  echo "selfhost_emit_c: FAIL unsupported_slice (did not fail closed with located E07)" >&2
+  cat "$TMP_DIR/unsupported_slice.err" >&2
+  fail=1
+fi
 
 if [ "$fail" -ne 0 ]; then
   echo "selfhost_emit_c: failed" >&2
   exit 1
 fi
-echo "selfhost_emit_c: ok ($count scalar-core cases)"
+echo "selfhost_emit_c: ok ($count core cases + fail-closed preflight)"

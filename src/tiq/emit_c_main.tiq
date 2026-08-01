@@ -25,6 +25,18 @@ parse_err = p_parse(source, path, toks, st, nodes, kids, sk, sk2, tops)
 tp = vec_new()
 tpn = vec_new()
 types = vec_new()
-has_err = semantic_run(source, path, toks, nodes, kids, tops, parse_err, tp, tpn, types)
+has_err <- semantic_run(source, path, toks, nodes, kids, tops, parse_err, tp, tpn, types)
+bad <- 0 - 1
+?[has_err == 0] {
+    j <- 0
+    [j < vec_len(tops) && bad == 0 - 1] {
+        bad <- ec_find_slice(nodes, kids, vec_get(tops, j))
+        j <- j + 1
+    }
+    ?[bad != 0 - 1] {
+        eprint(diag_line(path, tk_line(toks, nd_get(nodes, bad, NF.Tok)), 7, "self-hosted C emitter does not support slice expressions yet"))
+        has_err <- 1
+    }
+}
 ?[has_err == 0] { print(emit_c_program(source, toks, nodes, kids, tops, types, tp, tpn)) }
 proc_exit(has_err)
