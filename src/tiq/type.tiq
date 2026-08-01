@@ -1,0 +1,369 @@
+// M13.4-S3: the self-hosted type pool — a faithful port of src/type.c.
+//
+// SemanticType* becomes a pool INDEX; -1 is the C NULL. The pool is a flat
+// `tp:vec[int]` where every type owns TW (8) consecutive slots (TF field
+// offsets below), plus a parallel `tpn:vec[str]` for struct_name ("" is the
+// C NULL name). Struct field names/types live in two shared flat vecs
+// (`ff:vec[str]`, `ft:vec[int]`) referenced by a [Fs, Fs+Fn) span.
+//
+// Interning is LINEAR and in the exact scan/append order of src/type.c:
+// pool index equality IS C pointer equality, and the pool's insertion order
+// is load-bearing (docs/M13_DETERMINISM.md), so the generic interner
+// compares exactly the fields C compares (kind, element, array_length,
+// param_count — NOT inner/error), skips named structs, and appends on miss.
+
+// PrimitiveType, values identical to include/semantic.h (0..27).
+enum TY {
+    Unknown,
+    Int,
+    Float,
+    Str,
+    Bool,
+    Array,
+    Slice,
+    StrView,
+    Stream,
+    Struct,
+    Option,
+    Result,
+    Ref,
+    RefMut,
+    Chan,
+    Unit,
+    I8,
+    I16,
+    I32,
+    U8,
+    U16,
+    U32,
+    U64,
+    F32,
+    Never,
+    Vec,
+    Strbuf,
+    Map
+}
+
+// Field offsets within one type's TW slots: kind, element_type,
+// array_length, param_count, inner_type, error_type, field span start,
+// field_count. struct_name lives in the parallel tpn vec.
+enum TF {
+    Kind,
+    Elem,
+    Len,
+    Pc,
+    Inner,
+    Err,
+    Fs,
+    Fn
+}
+
+// TW must equal the number of TF variants.
+ty_width d:i64 -> i64 -> 8
+
+// Read field f of pooled type i.
+tf_get tp:vec[int] i:i64 f:i64 -> i64 -> vec_get(tp, i * 8 + f)
+
+// intern(): the generic structural interner. Named structs are nominal and
+// never match structurally; identity is (kind, element, length, pc).
+ty_intern tp:vec[int] tpn:vec[str] kind:i64 elem:i64 len:i64 pc:i64 -> i64 -> {
+    n = vec_len(tp) / 8
+    r <- 0 - 1
+    i <- 0
+    [i < n && r == 0 - 1] {
+        [(str_eq(vec_get(tpn, i), "") && vec_get(tp, i * 8 + TF.Kind) == kind && vec_get(tp, i * 8 + TF.Elem) == elem && vec_get(tp, i * 8 + TF.Len) == len && vec_get(tp, i * 8 + TF.Pc) == pc)] {
+            r <- i
+            break
+        }
+        i <- i + 1
+    }
+    [(r == 0 - 1)] {
+        r <- n
+        vec_push(tp, kind)
+        vec_push(tp, elem)
+        vec_push(tp, len)
+        vec_push(tp, pc)
+        vec_push(tp, 0 - 1)
+        vec_push(tp, 0 - 1)
+        vec_push(tp, 0 - 1)
+        vec_push(tp, 0)
+        vec_push(tpn, "")
+        break
+    }
+    r
+}
+
+// type_get / type_get_func / type_get_array / type_get_slice /
+// type_get_ref / type_get_vec: thin wrappers over the generic interner,
+// exactly as in C (a vec's element may be -1 = unestablished).
+ty_get tp:vec[int] tpn:vec[str] kind:i64 -> i64 -> ty_intern(tp, tpn, kind, 0 - 1, 0, 0)
+
+ty_func tp:vec[int] tpn:vec[str] ret:i64 pc:i64 -> i64 -> ty_intern(tp, tpn, ret, 0 - 1, 0, pc)
+
+ty_array tp:vec[int] tpn:vec[str] elem:i64 len:i64 -> i64 -> ty_intern(tp, tpn, TY.Array, elem, len, 0)
+
+ty_slice tp:vec[int] tpn:vec[str] elem:i64 -> i64 -> ty_intern(tp, tpn, TY.Slice, elem, 0, 0)
+
+ty_ref tp:vec[int] tpn:vec[str] elem:i64 is_mut:i64 -> i64 -> ty_intern(tp, tpn, is_mut == 1 ? TY.RefMut : TY.Ref, elem, 0, 0)
+
+ty_vec tp:vec[int] tpn:vec[str] elem:i64 -> i64 -> ty_intern(tp, tpn, TY.Vec, elem, 0, 0)
+
+// type_get_option(): structural, matched on (kind, inner) in its own loop.
+ty_option tp:vec[int] tpn:vec[str] inner:i64 -> i64 -> {
+    n = vec_len(tp) / 8
+    r <- 0 - 1
+    i <- 0
+    [i < n && r == 0 - 1] {
+        [(vec_get(tp, i * 8 + TF.Kind) == TY.Option && vec_get(tp, i * 8 + TF.Inner) == inner)] {
+            r <- i
+            break
+        }
+        i <- i + 1
+    }
+    [(r == 0 - 1)] {
+        r <- n
+        vec_push(tp, TY.Option)
+        vec_push(tp, 0 - 1)
+        vec_push(tp, 0)
+        vec_push(tp, 0)
+        vec_push(tp, inner)
+        vec_push(tp, 0 - 1)
+        vec_push(tp, 0 - 1)
+        vec_push(tp, 0)
+        vec_push(tpn, "")
+        break
+    }
+    r
+}
+
+// type_get_result(): structural on (kind, inner, error).
+ty_result tp:vec[int] tpn:vec[str] inner:i64 error:i64 -> i64 -> {
+    n = vec_len(tp) / 8
+    r <- 0 - 1
+    i <- 0
+    [i < n && r == 0 - 1] {
+        [(vec_get(tp, i * 8 + TF.Kind) == TY.Result && vec_get(tp, i * 8 + TF.Inner) == inner && vec_get(tp, i * 8 + TF.Err) == error)] {
+            r <- i
+            break
+        }
+        i <- i + 1
+    }
+    [(r == 0 - 1)] {
+        r <- n
+        vec_push(tp, TY.Result)
+        vec_push(tp, 0 - 1)
+        vec_push(tp, 0)
+        vec_push(tp, 0)
+        vec_push(tp, inner)
+        vec_push(tp, error)
+        vec_push(tp, 0 - 1)
+        vec_push(tp, 0)
+        vec_push(tpn, "")
+        break
+    }
+    r
+}
+
+// type_get_struct(): nominal — the declaration-site name wins, matched on
+// name only. The caller stages the field names/types into ff/ft FIRST and
+// passes the span; on a nominal hit the staged span is simply abandoned
+// (nothing points at it), mirroring C, which only copies on a miss.
+ty_struct tp:vec[int] tpn:vec[str] name:str fs:i64 fn:i64 -> i64 -> {
+    n = vec_len(tp) / 8
+    r <- 0 - 1
+    i <- 0
+    [i < n && r == 0 - 1] {
+        [(str_eq(vec_get(tpn, i), name))] {
+            r <- i
+            break
+        }
+        i <- i + 1
+    }
+    [(r == 0 - 1)] {
+        r <- n
+        vec_push(tp, TY.Struct)
+        vec_push(tp, 0 - 1)
+        vec_push(tp, 0)
+        vec_push(tp, 0)
+        vec_push(tp, 0 - 1)
+        vec_push(tp, 0 - 1)
+        vec_push(tp, fs)
+        vec_push(tp, fn)
+        vec_push(tpn, name)
+        break
+    }
+    r
+}
+
+// kind_display_name(): the user-facing names in diagnostics.
+kind_disp k:i64 -> str -> match k {
+    TY.Int => "int",
+    TY.Float => "float",
+    TY.Str => "str",
+    TY.Bool => "bool",
+    TY.StrView => "str_view",
+    TY.Stream => "stream",
+    TY.Struct => "struct",
+    TY.Option => "option",
+    TY.Result => "result",
+    TY.Ref => "ref",
+    TY.RefMut => "ref mut",
+    TY.Chan => "chan",
+    TY.Unit => "unit",
+    TY.I8 => "i8",
+    TY.I16 => "i16",
+    TY.I32 => "i32",
+    TY.U8 => "u8",
+    TY.U16 => "u16",
+    TY.U32 => "u32",
+    TY.U64 => "u64",
+    TY.F32 => "f32",
+    TY.Never => "never",
+    TY.Vec => "vec",
+    TY.Strbuf => "strbuf",
+    TY.Map => "map",
+    _ => "unknown"
+}
+
+// type_display(): the diagnostic rendering ("vec<int>", "[]str", "&mut T",
+// "T?", "T!E", struct names). A -1 type renders as "" (the C NULL), and an
+// absent element inside a compound renders as "unknown".
+disp tp:vec[int] tpn:vec[str] t:i64 -> str -> {
+    r <- ""
+    [(t != 0 - 1)] {
+        k = vec_get(tp, t * 8 + TF.Kind)
+        done <- 0
+        [(k == TY.Array)] {
+            e = disp(tp, tpn, vec_get(tp, t * 8 + TF.Elem))
+            r <- str_cat(str_cat(str_cat("[", int_str(vec_get(tp, t * 8 + TF.Len))), "]"), str_eq(e, "") ? "unknown" : e)
+            done <- 1
+            break
+        }
+        [(done == 0 && k == TY.Slice)] {
+            e = disp(tp, tpn, vec_get(tp, t * 8 + TF.Elem))
+            r <- str_cat("[]", str_eq(e, "") ? "unknown" : e)
+            done <- 1
+            break
+        }
+        [(done == 0 && k == TY.Struct && str_eq(vec_get(tpn, t), "") == false)] {
+            r <- vec_get(tpn, t)
+            done <- 1
+            break
+        }
+        [(done == 0 && k == TY.Option)] {
+            e = disp(tp, tpn, vec_get(tp, t * 8 + TF.Inner))
+            r <- str_cat(str_eq(e, "") ? "unknown" : e, "?")
+            done <- 1
+            break
+        }
+        [(done == 0 && k == TY.Result)] {
+            e = disp(tp, tpn, vec_get(tp, t * 8 + TF.Inner))
+            w = disp(tp, tpn, vec_get(tp, t * 8 + TF.Err))
+            r <- str_cat(str_cat(str_eq(e, "") ? "unknown" : e, "!"), str_eq(w, "") ? "unknown" : w)
+            done <- 1
+            break
+        }
+        [(done == 0 && (k == TY.Ref || k == TY.RefMut))] {
+            e = disp(tp, tpn, vec_get(tp, t * 8 + TF.Elem))
+            r <- str_cat(str_cat("&", k == TY.RefMut ? "mut " : ""), str_eq(e, "") ? "unknown" : e)
+            done <- 1
+            break
+        }
+        [(done == 0 && k == TY.Vec && vec_get(tp, t * 8 + TF.Elem) != 0 - 1)] {
+            e = disp(tp, tpn, vec_get(tp, t * 8 + TF.Elem))
+            r <- str_cat(str_cat("vec<", str_eq(e, "") ? "unknown" : e), ">")
+            done <- 1
+            break
+        }
+        [(done == 0)] {
+            r <- kind_disp(k)
+            break
+        }
+        break
+    }
+    r
+}
+
+// type_kind_name() from src/parser.c: the TYPE_* names of the typed dump.
+// TYPE_UNKNOWN and TYPE_CHAN fall to the C default:.
+tkn k:i64 -> str -> match k {
+    TY.Int => "TYPE_INT",
+    TY.Float => "TYPE_FLOAT",
+    TY.Str => "TYPE_STR",
+    TY.Bool => "TYPE_BOOL",
+    TY.Array => "TYPE_ARRAY",
+    TY.Slice => "TYPE_SLICE",
+    TY.StrView => "TYPE_STR_VIEW",
+    TY.Stream => "TYPE_STREAM",
+    TY.Unit => "TYPE_UNIT",
+    TY.I8 => "TYPE_I8",
+    TY.I16 => "TYPE_I16",
+    TY.I32 => "TYPE_I32",
+    TY.U8 => "TYPE_U8",
+    TY.U16 => "TYPE_U16",
+    TY.U32 => "TYPE_U32",
+    TY.U64 => "TYPE_U64",
+    TY.F32 => "TYPE_F32",
+    TY.Never => "TYPE_NEVER",
+    TY.Vec => "TYPE_VEC",
+    TY.Strbuf => "TYPE_STRBUF",
+    TY.Map => "TYPE_MAP",
+    TY.Option => "TYPE_OPTION",
+    TY.Result => "TYPE_RESULT",
+    TY.Struct => "TYPE_STRUCT",
+    TY.Ref => "TYPE_REF",
+    TY.RefMut => "TYPE_REF_MUT",
+    _ => "TYPE_UNKNOWN"
+}
+
+// dump_type_display() from src/parser.c: ARRAY/SLICE/VEC append ":elem"
+// only when the element renders non-empty; OPTION wraps <...> only when
+// the inner renders non-empty; RESULT always prints <inner,err>.
+tdisp tp:vec[int] tpn:vec[str] t:i64 -> str -> {
+    r <- ""
+    [(t != 0 - 1)] {
+        k = vec_get(tp, t * 8 + TF.Kind)
+        done <- 0
+        [(k == TY.Array)] {
+            e = tdisp(tp, tpn, vec_get(tp, t * 8 + TF.Elem))
+            b = str_cat(str_cat("TYPE_ARRAY[", int_str(vec_get(tp, t * 8 + TF.Len))), "]")
+            r <- str_eq(e, "") ? b : str_cat(str_cat(b, ":"), e)
+            done <- 1
+            break
+        }
+        [(done == 0 && k == TY.Slice)] {
+            e = tdisp(tp, tpn, vec_get(tp, t * 8 + TF.Elem))
+            r <- str_eq(e, "") ? "TYPE_SLICE" : str_cat("TYPE_SLICE:", e)
+            done <- 1
+            break
+        }
+        [(done == 0 && k == TY.Vec)] {
+            e = tdisp(tp, tpn, vec_get(tp, t * 8 + TF.Elem))
+            r <- str_eq(e, "") ? "TYPE_VEC" : str_cat("TYPE_VEC:", e)
+            done <- 1
+            break
+        }
+        [(done == 0 && k == TY.Option)] {
+            e = tdisp(tp, tpn, vec_get(tp, t * 8 + TF.Inner))
+            r <- str_eq(e, "") ? "TYPE_OPTION" : str_cat(str_cat("TYPE_OPTION<", e), ">")
+            done <- 1
+            break
+        }
+        [(done == 0 && k == TY.Result)] {
+            e = tdisp(tp, tpn, vec_get(tp, t * 8 + TF.Inner))
+            w = tdisp(tp, tpn, vec_get(tp, t * 8 + TF.Err))
+            r <- str_cat(str_cat(str_cat(str_cat("TYPE_RESULT<", e), ","), w), ">")
+            done <- 1
+            break
+        }
+        [(done == 0)] {
+            r <- tkn(k)
+            break
+        }
+        break
+    }
+    r
+}
+
+// format_type(): the " <BODY>" suffix, empty for an untyped (-1) node.
+fmt_type tp:vec[int] tpn:vec[str] t:i64 -> str -> t == 0 - 1 ? "" : str_cat(str_cat(" <", tdisp(tp, tpn, t)), ">")

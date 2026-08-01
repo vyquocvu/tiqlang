@@ -945,6 +945,8 @@ static void emit_expr(AstNode *node, EmitContext *ctx) {
                     {"str_cat", 7, "tiq_str_cat"}, {"int_str", 7, "tiq_int_str"},
                     {"http_header", 11, "tiq_http_header"},
                     {"str_sub", 7, "tiq_str_sub"}, {"str_eq", 6, "tiq_str_eq"},
+                    // M13.4-S3: byte value at index for self-hosted checker.
+                    {"str_sub_code", 12, "tiq_str_sub_code"},
                     {"eprint", 6, "tiq_eprint"}, {"fs_list", 7, "tiq_fs_list"},
                     // M13.1-P4: StrBuf builtins (LANGUAGE_SPEC §19.8); every
                     // signature is homogeneous, so the generic mapping fits.

@@ -681,6 +681,14 @@ static const char TIQ_RUNTIME_PRELUDE_AUX8[] =
     "    return r;\n"
     "}\n\n"
 
+    // M13.4-S3: byte value at index for self-hosted checker.
+    "static int64_t tiq_str_sub_code(const char *s, int64_t idx) {\n"
+    "    if (!s) return 0;\n"
+    "    int64_t len = (int64_t)strlen(s);\n"
+    "    if (idx < 0 || idx >= len) return 0;\n"
+    "    return (int64_t)(unsigned char)s[idx];\n"
+    "}\n\n"
+
     "static int64_t tiq_str_eq(const char *a, const char *b) {\n"
     "    if (!a) a = \"\";\n"
     "    if (!b) b = \"\";\n"

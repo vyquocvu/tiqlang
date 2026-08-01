@@ -1024,6 +1024,8 @@ p_decl src:str path:str toks:vec[Token] st:vec[int] nodes:vec[int] kids:vec[int]
             // token indices, sk2 a (type_annot, elem_annot, ref_kind)
             // triple per parameter; -1 means "no annotation" (the C side
             // leaves those Tokens with kind TOK_EOF).
+            // NOTE: break exits the innermost LOOP, so we use flags instead
+            // of break to control flow within the annotation parsing.
             [p_ck(toks, st) == TokenKind.Ident] {
                 vec_push(sk, p_ci(st))
                 tan <- -1
@@ -1064,7 +1066,6 @@ p_decl src:str path:str toks:vec[Token] st:vec[int] nodes:vec[int] kids:vec[int]
                                 break
                             }
                             p_expect(toks, st, path, TokenKind.Rbracket, 4, "expected ']' after vec element type")
-                            break
                         }
                         seen <- 1
                         break
@@ -1095,7 +1096,6 @@ p_decl src:str path:str toks:vec[Token] st:vec[int] nodes:vec[int] kids:vec[int]
                             break
                         }
                         seen <- 1
-                        break
                     }
                     [(seen == 0)] {
                         p_diag(st, path, tk_line(toks, p_ci(st)), 4, "expected type name after ':'")

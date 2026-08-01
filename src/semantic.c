@@ -914,6 +914,8 @@ static void check_node(SemanticContext *ctx, AstNode *node) {
                         // M13.1-P1: substring, byte equality, stderr print,
                         // directory listing (LANGUAGE_SPEC §12, §19.5, §19.6).
                         {"str_sub",        7, 3, TYPE_STR, TYPE_STR, TYPE_INT},
+                        // M13.4-S3: byte value at index for self-hosted checker.
+                        {"str_sub_code",  12, 2, TYPE_STR, TYPE_INT, TYPE_INT},
                         {"str_eq",         6, 2, TYPE_STR, TYPE_BOOL, TYPE_UNKNOWN},
                         {"eprint",         6, 1, TYPE_STR, TYPE_INT, TYPE_UNKNOWN},
                         {"fs_list",        7, 1, TYPE_STR, TYPE_STR, TYPE_UNKNOWN},
@@ -1424,7 +1426,24 @@ static void check_node(SemanticContext *ctx, AstNode *node) {
             }
             break;
         case AST_FUNCTION: {
-            SemanticType *func_type = type_get_func(ctx->pool, TYPE_UNKNOWN, node->as.function.param_count);
+            // M13.4-S3: resolve the return annotation before checking the
+            // body so recursive calls see the correct return type.
+            PrimitiveType pre_ret = TYPE_UNKNOWN;
+            SemanticType *pre_ret_full = NULL;
+            if (node->as.function.return_type_annot.kind == TOK_IDENT) {
+                SemanticType *ra = resolve_container_annot(ctx,
+                    node->as.function.return_type_annot,
+                    node->as.function.return_elem_annot);
+                if (!ra)
+                    ra = resolve_type_annot(ctx, node->as.function.return_type_annot);
+                if (ra) {
+                    pre_ret = ra->kind;
+                    if (ra->kind == TYPE_STRUCT || ra->kind == TYPE_VEC)
+                        pre_ret_full = ra;
+                }
+            }
+            SemanticType *func_type = pre_ret_full ? pre_ret_full :
+                type_get_func(ctx->pool, pre_ret, node->as.function.param_count);
             env_define(ctx->current_env, node->as.function.name, false, func_type);
             // M9.1: record the definition so call sites can see borrow kinds.
             func_register(ctx, node->as.function.name, node);
@@ -1538,21 +1557,32 @@ static void check_node(SemanticContext *ctx, AstNode *node) {
             }
             Symbol *sym = env_lookup(ctx->current_env, node->as.function.name);
             if (sym) {
-                // Unify the previously recorded return type (unknown for a
-                // fresh definition) with the body type before re-pointing.
-                SemanticType *u = unify(ctx, node->token.line,
-                                        ty(ctx, sym->type ? sym->type->kind : TYPE_UNKNOWN),
-                                        ty(ctx, ret_kind), "type mismatch");
-                if (u && u->kind != TYPE_UNKNOWN) {
-                    // M12.6: For struct returns, use the full struct type so
-                    // callers can access fields. param_count is lost but
-                    // arity is checked at the definition site.
-                    // M13.1-P8: vec returns keep the full vec<T> the same way
-                    // (arity comes from the recorded definition at call sites).
+                if (pre_ret != TYPE_UNKNOWN) {
+                    // M13.4-S3: annotation was pre-registered; the annotation
+                    // check above already reported any mismatch.  Just ensure
+                    // the symbol carries the final resolved type.
                     if (ret_type && (ret_type->kind == TYPE_STRUCT || ret_type->kind == TYPE_VEC)) {
                         sym->type = ret_type;
                     } else {
-                        sym->type = type_get_func(ctx->pool, u->kind, node->as.function.param_count);
+                        sym->type = type_get_func(ctx->pool, pre_ret, node->as.function.param_count);
+                    }
+                } else {
+                    // Unify the previously recorded return type (unknown for a
+                    // fresh definition) with the body type before re-pointing.
+                    SemanticType *u = unify(ctx, node->token.line,
+                                            ty(ctx, sym->type ? sym->type->kind : TYPE_UNKNOWN),
+                                            ty(ctx, ret_kind), "type mismatch");
+                    if (u && u->kind != TYPE_UNKNOWN) {
+                        // M12.6: For struct returns, use the full struct type so
+                        // callers can access fields. param_count is lost but
+                        // arity is checked at the definition site.
+                        // M13.1-P8: vec returns keep the full vec<T> the same way
+                        // (arity comes from the recorded definition at call sites).
+                        if (ret_type && (ret_type->kind == TYPE_STRUCT || ret_type->kind == TYPE_VEC)) {
+                            sym->type = ret_type;
+                        } else {
+                            sym->type = type_get_func(ctx->pool, u->kind, node->as.function.param_count);
+                        }
                     }
                 }
             }
