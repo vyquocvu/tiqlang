@@ -723,11 +723,17 @@ static void emit_expr(AstNode *node, EmitContext *ctx) {
         }
         case AST_CONDITIONAL:
             if (node->as.conditional.else_branch) {
+                // M13.4: wrap the whole ternary in parentheses. C's '?:' has
+                // lower precedence than every binary operator, so an unwrapped
+                // conditional used as a binary operand (e.g. (c ? a : b) != x)
+                // would mis-parse as c ? a : (b != x).
+                fputs("(", ctx->out);
                 emit_expr(node->as.conditional.cond, ctx);
                 fputs(" ? ", ctx->out);
                 emit_expr(node->as.conditional.then_branch, ctx);
                 fputs(" : ", ctx->out);
                 emit_expr(node->as.conditional.else_branch, ctx);
+                fputs(")", ctx->out);
             } else {
                 fputs("if (", ctx->out);
                 emit_expr(node->as.conditional.cond, ctx);

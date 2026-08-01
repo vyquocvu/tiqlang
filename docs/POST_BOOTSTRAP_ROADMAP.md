@@ -32,7 +32,7 @@ Rationale for the order:
 
 ## M13 — Self-Hosting Compiler (Tiq in Tiq)
 
-Status: in progress (M13.2/M13.3 done; M13.4 in progress, not passing)
+Status: in progress (M13.1–M13.4 done; M13.5 next)
 
 Depends on: baseline bootstrap compiler (M0–M12).
 
@@ -47,7 +47,7 @@ Replace the initial C11 bootstrap compiler (`src/*.c`) with a compiler written n
   - string builder / byte buffer for code emission
 - [x] **M13.2** Lexer and AST data structures in Tiq (`src/tiq/lexer.tiq`, `src/tiq/ast.tiq`) — closed 2026-08-01: `tests/selfhost_lexer.sh` (41 fixtures) green; AST node arena is a flat `vec[int]` indexed by node id (M13.4-S3 simplification).
 - [x] **M13.3** Recursive-descent parser and error reporting in Tiq (`src/tiq/parser.tiq`) — closed 2026-08-01: `tests/selfhost_parser.sh` green (41 fixtures + 41 parse-error cases + 46 construct cases). Diagnostic byte-matching vs C verified.
-- [ ] **M13.4** Type pool and static semantic checker in Tiq (`src/tiq/type.tiq`, `src/tiq/semantic.tiq`) — in progress: `tests/selfhost_semantic.sh` exists and terminates, but ~50 fixtures remaining (typed-AST suffix on untyped literals, array/indexing, mutation, Option/Result payloads, borrow diagnostics, one known runtime crash on `&(1+2)` due to a vec-index bug). Wired into `make test` behind a skip-when-binary-missing check.
+- [x] **M13.4** Type pool and static semantic checker in Tiq (`src/tiq/type.tiq`, `src/tiq/semantic.tiq`) — closed 2026-08-02: `type.tiq` ports the `src/type.c` pool as a flat `vec[int]` with linear interning in scan order (pool-index equality == C pointer equality); `semantic.tiq` is a ~1410-line checker; `semantic_main.tiq` reproduces `tiq dump-typed-ast`. The differential harness `tests/selfhost_semantic.sh` byte-compares stdout/stderr/exit code against the C checker over 41 fixtures + 113 semantic-error cases + 56 positive-construct cases, with non-vacuity gates (25 required `TYPE_*` names, 17 required diagnostic codes) — all green. Key fixes landed during M13.4: (1) bootstrap emitter ternary precedence bug (emit_c.c wraps `?:` in parens); (2) ASSIGN field convention (NF.A=expr, NF.B=index) across parser/semantic/dump; (3) C's generic type interner ignores inner_type, so OPTION/RESULT are not primed in the pool (first OPTION/RESULT in pool wins for `ty_get`, matching C's behavior where `none` gets `OPTION<INT>` if `some(1)` was seen first); (4) function symbol update for container returns (vec/struct keep full type, not overwritten by bare function type); (5) STREAM_GEN fail-closed on >2 seeds (untyped children, UNKNOWN type). Wired into `make test`.
 - [ ] **M13.5** C11 backend emitter in Tiq (`src/tiq/emit_c.tiq`)
 - [ ] **M13.6** 3-Stage Bootstrapping & Output Identity Verification
   - Stage 1: `tiq-c11` compiles `compiler.tiq` $\rightarrow$ outputs `tiq-stage1`
@@ -60,7 +60,7 @@ Replace the initial C11 bootstrap compiler (`src/*.c`) with a compiler written n
 
 ## M14 — Native Tooling in Tiq
 
-Status: queued (blocked by M13.1–M13.2; does not require full self-hosting)
+Status: queued (prerequisites done: M13.1 language prerequisites, M13.2 lexer; does not require full self-hosting)
 
 Depends on: M13.1 language prerequisites; M14.1–M14.3 additionally need only the Tiq lexer/front end (M13.2), so they can proceed in parallel with M13.3–M13.5 and serve as its first dogfooding programs.
 
@@ -81,9 +81,9 @@ Rebuild the developer tooling as Tiq programs. The original C implementations (`
 
 ## M15 — Standard Library Modularization (`std/` Ecosystem)
 
-Status: queued (blocked by M13.1 module system)
+Status: queued (prerequisite M13.1 module system done 2026-07-31)
 
-Depends on: M13.1 (modules/imports). Must land before M19, which requires auxiliary services to live in modular standard library code.
+Depends on: M13.1 (modules/imports, done). Must land before M19, which requires auxiliary services to live in modular standard library code.
 
 Extract auxiliary system, networking, and serialization features from compiler intrinsics into modular `std/` packages.
 
@@ -140,9 +140,9 @@ Direct machine code / assembly generation to bypass external C compiler host dep
 
 ## M18 — Package Management & Ecosystem Registry
 
-Status: queued (blocked by M13.1 module system)
+Status: queued (M13.1 done; still blocked by M15 and M14.4)
 
-Depends on: M13.1 (modules), M15 (first real packages to manage), M14.4 (manifest tooling). Local/path/git dependencies come before any central registry: a registry with zero packages is premature infrastructure.
+Depends on: M13.1 (modules, done), M15 (first real packages to manage), M14.4 (manifest tooling). Local/path/git dependencies come before any central registry: a registry with zero packages is premature infrastructure.
 
 Expand `tiq.toml` into a full-fledged package manager and central registry client.
 
