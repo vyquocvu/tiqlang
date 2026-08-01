@@ -1,0 +1,30 @@
+// M13.5-P0 driver: parse, check without dumping, and emit the scalar C11
+// backend slice. The final print supplies the generated file's last newline.
+
+import "emit_c.tiq"
+
+path = cli_arg(0)
+source = fs_read(path)
+toks = vec_new()
+lex_err = lex_scan(source, path, toks)
+st = vec_new()
+vec_push(st, 0)
+vec_push(st, 0)
+vec_push(st, 0)
+vec_push(st, 0)
+first = p_peek(toks, 0)
+vec_set(st, PS.Cur, first)
+vec_set(st, PS.Prev, first)
+vec_set(st, PS.HasErr, lex_err)
+nodes = vec_new()
+kids = vec_new()
+sk = vec_new()
+sk2 = vec_new()
+tops = vec_new()
+parse_err = p_parse(source, path, toks, st, nodes, kids, sk, sk2, tops)
+tp = vec_new()
+tpn = vec_new()
+types = vec_new()
+has_err = semantic_run(source, path, toks, nodes, kids, tops, parse_err, tp, tpn, types)
+?[has_err == 0] { print(emit_c_program(source, toks, nodes, kids, tops, types, tp, tpn)) }
+proc_exit(has_err)

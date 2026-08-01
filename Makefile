@@ -49,12 +49,8 @@ test: $(TIQ) test-unit
 	sh tests/module.sh
 	sh tests/selfhost_lexer.sh
 	sh tests/selfhost_parser.sh
-	@if [ -f build/tiq-semantic-selfhost ]; then \
-	    echo "running selfhost_semantic (M13.4, expected to fail until complete)..."; \
-	    sh tests/selfhost_semantic.sh || true; \
-	else \
-	    echo "selfhost_semantic: SKIPPED (build/tiq-semantic-selfhost not built; M13.4 in progress)"; \
-	fi
+	sh tests/selfhost_semantic.sh
+	sh tests/selfhost_emit_c.sh
 	sh tests/check.sh
 	sh tests/run.sh
 

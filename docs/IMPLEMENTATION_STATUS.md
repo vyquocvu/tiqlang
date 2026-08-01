@@ -4,7 +4,7 @@ Updated: 2026-08-02
 
 ## Current milestone
 
-M13.5 — Self-hosted C11 backend emitter (queued; M13.1 prerequisites done, M13.2 lexer done, M13.3 parser done, M13.4 semantic checker done). See `docs/POST_BOOTSTRAP_ROADMAP.md` for milestone-level status.
+M13.5 — Self-hosted C11 backend emitter (active; scalar-core P0 landed, aggregate/runtime/module/ownership coverage remains). See `docs/POST_BOOTSTRAP_ROADMAP.md` for milestone-level status.
 
 ## Bootstrap scope reduction (2026-07-30)
 
@@ -456,6 +456,10 @@ corrected audits. None of these milestones is complete.
     4. Function symbol update for container returns: after checking the function body, the code was overwriting the symbol's type with `ty_func(tp, tpn, pre_ret, pc)` (bare VEC) even when `ret_type` was VEC:INT. Fixed by only using `ty_func` when `ret_type == -1` (primitive returns); container returns (vec/struct) keep the full type.
     5. STREAM_GEN fail-closed on >2 seeds: C emits E07 and BREAKS (doesn't check seeds or gen_expr), so children are untyped and type is UNKNOWN. Selfhost was checking seeds anyway and overwriting type with STREAM. Fixed by guarding the seed/gen_expr checking with `done == 0`.
   - Tests (added failing first — red confirmed: harness fails before `src/tiq/semantic_main.tiq` exists): new `tests/selfhost_semantic.sh` differential harness (wired into `make test` after `selfhost_parser.sh`, now 14 harnesses) byte-compares stdout, stderr, and exit code of `tiq dump-typed-ast F` vs `tiq-semantic-selfhost F` over 41 fixtures (`examples/*.tiq`, `examples/leetcode/*.tiq`, `tests/tiq/*.tiq`), 113 semantic-error cases (covering E07-E28: undefined symbols, type mismatches, arity errors, borrow violations, move errors, immutable assignment, break/skip outside loop, defer outside block, empty array inference, integer literal overflow, enum variant errors, stream generator limits, etc.), and 56 positive-construct cases covering the productions the fixture set never reaches (option/result types, vec annotations, borrows, enum variants, stream generators, array fill, slices, etc.). Non-vacuity gates: 25 required `TYPE_*` names and 17 required diagnostic codes must appear in the histogram, ensuring the checker paths are actually exercised. Full suite green from `make clean`; no C compiler sources touched (except the emit_c.c ternary precedence fix, which was a genuine bootstrap bug).
+- M13.5-P0: self-hosted emitter scalar core (2026-08-02):
+  - The semantic checker now exposes `semantic_run`, a quiet retained-state entry point that fills caller-owned `types`, `tp`, and `tpn` shared handles; `semantic_check` delegates to it and preserves the byte-identical typed-AST dump contract. This is the backend boundary M13.5 needs: generated C stdout is never contaminated by analysis output.
+  - New `src/tiq/emit_c.tiq` and `src/tiq/emit_c_main.tiq` implement the first executable backend slice using `strbuf`: scalar/string literals, identifiers, conventional unary/binary operators, conditional expressions, ordinary calls and type-directed `print`, immutable/mutable bindings, reassignment/compound assignment, range and condition bracket loops, `break`/`skip`, and scalar function declarations/definitions. The driver performs lex→parse→quiet semantic check→emit and exits nonzero without output after a front-end error.
+  - New mandatory `tests/selfhost_emit_c.sh` (15th harness, wired directly into `make test`) builds the emitter from Tiq, checks byte-identical repeat emission, compiles generated output with strict C11 warnings-as-errors, and compares executable stdout/stderr/exit status to `tiq run` over 7 scalar-core cases. M13.5 remains active: aggregate, complete runtime/builtin, module, stream, borrow, defer/ownership, and fail-closed emitter paths are not yet ported; byte identity with the C reference is the M13.6 gate.
 
 ## Known bootstrap limitations
 
@@ -463,4 +467,3 @@ corrected audits. None of these milestones is complete.
 - The implementation is a proof of the compilation path, not a production compiler.
 - Block bodies produce double braces in generated C (cosmetic, valid C11).
 - Formatter is conservative; some stylistic variations may not be normalized.
-

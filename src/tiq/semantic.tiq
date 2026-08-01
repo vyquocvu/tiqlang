@@ -1377,12 +1377,12 @@ typed_ast_show src:str toks:vec[Token] nodes:vec[int] kids:vec[int] types:vec[in
     0
 }
 
-// Top-level entry: prime pool, check all top-level nodes.
-// parse_err: if nonzero, skip semantic checking (matching C's guard).
-semantic_check src:str path:str toks:vec[Token] nodes:vec[int] kids:vec[int] tops:vec[int] parse_err:i64 -> i64 -> {
-    tp <- vec_new(); tpn <- vec_new()
+// M13.5: run semantic analysis while retaining the node-type vector and type
+// pool for the backend. All three output containers use shared-handle
+// semantics, so the caller sees the elements appended here. Unlike
+// semantic_check(), this entry point never writes a typed-AST dump to stdout.
+semantic_run src:str path:str toks:vec[Token] nodes:vec[int] kids:vec[int] tops:vec[int] parse_err:i64 tp:vec[int] tpn:vec[str] types:vec[int] -> i64 -> {
     prime_pool(tp, tpn)
-    types <- vec_new()
     // Pre-fill types with -1 for each node
     nc <- vec_len(nodes) / 15
     j <- 0; [j < nc] { vec_push(types, 0 - 1); j <- j + 1 }
@@ -1404,11 +1404,19 @@ semantic_check src:str path:str toks:vec[Token] nodes:vec[int] kids:vec[int] top
             j <- j + 1
         }
     }
-    // Print typed AST (always, matching C dump_typed_ast)
+    parse_err != 0 ? parse_err : vec_get(ctx, CX.HasErr)
+}
+
+// Top-level dump entry: run the retained-state checker above, then print the
+// typed AST exactly like the C dump_typed_ast command.
+semantic_check src:str path:str toks:vec[Token] nodes:vec[int] kids:vec[int] tops:vec[int] parse_err:i64 -> i64 -> {
+    tp <- vec_new(); tpn <- vec_new(); types <- vec_new()
+    has_err = semantic_run(src, path, toks, nodes, kids, tops, parse_err, tp, tpn, types)
+    top_count = vec_len(tops)
     j <- 0
     [j < top_count] {
         typed_ast_show(src, toks, nodes, kids, types, tp, tpn, vec_get(tops, j), 0)
         j <- j + 1
     }
-    parse_err != 0 ? parse_err : vec_get(ctx, CX.HasErr)
+    has_err
 }
