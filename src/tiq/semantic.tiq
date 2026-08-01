@@ -53,6 +53,29 @@ env_set_type en:vec[str] ed:vec[int] name:str tp:i64 -> i64 -> {
     [i >= 0] { [(str_eq(vec_get(en, i), name))] { vec_set(ed, i * 4 + 2, tp); break }; i <- i - 1 }; 0
 }
 
+// Struct name registry: names in st_names (flat), types in st_meta (flat,
+// parallel). Mirrors C's ctx->structs table: single-pass, forward-scan
+// (earliest definition wins for duplicates).
+struct_lookup st_names:vec[str] name:str -> i64 -> {
+    r <- 0 - 1; i <- 0
+    [i < vec_len(st_names) && r == -1] { [(str_eq(vec_get(st_names, i), name))] { r <- i; break }; i <- i + 1 }
+    r
+}
+
+// Enum registry: en_data holds three slots per enum —
+// [name_pos, var_base, var_count]. name_pos is the index in en_reg of the
+// enum-name pair, var_base the index of the first variant-name pair, and
+// var_count the number of variants. Variant pairs live in en_reg after the
+// name pair, so en_reg stays the single string store.
+enum_lookup en_reg:vec[str] en_data:vec[int] name:str -> i64 -> {
+    r <- 0 - 1; i <- 0
+    [i < vec_len(en_data) / 3 && r == -1] {
+        [(str_eq(vec_get(en_reg, vec_get(en_data, i * 3)), name))] { r <- i; break }
+        i <- i + 1
+    }
+    r
+}
+
 resolve_type src:str toks:vec[Token] tp:vec[int] tpn:vec[str] tidx:i64 -> i64 -> {
     r <- 0 - 1
     [(tidx != -1)] {
@@ -74,7 +97,7 @@ resolve_type src:str toks:vec[Token] tp:vec[int] tpn:vec[str] tidx:i64 -> i64 ->
         break
     }; r
 }
-resolve_cont src:str toks:vec[Token] tp:vec[int] tpn:vec[str] tidx:i64 eidx:i64 path:str ctx:vec[int] -> i64 -> {
+resolve_cont src:str toks:vec[Token] tp:vec[int] tpn:vec[str] st_names:vec[str] st_meta:vec[int] tidx:i64 eidx:i64 path:str ctx:vec[int] -> i64 -> {
     r <- 0 - 1
     [(tidx != -1)] {
         nm <- tk_lex(src, toks, tidx)
@@ -83,6 +106,7 @@ resolve_cont src:str toks:vec[Token] tp:vec[int] tpn:vec[str] tidx:i64 eidx:i64 
         [(str_eq(nm, "vec"))] {
             [(eidx == -1)] { s_diag(ctx, path, tk_line(toks, tidx), 9, "vec annotation requires an element type: vec[T]"); r <- ty_get(tp, tpn, TY.Unknown); break }
             et <- resolve_type(src, toks, tp, tpn, eidx)
+            [(et == -1)] { enm <- tk_lex(src, toks, eidx); esi <- struct_lookup(st_names, enm); [(esi != -1)] { et <- vec_get(st_meta, esi); break }; break }
             [(et == -1)] { msg <- str_cat(str_cat("unknown type '", tk_lex(src, toks, eidx)), "'"); s_diag(ctx, path, tk_line(toks, eidx), 9, msg); r <- ty_get(tp, tpn, TY.Unknown); break }
             ek <- vec_get(tp, et * 8 + TF.Kind)
             [(ek != TY.Int && ek != TY.Str && ek != TY.Struct)] { s_diag(ctx, path, tk_line(toks, eidx), 9, "vec element type must be int, str, or a struct"); r <- ty_get(tp, tpn, TY.Unknown); break }
@@ -90,6 +114,20 @@ resolve_cont src:str toks:vec[Token] tp:vec[int] tpn:vec[str] tidx:i64 eidx:i64 
         }
         break
     }; r
+}
+
+// Annotation resolution mirroring C resolve_container_annot + resolve_type_annot:
+// containers (strbuf/map/vec[T]) first, then primitive names, then structs.
+resolve_ann src:str toks:vec[Token] tp:vec[int] tpn:vec[str] st_names:vec[str] st_meta:vec[int] tidx:i64 eidx:i64 path:str ctx:vec[int] -> i64 -> {
+    r <- resolve_cont(src, toks, tp, tpn, st_names, st_meta, tidx, eidx, path, ctx)
+    [(r == -1)] { r <- resolve_type(src, toks, tp, tpn, tidx); break }
+    [(r == -1 && tidx != -1)] {
+        nm <- tk_lex(src, toks, tidx)
+        si2 <- struct_lookup(st_names, nm)
+        [(si2 != -1)] { r <- vec_get(st_meta, si2); break }
+        break
+    }
+    r
 }
 unify ctx:vec[int] path:str ln:i64 tp:vec[int] tpn:vec[str] exp:i64 found:i64 emsg:str -> i64 -> {
     r <- 0 - 1; d <- 0
@@ -250,7 +288,7 @@ chk_generic ctx:vec[int] path:str ln:i64 nodes:vec[int] kids:vec[int] types:vec[
 
 // The monolithic self-recursive check_node. Dispatches on node kind.
 // All 25 AstKind cases are handled inline (Tiq allows only self-recursion).
-check_node src:str path:str toks:vec[Token] nodes:vec[int] kids:vec[int] types:vec[int] en:vec[str] ed:vec[int] sc:vec[int] st_reg:vec[str] st_data:vec[int] en_reg:vec[str] en_data:vec[int] fn_reg:vec[str] fn_data:vec[int] fpts:vec[int] frks:vec[int] tp:vec[int] tpn:vec[str] ctx:vec[int] ni:i64 -> i64 -> {
+check_node src:str path:str toks:vec[Token] nodes:vec[int] kids:vec[int] types:vec[int] en:vec[str] ed:vec[int] sc:vec[int] st_reg:vec[str] st_data:vec[int] st_names:vec[str] st_meta:vec[int] en_reg:vec[str] en_data:vec[int] fn_reg:vec[str] fn_data:vec[int] fpts:vec[int] frks:vec[int] tp:vec[int] tpn:vec[str] ctx:vec[int] ni:i64 -> i64 -> {
     k <- 0 - 1; tok <- 0 - 1; ln <- 0; done <- 1
     [(ni != -1)] { k <- nd_get(nodes, ni, NF.Kind); tok <- nd_get(nodes, ni, NF.Tok); ln <- tok != -1 ? tk_line(toks, tok) : 0; done <- 0; break }
 
@@ -265,24 +303,34 @@ check_node src:str path:str toks:vec[Token] nodes:vec[int] kids:vec[int] types:v
     [(done == 0 && k == AstKind.Identifier)] {
         nm <- tk_lex(src, toks, nd_get(nodes, ni, NF.Name))
         [(str_eq(nm, "none"))] { vec_set(types, ni, ty_get(tp, tpn, TY.Option)); done <- 1; break }
-        si <- env_lookup(en, ed, nm)
-        [(si == -1)] {
-            ei <- 0 - 1; ej <- 0
-            [ej < vec_len(en_reg) / 2 && ei == -1] { [(str_eq(vec_get(en_reg, ej * 2), nm))] { ei <- ej; break }; ej <- ej + 1 }
-            [(ei != -1)] { s_diag(ctx, path, ln, 9, str_cat(str_cat(str_cat(str_cat("enum '", nm), "' is not a value; use "), nm), ".<variant>")); vec_set(types, ni, ty_get(tp, tpn, TY.Unknown)); done <- 1; break }
-            s_diag(ctx, path, ln, 8, str_cat(str_cat("undefined symbol '", nm), "'")); vec_set(types, ni, ty_get(tp, tpn, TY.Unknown)); done <- 1; break
+        [(done == 0)] {
+            si <- env_lookup(en, ed, nm)
+            [(si == -1)] {
+                ei <- enum_lookup(en_reg, en_data, nm)
+                [(ei != -1)] { s_diag(ctx, path, ln, 9, str_cat(str_cat(str_cat(str_cat("enum '", nm), "' is not a value; use "), nm), ".<variant>")); vec_set(types, ni, ty_get(tp, tpn, TY.Unknown)); done <- 1; break }
+                [(done == 0)] { s_diag(ctx, path, ln, 8, str_cat(str_cat("undefined symbol '", nm), "'")); vec_set(types, ni, ty_get(tp, tpn, TY.Unknown)); done <- 1 }
+                break
+            }
+            [(done == 0)] {
+                [(vec_get(ed, si * 4 + 1) == 1)] { s_diag(ctx, path, ln, 18, str_cat(str_cat("use of moved value '", nm), "'")); vec_set(types, ni, ty_get(tp, tpn, TY.Unknown)); done <- 1; break }
+                [(done == 0)] {
+                    st <- vec_get(ed, si * 4 + 2)
+                    [(st != -1)] { sk <- vec_get(tp, st * 8 + TF.Kind); [(sk == TY.Ref || sk == TY.RefMut)] { el <- vec_get(tp, st * 8 + TF.Elem); vec_set(types, ni, el != -1 ? el : ty_get(tp, tpn, TY.Unknown)); done <- 1; break }; break }
+                    [(done == 0)] { vec_set(types, ni, st); done <- 1 }
+                    break
+                }
+                break
+            }
+            break
         }
-        [(vec_get(ed, si * 4 + 1) == 1)] { s_diag(ctx, path, ln, 18, str_cat(str_cat("use of moved value '", nm), "'")); vec_set(types, ni, ty_get(tp, tpn, TY.Unknown)); done <- 1; break }
-        st <- vec_get(ed, si * 4 + 2)
-        [(st != -1)] { sk <- vec_get(tp, st * 8 + TF.Kind); [(sk == TY.Ref || sk == TY.RefMut)] { el <- vec_get(tp, st * 8 + TF.Elem); vec_set(types, ni, el != -1 ? el : ty_get(tp, tpn, TY.Unknown)); done <- 1; break }; break }
-        vec_set(types, ni, st); done <- 1; break
+        break
     }
     // --- BINARY ---
     [(done == 0 && k == AstKind.Binary)] {
         op <- nd_get(nodes, ni, NF.Op)
         [(op == TokenKind.DotDot && vec_get(ctx, CX.InRange) == 0)] { s_diag(ctx, path, ln, 7, "range expressions 'a..b' are only valid inside loop or slice contexts"); break }
-        check_node(src, path, toks, nodes, kids, types, en, ed, sc, st_reg, st_data, en_reg, en_data, fn_reg, fn_data, fpts, frks, tp, tpn, ctx, nd_get(nodes, ni, NF.A))
-        check_node(src, path, toks, nodes, kids, types, en, ed, sc, st_reg, st_data, en_reg, en_data, fn_reg, fn_data, fpts, frks, tp, tpn, ctx, nd_get(nodes, ni, NF.B))
+        check_node(src, path, toks, nodes, kids, types, en, ed, sc, st_reg, st_data, st_names, st_meta, en_reg, en_data, fn_reg, fn_data, fpts, frks, tp, tpn, ctx, nd_get(nodes, ni, NF.A))
+        check_node(src, path, toks, nodes, kids, types, en, ed, sc, st_reg, st_data, st_names, st_meta, en_reg, en_data, fn_reg, fn_data, fpts, frks, tp, tpn, ctx, nd_get(nodes, ni, NF.B))
         ai <- nd_get(nodes, ni, NF.A); bi <- nd_get(nodes, ni, NF.B)
         lt <- ai != -1 ? vec_get(types, ai) : -1; rt <- bi != -1 ? vec_get(types, bi) : -1
         [(op == TokenKind.QuestionQuestion)] {
@@ -309,18 +357,18 @@ check_node src:str path:str toks:vec[Token] nodes:vec[int] kids:vec[int] types:v
     [(done == 0 && k == AstKind.Unary)] {
         op <- nd_get(nodes, ni, NF.Op); ri <- nd_get(nodes, ni, NF.A)
         [(op == TokenKind.Move)] {
-            check_node(src, path, toks, nodes, kids, types, en, ed, sc, st_reg, st_data, en_reg, en_data, fn_reg, fn_data, fpts, frks, tp, tpn, ctx, ri)
+            check_node(src, path, toks, nodes, kids, types, en, ed, sc, st_reg, st_data, st_names, st_meta, en_reg, en_data, fn_reg, fn_data, fpts, frks, tp, tpn, ctx, ri)
             [(ri != -1 && nd_get(nodes, ri, NF.Kind) == AstKind.Identifier)] { rname <- tk_lex(src, toks, nd_get(nodes, ri, NF.Name)); si <- env_lookup(en, ed, rname); [(si != -1)] { [(vec_get(ed, si * 4 + 0) == 0)] { s_diag(ctx, path, ln, 17, "cannot move an immutable binding"); break }; [(vec_get(ed, si * 4 + 0) != 0 && vec_get(ed, si * 4 + 1) == 0)] { vec_set(ed, si * 4 + 1, 1); break }; break }; break }
             rt <- ri != -1 ? vec_get(types, ri) : -1; vec_set(types, ni, rt != -1 ? rt : ty_get(tp, tpn, TY.Unknown)); done <- 1; break
         }
-        [(op == TokenKind.Amp)] { check_node(src, path, toks, nodes, kids, types, en, ed, sc, st_reg, st_data, en_reg, en_data, fn_reg, fn_data, fpts, frks, tp, tpn, ctx, ri); s_diag(ctx, path, ln, 7, "borrow is only valid as an argument to a reference parameter"); vec_set(types, ni, ty_get(tp, tpn, TY.Unknown)); done <- 1; break }
+        [(op == TokenKind.Amp)] { check_node(src, path, toks, nodes, kids, types, en, ed, sc, st_reg, st_data, st_names, st_meta, en_reg, en_data, fn_reg, fn_data, fpts, frks, tp, tpn, ctx, ri); s_diag(ctx, path, ln, 7, "borrow is only valid as an argument to a reference parameter"); vec_set(types, ni, ty_get(tp, tpn, TY.Unknown)); done <- 1; break }
         [(op == TokenKind.Question)] {
-            check_node(src, path, toks, nodes, kids, types, en, ed, sc, st_reg, st_data, en_reg, en_data, fn_reg, fn_data, fpts, frks, tp, tpn, ctx, ri)
+            check_node(src, path, toks, nodes, kids, types, en, ed, sc, st_reg, st_data, st_names, st_meta, en_reg, en_data, fn_reg, fn_data, fpts, frks, tp, tpn, ctx, ri)
             rt <- ri != -1 ? vec_get(types, ri) : -1
             [(rt != -1 && (vec_get(tp, rt * 8 + TF.Kind) == TY.Option || vec_get(tp, rt * 8 + TF.Kind) == TY.Result))] { inner <- vec_get(tp, rt * 8 + TF.Inner); vec_set(types, ni, inner != -1 ? inner : ty_get(tp, tpn, TY.Unknown)); done <- 1; break }
             s_diag(ctx, path, ln, 9, "propagation operator requires Option or Result operand"); vec_set(types, ni, ty_get(tp, tpn, TY.Unknown)); done <- 1; break
         }
-        check_node(src, path, toks, nodes, kids, types, en, ed, sc, st_reg, st_data, en_reg, en_data, fn_reg, fn_data, fpts, frks, tp, tpn, ctx, ri)
+        check_node(src, path, toks, nodes, kids, types, en, ed, sc, st_reg, st_data, st_names, st_meta, en_reg, en_data, fn_reg, fn_data, fpts, frks, tp, tpn, ctx, ri)
         [(op == TokenKind.Bang)] { rt <- ri != -1 ? vec_get(types, ri) : -1; [(rt != -1 && vec_get(tp, rt * 8 + TF.Kind) != TY.Bool && vec_get(tp, rt * 8 + TF.Kind) != TY.Unknown)] { s_diag(ctx, path, ln, 9, str_cat("operand of '!' must be bool, found ", disp(tp, tpn, rt))); break }; vec_set(types, ni, ty_get(tp, tpn, TY.Bool)); done <- 1; break }
         [(done == 0)] { rt <- ri != -1 ? vec_get(types, ri) : -1; vec_set(types, ni, rt != -1 ? rt : ty_get(tp, tpn, TY.Unknown)); done <- 1; break }
         break
@@ -328,9 +376,9 @@ check_node src:str path:str toks:vec[Token] nodes:vec[int] kids:vec[int] types:v
     // --- CONDITIONAL ---
     [(done == 0 && k == AstKind.Conditional)] {
         ai <- nd_get(nodes, ni, NF.A); bi <- nd_get(nodes, ni, NF.B); ci <- nd_get(nodes, ni, NF.C)
-        check_node(src, path, toks, nodes, kids, types, en, ed, sc, st_reg, st_data, en_reg, en_data, fn_reg, fn_data, fpts, frks, tp, tpn, ctx, ai)
-        check_node(src, path, toks, nodes, kids, types, en, ed, sc, st_reg, st_data, en_reg, en_data, fn_reg, fn_data, fpts, frks, tp, tpn, ctx, bi)
-        check_node(src, path, toks, nodes, kids, types, en, ed, sc, st_reg, st_data, en_reg, en_data, fn_reg, fn_data, fpts, frks, tp, tpn, ctx, ci)
+        check_node(src, path, toks, nodes, kids, types, en, ed, sc, st_reg, st_data, st_names, st_meta, en_reg, en_data, fn_reg, fn_data, fpts, frks, tp, tpn, ctx, ai)
+        check_node(src, path, toks, nodes, kids, types, en, ed, sc, st_reg, st_data, st_names, st_meta, en_reg, en_data, fn_reg, fn_data, fpts, frks, tp, tpn, ctx, bi)
+        check_node(src, path, toks, nodes, kids, types, en, ed, sc, st_reg, st_data, st_names, st_meta, en_reg, en_data, fn_reg, fn_data, fpts, frks, tp, tpn, ctx, ci)
         ct <- ai != -1 ? vec_get(types, ai) : -1
         [(ct != -1 && vec_get(tp, ct * 8 + TF.Kind) != TY.Bool)] { s_diag(ctx, path, ln, 14, "conditional condition must be bool"); break }
         tt <- bi != -1 ? vec_get(types, bi) : -1; et <- ci != -1 ? vec_get(types, ci) : -1
@@ -343,14 +391,14 @@ check_node src:str path:str toks:vec[Token] nodes:vec[int] kids:vec[int] types:v
         ci <- nd_get(nodes, ni, NF.A); s1 <- nd_get(nodes, ni, NF.L1s); c1 <- nd_get(nodes, ni, NF.L1n)
         is_bracket <- nd_get(nodes, ni, NF.F1); is_slice <- nd_get(nodes, ni, NF.F2)
         // Check all args first (for builtins)
-        j <- 0; [j < c1] { ai <- vec_get(kids, s1 + j); [(ai != -1)] { check_node(src, path, toks, nodes, kids, types, en, ed, sc, st_reg, st_data, en_reg, en_data, fn_reg, fn_data, fpts, frks, tp, tpn, ctx, ai); break }; j <- j + 1 }
+        j <- 0; [j < c1] { ai <- vec_get(kids, s1 + j); [(ai != -1)] { check_node(src, path, toks, nodes, kids, types, en, ed, sc, st_reg, st_data, st_names, st_meta, en_reg, en_data, fn_reg, fn_data, fpts, frks, tp, tpn, ctx, ai); break }; j <- j + 1 }
         handled <- 0
         // Builtin dispatch by callee name
         [(handled == 0 && ci != -1 && nd_get(nodes, ci, NF.Kind) == AstKind.Identifier)] {
             cnm <- tk_lex(src, toks, nd_get(nodes, ci, NF.Name))
             [(str_eq(cnm, "print"))] { [(c1 != 1)] { s_diag(ctx, path, ln, 12, "print expects exactly 1 argument"); break }; ai0 <- vec_get(kids, s1); at <- ai0 != -1 ? vec_get(types, ai0) : -1; [(at != -1)] { ak <- vec_get(tp, at * 8 + TF.Kind); [(ak != TY.Int && ak != TY.Float && ak != TY.Bool && ak != TY.Str && ak != TY.StrView && ak != TY.Slice && ak != TY.I8 && ak != TY.I16 && ak != TY.I32 && ak != TY.U8 && ak != TY.U16 && ak != TY.U32 && ak != TY.U64 && ak != TY.F32 && ak != TY.Unknown)] { s_diag(ctx, path, ln, 9, str_cat("print cannot print ", disp(tp, tpn, at))); break }; break }; vec_set(types, ni, ty_get(tp, tpn, TY.Int)); handled <- 1; break }
             [(str_eq(cnm, "len"))] { [(c1 != 1)] { s_diag(ctx, path, ln, 12, "len expects exactly 1 argument"); break }; ai0 <- vec_get(kids, s1); at <- ai0 != -1 ? vec_get(types, ai0) : -1; [(at != -1)] { ak <- vec_get(tp, at * 8 + TF.Kind); [(ak != TY.Array && ak != TY.Slice && ak != TY.Str && ak != TY.StrView && ak != TY.Unknown)] { s_diag(ctx, path, ln, 9, "len expects an array argument"); break }; break }; vec_set(types, ni, ty_get(tp, tpn, TY.Int)); handled <- 1; break }
-            [(str_eq(cnm, "some"))] { [(c1 != 1)] { s_diag(ctx, path, ln, 12, "some expects exactly 1 argument"); break }; ai0 <- vec_get(kids, s1); at <- ai0 != -1 ? vec_get(types, ai0) : -1; [(at != -1 && vec_get(tp, at * 8 + TF.Kind) != TY.Unknown)] { vec_set(types, ni, ty_option(tp, tpn, at)); handled <- 1; break }; vec_set(types, ni, ty_get(tp, tpn, TY.Option)); handled <- 1; break }
+            [(str_eq(cnm, "some"))] { [(c1 != 1)] { s_diag(ctx, path, ln, 12, "some expects exactly 1 argument"); break }; ai0 <- vec_get(kids, s1); at <- ai0 != -1 ? vec_get(types, ai0) : -1; eprint(str_cat("SOME at=", int_str(at))); [(at != -1 && vec_get(tp, at * 8 + TF.Kind) != TY.Unknown)] { vec_set(types, ni, ty_option(tp, tpn, at)); handled <- 1; break }; vec_set(types, ni, ty_get(tp, tpn, TY.Option)); handled <- 1; break }
             [(str_eq(cnm, "none"))] { [(c1 != 0)] { s_diag(ctx, path, ln, 12, "none expects no arguments"); break }; vec_set(types, ni, ty_get(tp, tpn, TY.Option)); handled <- 1; break }
             [(str_eq(cnm, "ok"))] { [(c1 != 1)] { s_diag(ctx, path, ln, 12, "ok expects exactly 1 argument"); break }; ai0 <- vec_get(kids, s1); at <- ai0 != -1 ? vec_get(types, ai0) : -1; [(at != -1 && vec_get(tp, at * 8 + TF.Kind) != TY.Unknown)] { vec_set(types, ni, ty_result(tp, tpn, at, ty_get(tp, tpn, TY.Int))); handled <- 1; break }; vec_set(types, ni, ty_get(tp, tpn, TY.Result)); handled <- 1; break }
             [(str_eq(cnm, "err"))] { [(c1 != 1)] { s_diag(ctx, path, ln, 12, "err expects exactly 1 argument"); break }; ai0 <- vec_get(kids, s1); at <- ai0 != -1 ? vec_get(types, ai0) : -1; [(at != -1 && vec_get(tp, at * 8 + TF.Kind) != TY.Unknown)] { vec_set(types, ni, ty_result(tp, tpn, ty_get(tp, tpn, TY.Int), at)); handled <- 1; break }; vec_set(types, ni, ty_get(tp, tpn, TY.Result)); handled <- 1; break }
@@ -368,19 +416,22 @@ check_node src:str path:str toks:vec[Token] nodes:vec[int] kids:vec[int] types:v
             [(str_eq(cnm, "f32"))] { tgt <- TY.F32; break }; [(str_eq(cnm, "f64"))] { tgt <- TY.Float; break }; [(str_eq(cnm, "bool"))] { tgt <- TY.Bool; break }; [(str_eq(cnm, "str"))] { tgt <- TY.Str; break }
             [(tgt != -1)] {
                 [(c1 != 1)] { s_diag(ctx, path, ln, 12, "type conversion requires exactly 1 argument"); vec_set(types, ni, ty_get(tp, tpn, TY.Unknown)); handled <- 1; break }
-                ai0 <- vec_get(kids, s1); st2 <- ai0 != -1 ? vec_get(types, ai0) : -1
-                src_k <- st2 != -1 ? vec_get(tp, st2 * 8 + TF.Kind) : TY.Unknown
-                src_num <- src_k == TY.Int || src_k == TY.Float || src_k == TY.I8 || src_k == TY.I16 || src_k == TY.I32 || src_k == TY.U8 || src_k == TY.U16 || src_k == TY.U32 || src_k == TY.U64 || src_k == TY.F32 ? 1 : 0
-                tgt_num <- tgt == TY.Int || tgt == TY.Float || tgt == TY.I8 || tgt == TY.I16 || tgt == TY.I32 || tgt == TY.U8 || tgt == TY.U16 || tgt == TY.U32 || tgt == TY.U64 || tgt == TY.F32 ? 1 : 0
-                ok <- src_k == TY.Unknown ? 1 : (src_num == 1 && tgt_num == 1) ? 1 : src_k == tgt ? 1 : 0
-                [(ok == 0)] { s_diag(ctx, path, ln, 10, str_cat(str_cat("cannot convert ", disp(tp, tpn, st2)), str_cat(" to ", kind_disp(tgt)))); vec_set(types, ni, ty_get(tp, tpn, TY.Unknown)); handled <- 1; break }
-                vec_set(types, ni, ty_get(tp, tpn, tgt)); handled <- 1; break
+                [(handled == 0)] {
+                    ai0 <- vec_get(kids, s1); st2 <- ai0 != -1 ? vec_get(types, ai0) : -1
+                    src_k <- st2 != -1 ? vec_get(tp, st2 * 8 + TF.Kind) : TY.Unknown
+                    src_num <- src_k == TY.Int || src_k == TY.Float || src_k == TY.I8 || src_k == TY.I16 || src_k == TY.I32 || src_k == TY.U8 || src_k == TY.U16 || src_k == TY.U32 || src_k == TY.U64 || src_k == TY.F32 ? 1 : 0
+                    tgt_num <- tgt == TY.Int || tgt == TY.Float || tgt == TY.I8 || tgt == TY.I16 || tgt == TY.I32 || tgt == TY.U8 || tgt == TY.U16 || tgt == TY.U32 || tgt == TY.U64 || tgt == TY.F32 ? 1 : 0
+                    ok <- src_k == TY.Unknown ? 1 : (src_num == 1 && tgt_num == 1) ? 1 : src_k == tgt ? 1 : 0
+                    [(ok == 0)] { s_diag(ctx, path, ln, 10, str_cat(str_cat("cannot convert ", disp(tp, tpn, st2)), str_cat(" to ", kind_disp(tgt)))); vec_set(types, ni, ty_get(tp, tpn, TY.Unknown)); handled <- 1; break }
+                    vec_set(types, ni, ty_get(tp, tpn, tgt)); handled <- 1; break
+                }
+                break
             }
             break
         }
         // User function calls + indexing/slicing
         [(handled == 0)] {
-            check_node(src, path, toks, nodes, kids, types, en, ed, sc, st_reg, st_data, en_reg, en_data, fn_reg, fn_data, fpts, frks, tp, tpn, ctx, ci)
+            check_node(src, path, toks, nodes, kids, types, en, ed, sc, st_reg, st_data, st_names, st_meta, en_reg, en_data, fn_reg, fn_data, fpts, frks, tp, tpn, ctx, ci)
             callee_t <- ci != -1 ? vec_get(types, ci) : -1
             // Bracket call: indexing/slicing
             [(is_bracket == 1)] {
@@ -411,6 +462,7 @@ check_node src:str path:str toks:vec[Token] nodes:vec[int] kids:vec[int] types:v
             [j < c1] {
                 ai <- vec_get(kids, s1 + j)
                 [(ai == -1)] { j <- j + 1; break }
+                [(ai != -1)] {
                 arg_is_borrow <- nd_get(nodes, ai, NF.Kind) == AstKind.Unary && nd_get(nodes, ai, NF.Op) == TokenKind.Amp ? 1 : 0
                 want_ref <- 0
                 [(fn_def != -1 && j < nd_get(nodes, fn_def, NF.L1n))] { want_ref <- vec_get(frks, fn_pb + j); break }
@@ -420,13 +472,13 @@ check_node src:str path:str toks:vec[Token] nodes:vec[int] kids:vec[int] types:v
                     [(want_ref != 0)] { msg <- str_cat(str_cat("argument ", int_str(j + 1)), str_cat(" must be borrowed with ", want_ref == 2 ? "&mut" : "&")); s_diag(ctx, path, ln, 23, msg); break }
                     j <- j + 1; break
                 }
-                [(arg_is_borrow == 1 && want_ref == 0)] { msg <- str_cat(str_cat("argument ", int_str(j + 1)), " cannot be a borrow: parameter is by value"); s_diag(ctx, path, ln, 23, msg); ri <- nd_get(nodes, ai, NF.A); [(ri != -1)] { check_node(src, path, toks, nodes, kids, types, en, ed, sc, st_reg, st_data, en_reg, en_data, fn_reg, fn_data, fpts, frks, tp, tpn, ctx, ri); break }; vec_set(types, ai, ty_get(tp, tpn, TY.Unknown)); j <- j + 1; break }
-                [(arg_is_borrow == 1)] {
+                [(arg_is_borrow == 1 && want_ref == 0)] { msg <- str_cat(str_cat("argument ", int_str(j + 1)), " cannot be a borrow: parameter is by value"); s_diag(ctx, path, ln, 23, msg); ri <- nd_get(nodes, ai, NF.A); [(ri != -1)] { check_node(src, path, toks, nodes, kids, types, en, ed, sc, st_reg, st_data, st_names, st_meta, en_reg, en_data, fn_reg, fn_data, fpts, frks, tp, tpn, ctx, ri); break }; vec_set(types, ai, ty_get(tp, tpn, TY.Unknown)); j <- j + 1; break }
+                [(arg_is_borrow == 1 && want_ref != 0)] {
                 is_mut <- nd_get(nodes, ai, NF.F1)
                 [((want_ref == 2 ? 1 : 0) != is_mut)] { s_diag(ctx, path, ln, 23, str_cat(str_cat("argument ", int_str(j + 1)), str_cat(" must be borrowed with ", want_ref == 2 ? "&mut" : "&"))); break }
                 operand <- nd_get(nodes, ai, NF.A)
-                [(operand == -1 || nd_get(nodes, operand, NF.Kind) != AstKind.Identifier)] { s_diag(ctx, path, tk_line(toks, tok), 23, "borrow operand must be a named binding"); [(operand != -1)] { check_node(src, path, toks, nodes, kids, types, en, ed, sc, st_reg, st_data, en_reg, en_data, fn_reg, fn_data, fpts, frks, tp, tpn, ctx, operand); break }; vec_set(types, ai, ty_get(tp, tpn, TY.Unknown)); j <- j + 1; break }
-                check_node(src, path, toks, nodes, kids, types, en, ed, sc, st_reg, st_data, en_reg, en_data, fn_reg, fn_data, fpts, frks, tp, tpn, ctx, operand)
+                [(operand == -1 || nd_get(nodes, operand, NF.Kind) != AstKind.Identifier)] { s_diag(ctx, path, tk_line(toks, tok), 23, "borrow operand must be a named binding"); [(operand != -1)] { check_node(src, path, toks, nodes, kids, types, en, ed, sc, st_reg, st_data, st_names, st_meta, en_reg, en_data, fn_reg, fn_data, fpts, frks, tp, tpn, ctx, operand); break }; vec_set(types, ai, ty_get(tp, tpn, TY.Unknown)); j <- j + 1; break }
+                check_node(src, path, toks, nodes, kids, types, en, ed, sc, st_reg, st_data, st_names, st_meta, en_reg, en_data, fn_reg, fn_data, fpts, frks, tp, tpn, ctx, operand)
                 ref_name <- tk_lex(src, toks, nd_get(nodes, operand, NF.Name))
                 bsi <- env_lookup(en, ed, ref_name)
                 [(bsi != -1)] { bst <- vec_get(ed, bsi * 4 + 2); [(bst != -1 && (vec_get(tp, bst * 8 + TF.Kind) == TY.Ref || vec_get(tp, bst * 8 + TF.Kind) == TY.RefMut))] { s_diag(ctx, path, ln, 23, str_cat(str_cat("cannot re-borrow reference parameter '", ref_name), "'")); break }; [(is_mut == 1 && vec_get(ed, bsi * 4 + 0) == 0)] { s_diag(ctx, path, ln, 23, str_cat(str_cat("cannot borrow immutable binding '", ref_name), "' as mutable")); break }; break }
@@ -435,13 +487,15 @@ check_node src:str path:str toks:vec[Token] nodes:vec[int] kids:vec[int] types:v
                 vec_set(types, ai, ty_ref(tp, tpn, ot != -1 ? ot : ty_get(tp, tpn, TY.Unknown), is_mut))
                 j <- j + 1; break
                 }
+                break
+                }
             }
             [(callee_t != -1 && vec_get(tp, callee_t * 8 + TF.Pc) > 0)] { vec_set(types, ni, vec_get(tp, callee_t * 8 + TF.Kind)); handled <- 1; break }
             [(handled == 0 && callee_t != -1)] { vec_set(types, ni, callee_t); handled <- 1; break }
             [(handled == 0)] { vec_set(types, ni, ty_get(tp, tpn, TY.Unknown)); handled <- 1 }
             break
         }
-        [(handled == 0)] { check_node(src, path, toks, nodes, kids, types, en, ed, sc, st_reg, st_data, en_reg, en_data, fn_reg, fn_data, fpts, frks, tp, tpn, ctx, ci); vec_set(types, ni, ty_get(tp, tpn, TY.Unknown)); break }
+        [(handled == 0)] { check_node(src, path, toks, nodes, kids, types, en, ed, sc, st_reg, st_data, st_names, st_meta, en_reg, en_data, fn_reg, fn_data, fpts, frks, tp, tpn, ctx, ci); vec_set(types, ni, ty_get(tp, tpn, TY.Unknown)); break }
         done <- 1; break
     }
 
@@ -451,9 +505,9 @@ check_node src:str path:str toks:vec[Token] nodes:vec[int] kids:vec[int] types:v
         s1 <- nd_get(nodes, ni, NF.L1s); c1 <- nd_get(nodes, ni, NF.L1n)
         s2 <- nd_get(nodes, ni, NF.L2s); c2 <- nd_get(nodes, ni, NF.L2n)
         fi <- nd_get(nodes, ni, NF.C)
-        j <- 0; [j < c1] { si <- vec_get(kids, s1 + j); check_node(src, path, toks, nodes, kids, types, en, ed, sc, st_reg, st_data, en_reg, en_data, fn_reg, fn_data, fpts, frks, tp, tpn, ctx, si); j <- j + 1 }
-        j <- 0; [j < c2] { si <- vec_get(kids, s2 + j); check_node(src, path, toks, nodes, kids, types, en, ed, sc, st_reg, st_data, en_reg, en_data, fn_reg, fn_data, fpts, frks, tp, tpn, ctx, si); j <- j + 1 }
-        [(fi != -1)] { check_node(src, path, toks, nodes, kids, types, en, ed, sc, st_reg, st_data, en_reg, en_data, fn_reg, fn_data, fpts, frks, tp, tpn, ctx, fi); break }
+        j <- 0; [j < c1] { si <- vec_get(kids, s1 + j); check_node(src, path, toks, nodes, kids, types, en, ed, sc, st_reg, st_data, st_names, st_meta, en_reg, en_data, fn_reg, fn_data, fpts, frks, tp, tpn, ctx, si); j <- j + 1 }
+        j <- 0; [j < c2] { si <- vec_get(kids, s2 + j); check_node(src, path, toks, nodes, kids, types, en, ed, sc, st_reg, st_data, st_names, st_meta, en_reg, en_data, fn_reg, fn_data, fpts, frks, tp, tpn, ctx, si); j <- j + 1 }
+        [(fi != -1)] { check_node(src, path, toks, nodes, kids, types, en, ed, sc, st_reg, st_data, st_names, st_meta, en_reg, en_data, fn_reg, fn_data, fpts, frks, tp, tpn, ctx, fi); break }
         env_pop_scope(sc, en, ed)
         vec_set(types, ni, ty_get(tp, tpn, TY.Unknown)); done <- 1; break
     }
@@ -477,7 +531,7 @@ check_node src:str path:str toks:vec[Token] nodes:vec[int] kids:vec[int] types:v
             // Now fall through to the Assign case below
             done <- 0; break
         }
-        check_node(src, path, toks, nodes, kids, types, en, ed, sc, st_reg, st_data, en_reg, en_data, fn_reg, fn_data, fpts, frks, tp, tpn, ctx, ei)
+        check_node(src, path, toks, nodes, kids, types, en, ed, sc, st_reg, st_data, st_names, st_meta, en_reg, en_data, fn_reg, fn_data, fpts, frks, tp, tpn, ctx, ei)
         bt <- ei != -1 ? vec_get(types, ei) : -1
         tp_b <- bt != -1 ? bt : ty_get(tp, tpn, TY.Unknown)
         env_define(en, ed, sc, nm, is_mut, tp_b, ln)
@@ -486,7 +540,7 @@ check_node src:str path:str toks:vec[Token] nodes:vec[int] kids:vec[int] types:v
     // --- ASSIGN ---
     [(done == 0 && k == AstKind.Assign)] {
         ei <- nd_get(nodes, ni, NF.B); idx <- nd_get(nodes, ni, NF.A)
-        check_node(src, path, toks, nodes, kids, types, en, ed, sc, st_reg, st_data, en_reg, en_data, fn_reg, fn_data, fpts, frks, tp, tpn, ctx, ei)
+        check_node(src, path, toks, nodes, kids, types, en, ed, sc, st_reg, st_data, st_names, st_meta, en_reg, en_data, fn_reg, fn_data, fpts, frks, tp, tpn, ctx, ei)
         nm <- tk_lex(src, toks, nd_get(nodes, ni, NF.Name))
         op <- nd_get(nodes, ni, NF.Op)
         si <- env_lookup(en, ed, nm)
@@ -513,7 +567,7 @@ check_node src:str path:str toks:vec[Token] nodes:vec[int] kids:vec[int] types:v
             [(vec_get(ed, si * 4 + 0) == 0)] { s_diag(ctx, path, ln, 11, "cannot assign to immutable binding"); vec_set(types, ni, ty_get(tp, tpn, TY.Unknown)); done <- 1; break }
             vec_set(ed, si * 4 + 1, 0)
             [(idx != -1)] {
-                check_node(src, path, toks, nodes, kids, types, en, ed, sc, st_reg, st_data, en_reg, en_data, fn_reg, fn_data, fpts, frks, tp, tpn, ctx, idx)
+                check_node(src, path, toks, nodes, kids, types, en, ed, sc, st_reg, st_data, st_names, st_meta, en_reg, en_data, fn_reg, fn_data, fpts, frks, tp, tpn, ctx, idx)
                 it <- vec_get(types, idx)
                 [(it != -1 && vec_get(tp, it * 8 + TF.Kind) != TY.Int)] { s_diag(ctx, path, ln, 9, "array index must be int"); break }
                 [(st != -1 && vec_get(tp, st * 8 + TF.Kind) != TY.Array && vec_get(tp, st * 8 + TF.Kind) != TY.Slice)] { s_diag(ctx, path, ln, 9, "cannot index non-array"); break }
@@ -528,15 +582,32 @@ check_node src:str path:str toks:vec[Token] nodes:vec[int] kids:vec[int] types:v
     [(done == 0 && k == AstKind.Function)] {
         nm <- tk_lex(src, toks, nd_get(nodes, ni, NF.Name))
         pc <- nd_get(nodes, ni, NF.L1n)
-        ft <- ty_func(tp, tpn, ty_get(tp, tpn, TY.Unknown), pc)
+        s1 <- nd_get(nodes, ni, NF.L1s)
+        s2 <- nd_get(nodes, ni, NF.L2s)
+        r_tok <- nd_get(nodes, ni, NF.R1); re_tok <- nd_get(nodes, ni, NF.R2)
+        // M13.4-S3: resolve the return annotation before checking the body so
+        // recursive calls see the correct return type.
+        pre_ret <- ty_get(tp, tpn, TY.Unknown); pre_ret_full <- 0 - 1; pre_reg <- 0
+        [(r_tok != -1)] {
+            ra <- resolve_ann(src, toks, tp, tpn, st_names, st_meta, r_tok, re_tok, path, ctx)
+            [(ra != -1)] {
+                rk <- vec_get(tp, ra * 8 + TF.Kind)
+                [(rk != TY.Unknown)] {
+                    pre_reg <- 1
+                    [(rk == TY.Struct || rk == TY.Vec)] { pre_ret_full <- ra; break }
+                    pre_ret <- ty_get(tp, tpn, rk); break
+                }
+                break
+            }
+            break
+        }
+        ft <- pre_ret_full != -1 ? pre_ret_full : ty_func(tp, tpn, pre_ret, pc)
         env_define(en, ed, sc, nm, 0, ft, ln)
         // Register function
         vec_push(fn_reg, nm); vec_push(fn_reg, "")
         // Record param types + ref kinds for borrow checking
         pts_base <- vec_len(fpts); rks_base <- vec_len(frks)
         vec_push(fn_data, ni); vec_push(fn_data, pts_base)
-        s1 <- nd_get(nodes, ni, NF.L1s)
-        s2 <- nd_get(nodes, ni, NF.L2s)
         // First pass: resolve param type annotations and ref kinds
         j <- 0
         [j < pc] {
@@ -546,16 +617,18 @@ check_node src:str path:str toks:vec[Token] nodes:vec[int] kids:vec[int] types:v
             pt <- ty_get(tp, tpn, TY.Unknown)
             is_cont <- 0
             [(pt_tok != -1)] {
-                cont <- resolve_cont(src, toks, tp, tpn, pt_tok, et_tok, path, ctx)
-                [(cont != -1)] { pt <- cont; is_cont <- 1; break }
-                [(is_cont == 0)] {
+                cont <- resolve_cont(src, toks, tp, tpn, st_names, st_meta, pt_tok, et_tok, path, ctx)
+                [(cont != -1)] {
+                    ck <- vec_get(tp, cont * 8 + TF.Kind)
+                    [(ck != TY.Unknown)] { is_cont <- 1 }
+                    pt <- cont; break
+                }
+                [(cont == -1)] {
                     ann <- resolve_type(src, toks, tp, tpn, pt_tok)
-                    // Also check struct registry
                     [(ann == -1)] {
                         nm2 <- tk_lex(src, toks, pt_tok)
-                        si2 <- 0; sj <- 0
-                        [sj < vec_len(st_reg) / 2 && si2 == 0] { [(str_eq(vec_get(st_reg, sj * 2), nm2))] { si2 <- vec_get(st_data, sj * 2 + 1); break }; sj <- sj + 1 }
-                        [(si2 != 0)] { ann <- si2; break }
+                        si2 <- struct_lookup(st_names, nm2)
+                        [(si2 != -1)] { ann <- vec_get(st_meta, si2); break }
                         break
                     }
                     [(ann != -1)] { pt <- ann; break }
@@ -588,7 +661,7 @@ check_node src:str path:str toks:vec[Token] nodes:vec[int] kids:vec[int] types:v
         }
         // Check body
         bi <- nd_get(nodes, ni, NF.A)
-        check_node(src, path, toks, nodes, kids, types, en, ed, sc, st_reg, st_data, en_reg, en_data, fn_reg, fn_data, fpts, frks, tp, tpn, ctx, bi)
+        check_node(src, path, toks, nodes, kids, types, en, ed, sc, st_reg, st_data, st_names, st_meta, en_reg, en_data, fn_reg, fn_data, fpts, frks, tp, tpn, ctx, bi)
         // Update param types from env (may have been refined)
         j <- 0
         [j < pc] {
@@ -602,58 +675,26 @@ check_node src:str path:str toks:vec[Token] nodes:vec[int] kids:vec[int] types:v
         // Determine return type
         ret_kind <- TY.Unknown
         [(bi != -1)] { bt <- vec_get(types, bi); [(bt != -1)] { ret_kind <- vec_get(tp, bt * 8 + TF.Kind); break }; break }
-        // Check return type annotation
-        r_tok <- nd_get(nodes, ni, NF.R1); re_tok <- nd_get(nodes, ni, NF.R2)
+        // Check return type annotation (M12.4 / M13.1-P8)
         ret_type <- 0 - 1
-        // Wait - R1/R2 are used for param type span. I need different fields for return annotation.
-        // Looking at ast.tiq NF enum: R1/R2 are "Function return_type_annot / return_elem_annot token indices"
-        // But I just used R1/R2 for param types span base! That's a conflict.
-        // The C code stores param_types and param_ref_kinds as separate arrays on the function node.
-        // In the Tiq arena, we don't have extra slots. Let me use separate vecs (fpts/frks) indexed by the function's L1 list position.
-        // R1/R2 should be reserved for return annotations as documented.
-        // I need to fix the function node layout. Let me NOT use R1/R2 for fpts/frks base.
-        // Instead, I'll compute pts_base/rks_base from the function index * param_count.
-        // Actually, since each function pushes pc entries to fpts/frks, I can just store the base as ni * some_stride.
-        // Simpler: I'll store the fpts/frks base in a separate lookup vec, or just use the fact that
-        // the entries are pushed in order and I can look them up by the function's param span.
-        // Let me just NOT set R1/R2 here (leave them for return annots) and compute base = pts_base directly.
-        // The call site already reads fr1/fr2 from fn_def's R1/R2... I need to change that.
-        // For now let me use a simpler approach: store fpts_base as a local, and at call sites
-        // look it up by scanning fn_data for the matching node index.
-        // Actually the cleanest fix: DON'T use R1/R2 for param type base in check_node's CALL handler.
-        // Instead, compute the base from the fn_data which stores the node index.
-        // Each function pushes param_count entries. So for function at index fi in fn_reg,
-        // its fpts entries start at sum of all previous functions' param counts.
-        // This is getting complex. Let me just keep R1/R2 for return annotations and
-        // store fpts/frks base differently.
-        // I'll fix this by storing fpts_base in a separate frks entry or computing it.
-        // For now, the simplest approach: use Name field to store fpts_base (since Name for Function
-        // stores the name token, which we already have in nm). Actually Name IS the token index.
-        // OK let me just leave R1/R2 untouched and pass fpts_base through a different mechanism.
-        // I'll store it as: fn_data[fi*2+1] already has ni. I'll add another pair to fn_data.
-        // Actually let me reconsider the whole fn_data layout:
-        // fn_reg: [name0, "", name1, "", ...]  (pairs for lookup)
-        // fn_data: [node0, pts_base0, node1, pts_base1, ...] (pairs)
-        // This way at call sites I read both the node and the pts_base.
-        // Let me fix the fn_data push above and the call-site lookup.
-        // For now, let me just set the return type and come back to fix the param base later.
         [(r_tok != -1)] {
-            r_ann <- resolve_cont(src, toks, tp, tpn, r_tok, re_tok, path, ctx)
-            [(r_ann == -1)] { r_ann <- resolve_type(src, toks, tp, tpn, r_tok); break }
-            // Check struct registry for return type
-            [(r_ann == -1)] {
-                rnm <- tk_lex(src, toks, r_tok)
-                rsi <- 0; rsj <- 0
-                [rsj < vec_len(st_reg) / 2 && rsi == 0] { [(str_eq(vec_get(st_reg, rsj * 2), rnm))] { rsi <- vec_get(st_data, rsj * 2 + 1); break }; rsj <- rsj + 1 }
-                [(rsi != 0)] { r_ann <- rsi; break }
-                break
-            }
+            r_ann <- resolve_ann(src, toks, tp, tpn, st_names, st_meta, r_tok, re_tok, path, ctx)
             [(r_ann != -1)] {
                 u <- unify(ctx, path, ln, tp, tpn, r_ann, ty_get(tp, tpn, ret_kind), "return type mismatch")
                 [(u != -1)] { ret_kind <- vec_get(tp, u * 8 + TF.Kind); break }
-                [(u == -1)] {
-                    rk <- vec_get(tp, r_ann * 8 + TF.Kind)
-                    [(rk == TY.Struct || rk == TY.Vec)] { ret_type <- r_ann; break }
+                rk <- vec_get(tp, r_ann * 8 + TF.Kind)
+                [(rk == TY.Struct)] { ret_type <- r_ann; break }
+                [(rk == TY.Vec)] {
+                    ret_type <- r_ann
+                    [(vec_get(tp, r_ann * 8 + TF.Elem) != -1 && bi != -1)] {
+                        bt <- vec_get(types, bi)
+                        [(bt != -1 && vec_get(tp, bt * 8 + TF.Kind) == TY.Vec && vec_get(tp, bt * 8 + TF.Elem) != -1 && vec_elem_same(tp, vec_get(tp, r_ann * 8 + TF.Elem), vec_get(tp, bt * 8 + TF.Elem)) == 0)] {
+                            msg <- str_cat(str_cat("return type mismatch: expected ", disp(tp, tpn, r_ann)), str_cat(", found ", disp(tp, tpn, bt)))
+                            s_diag(ctx, path, ln, 9, msg)
+                            break
+                        }
+                        break
+                    }
                     break
                 }
                 break
@@ -668,10 +709,19 @@ check_node src:str path:str toks:vec[Token] nodes:vec[int] kids:vec[int] types:v
         // Update the function's env entry with the resolved return type
         fsi <- env_lookup(en, ed, nm)
         [(fsi != -1)] {
-            u <- unify(ctx, path, ln, tp, tpn, ty_get(tp, tpn, vec_get(ed, fsi * 4 + 2) != -1 ? vec_get(tp, vec_get(ed, fsi * 4 + 2) * 8 + TF.Kind) : TY.Unknown), ty_get(tp, tpn, ret_kind), "type mismatch")
-            [(u != -1 && vec_get(tp, u * 8 + TF.Kind) != TY.Unknown)] {
-                [(ret_type != -1)] { rk2 <- vec_get(tp, ret_type * 8 + TF.Kind); [(rk2 == TY.Struct || rk2 == TY.Vec)] { vec_set(ed, fsi * 4 + 2, ret_type); break }; break }
-                vec_set(ed, fsi * 4 + 2, ty_func(tp, tpn, u, pc))
+            [(pre_reg == 1)] {
+                [(ret_type != -1)] { vec_set(ed, fsi * 4 + 2, ret_type); break }
+                vec_set(ed, fsi * 4 + 2, ty_func(tp, tpn, pre_ret, pc))
+                break
+            }
+            [(pre_reg == 0)] {
+                cur <- vec_get(ed, fsi * 4 + 2)
+                su <- unify(ctx, path, ln, tp, tpn, cur != -1 ? ty_get(tp, tpn, vec_get(tp, cur * 8 + TF.Kind)) : ty_get(tp, tpn, TY.Unknown), ty_get(tp, tpn, ret_kind), "type mismatch")
+                [(su != -1 && vec_get(tp, su * 8 + TF.Kind) != TY.Unknown)] {
+                    [(ret_type != -1 && (vec_get(tp, ret_type * 8 + TF.Kind) == TY.Struct || vec_get(tp, ret_type * 8 + TF.Kind) == TY.Vec))] { vec_set(ed, fsi * 4 + 2, ret_type); break }
+                    vec_set(ed, fsi * 4 + 2, ty_func(tp, tpn, vec_get(tp, su * 8 + TF.Kind), pc))
+                    break
+                }
                 break
             }
             break
@@ -683,7 +733,7 @@ check_node src:str path:str toks:vec[Token] nodes:vec[int] kids:vec[int] types:v
         old_depth <- vec_get(ctx, CX.LoopDepth); vec_set(ctx, CX.LoopDepth, old_depth + 1)
         old_range <- vec_get(ctx, CX.InRange); vec_set(ctx, CX.InRange, 1)
         di <- nd_get(nodes, ni, NF.A)
-        check_node(src, path, toks, nodes, kids, types, en, ed, sc, st_reg, st_data, en_reg, en_data, fn_reg, fn_data, fpts, frks, tp, tpn, ctx, di)
+        check_node(src, path, toks, nodes, kids, types, en, ed, sc, st_reg, st_data, st_names, st_meta, en_reg, en_data, fn_reg, fn_data, fpts, frks, tp, tpn, ctx, di)
         vec_set(ctx, CX.InRange, old_range)
         is_range <- di != -1 && nd_get(nodes, di, NF.Kind) == AstKind.Binary && nd_get(nodes, di, NF.Op) == TokenKind.DotDot ? 1 : 0
         [(is_range == 1)] {
@@ -708,9 +758,9 @@ check_node src:str path:str toks:vec[Token] nodes:vec[int] kids:vec[int] types:v
         }
         [(has_binder == 0 && is_range == 1)] { env_define(en, ed, sc, "i", 0, ty_get(tp, tpn, TY.Int), ln); break }
         s1 <- nd_get(nodes, ni, NF.L1s); c1 <- nd_get(nodes, ni, NF.L1n)
-        j <- 0; [j < c1] { si <- vec_get(kids, s1 + j); check_node(src, path, toks, nodes, kids, types, en, ed, sc, st_reg, st_data, en_reg, en_data, fn_reg, fn_data, fpts, frks, tp, tpn, ctx, si); j <- j + 1 }
+        j <- 0; [j < c1] { si <- vec_get(kids, s1 + j); check_node(src, path, toks, nodes, kids, types, en, ed, sc, st_reg, st_data, st_names, st_meta, en_reg, en_data, fn_reg, fn_data, fpts, frks, tp, tpn, ctx, si); j <- j + 1 }
         bf <- nd_get(nodes, ni, NF.B)
-        [(bf != -1)] { check_node(src, path, toks, nodes, kids, types, en, ed, sc, st_reg, st_data, en_reg, en_data, fn_reg, fn_data, fpts, frks, tp, tpn, ctx, bf); break }
+        [(bf != -1)] { check_node(src, path, toks, nodes, kids, types, en, ed, sc, st_reg, st_data, st_names, st_meta, en_reg, en_data, fn_reg, fn_data, fpts, frks, tp, tpn, ctx, bf); break }
         env_pop_scope(sc, en, ed)
         vec_set(ctx, CX.LoopDepth, old_depth)
         vec_set(types, ni, ty_get(tp, tpn, TY.Unknown)); done <- 1; break
@@ -728,21 +778,21 @@ check_node src:str path:str toks:vec[Token] nodes:vec[int] kids:vec[int] types:v
     // --- DEFER ---
     [(done == 0 && k == AstKind.Defer)] {
         ei <- nd_get(nodes, ni, NF.A)
-        check_node(src, path, toks, nodes, kids, types, en, ed, sc, st_reg, st_data, en_reg, en_data, fn_reg, fn_data, fpts, frks, tp, tpn, ctx, ei)
+        check_node(src, path, toks, nodes, kids, types, en, ed, sc, st_reg, st_data, st_names, st_meta, en_reg, en_data, fn_reg, fn_data, fpts, frks, tp, tpn, ctx, ei)
         vec_set(types, ni, ty_get(tp, tpn, TY.Unknown)); done <- 1; break
     }
     // --- STREAM_GEN ---
     [(done == 0 && k == AstKind.StreamGen)] {
         s1 <- nd_get(nodes, ni, NF.L1s); c1 <- nd_get(nodes, ni, NF.L1n)
         [(c1 > 2)] { s_diag(ctx, path, ln, 7, "stream generators support at most 2 seeds"); vec_set(types, ni, ty_get(tp, tpn, TY.Unknown)); done <- 1; break }
-        j <- 0; [j < c1] { si <- vec_get(kids, s1 + j); check_node(src, path, toks, nodes, kids, types, en, ed, sc, st_reg, st_data, en_reg, en_data, fn_reg, fn_data, fpts, frks, tp, tpn, ctx, si); j <- j + 1 }
+        j <- 0; [j < c1] { si <- vec_get(kids, s1 + j); check_node(src, path, toks, nodes, kids, types, en, ed, sc, st_reg, st_data, st_names, st_meta, en_reg, en_data, fn_reg, fn_data, fpts, frks, tp, tpn, ctx, si); j <- j + 1 }
         gi <- nd_get(nodes, ni, NF.A)
         [(gi != -1)] {
             env_push_scope(sc, en)
             [(c1 == 1)] { env_define(en, ed, sc, "x", 0, ty_get(tp, tpn, TY.Int), ln); break }
             [(c1 == 2)] { env_define(en, ed, sc, "a", 0, ty_get(tp, tpn, TY.Int), ln); env_define(en, ed, sc, "b", 0, ty_get(tp, tpn, TY.Int), ln); break }
             env_define(en, ed, sc, "i", 0, ty_get(tp, tpn, TY.Int), ln)
-            check_node(src, path, toks, nodes, kids, types, en, ed, sc, st_reg, st_data, en_reg, en_data, fn_reg, fn_data, fpts, frks, tp, tpn, ctx, gi)
+            check_node(src, path, toks, nodes, kids, types, en, ed, sc, st_reg, st_data, st_names, st_meta, en_reg, en_data, fn_reg, fn_data, fpts, frks, tp, tpn, ctx, gi)
             env_pop_scope(sc, en, ed)
             vec_set(types, ni, ty_get(tp, tpn, TY.Stream))
             break
@@ -760,7 +810,7 @@ check_node src:str path:str toks:vec[Token] nodes:vec[int] kids:vec[int] types:v
         j <- 0
         [j < c1] {
             ai <- vec_get(kids, s1 + j)
-            check_node(src, path, toks, nodes, kids, types, en, ed, sc, st_reg, st_data, en_reg, en_data, fn_reg, fn_data, fpts, frks, tp, tpn, ctx, ai)
+            check_node(src, path, toks, nodes, kids, types, en, ed, sc, st_reg, st_data, st_names, st_meta, en_reg, en_data, fn_reg, fn_data, fpts, frks, tp, tpn, ctx, ai)
             et <- ai != -1 ? vec_get(types, ai) : -1
             u <- unify(ctx, path, ln, tp, tpn, elem, et, "array elements must have the same type")
             [(u != -1)] { elem <- u; break }
@@ -772,8 +822,8 @@ check_node src:str path:str toks:vec[Token] nodes:vec[int] kids:vec[int] types:v
     // --- ARRAY_FILL ---
     [(done == 0 && k == AstKind.ArrayFill)] {
         vi <- nd_get(nodes, ni, NF.A); li <- nd_get(nodes, ni, NF.B)
-        check_node(src, path, toks, nodes, kids, types, en, ed, sc, st_reg, st_data, en_reg, en_data, fn_reg, fn_data, fpts, frks, tp, tpn, ctx, vi)
-        check_node(src, path, toks, nodes, kids, types, en, ed, sc, st_reg, st_data, en_reg, en_data, fn_reg, fn_data, fpts, frks, tp, tpn, ctx, li)
+        check_node(src, path, toks, nodes, kids, types, en, ed, sc, st_reg, st_data, st_names, st_meta, en_reg, en_data, fn_reg, fn_data, fpts, frks, tp, tpn, ctx, vi)
+        check_node(src, path, toks, nodes, kids, types, en, ed, sc, st_reg, st_data, st_names, st_meta, en_reg, en_data, fn_reg, fn_data, fpts, frks, tp, tpn, ctx, li)
         vt <- vi != -1 ? vec_get(types, vi) : -1
         lt <- li != -1 ? vec_get(types, li) : -1
         [(lt != -1 && vec_get(tp, lt * 8 + TF.Kind) != TY.Int)] { s_diag(ctx, path, ln, 9, "array fill length must be int"); break }
@@ -792,33 +842,34 @@ check_node src:str path:str toks:vec[Token] nodes:vec[int] kids:vec[int] types:v
     [(done == 0 && k == AstKind.FieldAccess)] {
         ti <- nd_get(nodes, ni, NF.A)
         fld <- tk_lex(src, toks, nd_get(nodes, ni, NF.Name))
-        // Enum variant check
+        // Enum variant check (M13.1-P2): an identifier target naming a
+        // declared enum wins over any same-named value binding.
         [(ti != -1 && nd_get(nodes, ti, NF.Kind) == AstKind.Identifier)] {
             tnm <- tk_lex(src, toks, nd_get(nodes, ti, NF.Name))
-            ei <- 0 - 1; ej <- 0
-            [ej < vec_len(en_reg) / 2 && ei == -1] { [(str_eq(vec_get(en_reg, ej * 2), tnm))] { ei <- ej; break }; ej <- ej + 1 }
+            ei <- enum_lookup(en_reg, en_data, tnm)
             [(ei != -1)] {
                 // Check variant exists
-                vs <- vec_get(en_data, ei * 2); vn <- vec_get(en_data, ei * 2 + 1)
+                vs <- vec_get(en_data, ei * 3 + 1); vn <- vec_get(en_data, ei * 3 + 2)
                 found_v <- 0; vj <- 0
-                [vj < vn && found_v == 0] { [(str_eq(vec_get(en_reg, vs + vj), fld))] { found_v <- 1; break }; vj <- vj + 1 }
+                [vj < vn && found_v == 0] { [(str_eq(vec_get(en_reg, vs + vj * 2), fld))] { found_v <- 1; break }; vj <- vj + 1 }
                 [(found_v == 0)] { s_diag(ctx, path, ln, 22, str_cat(str_cat(str_cat(str_cat("unknown variant '", fld), "' in enum '"), tnm), "'")); break }
                 vec_set(types, ti, ty_get(tp, tpn, TY.Int))
                 vec_set(types, ni, ty_get(tp, tpn, TY.Int)); done <- 1; break
             }
             break
         }
-        check_node(src, path, toks, nodes, kids, types, en, ed, sc, st_reg, st_data, en_reg, en_data, fn_reg, fn_data, fpts, frks, tp, tpn, ctx, ti)
+        check_node(src, path, toks, nodes, kids, types, en, ed, sc, st_reg, st_data, st_names, st_meta, en_reg, en_data, fn_reg, fn_data, fpts, frks, tp, tpn, ctx, ti)
         tt <- ti != -1 ? vec_get(types, ti) : -1
         ft2 <- ty_get(tp, tpn, TY.Unknown)
         [(tt != -1 && vec_get(tp, tt * 8 + TF.Kind) == TY.Struct)] {
             fs <- vec_get(tp, tt * 8 + TF.Fs); fn2 <- vec_get(tp, tt * 8 + TF.Fn)
             found_f <- 0; fj <- 0
-            [fj < fn2 && found_f == 0] {
-                [(str_eq(vec_get(st_reg, fs + fj), fld))] { ft2 <- vec_get(st_data, fs + fj); found_f <- 1; break }
+            [fj < fn2 / 2 && found_f == 0] {
+                [(str_eq(vec_get(st_reg, fs + fj * 2), fld))] { ft2 <- vec_get(st_data, fs + fj * 2); found_f <- 1; break }
                 fj <- fj + 1
             }
             [(found_f == 0)] { s_diag(ctx, path, ln, 9, str_cat(str_cat("unknown field '", fld), "'")); break }
+            break
         }
         [(tt != -1 && vec_get(tp, tt * 8 + TF.Kind) != TY.Struct && vec_get(tp, tt * 8 + TF.Kind) != TY.Unknown)] { s_diag(ctx, path, ln, 9, "field access on non-struct type"); break }
         vec_set(types, ni, ft2); done <- 1; break
@@ -827,54 +878,38 @@ check_node src:str path:str toks:vec[Token] nodes:vec[int] kids:vec[int] types:v
     [(done == 0 && k == AstKind.StructDef)] {
         nm <- tk_lex(src, toks, nd_get(nodes, ni, NF.Name))
         // Check duplicate
-        dup <- 0; dj <- 0
-        [dj < vec_len(st_reg) / 2 && dup == 0] { [(str_eq(vec_get(st_reg, dj * 2), nm))] { dup <- 1; break }; dj <- dj + 1 }
-        [(dup == 1)] { s_diag(ctx, path, ln, 9, str_cat(str_cat("duplicate struct definition '", nm), "'")); break }
-        // Check enum conflict
-        edup <- 0; ej <- 0
-        [ej < vec_len(en_reg) / 2 && edup == 0] { [(str_eq(vec_get(en_reg, ej * 2), nm))] { edup <- 1; break }; ej <- ej + 1 }
-        [(edup == 1)] { s_diag(ctx, path, ln, 24, str_cat(str_cat(str_cat(str_cat("struct '", nm), "' conflicts with enum '"), nm), "'")); break }
-        // Resolve field types
+        [(struct_lookup(st_names, nm) != -1)] { s_diag(ctx, path, ln, 9, str_cat(str_cat("duplicate struct definition '", nm), "'")); break }
+        // Check enum conflict (M13.1-P2: struct and enum share a namespace)
+        [(enum_lookup(en_reg, en_data, nm) != -1)] { s_diag(ctx, path, ln, 24, str_cat(str_cat(str_cat(str_cat("struct '", nm), "' conflicts with enum '"), nm), "'")); break }
+        // Resolve field types (L1 = field names, L2 = field type tokens)
         s1 <- nd_get(nodes, ni, NF.L1s); c1 <- nd_get(nodes, ni, NF.L1n)
+        s2 <- nd_get(nodes, ni, NF.L2s)
         fs_base <- vec_len(st_reg)
         j <- 0
         [j < c1] {
-            fn_tok <- vec_get(kids, s1 + j * 2)
-            ft_tok <- vec_get(kids, s1 + j * 2 + 1)
+            fn_tok <- vec_get(kids, s1 + j)
+            ft_tok <- vec_get(kids, s2 + j)
             fnm <- tk_lex(src, toks, fn_tok)
-            ft2 <- resolve_type(src, toks, tp, tpn, ft_tok)
+            ft2 <- resolve_ann(src, toks, tp, tpn, st_names, st_meta, ft_tok, -1, path, ctx)
             [(ft2 == -1)] { msg <- str_cat(str_cat("unknown field type '", tk_lex(src, toks, ft_tok)), "'"); s_diag(ctx, path, ln, 9, msg); ft2 <- ty_get(tp, tpn, TY.Unknown); break }
             vec_push(st_reg, fnm); vec_push(st_reg, "")
             vec_push(st_data, ft2); vec_push(st_data, 0)
             j <- j + 1
         }
         st2 <- ty_struct(tp, tpn, nm, fs_base, c1 * 2)
-        // Register struct: add to the struct registry (separate from field data)
-        // We need a separate struct registry. Let me use a simple approach:
-        // st_reg stores: [field_name, "", field_name, "", ...] for fields
-        // But we also need to register the struct itself for lookup.
-        // Let me add to a separate sr_names/sr_types pair.
-        // Actually, I realize the current design conflates struct field data with struct registry.
-        // Let me redesign: I'll add a simple struct name -> type lookup using env or a separate mechanism.
-        // For simplicity, I'll use env_define to register struct names (as immutable bindings with struct type).
-        env_define(en, ed, sc, nm, 0, st2, ln)
+        // Register the struct in the struct registry (st_names/st_meta)
+        vec_push(st_names, nm); vec_push(st_meta, st2)
         vec_set(types, ni, st2); done <- 1; break
     }
     // --- ENUM_DEF ---
     [(done == 0 && k == AstKind.EnumDef)] {
         nm <- tk_lex(src, toks, nd_get(nodes, ni, NF.Name))
         // Check duplicate enum
-        edup <- 0; ej <- 0
-        [ej < vec_len(en_reg) / 2 && edup == 0] { [(str_eq(vec_get(en_reg, ej * 2), nm))] { edup <- 1; break }; ej <- ej + 1 }
-        [(edup == 1)] { s_diag(ctx, path, ln, 24, str_cat(str_cat("duplicate enum definition '", nm), "'")); break }
-        // Check struct conflict
-        sdup <- 0; sj <- 0
-        [sj < vec_len(st_reg) / 2 && sdup == 0] { [(str_eq(vec_get(st_reg, sj * 2), nm))] { sdup <- 1; break }; sj <- sj + 1 }
-        // Only flag struct conflict if st_reg entry is actually a struct name, not a field
-        // This is a design issue - I'm mixing struct fields with struct names in st_reg
-        // For now skip the struct conflict check on st_reg
-        // Register enum: en_reg stores [name, "", ...], en_data stores [variants_start, variant_count, ...]
-        // Variant names are appended to en_reg starting at a base
+        [(enum_lookup(en_reg, en_data, nm) != -1)] { s_diag(ctx, path, ln, 24, str_cat(str_cat("duplicate enum definition '", nm), "'")); break }
+        // Check struct conflict (M13.1-P2)
+        [(struct_lookup(st_names, nm) != -1)] { s_diag(ctx, path, ln, 24, str_cat(str_cat(str_cat(str_cat("enum '", nm), "' conflicts with struct '"), nm), "'")); break }
+        // Register enum: en_data holds [name_pos, var_base, var_count] per
+        // enum; names (enum + variants) live in en_reg as pairs.
         s1 <- nd_get(nodes, ni, NF.L1s); c1 <- nd_get(nodes, ni, NF.L1n)
         vs_base <- vec_len(en_reg)
         j <- 0
@@ -893,28 +928,30 @@ check_node src:str path:str toks:vec[Token] nodes:vec[int] kids:vec[int] types:v
             vec_push(en_reg, vnm); vec_push(en_reg, "")
             j <- j + 1
         }
+        name_pos <- vec_len(en_reg)
         vec_push(en_reg, nm); vec_push(en_reg, "")
-        vec_push(en_data, vs_base); vec_push(en_data, c1)
+        vec_push(en_data, name_pos); vec_push(en_data, vs_base); vec_push(en_data, c1)
         done <- 1; break
     }
     // --- RECORD_LIT ---
     [(done == 0 && k == AstKind.RecordLit)] {
         nm <- tk_lex(src, toks, nd_get(nodes, ni, NF.Name))
-        // Lookup struct
-        si2 <- env_lookup(en, ed, nm)
+        // Lookup struct in the struct registry (L1 = values, L2 = names)
+        si2 <- struct_lookup(st_names, nm)
         st2 <- 0 - 1
-        [(si2 != -1)] { st2 <- vec_get(ed, si2 * 4 + 2); [(st2 != -1 && vec_get(tp, st2 * 8 + TF.Kind) != TY.Struct)] { st2 <- 0 - 1 }; break }
+        [(si2 != -1)] { st2 <- vec_get(st_meta, si2); break }
         [(st2 == -1)] { s_diag(ctx, path, ln, 9, str_cat(str_cat("unknown struct '", nm), "'")); vec_set(types, ni, ty_get(tp, tpn, TY.Unknown)); done <- 1; break }
         // Check field count
         s1 <- nd_get(nodes, ni, NF.L1s); c1 <- nd_get(nodes, ni, NF.L1n)
-        fc <- vec_get(tp, st2 * 8 + TF.Fn)
+        s2 <- nd_get(nodes, ni, NF.L2s)
+        fc <- vec_get(tp, st2 * 8 + TF.Fn) / 2
         [(c1 != fc)] { s_diag(ctx, path, ln, 9, str_cat(str_cat("record literal has ", int_str(c1)), str_cat(" fields, struct has ", int_str(fc)))); break }
         // Check each field
         fs <- vec_get(tp, st2 * 8 + TF.Fs)
         j <- 0
         [j < c1] {
-            fn_tok <- vec_get(kids, s1 + j * 2)
-            fv_node <- vec_get(kids, s1 + j * 2 + 1)
+            fn_tok <- vec_get(kids, s2 + j)
+            fv_node <- vec_get(kids, s1 + j)
             fnm <- tk_lex(src, toks, fn_tok)
             // Find field in struct
             found_f <- 0; fj <- 0; fidx <- 0 - 1
@@ -922,8 +959,8 @@ check_node src:str path:str toks:vec[Token] nodes:vec[int] kids:vec[int] types:v
                 [(str_eq(vec_get(st_reg, fs + fj * 2), fnm))] { found_f <- 1; fidx <- fj; break }
                 fj <- fj + 1
             }
-            [(found_f == 0)] { s_diag(ctx, path, ln, 9, str_cat(str_cat("unknown field '", fnm), "'")); break }
-            check_node(src, path, toks, nodes, kids, types, en, ed, sc, st_reg, st_data, en_reg, en_data, fn_reg, fn_data, fpts, frks, tp, tpn, ctx, fv_node)
+            [(found_f == 0)] { s_diag(ctx, path, ln, 9, str_cat(str_cat("unknown field '", fnm), "'")); j <- j + 1; break }
+            check_node(src, path, toks, nodes, kids, types, en, ed, sc, st_reg, st_data, st_names, st_meta, en_reg, en_data, fn_reg, fn_data, fpts, frks, tp, tpn, ctx, fv_node)
             [(fidx != -1)] {
                 vt <- fv_node != -1 ? vec_get(types, fv_node) : -1
                 exp <- vec_get(st_data, fs + fidx * 2)
@@ -945,16 +982,16 @@ check_node src:str path:str toks:vec[Token] nodes:vec[int] kids:vec[int] types:v
         [(has_wc == 0)] { s_diag(ctx, path, ln, 7, "match must have a wildcard arm ('_ => ...')"); break }
         // Check expr
         mi <- nd_get(nodes, ni, NF.A)
-        check_node(src, path, toks, nodes, kids, types, en, ed, sc, st_reg, st_data, en_reg, en_data, fn_reg, fn_data, fpts, frks, tp, tpn, ctx, mi)
+        check_node(src, path, toks, nodes, kids, types, en, ed, sc, st_reg, st_data, st_names, st_meta, en_reg, en_data, fn_reg, fn_data, fpts, frks, tp, tpn, ctx, mi)
         result <- 0 - 1
         j <- 0
         [j < c1] {
             arm <- vec_get(kids, s1 + j)
             [(arm != -1)] {
                 is_wc <- nd_get(nodes, arm, NF.F1)
-                [(is_wc == 0)] { pi <- nd_get(nodes, arm, NF.A); check_node(src, path, toks, nodes, kids, types, en, ed, sc, st_reg, st_data, en_reg, en_data, fn_reg, fn_data, fpts, frks, tp, tpn, ctx, pi); break }
+                [(is_wc == 0)] { pi <- nd_get(nodes, arm, NF.A); check_node(src, path, toks, nodes, kids, types, en, ed, sc, st_reg, st_data, st_names, st_meta, en_reg, en_data, fn_reg, fn_data, fpts, frks, tp, tpn, ctx, pi); break }
                 bi2 <- nd_get(nodes, arm, NF.B)
-                check_node(src, path, toks, nodes, kids, types, en, ed, sc, st_reg, st_data, en_reg, en_data, fn_reg, fn_data, fpts, frks, tp, tpn, ctx, bi2)
+                check_node(src, path, toks, nodes, kids, types, en, ed, sc, st_reg, st_data, st_names, st_meta, en_reg, en_data, fn_reg, fn_data, fpts, frks, tp, tpn, ctx, bi2)
                 [(bi2 != -1)] {
                     bt <- vec_get(types, bi2)
                     u <- unify(ctx, path, bi2 != -1 ? tk_line(toks, nd_get(nodes, bi2, NF.Tok)) : ln, tp, tpn, result, bt, "match arms must have the same type")
@@ -1174,6 +1211,7 @@ semantic_check src:str path:str toks:vec[Token] nodes:vec[int] kids:vec[int] top
     j <- 0; [j < nc] { vec_push(types, 0 - 1); j <- j + 1 }
     en <- vec_new(); ed <- vec_new(); sc <- vec_new()
     st_reg <- vec_new(); st_data <- vec_new()
+    st_names <- vec_new(); st_meta <- vec_new()
     en_reg <- vec_new(); en_data <- vec_new()
     fn_reg <- vec_new(); fn_data <- vec_new()
     fpts <- vec_new(); frks <- vec_new()
@@ -1185,7 +1223,7 @@ semantic_check src:str path:str toks:vec[Token] nodes:vec[int] kids:vec[int] top
         j <- 0
         [j < top_count] {
             ni <- vec_get(tops, j)
-            check_node(src, path, toks, nodes, kids, types, en, ed, sc, st_reg, st_data, en_reg, en_data, fn_reg, fn_data, fpts, frks, tp, tpn, ctx, ni)
+            check_node(src, path, toks, nodes, kids, types, en, ed, sc, st_reg, st_data, st_names, st_meta, en_reg, en_data, fn_reg, fn_data, fpts, frks, tp, tpn, ctx, ni)
             j <- j + 1
         }
         break
