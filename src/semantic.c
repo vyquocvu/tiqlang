@@ -715,8 +715,8 @@ static void check_node(SemanticContext *ctx, AstNode *node) {
             break;
         case AST_CONDITIONAL:
             check_node(ctx, node->as.conditional.cond);
-            check_node(ctx, node->as.conditional.then_branch);
-            check_node(ctx, node->as.conditional.else_branch);
+            if (node->as.conditional.then_branch) check_node(ctx, node->as.conditional.then_branch);
+            if (node->as.conditional.else_branch) check_node(ctx, node->as.conditional.else_branch);
             {
                 SemanticType *ct = node->as.conditional.cond ?
                     node->as.conditional.cond->semantic_type : NULL;
@@ -737,6 +737,8 @@ static void check_node(SemanticContext *ctx, AstNode *node) {
                     } else {
                         node->semantic_type = tt;
                     }
+                } else if (tt) {
+                    node->semantic_type = tt;
                 } else {
                     node->semantic_type = ty(ctx, TYPE_UNKNOWN);
                 }

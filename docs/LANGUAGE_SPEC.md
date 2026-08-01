@@ -139,6 +139,18 @@ label = age >= 18 ? "adult" : "minor"
 
 The condition must be `bool`. Both branches must have a compatible type.
 
+### 8.1 Bracket Conditions
+
+Single-branch conditional execution uses `?[condition] { body }` or the single-line form `?[condition] statement`. The condition must be `bool`. The body executes once if the condition is `true`; it is a pure conditional (not a loop). `break` and `skip` inside a bracket condition apply to the nearest enclosing bracket loop (`[...]`); a `break` or `skip` with no enclosing bracket loop is a compile-time error.
+
+```tiq
+?[count > 10] {
+    print("over limit")
+}
+
+?[done] break
+```
+
 ## 9. Blocks
 
 Indentation is not semantic in v0.1. Multi-statement blocks use braces:

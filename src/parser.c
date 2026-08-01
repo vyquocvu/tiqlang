@@ -614,7 +614,7 @@ static AstNode *fallback(Parser *parser) {
 
 static AstNode *conditional(Parser *parser) {
     AstNode *expr = fallback(parser);
-    if (match(parser, TOK_QUESTION)) {
+    if (!parser->crossed_newline && match(parser, TOK_QUESTION)) {
         AstNode *node = allocate_node(parser, AST_CONDITIONAL);
         node->as.conditional.cond = expr;
         node->as.conditional.then_branch = expression(parser);
@@ -655,6 +655,26 @@ static AstNode *statement(Parser *parser) {
         AstNode *node = allocate_node(parser, AST_DEFER);
         node->as.defer.expr = statement(parser);
         return node;
+    }
+
+    if (check(parser, TOK_QUESTION)) {
+        Lexer peek_lexer = parser->lexer;
+        Token next = lexer_next(&peek_lexer);
+        while (next.kind == TOK_NEWLINE) next = lexer_next(&peek_lexer);
+        if (next.kind == TOK_LBRACKET) {
+            advance(parser); // consume '?'
+            advance(parser); // consume '['
+            AstNode *node = allocate_node(parser, AST_CONDITIONAL);
+            node->as.conditional.cond = expression(parser);
+            consume(parser, TOK_RBRACKET, ERR_UNEXPECTED_TOKEN, "expected ']' after condition");
+            if (match(parser, TOK_LBRACE)) {
+                node->as.conditional.then_branch = block(parser);
+            } else {
+                node->as.conditional.then_branch = statement(parser);
+            }
+            node->as.conditional.else_branch = NULL;
+            return node;
+        }
     }
 
     if (match(parser, TOK_LBRACKET)) {

@@ -722,11 +722,18 @@ static void emit_expr(AstNode *node, EmitContext *ctx) {
             break;
         }
         case AST_CONDITIONAL:
-            emit_expr(node->as.conditional.cond, ctx);
-            fputs(" ? ", ctx->out);
-            emit_expr(node->as.conditional.then_branch, ctx);
-            fputs(" : ", ctx->out);
-            emit_expr(node->as.conditional.else_branch, ctx);
+            if (node->as.conditional.else_branch) {
+                emit_expr(node->as.conditional.cond, ctx);
+                fputs(" ? ", ctx->out);
+                emit_expr(node->as.conditional.then_branch, ctx);
+                fputs(" : ", ctx->out);
+                emit_expr(node->as.conditional.else_branch, ctx);
+            } else {
+                fputs("if (", ctx->out);
+                emit_expr(node->as.conditional.cond, ctx);
+                fputs(") ", ctx->out);
+                emit_expr(node->as.conditional.then_branch, ctx);
+            }
             break;
         case AST_CALL:
             if (node->as.call.callee && node->as.call.callee->kind == AST_IDENTIFIER &&
@@ -1599,8 +1606,21 @@ static void emit_stmt(AstNode *node, EmitContext *ctx, int indent) {
             fputs("}\n", ctx->out);
             break;
         }
+        case AST_CONDITIONAL:
+            if (!node->as.conditional.else_branch) {
+                fputs("if (", ctx->out);
+                emit_expr(node->as.conditional.cond, ctx);
+                fputs(") ", ctx->out);
+                emit_stmt(node->as.conditional.then_branch, ctx, indent);
+            } else {
+                for (int k = hoist_start; k < ctx->hoist_count; k++)
+                    if (ctx->hoisted[k] == node) { fputs("(void)", ctx->out); break; }
+                emit_expr(node, ctx);
+                fputs(";\n", ctx->out);
+            }
+            break;
         case AST_LITERAL: case AST_IDENTIFIER: case AST_BINARY:
-        case AST_CONDITIONAL: case AST_CALL:
+        case AST_CALL:
         case AST_STREAM_GEN: case AST_ARRAY: case AST_ARRAY_FILL:
         case AST_FIELD_ACCESS: case AST_SPAWN: case AST_CHAN: case AST_MATCH:
         case AST_UNARY:
@@ -1658,9 +1678,9 @@ static void emit_check_node(AstNode *node, EmitContext *ctx) {
             emit_check_node(node->as.unary.right, ctx);
             break;
         case AST_CONDITIONAL:
-            emit_check_node(node->as.conditional.cond, ctx);
-            emit_check_node(node->as.conditional.then_branch, ctx);
-            emit_check_node(node->as.conditional.else_branch, ctx);
+            if (node->as.conditional.cond) emit_check_node(node->as.conditional.cond, ctx);
+            if (node->as.conditional.then_branch) emit_check_node(node->as.conditional.then_branch, ctx);
+            if (node->as.conditional.else_branch) emit_check_node(node->as.conditional.else_branch, ctx);
             break;
         case AST_CALL:
             emit_check_node(node->as.call.callee, ctx);

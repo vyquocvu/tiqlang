@@ -3,7 +3,7 @@
 
 is_palindrome x -> {
     is_pal <- x >= 0
-    [(is_pal)] {
+    ?[is_pal] {
         rev <- 0
         tmp <- x
         [tmp > 0] {
@@ -11,7 +11,6 @@ is_palindrome x -> {
             tmp <- tmp / 10
         }
         is_pal <- rev == x
-        break
     }
     is_pal
 }

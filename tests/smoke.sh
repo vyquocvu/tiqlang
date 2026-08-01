@@ -77,6 +77,29 @@ printf 'x <- 0\n[x < 5] { x += 1 }\n' > "$TMP_DIR/while_loop.tiq"
 ./build/tiq build "$TMP_DIR/while_loop.tiq" -o "$TMP_DIR/while_loop" 2>"$TMP_DIR/while_loop.err"
 [ -x "$TMP_DIR/while_loop" ]
 
+printf 'x <- 0\n?[1 == 1] { x <- 42 }\nprint(x)\n' > "$TMP_DIR/bracket_cond.tiq"
+./build/tiq build "$TMP_DIR/bracket_cond.tiq" -o "$TMP_DIR/bracket_cond"
+[ "$("$TMP_DIR/bracket_cond")" = "42" ]
+
+printf 'x <- 10\n?[x > 5] print("big")\n' > "$TMP_DIR/bracket_cond_oneline.tiq"
+./build/tiq build "$TMP_DIR/bracket_cond_oneline.tiq" -o "$TMP_DIR/bracket_cond_oneline"
+[ "$("$TMP_DIR/bracket_cond_oneline")" = "big" ]
+
+printf '[0..10] { ?[i == 5] break; print(i) }\n' > "$TMP_DIR/bracket_cond_break.tiq"
+./build/tiq build "$TMP_DIR/bracket_cond_break.tiq" -o "$TMP_DIR/bracket_cond_break"
+[ "$("$TMP_DIR/bracket_cond_break")" = "0
+1
+2
+3
+4" ]
+
+printf '?[true] { break }\n' > "$TMP_DIR/bracket_cond_break_err.tiq"
+if ./build/tiq build "$TMP_DIR/bracket_cond_break_err.tiq" -o "$TMP_DIR/bracket_cond_break_err" 2>"$TMP_DIR/bracket_cond_break_err.err"; then
+  echo "expected break outside loop to fail" >&2
+  exit 1
+fi
+grep -q 'break outside loop' "$TMP_DIR/bracket_cond_break_err.err"
+
 printf 'xs <- [1, 2, 3]\n' > "$TMP_DIR/array_literal.tiq"
 ./build/tiq build "$TMP_DIR/array_literal.tiq" -o "$TMP_DIR/array_literal" 2>"$TMP_DIR/array_literal.err"
 [ -x "$TMP_DIR/array_literal" ]

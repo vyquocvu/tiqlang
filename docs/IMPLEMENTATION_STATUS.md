@@ -1,10 +1,10 @@
 # Tiq Implementation Status
 
-Updated: 2026-07-31
+Updated: 2026-08-01
 
 ## Current milestone
 
-M8 — User-defined composite types & explicit error handling (complete: Option, Result, propagation operator)
+M13.4 — Self-hosted semantic checker (in progress; M13.1 prerequisites done, M13.2 lexer done, M13.3 parser done, M13.4 semantic checker in progress, not yet passing). See `docs/POST_BOOTSTRAP_ROADMAP.md` for milestone-level status.
 
 ## Bootstrap scope reduction (2026-07-30)
 

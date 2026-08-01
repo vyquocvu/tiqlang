@@ -32,7 +32,7 @@ Rationale for the order:
 
 ## M13 — Self-Hosting Compiler (Tiq in Tiq)
 
-Status: queued
+Status: in progress (M13.2/M13.3 done; M13.4 in progress, not passing)
 
 Depends on: baseline bootstrap compiler (M0–M12).
 
@@ -45,9 +45,9 @@ Replace the initial C11 bootstrap compiler (`src/*.c`) with a compiler written n
   - enums / tagged unions for token kinds and AST node variants
   - growable arrays and hash maps (symbol tables, interning)
   - string builder / byte buffer for code emission
-- [ ] **M13.2** Lexer and AST data structures in Tiq (`src/tiq/lexer.tiq`, `src/tiq/ast.tiq`)
-- [ ] **M13.3** Recursive-descent parser and error reporting in Tiq (`src/tiq/parser.tiq`)
-- [ ] **M13.4** Type pool and static semantic checker in Tiq (`src/tiq/type.tiq`, `src/tiq/semantic.tiq`)
+- [x] **M13.2** Lexer and AST data structures in Tiq (`src/tiq/lexer.tiq`, `src/tiq/ast.tiq`) — closed 2026-08-01: `tests/selfhost_lexer.sh` (41 fixtures) green; AST node arena is a flat `vec[int]` indexed by node id (M13.4-S3 simplification).
+- [x] **M13.3** Recursive-descent parser and error reporting in Tiq (`src/tiq/parser.tiq`) — closed 2026-08-01: `tests/selfhost_parser.sh` green (41 fixtures + 41 parse-error cases + 46 construct cases). Diagnostic byte-matching vs C verified.
+- [ ] **M13.4** Type pool and static semantic checker in Tiq (`src/tiq/type.tiq`, `src/tiq/semantic.tiq`) — in progress: `tests/selfhost_semantic.sh` exists and terminates, but ~50 fixtures remaining (typed-AST suffix on untyped literals, array/indexing, mutation, Option/Result payloads, borrow diagnostics, one known runtime crash on `&(1+2)` due to a vec-index bug). Wired into `make test` behind a skip-when-binary-missing check.
 - [ ] **M13.5** C11 backend emitter in Tiq (`src/tiq/emit_c.tiq`)
 - [ ] **M13.6** 3-Stage Bootstrapping & Output Identity Verification
   - Stage 1: `tiq-c11` compiles `compiler.tiq` $\rightarrow$ outputs `tiq-stage1`
