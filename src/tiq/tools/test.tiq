@@ -1,0 +1,202 @@
+// M14.1-T1: developer test runner (`tiq test`). Discovers `.tiq` files under
+// the given directories (non-recursive) or named directly, extracts the
+// expected stdout from consecutive `//! expected:` marker lines
+// (LANGUAGE_SPEC §2.1), compiles each test with the tiq compiler, runs the
+// resulting binary, and compares its stdout (trailing newlines stripped)
+// against the expectation. Summary and exit code follow the removed C
+// tester: "Tests: N passed, M failed, K skipped" on stdout, failures on
+// stderr, exit 1 iff any test failed.
+//
+// Transient build artifacts live next to the test file
+// (<file>.testexe / <file>.testout / <file>.testerr) and are removed after
+// every test, so paths must not contain spaces or single quotes.
+//
+// Determinism: directories are enumerated with fs_list (sorted), tests run
+// in that order, and no path/environment information reaches the output.
+
+contains src:str pat:str -> i64 -> {
+    n <- len(src)
+    m <- len(pat)
+    r <- 0
+    ?[m == 0] { r <- 1 }
+    ?[m > 0 && m <= n] {
+        i <- 0
+        [i <= n - m && r == 0] {
+            ?[str_eq(str_sub(src, i, i + m), pat)] { r <- 1 }
+            i <- i + 1
+        }
+    }
+    r
+}
+
+ends_with s:str suf:str -> i64 -> {
+    n <- len(s)
+    m <- len(suf)
+    r <- 0
+    ?[m <= n && str_eq(str_sub(s, n - m, n), suf)] { r <- 1 }
+    r
+}
+
+// Build the expected stdout string from consecutive marker lines. The
+// remainder of each marker (leading whitespace stripped) is appended; the
+// first marker contributes without a separator, each following marker adds
+// a single newline first. A file with no marker yields "".
+extract_expected src:str -> str -> {
+    n <- len(src)
+    pos <- 0
+    count <- 0
+    prev <- 0
+    eb <- str_buf_new()
+    [pos < n] {
+        e <- pos
+        [e < n && str_sub_code(src, e) != 10] { e <- e + 1 }
+        ws <- pos
+        [ws < e && (str_sub_code(src, ws) == 32 || str_sub_code(src, ws) == 9)] { ws <- ws + 1 }
+        ism <- 0
+        ?[e - ws >= 13 && str_eq(str_sub(src, ws, ws + 13), "//! expected:")] { ism <- 1 }
+        ?[ism == 1 && (count == 0 || prev == 1)] {
+            c0 <- ws + 13
+            [c0 < e && (str_sub_code(src, c0) == 32 || str_sub_code(src, c0) == 9)] { c0 <- c0 + 1 }
+            ?[count > 0] { str_buf_append(eb, "\n") }
+            str_buf_append(eb, str_sub(src, c0, e))
+            count <- count + 1
+        }
+        prev <- ism
+        pos <- e + 1
+    }
+    str_buf_to_str(eb)
+}
+
+trim_end s:str -> str -> {
+    n <- len(s)
+    [n > 0 && str_sub_code(s, n - 1) == 10] { n <- n - 1 }
+    str_sub(s, 0, n)
+}
+
+// Run one test file. Returns 0 (pass), 1 (fail), 2 (skip) or 3 (listed);
+// updates state [passed, failed, skipped] for counts 0..2.
+run_test path:str tiq:str verbose:i64 list_mode:i64 state:vec[int] -> i64 -> {
+    src <- fs_read(path)
+    no_run <- 0
+    ?[str_eq(src, "")] { no_run <- 1 }
+    ?[contains(src, "//! expected:") == 0] { no_run <- 1 }
+    ?[list_mode == 1 && no_run == 0] { print(path) }
+    ?[no_run == 1] { vec_set(state, 2, vec_get(state, 2) + 1) }
+    ?[list_mode == 0 && no_run == 0] {
+        ?[verbose == 1] { print(str_cat("running test ", path)) }
+        exp <- extract_expected(src)
+        bin <- str_cat(path, ".testexe")
+        out <- str_cat(path, ".testout")
+        err <- str_cat(path, ".testerr")
+        cb <- str_buf_new()
+        str_buf_append(cb, tiq)
+        str_buf_append(cb, " build ")
+        str_buf_append(cb, path)
+        str_buf_append(cb, " -o ")
+        str_buf_append(cb, bin)
+        str_buf_append(cb, " > ")
+        str_buf_append(cb, err)
+        str_buf_append(cb, " 2>&1")
+        rc <- proc_exec(str_buf_to_str(cb))
+        ?[rc != 0] {
+            eprint(str_cat("FAIL: ", path))
+            cerr <- fs_read(err)
+            ?[!str_eq(cerr, "")] { eprint(cerr) }
+            vec_set(state, 1, vec_get(state, 1) + 1)
+        }
+        ?[rc == 0] {
+            rb <- str_buf_new()
+            str_buf_append(rb, bin)
+            str_buf_append(rb, " > ")
+            str_buf_append(rb, out)
+            str_buf_append(rb, " 2>&1")
+            rrc <- proc_exec(str_buf_to_str(rb))
+            got <- trim_end(fs_read(out))
+            ok <- 0
+            ?[rrc == 0 && str_eq(got, exp)] { ok <- 1 }
+            ?[ok == 1] {
+                ?[verbose == 1] {
+                    pl <- str_buf_new()
+                    str_buf_append(pl, "PASS: ")
+                    str_buf_append(pl, path)
+                    str_buf_append(pl, " (expected: ")
+                    str_buf_append(pl, exp)
+                    str_buf_append(pl, ")")
+                    print(str_buf_to_str(pl))
+                }
+                vec_set(state, 0, vec_get(state, 0) + 1)
+            }
+            ?[ok == 0] {
+                eprint(str_cat("FAIL: ", path))
+                eprint(str_cat("expected: ", exp))
+                eprint(str_cat("got: ", got))
+                ?[rrc != 0] { eprint(str_cat("exit code: ", int_str(rrc))) }
+                vec_set(state, 1, vec_get(state, 1) + 1)
+            }
+        }
+        proc_exec(str_cat("rm -f ", str_cat(str_cat(bin, " "), str_cat(out, str_cat(" ", err)))))
+    }
+    0
+}
+
+// Run a whole target: a named .tiq file, or every .tiq file in a directory
+// (non-recursive). Files whose names begin with '.' are ignored.
+run_target t:str tiq:str verbose:i64 list_mode:i64 state:vec[int] -> i64 -> {
+    is_file <- 0
+    ?[ends_with(t, ".tiq") == 1] {
+        is_file <- 1
+        run_test(t, tiq, verbose, list_mode, state)
+    }
+    ?[is_file == 0] {
+        ?[verbose == 1] { print(str_cat("running tests in ", t)) }
+        names <- fs_list(t)
+        n <- len(names)
+        pos <- 0
+        [pos < n] {
+            e <- pos
+            [e < n && str_sub_code(names, e) != 10] { e <- e + 1 }
+            name <- str_sub(names, pos, e)
+            ?[str_sub_code(name, 0) != 46 && ends_with(name, ".tiq") == 1] {
+                run_test(str_cat(str_cat(t, "/"), name), tiq, verbose, list_mode, state)
+            }
+            pos <- e + 1
+        }
+    }
+    0
+}
+
+verbose <- 0
+list_mode <- 0
+tiq <- "tiq"
+state <- vec_new()
+vec_push(state, 0)
+vec_push(state, 0)
+vec_push(state, 0)
+nargs <- cli_arg_count()
+i <- 0
+[i < nargs] {
+    a <- cli_arg(i)
+    used <- 0
+    ?[str_eq(a, "--verbose") || str_eq(a, "-v")] { verbose <- 1; used <- 1 }
+    ?[str_eq(a, "--list") || str_eq(a, "-l")] { list_mode <- 1; used <- 1 }
+    ?[str_eq(a, "--tiq") && i + 1 < nargs] { i <- i + 1; tiq <- cli_arg(i); used <- 1 }
+    ?[used == 0 && str_sub_code(a, 0) != 45] { run_target(a, tiq, verbose, list_mode, state) }
+    i <- i + 1
+}
+p <- vec_get(state, 0)
+f <- vec_get(state, 1)
+s <- vec_get(state, 2)
+?[list_mode == 0] {
+    sb <- str_buf_new()
+    str_buf_append(sb, "Tests: ")
+    str_buf_append(sb, int_str(p))
+    str_buf_append(sb, " passed, ")
+    str_buf_append(sb, int_str(f))
+    str_buf_append(sb, " failed, ")
+    str_buf_append(sb, int_str(s))
+    str_buf_append(sb, " skipped")
+    print(str_buf_to_str(sb))
+    ?[p == 0 && f == 0] { print("Note: Test files should contain a '//! expected:' marker line") }
+}
+?[f > 0] { proc_exit(1) }
+0

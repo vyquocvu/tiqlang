@@ -57,7 +57,7 @@ Replace the initial C11 bootstrap compiler (`src/*.c`) with a compiler written n
 
 ## M14 — Native Tooling in Tiq
 
-Status: queued (prerequisites done: M13.1 language prerequisites, M13.2 lexer; does not require full self-hosting)
+Status: in progress (M14.1 `tiq test` done 2026-08-02; M14.2–M14.6 queued)
 
 Depends on: M13.1 language prerequisites; M14.1–M14.3 additionally need only the Tiq lexer/front end (M13.2), so they can proceed in parallel with M13.3–M13.5 and serve as its first dogfooding programs.
 
@@ -65,7 +65,7 @@ Rebuild the developer tooling as Tiq programs. The original C implementations (`
 
 ### Tasks
 
-- [ ] **M14.1** `tiq test`: test runner in Tiq using `//!` expected-output comments; reuses the `tests/tiq/` fixtures kept in the repository. Prioritized first: it is the harness that validates the self-hosted compiler (M13.6).
+- [x] **M14.1** `tiq test`: test runner in Tiq using `//!` expected-output comments; reuses the `tests/tiq/` fixtures kept in the repository. Prioritized first: it is the harness that validates the self-hosted compiler (M13.6). Closed 2026-08-02: `src/tiq/tools/test.tiq` (~200 lines) discovers `.tiq` files non-recursively via `fs_list` (hidden names skipped), extracts expected stdout from consecutive `//! expected:` marker lines (LANGUAGE_SPEC §2.1), builds each test with a selectable compiler (`--tiq <path>`, `proc_exec`/`system`), runs it, strips trailing newlines from stdout, and requires an exact byte match. Summary `Tests: N passed, M failed, K skipped` on stdout, failures and surfaced compiler diagnostics on stderr, exit 1 iff any test failed; `--list` prints discovered test paths without running. The five `tests/tiq/*.tiq` fixtures gained `//! expected:` markers plus `print` statements so they assert real output. New `tests/test_runner.sh` harness (17th suite, wired into `make test` and the `tool-test` target) verifies: all five fixtures pass, a deliberately failing fixture exits 1 with `expected:`/`got:` on stderr, `--list` prints paths with no summary, verbose names each test, marker-less files are skipped with the `Note:` hint, a compile error surfaces the located diagnostic, a missing compiler fails closed, no transient `.testexe`/`.testout`/`.testerr` artifacts remain, and the runner's emitted C is memory-clean under ASan/UBSan. Built and verified from `make clean`; the harness was added and confirmed red before `src/tiq/tools/test.tiq` existed.
 - [ ] **M14.2** `tiq fmt`: token-based formatter in Tiq (`--check`, `--output`, `--use-tabs`, `--indent-width`, stdin/stdout); needs only the lexer
 - [ ] **M14.3** `tiq bench`: compiler performance measurement (lexer/parser/semantic timing, throughput, iterations); starts the continuous M21 baseline
 - [ ] **M14.4** `tiq init` and package manifest handling (`*.tiq.toml`), aligned with the M18 package manager

@@ -1,3 +1,5 @@
 // Test loop sum
+//! expected: 10
 total <- 0
 [0..5] { total += i }
+print(total)

@@ -11,9 +11,27 @@ Tiq is a statically typed, ahead-of-time compiled language for small command-lin
 - Extension: `.tiq`
 - Encoding: UTF-8; v0.1 identifiers are ASCII only.
 - Newlines separate statements unless grouping is open.
-- `//` starts a line comment.
+- `//` starts a line comment. A line comment is a marker for the developer test runner (`tiq test`, §2.1) when it begins with `//! expected:`.
 - Top-level statements execute in source order inside an implicit program entry point.
 - A program may span multiple files connected by `import` declarations (§17.6). All loaded files share one flat global namespace and compile into a single unit.
+
+### 2.1 Test annotations
+
+The developer tool `tiq test` (CLI.md) treats a source file as a test when it contains a marker line: a line whose first non-whitespace characters are `//! expected:`. The expected stdout of the program is the concatenation of the marker remainder of each consecutive marker line, joined with a single `\n`:
+
+```tiq
+print("hello")        //! expected: hello
+```
+
+For output spanning multiple lines, consecutive marker lines join with newlines; every continuation line must also begin with `//! expected:`:
+
+```tiq
+[0..3] { print(i) }   //! expected: 0
+//! expected: 1
+//! expected: 2
+```
+
+The runner builds the file, executes it, strips trailing newlines from the captured stdout, and requires an exact byte match against the expected text. A file without a marker line is not a test and is reported as skipped. Files whose expected text is empty pass when the program writes no output. The marker is a comment to the language itself: it has no effect on lexing, parsing, semantic checking, or code generation.
 
 ## 3. Design constraints
 

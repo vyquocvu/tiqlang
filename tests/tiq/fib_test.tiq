@@ -1,3 +1,5 @@
 // Test fibonacci
+//! expected: 55
 fib = [0, 1, ... a + b]
 result = fib[10]
+print(result)

@@ -4,7 +4,7 @@ CFLAGS ?= -std=c11 -Wall -Wextra -Wpedantic -Werror -O2
 BUILD := build
 TIQ := $(BUILD)/tiq
 
-.PHONY: all clean test test-unit test-fuzz example test-check test-run
+.PHONY: all clean test test-unit test-fuzz example test-check test-run tool-test
 
 # Build the unit runner with the same flags as the compiler. Besides keeping
 # `make` useful as a complete build gate, this preserves sanitizer link flags
@@ -55,6 +55,7 @@ test: $(TIQ) test-unit
 	sh tests/selfhost_semantic.sh
 	sh tests/selfhost_emit_c.sh
 	sh tests/bootstrap.sh
+	sh tests/test_runner.sh
 	sh tests/check.sh
 	sh tests/run.sh
 
@@ -63,6 +64,11 @@ test-check: $(TIQ)
 
 test-run: $(TIQ)
 	sh tests/run.sh
+
+# M14.1: build the Tiq developer test runner via the bootstrap and exercise it
+# against tests/tiq/ (pass/fail/list/verbose, skip, compile errors, fail-closed).
+tool-test: $(TIQ)
+	sh tests/test_runner.sh
 
 clean:
 	rm -rf $(BUILD)

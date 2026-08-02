@@ -4,7 +4,7 @@ Updated: 2026-08-02
 
 ## Current milestone
 
-M13.6 — 3-stage bootstrapping & output identity verification (complete 2026-08-02; the self-hosted C11 emitter is a convergent fixed point under self-application: `tiq-stage1` emits its own C, the host C compiler rebuilds it as `tiq-stage2`, and `tiq-stage2` emits byte-identical C — both outputs 486,291 bytes — while the compiled compiler still compiles and runs a hello-world fixture). M14 native tooling in Tiq is next. See `docs/POST_BOOTSTRAP_ROADMAP.md` for milestone-level status.
+M14.1 — `tiq test` developer test runner written in Tiq (`src/tiq/tools/test.tiq`, closed 2026-08-02). Discover tests via `fs_list`, extract expected stdout from `//! expected:` marker lines (LANGUAGE_SPEC §2.1), build each test with a selectable compiler, run it, compare stdout byte-exactly, and report `Tests: N passed, M failed, K skipped`; exit 1 iff any test failed. `tests/test_runner.sh` (wired into `make test` and the `tool-test` target) verifies the full pass/fail/list/verbose/skip/compile-error/fail-closed surface plus ASan/UBSan on the runner's emitted C. The self-hosted compiler is closed: M13.6's 3-stage bootstrap is a convergent fixed point (486,291 bytes both stages). See `docs/POST_BOOTSTRAP_ROADMAP.md` for milestone-level status.
 
 ## Bootstrap scope reduction (2026-07-30)
 
@@ -94,6 +94,7 @@ Completed in C, then removed — see "Bootstrap scope reduction" above and `POST
   - Executes tests via `tiq build` and compares output
   - Respects `//! expected` comments for expected output
   - Verbose mode for detailed results
+  - Superseded by the M14.1 Tiq implementation `src/tiq/tools/test.tiq` (see "Current milestone"); the removed C behavior is kept here as a record.
 - Package manifests (`tiq init`):
   - Creates `*.tiq.toml` manifest files
   - INI-style format with `[package]`, `[deps]`, `[tests]` sections

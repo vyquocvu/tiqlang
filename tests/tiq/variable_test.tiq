@@ -1,2 +1,4 @@
 // Test variables
+//! expected: 42
 x <- 42
+print(x)

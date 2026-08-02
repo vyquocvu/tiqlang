@@ -24,6 +24,19 @@ tiq dump-ast <file.tiq>
 tiq dump-typed-ast <file.tiq>
 ```
 
+### Developer tooling (Tiq programs, M14)
+
+Developer tooling is written in Tiq and built from `src/tiq/tools/` by the bootstrap (`make tool-test`, `tool-fmt`, `tool-bench` build them into `build/`). The `tiq <tool>` subcommand names below are the interface each tool implements; the C bootstrap binary dispatches them by building and running the corresponding Tiq program.
+
+```text
+tiq test [--verbose] [--list] [--tiq <compiler>] [dir|file...]
+```
+
+- `tiq test` discovers `.tiq` files (non-recursively, hidden names skipped), extracts the expected stdout from `//! expected:` marker lines (LANGUAGE_SPEC §2.1), builds and runs each test with the given compiler, and reports a `Tests: N passed, M failed, K skipped` summary on stdout. Failures and surfaced compiler diagnostics go to stderr. Exit code is 1 iff any test failed.
+- `--tiq <compiler>` selects the compiler binary used to build tests (defaults to `tiq` on `PATH`).
+- `--list` prints each discovered test path without running anything.
+- Files without a `//! expected:` marker are skipped. Transient build artifacts are created next to each test file and removed afterwards, so paths must not contain spaces or single quotes.
+
 ## Option notes
 
 - `tiq build`: `--target <triple>` is forwarded to the host C compiler; cross-compilation targets are planned but not tested (M11).
@@ -36,11 +49,10 @@ tiq run <file.tiq> [-- program-args]
 tiq build <package> --release
 ```
 
-Developer tooling was removed from the C11 bootstrap compiler on 2026-07-30 and will be rewritten in Tiq after self-hosting (POST_BOOTSTRAP_ROADMAP M14):
+Developer tooling is implemented as Tiq programs (`src/tiq/tools/*.tiq`) after self-hosting (POST_BOOTSTRAP_ROADMAP M14); see "Developer tooling" above. Planned:
 
 ```text
 tiq fmt [--check] [--output <file>] [--use-tabs] [--indent-width <n>] [file]
-tiq test [--verbose] [--list] [dir|file...]
 tiq bench [-v] [-i N] [-q] <file|dir>...
 tiq init [name]
 tiq lsp [--root <path>]

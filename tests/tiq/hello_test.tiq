@@ -1,2 +1,4 @@
 // Test hello example
+//! expected: Hello from Tiq
 msg = "Hello from Tiq"
+print(msg)
