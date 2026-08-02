@@ -4,7 +4,7 @@ CFLAGS ?= -std=c11 -Wall -Wextra -Wpedantic -Werror -O2
 BUILD := build
 TIQ := $(BUILD)/tiq
 
-.PHONY: all clean test test-unit test-fuzz example test-check test-run tool-test tool-fmt tool-bench
+.PHONY: all clean test test-unit test-fuzz example test-check test-run tool-test tool-fmt tool-bench tool-init
 
 # Build the unit runner with the same flags as the compiler. Besides keeping
 # `make` useful as a complete build gate, this preserves sanitizer link flags
@@ -58,6 +58,7 @@ test: $(TIQ) test-unit
 	sh tests/test_runner.sh
 	sh tests/formatter_tool.sh
 	sh tests/bench_tool.sh
+	sh tests/init_tool.sh
 	sh tests/check.sh
 	sh tests/run.sh
 
@@ -82,6 +83,12 @@ tool-fmt: $(TIQ)
 # output shape, -i parsing, directory scanning, and fail-closed exit codes.
 tool-bench: $(TIQ)
 	sh tests/bench_tool.sh
+
+# M14.4: build the Tiq manifest scaffolder/validator via the bootstrap and
+# verify the deterministic template, fail-closed name/path handling, --check
+# validation diagnostics, usage errors, and ASan/UBSan on the emitted C.
+tool-init: $(TIQ)
+	sh tests/init_tool.sh
 
 clean:
 	rm -rf $(BUILD)

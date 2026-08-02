@@ -1,0 +1,300 @@
+// M14.4 manifest module: INI-style `*.tiq.toml` package manifest parser and
+// validator (docs/CLI.md "Package manifests", LANGUAGE_SPEC §18.2). Sections
+// are `[package]`, `[deps]`, and `[tests]`; lines are `key = value` pairs,
+// `#` comments, or blank. Validation is fail-closed: an unknown section, an
+// unknown key in a known section, a duplicate `name`/`version`, a missing or
+// empty `name`, and a malformed `version` each produce a located diagnostic
+// (`path:line: error[E30]: ...`) and a non-zero status.
+
+// ---------------------------------------------------------------------------
+// Character helpers.
+
+mf_is_ws c: i64 -> i64 -> {
+    r <- 0
+    ?[c == 32 || c == 9 || c == 13] {
+        r <- 1
+    }
+    r
+}
+
+mf_is_digit c: i64 -> i64 -> {
+    r <- 0
+    ?[c >= 48 && c <= 57] {
+        r <- 1
+    }
+    r
+}
+
+// Trim ASCII whitespace (space/tab/CR) from both ends.
+mf_trim s: str -> str -> {
+    n <- len(s)
+    a <- 0
+    b <- n
+    [a < n && mf_is_ws(str_sub_code(s, a)) == 1] {
+        a <- a + 1
+    }
+    [b > a && mf_is_ws(str_sub_code(s, b - 1)) == 1] {
+        b <- b - 1
+    }
+    str_sub(s, a, b)
+}
+
+// Strip one layer of double or single quotes.
+mf_unquote s: str -> str -> {
+    n <- len(s)
+    r <- s
+    ?[n >= 2] {
+        c0 <- str_sub_code(s, 0)
+        c1 <- str_sub_code(s, n - 1)
+        ?[c0 == 34 && c1 == 34] {
+            r <- str_sub(s, 1, n - 1)
+        }
+        ?[c0 == 39 && c1 == 39] {
+            r <- str_sub(s, 1, n - 1)
+        }
+    }
+    r
+}
+
+// Index of the first '=' at or after `from`, or -1.
+mf_find_eq s: str from: i64 -> i64 -> {
+    n <- len(s)
+    r <- -1
+    i <- from
+    [i < n] {
+        ?[str_sub_code(s, i) == 61] {
+            r <- i; i <- n
+        }
+        i <- i + 1
+    }
+    r
+}
+
+// A package name is a non-empty string without whitespace or path separators.
+mf_valid_name s: str -> i64 -> {
+    ok <- 1
+    n <- len(s)
+    ?[n == 0] {
+        ok <- 0
+    }
+    ?[str_eq(s, ".") || str_eq(s, "..")] {
+        ok <- 0
+    }
+    i <- 0
+    [ok == 1 && i < n] {
+        c <- str_sub_code(s, i)
+        alnum <- 0
+        ?[c >= 48 && c <= 57] {
+            alnum <- 1
+        }
+        ?[c >= 65 && c <= 90] {
+            alnum <- 1
+        }
+        ?[c >= 97 && c <= 122] {
+            alnum <- 1
+        }
+        okc <- 0
+        ?[alnum == 1 || c == 45 || c == 95 || c == 46] {
+            okc <- 1
+        }
+        ?[okc == 0] {
+            ok <- 0
+        }
+        i <- i + 1
+    }
+    ok
+}
+
+// `major.minor.patch`: three dot-separated runs of digits, no empty part.
+mf_valid_version v: str -> i64 -> {
+    n <- len(v)
+    ok <- 1
+    parts <- 0
+    in_digit <- 0
+    ?[n == 0] {
+        ok <- 0
+    }
+    i <- 0
+    [ok == 1 && i < n] {
+        c <- str_sub_code(v, i)
+        ?[c == 46] {
+            ?[in_digit == 0] {
+                ok <- 0
+            }
+            in_digit <- 0
+            parts <- parts + 1
+        }
+        ?[c != 46 && mf_is_digit(c) == 0] {
+            ok <- 0
+        }
+        ?[mf_is_digit(c) == 1] {
+            in_digit <- 1
+        }
+        i <- i + 1
+    }
+    ?[in_digit == 0] {
+        ok <- 0
+    }
+    ?[parts != 2] {
+        ok <- 0
+    }
+    ok
+}
+
+// ---------------------------------------------------------------------------
+// Diagnostics. Manifest errors use code E30 (LANGUAGE_SPEC §18.2); the code is
+// tool-local and never emitted by the compiler itself.
+
+mf_err path: str ln: i64 msg: str -> i64 -> {
+    eprint(str_cat(str_cat(str_cat(str_cat(path, ":"), int_str(ln)), ": error[E30]: "), msg))
+    1
+}
+
+// ---------------------------------------------------------------------------
+// Per-line validation. `sv` layout: [0] section (0 none, 1 package, 2 deps,
+// 3 tests), [1] name seen, [2] error flag, [3] version seen, [4] package seen.
+
+mf_check_package key: str val: str ln: i64 path: str sv: vec[int] -> i64 -> {
+    r <- 0
+    ?[str_eq(key, "name")] {
+        ?[vec_get(sv, 1) == 1] {
+            mf_err(path, ln, "duplicate 'name'"); vec_set(sv, 2, 1); r <- 1
+        }
+        ?[r == 0 && len(val) == 0] {
+            mf_err(path, ln, "'name' must not be empty"); vec_set(sv, 2, 1); r <- 1
+        }
+        ?[r == 0] {
+            vec_set(sv, 1, 1)
+        }
+    }
+    ?[r == 0 && str_eq(key, "version")] {
+        ?[vec_get(sv, 3) == 1] {
+            mf_err(path, ln, "duplicate 'version'"); vec_set(sv, 2, 1); r <- 1
+        }
+        ?[r == 0 && mf_valid_version(val) == 0] {
+            mf_err(path, ln, "version must be 'major.minor.patch' of digits"); vec_set(sv, 2, 1); r <- 1
+        }
+        ?[r == 0] {
+            vec_set(sv, 3, 1)
+        }
+    }
+    ?[r == 0 && !str_eq(key, "name") && !str_eq(key, "version") && !str_eq(key, "description") && !str_eq(key, "license") && !str_eq(key, "repository") && !str_eq(key, "src")] {
+        mf_err(path, ln, str_cat(str_cat("unknown [package] key '", key), "'")); vec_set(sv, 2, 1); r <- 1
+    }
+    r
+}
+
+mf_check_deps key: str val: str ln: i64 path: str sv: vec[int] -> i64 -> {
+    r <- 0
+    ?[len(key) == 0] {
+        mf_err(path, ln, "dependency name must not be empty"); vec_set(sv, 2, 1); r <- 1
+    }
+    ?[r == 0 && len(val) == 0] {
+        mf_err(path, ln, "dependency source must not be empty"); vec_set(sv, 2, 1); r <- 1
+    }
+    r
+}
+
+mf_check_tests key: str val: str ln: i64 path: str sv: vec[int] -> i64 -> {
+    r <- 0
+    ?[!str_eq(key, "dir") && !str_eq(key, "include")] {
+        mf_err(path, ln, str_cat(str_cat("unknown [tests] key '", key), "'")); vec_set(sv, 2, 1); r <- 1
+    }
+    r
+}
+
+mf_check_line line: str ln: i64 path: str sv: vec[int] -> i64 -> {
+    r <- 0
+    t <- mf_trim(line)
+    ?[len(t) > 0 && str_sub_code(t, 0) != 35] {
+        ?[str_sub_code(t, 0) == 91] {
+            lt <- len(t)
+            ?[lt < 2 || str_sub_code(t, lt - 1) != 93] {
+                mf_err(path, ln, "malformed section header"); vec_set(sv, 2, 1); r <- 1
+            }
+            ?[r == 0] {
+                name <- mf_trim(str_sub(t, 1, lt - 1))
+                ?[str_eq(name, "package")] {
+                    vec_set(sv, 0, 1); vec_set(sv, 4, 1)
+                }
+                ?[str_eq(name, "deps")] {
+                    vec_set(sv, 0, 2)
+                }
+                ?[str_eq(name, "tests")] {
+                    vec_set(sv, 0, 3)
+                }
+                ?[!str_eq(name, "package") && !str_eq(name, "deps") && !str_eq(name, "tests")] {
+                    mf_err(path, ln, str_cat(str_cat("unknown section [", name), "]")); vec_set(sv, 2, 1); r <- 1
+                }
+            }
+        }
+        ?[r == 0 && str_sub_code(t, 0) != 91] {
+            eq <- mf_find_eq(t, 0)
+            ?[eq <= 0] {
+                mf_err(path, ln, "expected 'key = value'"); vec_set(sv, 2, 1); r <- 1
+            }
+            ?[r == 0] {
+                key <- mf_trim(str_sub(t, 0, eq))
+                val <- mf_unquote(mf_trim(str_sub(t, eq + 1, len(t))))
+                sec <- vec_get(sv, 0)
+                ?[sec == 0] {
+                    mf_err(path, ln, "key outside a section"); vec_set(sv, 2, 1); r <- 1
+                }
+                ?[r == 0 && sec == 1] {
+                    r <- mf_check_package(key, val, ln, path, sv)
+                }
+                ?[r == 0 && sec == 2] {
+                    r <- mf_check_deps(key, val, ln, path, sv)
+                }
+                ?[r == 0 && sec == 3] {
+                    r <- mf_check_tests(key, val, ln, path, sv)
+                }
+            }
+        }
+    }
+    r
+}
+
+// Parse and validate the whole manifest text. Returns 0 when valid, 1 when any
+// error was found (diagnostics printed to stderr). Requires [package] with a
+// non-empty `name`.
+mf_check text: str path: str sv: vec[int] -> i64 -> {
+    n <- len(text)
+    ln <- 1
+    start <- 0
+    i <- 0
+    [i <= n] {
+        ?[i == n || str_sub_code(text, i) == 10] {
+            one <- mf_check_line(str_sub(text, start, i), ln, path, sv)
+            ?[one == 1] {
+                vec_set(sv, 2, 1)
+            }
+            ln <- ln + 1
+            start <- i + 1
+        }
+        i <- i + 1
+    }
+    ?[vec_get(sv, 4) == 0] {
+        mf_err(path, 1, "missing [package] section"); vec_set(sv, 2, 1)
+    }
+    ?[vec_get(sv, 4) == 1 && vec_get(sv, 1) == 0] {
+        mf_err(path, 1, "[package] is missing a 'name' field"); vec_set(sv, 2, 1)
+    }
+    vec_get(sv, 2)
+}
+
+// Deterministic manifest template for `tiq init [name]`.
+mf_template name: str -> str -> {
+    b <- str_buf_new()
+    str_buf_append(b, "# Tiq package manifest\n")
+    str_buf_append(b, "[package]\n")
+    str_buf_append(b, "name = \"")
+    str_buf_append(b, name)
+    str_buf_append(b, "\"\n")
+    str_buf_append(b, "version = \"0.1.0\"\n")
+    str_buf_append(b, "description = \"A Tiq package\"\n")
+    str_buf_append(b, "\n")
+    str_buf_append(b, "[tests]\n")
+    str_buf_append(b, "dir = \"tests\"\n")
+    str_buf_to_str(b)
+}

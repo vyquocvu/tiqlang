@@ -656,6 +656,19 @@ Programs read their command-line arguments through two builtins:
 
 Both are ordinary builtin calls: wrong arity is rejected with E12 and a non-`int` index with E09 at compile time.
 
+### 18.2 Package manifests
+
+A package manifest is an INI-style `*.tiq.toml` file describing a package. The format has three recognized sections — `[package]`, `[deps]`, and `[tests]` — and the body of each is a sequence of `key = value` lines, `#` comment lines, and blank lines. Values are the trimmed text after the first `=`, with one layer of double or single quotes stripped when present; a value may be empty. A line that is neither blank, a comment, a section header, nor `key = value` (no `=` or an empty key) is malformed.
+
+The manifest rules (M14.4, `src/tiq/manifest.tiq`; see `docs/CLI.md` "Package manifests"):
+
+- `[package]` must appear exactly once and must contain a non-empty `name`. A package name is a non-empty string of ASCII letters, digits, `-`, `_`, and `.` and must not be `.` or `..`. Valid `[package]` keys are `name`, `version`, `description`, `license`, `repository`, and `src`; `version`, when present, must be `major.minor.patch` — three dot-separated runs of digits with no empty part.
+- `[deps]` entries are `name = source` pairs; both the dependency name and its source must be non-empty.
+- `[tests]` accepts the keys `dir` and `include`.
+- `name` and `version` must not be duplicated within `[package]`. Unknown sections and unknown keys within a known section fail closed.
+
+Manifest errors are reported to standard error in the standard located form `path:line: error[E30]: message` — `line` is 1-based and points at the offending line (structural errors such as a missing `[package]` or `name` are reported at line 1). E30 is a tool-local code used by `tiq init`'s `--check` mode (LANGUAGE_SPEC §18.2 context); it is never emitted by the compiler itself. A manifest is valid only when it parses and satisfies every rule above; `tiq init --check` exits 0 for a valid manifest and 1 otherwise. `tiq init [name]` scaffolds a deterministic template (default `name = "my-package"`, `version = "0.1.0"`, `description = "A Tiq package"`, `[tests] dir = "tests"`) and refuses to overwrite an existing file.
+
 ## 19. Standard library builtins
 
 ### 19.1 JSON access

@@ -1,0 +1,79 @@
+// M14.4-T1: package manifest scaffolder and validator (`tiq init`). In create
+// mode `tiq init [name]` writes a deterministic `*.tiq.toml` manifest — `tiq.toml`
+// for the default package name `my-package`, `<name>.tiq.toml` for an explicit
+// name — and refuses to clobber an existing manifest (exit 1). In `--check
+// <file>` mode it validates an existing manifest with the shared manifest module
+// (`../manifest.tiq`, LANGUAGE_SPEC §18.2), printing located `error[E30]`
+// diagnostics to stderr and exiting 1 on any error. Invalid package names and
+// usage errors exit 2.
+//
+// Determinism: the template depends only on the package name; diagnostics carry
+// the manifest path and line number and nothing environmental.
+
+import "../manifest.tiq"
+
+nargs <- cli_arg_count()
+check_flag <- 0
+pname <- ""
+npos <- 0
+i <- 0
+[i < nargs] {
+    a <- cli_arg(i)
+    ?[str_eq(a, "--check")] {
+        check_flag <- 1
+    }
+    ?[!str_eq(a, "--check")] {
+        ?[str_sub_code(a, 0) == 45] {
+            eprint(str_cat("tiq init: unknown option: ", a)); proc_exit(2)
+        }
+        ?[npos == 1] {
+            eprint("tiq init: too many arguments"); proc_exit(2)
+        }
+        pname <- a
+        npos <- 1
+    }
+    i <- i + 1
+}
+
+?[check_flag == 1] {
+    ?[str_eq(pname, "")] {
+        eprint("tiq init: --check requires a manifest file"); proc_exit(2)
+    }
+    src <- fs_read(pname)
+    ?[str_eq(src, "")] {
+        eprint(str_cat("tiq init: cannot read ", pname)); proc_exit(1)
+    }
+    sv <- vec_new()
+    vec_push(sv, 0)
+    vec_push(sv, 0)
+    vec_push(sv, 0)
+    vec_push(sv, 0)
+    vec_push(sv, 0)
+    err <- mf_check(src, pname, sv)
+    ?[err != 0] {
+        proc_exit(1)
+    }
+    proc_exit(0)
+}
+
+?[npos == 0] {
+    pname <- "my-package"
+}
+?[mf_valid_name(pname) == 0] {
+    eprint(str_cat("tiq init: invalid package name: ", pname))
+    proc_exit(2)
+}
+path <- "tiq.toml"
+?[npos == 1] {
+    path <- str_cat(pname, ".tiq.toml")
+}
+?[fs_exists(path)] {
+    eprint(str_cat(path, " already exists"))
+    proc_exit(1)
+}
+rc <- fs_write(path, mf_template(pname))
+?[rc != 0] {
+    eprint(str_cat("tiq init: cannot write ", path)); proc_exit(1)
+}
+print(str_cat("Created ", path))
+0

@@ -26,12 +26,14 @@ tiq dump-typed-ast <file.tiq>
 
 ### Developer tooling (Tiq programs, M14)
 
-Developer tooling is written in Tiq and built from `src/tiq/tools/` by the bootstrap (`make tool-test`, `tool-fmt`, `tool-bench` build them into `build/`). The `tiq <tool>` subcommand names below are the interface each tool implements; the C bootstrap binary dispatches them by building and running the corresponding Tiq program.
+Developer tooling is written in Tiq and built from `src/tiq/tools/` by the bootstrap (`make tool-test`, `tool-fmt`, `tool-bench`, `tool-init` build them into `build/`). The `tiq <tool>` subcommand names below are the interface each tool implements; the C bootstrap binary dispatches them by building and running the corresponding Tiq program.
 
 ```text
 tiq test [--verbose] [--list] [--tiq <compiler>] [dir|file...]
 tiq fmt [--check] [--output <file>] [--use-tabs] [--indent-width <n>] [file]
 tiq bench [-i N] <file|dir>...
+tiq init [name]
+tiq init --check <file.tiq.toml>
 ```
 
 - `tiq test` discovers `.tiq` files (non-recursively, hidden names skipped), extracts the expected stdout from `//! expected:` marker lines (LANGUAGE_SPEC §2.1), builds and runs each test with the given compiler, and reports a `Tests: N passed, M failed, K skipped` summary on stdout. Failures and surfaced compiler diagnostics go to stderr. Exit code is 1 iff any test failed.
@@ -46,6 +48,28 @@ tiq bench [-i N] <file|dir>...
 
 - `tiq bench` measures the self-hosted compiler's per-phase time (lexer, parser, semantic checker) for each target — a named `.tiq` file or every `.tiq` file in a directory (non-recursive, hidden names skipped, sorted order). Each file is flattened (`mod_flatten`, LANGUAGE_SPEC §3.4) exactly as the real driver does, then each phase is timed with the monotonic `clock_ms` builtin (§19.6) over `-i N` iterations (default 1) of fresh driver state. It reports per-phase average milliseconds, the flattened source size in bytes, and end-to-end throughput in bytes/second. Output is deterministic in structure; timings are machine-dependent.
 - `tiq bench` exits 1 if a target cannot be read, and 2 for no targets or a non-positive `-i`. The numbers establish the baseline tracked in OPTIMIZATION_PLAN.md (M21).
+
+- `tiq init [name]` scaffolds a package manifest. With no argument it writes the deterministic template to `tiq.toml` for the default package name `my-package`; with an argument it writes `<name>.tiq.toml` with `name = "<name>"` (see "Package manifests" below for the template). It refuses to clobber an existing manifest: an existing target exits 1 with `<path> already exists` on stderr and nothing is written. An invalid package name (empty, `.`/`..`, or any character other than ASCII letters/digits/`-`/`_`/`.`) exits 2 before any file is touched.
+- `tiq init --check <file.tiq.toml>` validates an existing manifest without writing anything: it exits 0 when the file parses and satisfies the manifest rules, and exits 1 with one or more located `path:line: error[E30]: ...` diagnostics on stderr otherwise. An unreadable or missing file exits 1 with `cannot read` on stderr. Unknown options, `--check` without an argument, and extra positional arguments exit 2.
+
+### Package manifests
+
+Package manifests are INI-style `*.tiq.toml` files with three recognized sections — `[package]`, `[deps]`, and `[tests]` — whose bodies are `key = value` lines, `#` comments, or blank lines. Values may be bare or quoted (`"..."` or `'...'`, quotes stripped). `[package]` requires a non-empty `name`; a package name is a non-empty string of ASCII letters, digits, `-`, `_`, and `.`, and must not be `.` or `..`. `version` must be `major.minor.patch`, three dot-separated runs of digits with no empty part. Valid keys are `name`, `version`, `description`, `license`, `repository`, and `src` in `[package]`; `[deps]` entries are dependency names mapped to sources (`name = value`, both non-empty); `[tests]` accepts `dir` and `include`. The full rules and diagnostics are in LANGUAGE_SPEC §18.2.
+
+The `tiq init` template is deterministic and looks like:
+
+```text
+# Tiq package manifest
+[package]
+name = "my-package"
+version = "0.1.0"
+description = "A Tiq package"
+
+[tests]
+dir = "tests"
+```
+
+An explicit name replaces `my-package` in `name` and in the file name (`<name>.tiq.toml`).
 
 ### Canonical formatting rules
 
@@ -75,7 +99,6 @@ tiq build <package> --release
 Developer tooling is implemented as Tiq programs (`src/tiq/tools/*.tiq`) after self-hosting (POST_BOOTSTRAP_ROADMAP M14); see "Developer tooling" above. Planned:
 
 ```text
-tiq init [name]
 tiq lsp [--root <path>]
 tiq cache [clear|path]
 ```
