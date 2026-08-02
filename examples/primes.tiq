@@ -2,6 +2,6 @@
 is_prime n -> n > 1 && n % 2 != 0
 
 // Test
-print(is_prime(3))   // 1
-print(is_prime(4))   // 0
-print(is_prime(17))   // 1
+print(is_prime(3)) // 1
+print(is_prime(4)) // 0
+print(is_prime(17)) // 1

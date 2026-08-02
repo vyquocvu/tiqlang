@@ -3,4 +3,9 @@ fib = [0, 1, ... a + b]
 lucas = [2, 1, ... a + b]
 
 // Print comparison
-[0..10] { print(fib[i]) }[0..10] { print(lucas[i]) }
+[0..10] {
+    print(fib[i])
+}
+[0..10] {
+    print(lucas[i])
+}

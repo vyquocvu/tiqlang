@@ -5,9 +5,9 @@
 max_sub_array nums -> {
     n = len(nums)
     best <- nums[0]
-    cur  <- nums[0]
+    cur <- nums[0]
     [1..n] {
-        cur  <- cur + nums[i] > nums[i] ? cur + nums[i] : nums[i]
+        cur <- cur + nums[i] > nums[i] ? cur + nums[i] : nums[i]
         best <- cur > best ? cur : best
     }
     best

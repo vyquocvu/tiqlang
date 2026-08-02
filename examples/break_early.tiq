@@ -1,1 +1,3 @@
-[0..10] { print(i); break }
+[0..10] {
+    print(i); break
+}

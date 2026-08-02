@@ -3,4 +3,6 @@
 penta = [0, ... x + i * 3 - 2]
 
 // Print first 11 pentagonal numbers
-[0..11] { print(penta[i]) }
+[0..11] {
+    print(penta[i])
+}

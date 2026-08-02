@@ -11,4 +11,12 @@ dbl_fib = [0, 2, ... a + b]
 negafib = [0, 1, ... a - b]
 
 // Print sequences
-[0..10] { print(fib[i]) }[0..10] { print(dbl_fib[i]) }[0..10] { print(negafib[i]) }
+[0..10] {
+    print(fib[i])
+}
+[0..10] {
+    print(dbl_fib[i])
+}
+[0..10] {
+    print(negafib[i])
+}

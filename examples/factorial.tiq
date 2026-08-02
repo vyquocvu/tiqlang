@@ -3,9 +3,9 @@
 fact = [1, ... i * x]
 
 // Test
-print(fact[0])   // 1 (0!)
-print(fact[1])   // 1 (1!)
-print(fact[2])   // 2 (2!)
-print(fact[3])   // 6 (3!)
-print(fact[4])   // 24 (4!)
-print(fact[5])   // 120 (5!)
+print(fact[0]) // 1 (0!)
+print(fact[1]) // 1 (1!)
+print(fact[2]) // 2 (2!)
+print(fact[3]) // 6 (3!)
+print(fact[4]) // 24 (4!)
+print(fact[5]) // 120 (5!)
