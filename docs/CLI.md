@@ -31,6 +31,7 @@ Developer tooling is written in Tiq and built from `src/tiq/tools/` by the boots
 ```text
 tiq test [--verbose] [--list] [--tiq <compiler>] [dir|file...]
 tiq fmt [--check] [--output <file>] [--use-tabs] [--indent-width <n>] [file]
+tiq bench [-i N] <file|dir>...
 ```
 
 - `tiq test` discovers `.tiq` files (non-recursively, hidden names skipped), extracts the expected stdout from `//! expected:` marker lines (LANGUAGE_SPEC §2.1), builds and runs each test with the given compiler, and reports a `Tests: N passed, M failed, K skipped` summary on stdout. Failures and surfaced compiler diagnostics go to stderr. Exit code is 1 iff any test failed.
@@ -42,6 +43,9 @@ tiq fmt [--check] [--output <file>] [--use-tabs] [--indent-width <n>] [file]
 - `--check` compares the input to the formatted output without writing anything; it exits 0 when they are byte-identical and prints `<file>: not formatted` to stderr and exits 1 otherwise. `--check` requires a file argument and cannot be combined with `--output`.
 - `--use-tabs` indents with tabs; otherwise `--indent-width <n>` (default 4) spaces per level are used. `--indent-width` must be `>= 1`.
 - A lexical error in the input fails closed: the formatter exits 1 with the located diagnostic on stderr. `--output` and stdin failures also exit 1; unknown options, a missing `--indent-width`/`--output` argument, or an invalid width exit 2.
+
+- `tiq bench` measures the self-hosted compiler's per-phase time (lexer, parser, semantic checker) for each target — a named `.tiq` file or every `.tiq` file in a directory (non-recursive, hidden names skipped, sorted order). Each file is flattened (`mod_flatten`, LANGUAGE_SPEC §3.4) exactly as the real driver does, then each phase is timed with the monotonic `clock_ms` builtin (§19.6) over `-i N` iterations (default 1) of fresh driver state. It reports per-phase average milliseconds, the flattened source size in bytes, and end-to-end throughput in bytes/second. Output is deterministic in structure; timings are machine-dependent.
+- `tiq bench` exits 1 if a target cannot be read, and 2 for no targets or a non-positive `-i`. The numbers establish the baseline tracked in OPTIMIZATION_PLAN.md (M21).
 
 ### Canonical formatting rules
 
@@ -71,7 +75,6 @@ tiq build <package> --release
 Developer tooling is implemented as Tiq programs (`src/tiq/tools/*.tiq`) after self-hosting (POST_BOOTSTRAP_ROADMAP M14); see "Developer tooling" above. Planned:
 
 ```text
-tiq bench [-v] [-i N] [-q] <file|dir>...
 tiq init [name]
 tiq lsp [--root <path>]
 tiq cache [clear|path]

@@ -943,6 +943,8 @@ static void check_node(SemanticContext *ctx, AstNode *node) {
                         // M10.1: CLI argument builtins (LANGUAGE_SPEC §18.1)
                         {"cli_arg_count", 13, 0, TYPE_INT, TYPE_INT, TYPE_UNKNOWN},
                         {"cli_arg",        7, 1, TYPE_INT, TYPE_STR, TYPE_UNKNOWN},
+                        // M14.3: monotonic millisecond clock (LANGUAGE_SPEC §19.6).
+                        {"clock_ms",       8, 0, TYPE_INT, TYPE_INT, TYPE_UNKNOWN},
                     };
                     bool matched = false;
                     for (int bi = 0; bi < (int)(sizeof builtins / sizeof builtins[0]); bi++) {

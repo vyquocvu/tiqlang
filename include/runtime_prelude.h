@@ -22,6 +22,7 @@ static const char TIQ_CORE_RUNTIME_PRELUDE[] =
     "#include <sys/event.h>\n"
     "#include <dirent.h>\n"
     "#include <unistd.h>\n"
+    "#include <time.h>\n"
     "typedef struct { const void *ptr; int len; } TiqSlice;\n"
     "typedef struct { int64_t value; int has_value; } TiqOption;\n"
     "typedef struct { int64_t value; int64_t error; int is_ok; } TiqResult;\n\n"

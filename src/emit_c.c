@@ -943,6 +943,7 @@ static void emit_expr(AstNode *node, EmitContext *ctx) {
                     {"proc_exit", 9, "tiq_proc_exit"}, {"json_parse_int", 14, "tiq_json_parse_int"},
                     {"json_encode_str", 15, "tiq_json_encode_str"}, {"net_fetch", 9, "tiq_net_fetch"},
                     {"cli_arg_count", 13, "tiq_cli_arg_count"}, {"cli_arg", 7, "tiq_cli_arg"},
+                    {"clock_ms", 8, "tiq_clock_ms"},
                     {"json_get", 8, "tiq_json_get"},
                     {"json_arr_len", 12, "tiq_json_arr_len"}, {"json_arr_get", 12, "tiq_json_arr_get"},
                     {"json_view", 9, "tiq_json_view"},

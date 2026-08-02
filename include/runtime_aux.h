@@ -74,6 +74,12 @@ static const char TIQ_RUNTIME_PRELUDE_AUX1[] =
     "    return tiq_argc > 0 ? tiq_argc - 1 : 0;\n"
     "}\n\n"
 
+    "static int64_t tiq_clock_ms(void) {\n"
+    "    struct timespec ts;\n"
+    "    clock_gettime(CLOCK_MONOTONIC, &ts);\n"
+    "    return (int64_t)ts.tv_sec * 1000 + ts.tv_nsec / 1000000;\n"
+    "}\n\n"
+
     "static const char *tiq_cli_arg(int64_t i) {\n"
     "    if (i < 0 || i + 1 >= tiq_argc) return \"\";\n"
     "    return tiq_argv[i + 1];\n"

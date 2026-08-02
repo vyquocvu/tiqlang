@@ -1,0 +1,161 @@
+// M14.3-T3: compiler phase benchmark (`tiq bench`). For each target — a named
+// `.tiq` file or every `.tiq` file in a directory (non-recursive, hidden
+// names skipped) — flattens the source with mod_flatten (as the real drivers
+// do, so multi-module compiler files import cleanly), then runs the
+// self-hosted lexer, parser, and semantic checker for `-i N` iterations,
+// timing each phase with `clock_ms` (LANGUAGE_SPEC §19.6), and reports
+// per-phase average milliseconds plus end-to-end bytes/second throughput.
+//
+// Phase times are averages over the iteration count; a single pass over a
+// tiny file can be sub-millisecond, so small inputs report 0 ms per phase and
+// a real throughput only when enough iterations amortize to a measurable
+// total. The output format is stable for the harness; the numbers are
+// inherently machine-dependent.
+//
+// Determinism: directories are enumerated with fs_list (sorted), files run
+// in that order, and no path/environment information other than the caller's
+// own argument reaches the output.
+
+import "../lexer.tiq"
+import "../parser.tiq"
+import "../semantic.tiq"
+import "../module.tiq"
+
+ends_with s:str suf:str -> i64 -> {
+    n <- len(s)
+    m <- len(suf)
+    r <- 0
+    ?[m <= n && str_eq(str_sub(s, n - m, n), suf)] { r <- 1 }
+    r
+}
+
+pad3 n:i64 -> str -> {
+    b <- str_buf_new()
+    ?[n < 100] { str_buf_append(b, " ") }
+    ?[n < 10] { str_buf_append(b, " ") }
+    str_buf_append(b, int_str(n))
+    str_buf_to_str(b)
+}
+
+// Benchmark one file. Accumulates the three phase times across `iter`
+// iterations (fresh driver state per iteration, exactly like the C parser
+// init), then prints per-phase averages and throughput to stdout.
+bench_file path:str iter:i64 -> i64 -> {
+    ?[str_eq(fs_read(path), "")] {
+        eprint(str_cat("tiq bench: cannot read ", path))
+        proc_exit(1)
+    }
+    source <- mod_flatten(path)
+    size <- len(source)
+    lex_acc <- 0
+    par_acc <- 0
+    sem_acc <- 0
+    k <- 0
+    [k < iter] {
+        toks <- vec_new()
+        t0 <- clock_ms()
+        lex_err <- lex_scan(source, path, toks)
+        t1 <- clock_ms()
+        lex_acc <- lex_acc + (t1 - t0)
+
+        st <- vec_new()
+        vec_push(st, 0)
+        vec_push(st, 0)
+        vec_push(st, 0)
+        vec_push(st, 0)
+        first <- p_peek(toks, 0)
+        vec_set(st, PS.Cur, first)
+        vec_set(st, PS.Prev, first)
+        vec_set(st, PS.HasErr, lex_err)
+        nodes <- vec_new()
+        kids <- vec_new()
+        sk <- vec_new()
+        sk2 <- vec_new()
+        tops <- vec_new()
+        t2 <- clock_ms()
+        parse_err <- p_parse(source, path, toks, st, nodes, kids, sk, sk2, tops)
+        t3 <- clock_ms()
+        par_acc <- par_acc + (t3 - t2)
+
+        t4 <- clock_ms()
+        tp <- vec_new()
+        tpn <- vec_new()
+        types <- vec_new()
+        has_err <- semantic_run(source, path, toks, nodes, kids, tops, parse_err, tp, tpn, types)
+        t5 <- clock_ms()
+        sem_acc <- sem_acc + (t5 - t4)
+
+        k <- k + 1
+    }
+    lex_avg <- lex_acc / iter
+    par_avg <- par_acc / iter
+    sem_avg <- sem_acc / iter
+    tot_acc <- lex_acc + par_acc + sem_acc
+    tot_avg <- tot_acc / iter
+
+    print(str_cat(str_cat(str_cat(path, " ("), int_str(size)), " bytes)"))
+    print(str_cat("  lexer:     ", pad3(lex_avg)))
+    print(str_cat("  parser:    ", pad3(par_avg)))
+    print(str_cat("  semantic:  ", pad3(sem_avg)))
+    print(str_cat("  total:     ", pad3(tot_avg)))
+    ?[tot_acc > 0] {
+        thr <- size * iter * 1000 / tot_acc
+        print(str_cat(str_cat("  throughput: ", int_str(thr)), " bytes/s"))
+    }
+    ?[tot_acc == 0] { print("  throughput: (too fast to measure)") }
+    0
+}
+
+// Benchmark a whole target: a named .tiq file, or every .tiq file in a
+// directory (non-recursive). Files whose names begin with '.' are ignored.
+bench_target t:str iter:i64 files:vec[str] -> i64 -> {
+    ?[ends_with(t, ".tiq") == 1] {
+        vec_push(files, t)
+    }
+    ?[ends_with(t, ".tiq") == 0] {
+        names <- fs_list(t)
+        n <- len(names)
+        pos <- 0
+        [pos < n] {
+            e <- pos
+            [e < n && str_sub_code(names, e) != 10] { e <- e + 1 }
+            name <- str_sub(names, pos, e)
+            ?[str_sub_code(name, 0) != 46 && ends_with(name, ".tiq") == 1] {
+                vec_push(files, str_cat(str_cat(t, "/"), name))
+            }
+            pos <- e + 1
+        }
+    }
+    0
+}
+
+iter <- 1
+files <- vec_new()
+nargs <- cli_arg_count()
+i <- 0
+[i < nargs] {
+    a <- cli_arg(i)
+    used <- 0
+    ?[str_eq(a, "-i") && i + 1 < nargs] {
+        i <- i + 1
+        iter <- json_parse_int(cli_arg(i))
+        used <- 1
+    }
+    ?[used == 0 && str_sub_code(a, 0) != 45] { bench_target(a, iter, files) }
+    i <- i + 1
+}
+?[iter < 1] {
+    eprint("tiq bench: -i iterations must be a positive integer")
+    proc_exit(2)
+}
+?[vec_len(files) == 0] {
+    eprint("tiq bench: no .tiq files given")
+    proc_exit(2)
+}
+print("=== Benchmark Results ===")
+j <- 0
+[j < vec_len(files)] { bench_file(vec_get(files, j), iter); j <- j + 1 }
+print("=== Summary ===")
+print(str_cat("Files:       ", int_str(vec_len(files))))
+print(str_cat("Iterations:  ", int_str(iter)))
+0

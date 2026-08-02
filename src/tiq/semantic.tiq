@@ -311,7 +311,7 @@ chk_generic_arity nm:str -> i64 -> {
     ?[str_eq(nm, "str_cat") || str_eq(nm, "fs_write") || str_eq(nm, "str_eq") || str_eq(nm, "json_get") || str_eq(nm, "json_arr_get") || str_eq(nm, "json_view") || str_eq(nm, "json_has") || str_eq(nm, "json_del") || str_eq(nm, "net_send") || str_eq(nm, "http_header") || str_eq(nm, "ev_add") || str_eq(nm, "ev_wait") || str_eq(nm, "ev_ready") || str_eq(nm, "str_sub_code")] ar <- 2
     ?[str_eq(nm, "int_str") || str_eq(nm, "eprint") || str_eq(nm, "fs_read") || str_eq(nm, "fs_exists") || str_eq(nm, "fs_list") || str_eq(nm, "proc_exec") || str_eq(nm, "proc_exit") || str_eq(nm, "net_fetch") || str_eq(nm, "cli_arg") || str_eq(nm, "json_parse_int") || str_eq(nm, "json_encode_str") || str_eq(nm, "json_arr_len") || str_eq(nm, "net_listen") || str_eq(nm, "net_accept") || str_eq(nm, "net_connect") || str_eq(nm, "net_recv") || str_eq(nm, "net_close") || str_eq(nm, "net_port") || str_eq(nm, "net_shutdown") || str_eq(nm, "http_method") || str_eq(nm, "http_path")] ar <- 1
     ?[str_eq(nm, "str_sub") || str_eq(nm, "json_set")] ar <- 3
-    ?[str_eq(nm, "cli_arg_count") || str_eq(nm, "ev_loop")] ar <- 0
+    ?[str_eq(nm, "cli_arg_count") || str_eq(nm, "ev_loop") || str_eq(nm, "clock_ms")] ar <- 0
     ar
 }
 
@@ -360,6 +360,7 @@ chk_generic ctx:vec[int] path:str toks:vec[Token] nodes:vec[int] kids:vec[int] t
     ?[str_eq(nm, "ev_add")] { ar <- 2; exp <- TY.Int; ret <- TY.Int; exp2 <- TY.Int; hit <- 1 }
     ?[str_eq(nm, "ev_wait")] { ar <- 2; exp <- TY.Int; ret <- TY.Int; exp2 <- TY.Int; hit <- 1 }
     ?[str_eq(nm, "ev_ready")] { ar <- 2; exp <- TY.Int; ret <- TY.Int; exp2 <- TY.Int; hit <- 1 }
+    ?[str_eq(nm, "clock_ms")] { ar <- 0; exp <- TY.Int; ret <- TY.Int; exp2 <- 0; hit <- 1 }
     ?[hit == 0] r <- 0
     // hit == 1: check arity + arg types
     ?[hit == 1 && c1 != ar] { msg <- str_cat(str_cat(str_cat(nm, " expects exactly "), int_str(ar)), ar == 1 ? " argument" : " arguments"); s_diag(ctx, path, ln, 12, msg); vec_set(types, ni, ty_get(tp, tpn, ret)); r <- 1; hit <- 0 }

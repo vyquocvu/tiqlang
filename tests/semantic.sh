@@ -644,6 +644,18 @@ assert_semantic "fs_list_bad_arity" 'x = fs_list()
 assert_semantic "fs_list_bad_type" 'x = fs_list(42)
 ' "$TMP_DIR/fs_list_bad_type.tiq:1: error[E09]: fs_list argument: expected str, found int"
 
+# M14.3: monotonic clock builtin (LANGUAGE_SPEC §19.6).
+assert_semantic_ast "typed_clock_ms" 'n = clock_ms()
+' 'BINDING n <TYPE_INT>
+  CALL <TYPE_INT>
+    IDENT clock_ms'
+
+assert_semantic "clock_ms_bad_arity" 'x = clock_ms(1)
+' "$TMP_DIR/clock_ms_bad_arity.tiq:1: error[E12]: clock_ms expects exactly 0 arguments"
+
+assert_semantic "clock_ms_used_as_str" 'x = clock_ms() + "ms"
+' "$TMP_DIR/clock_ms_used_as_str.tiq:1: error[E09]: type mismatch: expected int, found str"
+
 # M13.1-P2: enum declarations (LANGUAGE_SPEC §17.5).
 assert_semantic "enum_duplicate" 'enum Color { Red }
 enum Color { Blue }

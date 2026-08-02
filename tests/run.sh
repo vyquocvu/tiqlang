@@ -135,6 +135,26 @@ else
     exit 1
 fi
 
+# M14.3: monotonic clock builtin — a monotonic clock never runs backwards,
+# so a later read is always >= an earlier read (LANGUAGE_SPEC §19.6).
+cat > "$TMP/clock.tiq" << 'EOF'
+a <- clock_ms()
+b <- clock_ms()
+print(b >= a)
+print(clock_ms() >= 0)
+EOF
+OUTPUT=$($TIQ run "$TMP/clock.tiq")
+EXPECTED="true
+true"
+if [ "$OUTPUT" = "$EXPECTED" ]; then
+    echo "run clock: passed"
+else
+    echo "run clock failed"
+    echo "expected: $EXPECTED"
+    echo "got: $OUTPUT"
+    exit 1
+fi
+
 # Test run on non-existent file
 if $TIQ run "$TMP/nonexistent.tiq" 2>/dev/null; then
     echo "run should have failed for non-existent file"

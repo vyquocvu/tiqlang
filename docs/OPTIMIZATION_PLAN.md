@@ -28,6 +28,33 @@ Total time: 0.195 ms   (front end only: lexer + parser + semantic)
 Inputs are tiny; per-file timings sit at timer resolution. Phase 4 items must cite
 these numbers plus a like-for-like after run on the same machine.
 
+### M14.3 / M21 baseline (recorded 2026-08-02)
+
+The C `benchmark.c` was removed with the pre-self-hosting tooling; `tiq bench` is now
+`src/tiq/tools/bench.tiq` (the self-hosted compiler phases, `mod_flatten` + `lex_scan` +
+`p_parse` + `semantic_run`, timed with `clock_ms`). First M21 baseline, Apple M1 Pro,
+Apple clang 21.0.0, `-O2`, `./build/tiq-bench`:
+
+```text
+examples/gcd.tiq, -i 2000 (flattened 122 bytes):
+  lexer:     0 ms   parser: 0 ms   semantic: 0 ms   total: 0 ms
+  throughput: 4.88 MB/s
+
+src/tiq/lexer.tiq, -i 20 (flattened 20.8 KB):
+  lexer:     15 ms   parser: 0 ms   semantic: 2 ms   total: 18 ms
+  throughput: 1.16 MB/s
+
+src/tiq/emit_c_main.tiq, -i 5 (flattened 304.9 KB, full compiler slice):
+  lexer:     3161 ms   parser: 10 ms   semantic: 268 ms   total: 3440 ms
+  throughput: 88.6 KB/s
+```
+
+Observations: per-phase ms values are averaged over iterations and report 0 when the
+whole run is sub-millisecond; on real compiler sources the lexer dominates the front
+end by ~10x over semantic analysis, and parser time is negligible. Baseline updates
+must record the flattened size and exact `-i` as above; future Phase 4 items cite
+before/after on the same file and iteration count.
+
 ## Phase 1 — Correctness and fail-closed gaps (highest impact)
 
 ### 1.1 — Formatter must not destroy comments (data loss)
