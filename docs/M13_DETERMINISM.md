@@ -123,8 +123,14 @@ risks for the byte-identity gate:
 
 Verification anchors for M13.6: `tests/determinism.sh` (single-file double-run
 byte-diff over 5 fixtures) and `tests/module.sh` case 8 (multi-module double-run
-byte-diff + path-leak grep). The 3-stage gate extends the same `cmp`-based
-methodology to the stage-1 vs stage-2 emitted C.
+byte-diff + path-leak grep). The 3-stage convergence gate is implemented by
+`tests/bootstrap.sh`: it builds `build/tiq-stage1` from the C bootstrap, runs
+`tiq-stage1 emit-c src/tiq/emit_c_main.tiq` → `build/stage1.c`, rebuilds
+`build/tiq-stage2` from `stage1.c` using the same host-cc flags as the C
+bootstrap's `build` command, runs `tiq-stage2 emit-c src/tiq/emit_c_main.tiq` →
+`build/stage2.c`, and asserts the two outputs are byte-identical. The
+convergence property proves the self-hosted compiler is a fixed point under
+self-application.
 
 ## Appendix A — Discrepancies (change-boundary audit, P1–P6 + P8)
 

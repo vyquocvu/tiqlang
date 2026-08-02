@@ -38,7 +38,12 @@ SPECIAL_TMPDIR="$TMP_DIR/tmp path;quote\"dir"
 mkdir -p "$SPECIAL_TMPDIR"
 TMPDIR="$SPECIAL_TMPDIR" ./build/tiq build examples/hello.tiq -o "$TMP_DIR/tmpdir-hello"
 [ -x "$TMP_DIR/tmpdir-hello" ]
-if find "$SPECIAL_TMPDIR" -mindepth 1 -print | grep . >/dev/null; then
+# Exclude Apple's xcrun compiler-launcher cache directory (`xcrun_db`) and
+# any other non-Tiq platform artifacts that the host C toolchain may create
+# in TMPDIR; the test only cares about files that the Tiq build path leaks.
+if find "$SPECIAL_TMPDIR" -mindepth 1 -print 2>/dev/null \
+     | grep -v -E '/(xcrun_db|org\.llvm\.clang)(\.dir)?(/.*)?$' \
+     | grep . >/dev/null; then
   echo "temporary C file was not removed" >&2
   exit 1
 fi

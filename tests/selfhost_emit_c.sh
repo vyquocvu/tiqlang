@@ -1,7 +1,9 @@
 #!/bin/sh
 # M13.5-P0: executable differential harness for the first self-hosted C11
-# emitter slice. M13.6 owns byte identity with the reference C emitter; this
-# package pins deterministic self-host output and observable program behavior.
+# emitter slice. M13.6 owns the 3-stage convergence identity (the selfhost
+# output is a fixed point under self-application, not byte-identical to the
+# reference emitter — see tests/bootstrap.sh); this package pins deterministic
+# self-host output and observable program behavior.
 set -u
 
 TIQ="${TIQ:-./build/tiq}"

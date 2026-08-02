@@ -54,6 +54,7 @@ test: $(TIQ) test-unit
 	sh tests/selfhost_parser.sh
 	sh tests/selfhost_semantic.sh
 	sh tests/selfhost_emit_c.sh
+	sh tests/bootstrap.sh
 	sh tests/check.sh
 	sh tests/run.sh
 
