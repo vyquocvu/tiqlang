@@ -30,11 +30,11 @@ bad <- 0 - 1
 ?[has_err == 0] {
     j <- 0
     [j < vec_len(tops) && bad == 0 - 1] {
-        bad <- ec_find_slice(nodes, kids, vec_get(tops, j))
+        bad <- ec_find_slice(nodes, kids, types, tp, vec_get(tops, j))
         j <- j + 1
     }
     ?[bad != 0 - 1] {
-        eprint(diag_line(path, tk_line(toks, nd_get(nodes, bad, NF.Tok)), 7, "self-hosted C emitter does not support slice expressions yet"))
+        eprint(diag_line(path, tk_line(toks, nd_get(nodes, bad, NF.Tok)), 7, "self-hosted C emitter does not support this expression yet"))
         has_err <- 1
     }
 }

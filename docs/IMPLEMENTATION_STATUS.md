@@ -4,7 +4,7 @@ Updated: 2026-08-02
 
 ## Current milestone
 
-M13.5 — Self-hosted C11 backend emitter (active; scalar-core P0 landed, aggregate/runtime/module/ownership coverage remains). See `docs/POST_BOOTSTRAP_ROADMAP.md` for milestone-level status.
+M13.5 — Self-hosted C11 backend emitter (active; scalar-core P0, arrays P1, slices P2 landed; struct/enum/option/stream/ownership/module coverage remains). See `docs/POST_BOOTSTRAP_ROADMAP.md` for milestone-level status.
 
 ## Bootstrap scope reduction (2026-07-30)
 
@@ -464,6 +464,10 @@ corrected audits. None of these milestones is complete.
   - `emit_c.tiq` now consumes the retained `TYPE_ARRAY` element/length metadata to emit typed fixed-size C declarations, array literal and fill initializers, compile-time `len(array)`, and indexed reads and writes (including compound assignment). Read bounds failures reproduce `tiq: index <i> out of bounds for array of length <n>`; write failures reproduce the bootstrap's distinct `tiq: index out of bounds for array of length <n>` text; both exit 1.
   - The emitter gained a recursive preflight traversal for slice nodes. A semantically valid slice now fails before any C bytes are written with source location and E07 (`self-hosted C emitter does not support slice expressions yet`), rather than reaching the old placeholder/fault path. This is the first fail-closed backend boundary; other unsupported families remain explicitly open.
   - `tests/selfhost_emit_c.sh` grew failing-first coverage (red confirmed: scalar declarations, call-style indexes, missing `len`, and a vec OOB fault) for array read/length, fill, simple and compound indexed assignment, and both OOB directions. It now covers 12 executable cases plus a located-E07/no-partial-stdout preflight case; repeat-emission determinism and strict generated-C compilation remain mandatory.
+- M13.5-P2: self-hosted slice/string-view backend (2026-08-02):
+  - `emit_c.tiq` now emits the `TiqSlice` typedef (`{ const void *ptr; int len; }`) in the generated C preamble and lowers slice operations: slice creation from fixed arrays (pointer arithmetic with `sizeof(int64_t)` stride, compile-time length for open-end), slice creation from slices (`.ptr` offset, `.len`-relative end), bounds-checked indexed reads (`tiq: index %lld out of bounds for slice of length %lld` + exit 1), `len(slice)` via `.len` field access, and bounds-checked indexed writes through `((int64_t*)(name.ptr))[idx]`. Typed `print` for slice/str_view uses `%.*s` formatting.
+  - The emitter preflight (`ec_find_slice`) now takes `types` and `tp` parameters and only rejects slice nodes whose result type is `TY.StrView` (string views); array/slice slices pass through to the lowering. The E07 message generalised to `self-hosted C emitter does not support this expression yet`.
+  - `tests/selfhost_emit_c.sh` grew 5 new executable cases (slice_basic, slice_open_end, slice_len, slice_of_slice, slice_open_start) and the fail-closed preflight now uses a string slice (`msg[1..]`) which produces str_view. Total: 17 core cases + 1 located-E07/no-partial-stdout preflight; repeat-emission determinism and strict C11 warnings-as-errors compilation remain mandatory. Full ASan/UBSan suite clean.
 
 ## Known bootstrap limitations
 

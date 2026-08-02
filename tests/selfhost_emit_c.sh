@@ -80,15 +80,37 @@ case_run "array_oob_read" 'xs = [1, 2]
 print(xs[2])'
 case_run "array_oob_write" 'xs <- [1, 2]
 xs[3] <- 9'
+case_run "slice_basic" 'xs = [10, 20, 30, 40, 50]
+s = xs[1..3]
+print(s[0])
+print(s[1])'
+case_run "slice_open_end" 'xs = [1, 2, 3, 4]
+s = xs[2..]
+print(s[0])
+print(s[1])'
+case_run "slice_len" 'xs = [5, 6, 7, 8, 9]
+s = xs[1..4]
+print(len(s))'
+case_run "slice_of_slice" 'xs = [10, 20, 30, 40, 50]
+s = xs[1..4]
+t = s[1..2]
+print(t[0])
+print(len(t))'
+case_run "slice_open_start" 'xs = [7, 8, 9, 10]
+s = xs[..2]
+print(s[0])
+print(s[1])
+print(len(s))'
 
 # Unsupported backend paths must fail closed before writing partial C.
-printf '%s\n' 'xs = [1, 2, 3]
-tail = xs[1..]
+# String slicing produces a str_view which is not yet supported.
+printf '%s\n' 'msg = "hello"
+tail = msg[1..]
 print(len(tail))' >"$TMP_DIR/unsupported_slice.tiq"
 "$SELFHOST" "$TMP_DIR/unsupported_slice.tiq" >"$TMP_DIR/unsupported_slice.out" 2>"$TMP_DIR/unsupported_slice.err"
 unsupported_rc=$?
 if [ "$unsupported_rc" -eq 0 ] || [ -s "$TMP_DIR/unsupported_slice.out" ] ||
-   ! grep -q 'unsupported_slice.tiq:2: error\[E07\]: self-hosted C emitter does not support slice expressions yet' "$TMP_DIR/unsupported_slice.err"; then
+   ! grep -q 'unsupported_slice.tiq:2: error\[E07\]: self-hosted C emitter does not support this expression yet' "$TMP_DIR/unsupported_slice.err"; then
   echo "selfhost_emit_c: FAIL unsupported_slice (did not fail closed with located E07)" >&2
   cat "$TMP_DIR/unsupported_slice.err" >&2
   fail=1
