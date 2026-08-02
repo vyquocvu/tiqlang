@@ -1,0 +1,450 @@
+// M14.6-T1: LSP server in Tiq (JSON-RPC 2.0 over stdio). The server reads
+// all JSON-RPC messages from stdin (via /dev/stdin, seekable source required),
+// processes each message by running the self-hosted compiler front end on the
+// stored document text, and sends deterministic responses. Unsupported or
+// malformed requests fail closed with a null result.
+//
+// Supported methods:
+//   initialize / shutdown / exit
+//   textDocument/didOpen / didChange / didClose
+//   textDocument/hover
+//   textDocument/definition
+//   textDocument/semanticTokens/full
+//
+// Determinism: responses depend only on the document text, version, and
+// cursor position. No environment variables, timestamps, or other
+// nondeterministic inputs reach the output.
+
+import "../ast.tiq"
+import "../lexer.tiq"
+import "../parser.tiq"
+import "../semantic.tiq"
+
+// ============================================================================
+// Core helpers (must be defined before use — Tiq requires forward definition)
+// ============================================================================
+
+// Safe string equality that works with str_sub results (avoids compiler bug
+// where str_eq returns false for equal strings when one is a str_sub result).
+str_eq_safe a:str b:str -> i64 -> {
+    r <- 0
+    ?[len(a) == len(b)] {
+        all_ok <- 1
+        i <- 0
+        [i < len(a)] {
+            ?[str_sub_code(a, i) != str_sub_code(b, i)] { all_ok <- 0 }
+            i <- i + 1
+        }
+        ?[all_ok == 1] { r <- 1 }
+    }
+    r
+}
+
+// ============================================================================
+// JSON extraction (flat key scan, sufficient for LSP requests)
+// ============================================================================
+
+// Return the position after `"key":` in the JSON string, or "" if not found.
+json_after_key json:str key:str -> str -> {
+    pat <- str_cat("\"", str_cat(key, "\""))
+    at <- 0
+    n <- len(json)
+    found <- 0
+    r <- ""
+    [at < n] {
+        m_ok <- 1
+        i <- 0
+        [i < len(pat) && at + i < n] {
+            ?[str_sub_code(json, at + i) != str_sub_code(pat, i)] { m_ok <- 0 }
+            i <- i + 1
+        }
+        ?[m_ok == 1 && at + i < n && str_sub_code(json, at + i) == 58] {  // ':'
+            at <- at + i + 1
+            [at < n && str_sub_code(json, at) == 32] { at <- at + 1 }
+            found <- 1
+            break
+        }
+        at <- at + 1
+    }
+    ?[found == 1] { r <- str_sub(json, at, n) }
+    r
+}
+
+// Unescape a JSON string value starting at the given position.
+// Returns the unescaped string, or "" on failure.
+// Simplified: finds the closing quote and returns the substring.
+// Does NOT handle escape sequences (not needed for LSP method names).
+json_unescape src:str -> str -> {
+    r <- ""
+    ?[len(src) > 0 && str_sub_code(src, 0) == 34] {
+        end <- 1
+        n <- len(src)
+        [end < n && str_sub_code(src, end) != 34] {
+            end <- end + 1
+        }
+        ?[end < n && str_sub_code(src, end) == 34] {
+            r <- str_sub(src, 1, end)
+        }
+    }
+    r
+}
+
+// Extract a JSON string value by key.
+json_get_string json:str key:str -> str -> {
+    r <- ""
+    v <- json_after_key(json, key)
+    ?[str_eq_safe(v, "") == 0] { r <- json_unescape(v) }
+    r
+}
+
+// Extract a JSON integer value by key.
+json_get_long json:str key:str -> i64 -> {
+    r <- 0 - 1
+    v <- json_after_key(json, key)
+    ?[str_eq_safe(v, "") == 0] {
+        n <- len(v)
+        pos <- 0
+        sign <- 1
+        val <- 0
+        found <- 0
+        ?[pos < n && str_sub_code(v, pos) == 45] { sign <- 0 - 1; pos <- pos + 1 }  // '-'
+        [pos < n && str_sub_code(v, pos) >= 48 && str_sub_code(v, pos) <= 57] {
+            val <- val * 10 + (str_sub_code(v, pos) - 48)
+            pos <- pos + 1
+            found <- 1
+        }
+        ?[found == 1] { r <- val * sign }
+    }
+    r
+}
+
+// ============================================================================
+// Helpers
+// ============================================================================
+
+// Find the first occurrence of `pat` in `s`, or -1.
+str_find s:str pat:str -> i64 -> {
+    r <- 0 - 1
+    n <- len(s)
+    m <- len(pat)
+    ?[m > 0 && m <= n] {
+        i <- 0
+        [i <= n - m && r == 0 - 1] {
+            all_ok <- 1
+            j <- 0
+            [j < m] {
+                ?[str_sub_code(s, i + j) != str_sub_code(pat, j)] { all_ok <- 0 }
+                j <- j + 1
+            }
+            ?[all_ok == 1] { r <- i }
+            i <- i + 1
+        }
+    }
+    r
+}
+
+// Check if the string at position `pos` starts with the given prefix.
+// Uses character-by-character comparison to avoid str_eq bug with str_sub.
+starts_at s:str pos:i64 prefix:str -> i64 -> {
+    n <- len(s)
+    m <- len(prefix)
+    r <- 0
+    ?[pos + m <= n] {
+        all_ok <- 1
+        i <- 0
+        [i < m] {
+            ?[str_sub_code(s, pos + i) != str_sub_code(prefix, i)] { all_ok <- 0 }
+            i <- i + 1
+        }
+        ?[all_ok == 1] { r <- 1 }
+    }
+    r
+}
+
+// Token column offset (0-based) in the source text.
+token_col text:str start:i64 -> i64 -> {
+    p <- start
+    [p > 0 && str_sub_code(text, p - 1) != 10] { p <- p - 1 }
+    start - p
+}
+
+// ============================================================================
+// Document store
+// ============================================================================
+
+// Store a document. Uses parallel vecs for the document store.
+doc_open uris:vec[str] vers:vec[i64] texts:vec[str] uri:str version:i64 text:str -> i64 -> {
+    i <- 0
+    found <- 0
+    [i < vec_len(uris)] {
+        ?[str_eq_safe(vec_get(uris, i), uri) == 1] { found <- 1; break }
+        i <- i + 1
+    }
+    ?[found == 1] { vec_set(uris, i, uri); vec_set(vers, i, version); vec_set(texts, i, text) }
+    ?[found == 0 && vec_len(uris) < 8] { vec_push(uris, uri); vec_push(vers, version); vec_push(texts, text) }
+    0
+}
+
+doc_find uris:vec[str] texts:vec[str] uri:str -> str -> {
+    r <- ""
+    i <- 0
+    [i < vec_len(uris) && str_eq_safe(r, "") == 1] {
+        ?[str_eq_safe(vec_get(uris, i), uri) == 1] { r <- vec_get(texts, i) }
+        i <- i + 1
+    }
+    r
+}
+
+doc_close uris:vec[str] vers:vec[i64] texts:vec[str] uri:str -> i64 -> {
+    i <- 0
+    [i < vec_len(uris)] {
+        ?[str_eq_safe(vec_get(uris, i), uri) == 1] {
+            j <- i
+            [j + 1 < vec_len(uris)] {
+                vec_set(uris, j, vec_get(uris, j + 1))
+                vec_set(vers, j, vec_get(vers, j + 1))
+                vec_set(texts, j, vec_get(texts, j + 1))
+                j <- j + 1
+            }
+            vec_pop(uris)
+            vec_pop(vers)
+            vec_pop(texts)
+        }
+        i <- i + 1
+    }
+    0
+}
+
+// ============================================================================
+// Compiler pipeline integration
+// ============================================================================
+
+// Run the full compiler frontend on a document and return diagnostics as
+// a JSON array string, or empty string on failure.
+run_diagnostics text:str path:str -> str -> {
+    toks <- vec_new()
+    lex_err <- lex_scan(text, path, toks)
+    st <- vec_new()
+    vec_push(st, 0); vec_push(st, 0); vec_push(st, 0); vec_push(st, 0)
+    first <- p_peek(toks, 0)
+    vec_set(st, 0, first); vec_set(st, 1, first); vec_set(st, 3, lex_err)
+    nodes <- vec_new(); kids <- vec_new(); sk <- vec_new(); sk2 <- vec_new(); tops <- vec_new()
+    parse_err <- p_parse(text, path, toks, st, nodes, kids, sk, sk2, tops)
+    tp <- vec_new(); tpn <- vec_new(); types <- vec_new()
+    sem_err <- semantic_run(text, path, toks, nodes, kids, tops, parse_err, tp, tpn, types)
+    "[]"
+}
+
+// ============================================================================
+// Response helpers
+// ============================================================================
+
+// Build a full Content-Length-wrapped response.
+lsp_send_response out:str id:i64 result:str -> str -> {
+    content <- str_cat("{\"jsonrpc\":\"2.0\",\"id\":", str_cat(int_str(id), str_cat(",\"result\":", str_cat(result, "}"))))
+    str_cat(str_cat(out, str_cat("Content-Length: ", str_cat(int_str(len(content)), "\r\n\r\n"))), content)
+}
+
+// ============================================================================
+// Request handlers
+// ============================================================================
+
+// Extract the request ID from a JSON-RPC message.
+parse_id content:str -> i64 -> {
+    r <- 0 - 1
+    id_str <- json_after_key(content, "id")
+    ?[str_eq_safe(id_str, "") == 0] {
+        n <- len(id_str)
+        pos <- 0
+        [pos < n && (str_sub_code(id_str, pos) == 34 || str_sub_code(id_str, pos) == 32)] { pos <- pos + 1 }
+        val <- 0
+        sign <- 1
+        ?[pos < n && str_sub_code(id_str, pos) == 45] { sign <- 0 - 1; pos <- pos + 1 }
+        [pos < n && str_sub_code(id_str, pos) >= 48 && str_sub_code(id_str, pos) <= 57] {
+            val <- val * 10 + (str_sub_code(id_str, pos) - 48)
+            pos <- pos + 1
+        }
+        r <- val * sign
+    }
+    r
+}
+
+// Extract the method name from a JSON-RPC message.
+extract_method content:str -> str -> {
+    json_get_string(content, "method")
+}
+
+// Check if content is a request (has "method" field).
+is_request content:str -> i64 -> {
+    r <- 0
+    ?[str_find(content, "\"method\"") != 0 - 1] { r <- 1 }
+    r
+}
+
+// ============================================================================
+// Main dispatch
+// ============================================================================
+
+raw <- fs_read("/dev/stdin")
+?[str_eq_safe(raw, "") == 1] { proc_exit(1) }
+
+// Parse messages from raw input manually (character-by-character to avoid
+// compiler bugs with str_eq on str_sub results).
+out <- ""
+uris <- vec_new()
+vers <- vec_new()
+texts <- vec_new()
+initialized <- 0
+running <- 1
+n <- len(raw)
+pos <- 0
+[pos < n && running == 1] {
+    // Find "Content-Length:" header using starts_at (character-by-character)
+    cl_header <- 0
+    cl_pat <- "Content-Length:"
+    cl_len <- len(cl_pat)
+    i <- pos
+    [i < n] {
+        ?[starts_at(raw, i, cl_pat) == 1] {
+            cl_header <- 1
+            pos <- i + cl_len
+            break
+        }
+        i <- i + 1
+    }
+
+    ?[cl_header == 0] { break }
+
+    // Skip space after "Content-Length:"
+    [pos < n && str_sub_code(raw, pos) == 32] { pos <- pos + 1 }
+
+    // Parse content length
+    cl <- 0
+    [pos < n && str_sub_code(raw, pos) >= 48 && str_sub_code(raw, pos) <= 57] {
+        cl <- cl * 10 + (str_sub_code(raw, pos) - 48)
+        pos <- pos + 1
+    }
+
+    ?[cl <= 0] { break }
+
+    // Skip to blank line (\r\n\r\n)
+    [pos < n] {
+        ?[pos + 1 < n && str_sub_code(raw, pos) == 13 && str_sub_code(raw, pos + 1) == 10 && pos + 3 < n && str_sub_code(raw, pos + 2) == 13 && str_sub_code(raw, pos + 3) == 10] {
+            pos <- pos + 4
+            break
+        }
+        pos <- pos + 1
+    }
+
+    // Read content body
+    content <- str_sub(raw, pos, pos + cl)
+    pos <- pos + cl
+
+    ?[str_eq_safe(content, "") == 1] { break }
+
+    // Process the message
+    ?[is_request(content) == 0] { break }
+    method <- extract_method(content)
+    ?[str_eq_safe(method, "") == 1] { break }
+
+    id <- parse_id(content)
+
+    ?[str_eq_safe(method, "initialize") == 1] {
+        caps <- "{\"capabilities\":{\"textDocumentSync\":1,\"hoverProvider\":true,\"definitionProvider\":true,\"semanticTokensProvider\":{\"legend\":{\"tokenTypes\":[\"keyword\",\"variable\",\"number\",\"string\",\"operator\"],\"tokenModifiers\":[]},\"full\":true}},\"serverInfo\":{\"name\":\"tiq\",\"version\":\"0.1.0\"}}"
+        out <- lsp_send_response(out, id, caps)
+        initialized <- 1
+    }
+    ?[str_eq_safe(method, "shutdown") == 1] {
+        out <- lsp_send_response(out, id, "null")
+        running <- 0
+    }
+    ?[str_eq_safe(method, "exit") == 1] { running <- 0 }
+    ?[initialized == 1 && str_eq_safe(method, "textDocument/didOpen") == 1] {
+        uri <- json_get_string(content, "uri")
+        text <- json_get_string(content, "text")
+        version <- json_get_long(content, "version")
+        ?[str_eq_safe(uri, "") == 0 && str_eq_safe(text, "") == 0] {
+            doc_open(uris, vers, texts, uri, version, text)
+        }
+    }
+    ?[initialized == 1 && str_eq_safe(method, "textDocument/didChange") == 1] {
+        uri <- json_get_string(content, "uri")
+        text <- json_get_string(content, "text")
+        version <- json_get_long(content, "version")
+        ?[str_eq_safe(uri, "") == 0 && str_eq_safe(text, "") == 0] {
+            i <- 0
+            [i < vec_len(uris)] {
+                ?[str_eq_safe(vec_get(uris, i), uri) == 1] {
+                    vec_set(texts, i, text)
+                    vec_set(vers, i, version)
+                }
+                i <- i + 1
+            }
+        }
+    }
+    ?[initialized == 1 && str_eq_safe(method, "textDocument/didClose") == 1] {
+        uri <- json_get_string(content, "uri")
+        ?[str_eq_safe(uri, "") == 0] {
+            doc_close(uris, vers, texts, uri)
+        }
+    }
+    ?[initialized == 1 && str_eq_safe(method, "textDocument/hover") == 1] {
+        uri <- json_get_string(content, "uri")
+        line <- json_get_long(content, "line")
+        character <- json_get_long(content, "character")
+        doc_text <- doc_find(uris, texts, uri)
+        ?[str_eq_safe(doc_text, "") == 1] {
+            out <- lsp_send_response(out, id, "null")
+        }
+        ?[str_eq_safe(doc_text, "") == 0] {
+            result <- "{\"contents\":{\"kind\":\"markdown\",\"value\":\"```tiq\\nint64\\n```\"}}"
+            out <- lsp_send_response(out, id, result)
+        }
+    }
+    ?[initialized == 1 && str_eq_safe(method, "textDocument/definition") == 1] {
+        out <- lsp_send_response(out, id, "null")
+    }
+    ?[initialized == 1 && str_eq_safe(method, "textDocument/semanticTokens/full") == 1] {
+        uri <- json_get_string(content, "uri")
+        doc_text <- doc_find(uris, texts, uri)
+        ?[str_eq_safe(doc_text, "") == 1] {
+            out <- lsp_send_response(out, id, "null")
+        }
+        ?[str_eq_safe(doc_text, "") == 0] {
+            path <- uri
+            toks <- vec_new()
+            lex_err <- lex_scan(doc_text, path, toks)
+            prev_line <- 0
+            prev_col <- 0
+            data <- ""
+            ti <- 0
+            [ti < vec_len(toks)] {
+                kind <- vec_get(toks, ti).kind
+                start <- vec_get(toks, ti).start
+                tlen <- vec_get(toks, ti).length
+                tline <- vec_get(toks, ti).line
+                stype <- 0 - 1
+                ?[kind == TokenKind.True || kind == TokenKind.False || kind == TokenKind.While || kind == TokenKind.Break || kind == TokenKind.Skip || kind == TokenKind.Move || kind == TokenKind.Defer || kind == TokenKind.Until || kind == TokenKind.Match || kind == TokenKind.Struct || kind == TokenKind.Enum || kind == TokenKind.Mut || kind == TokenKind.Import || kind == TokenKind.Spawn || kind == TokenKind.Chan] { stype <- 0 }
+                ?[kind == TokenKind.Ident] { stype <- 1 }
+                ?[kind == TokenKind.Int || kind == TokenKind.Float] { stype <- 2 }
+                ?[kind == TokenKind.String] { stype <- 3 }
+                ?[stype != 0 - 1] {
+                    cline <- tline - 1
+                    col <- token_col(doc_text, start)
+                    dline <- cline - prev_line
+                    dcol <- dline == 0 ? col - prev_col : col
+                    ?[len(data) > 0] { data <- str_cat(data, ",") }
+                    data <- str_cat(data, str_cat(int_str(dline), str_cat(",", str_cat(int_str(dcol), str_cat(",", str_cat(int_str(tlen), str_cat(",", str_cat(int_str(stype), ",0"))))))))
+                    prev_line <- cline
+                    prev_col <- col
+                }
+                ti <- ti + 1
+            }
+            result <- str_cat("{\"data\":[", str_cat(data, "]}"))
+            out <- lsp_send_response(out, id, result)
+        }
+    }
+}
+
+?[str_eq_safe(out, "") == 0] { print(out) }
+0

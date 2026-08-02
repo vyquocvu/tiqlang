@@ -34,6 +34,8 @@ tiq fmt [--check] [--output <file>] [--use-tabs] [--indent-width <n>] [file]
 tiq bench [-i N] <file|dir>...
 tiq init [name]
 tiq init --check <file.tiq.toml>
+tiq cache clear
+tiq cache <path>
 ```
 
 - `tiq test` discovers `.tiq` files (non-recursively, hidden names skipped), extracts the expected stdout from `//! expected:` marker lines (LANGUAGE_SPEC §2.1), builds and runs each test with the given compiler, and reports a `Tests: N passed, M failed, K skipped` summary on stdout. Failures and surfaced compiler diagnostics go to stderr. Exit code is 1 iff any test failed.
@@ -51,6 +53,9 @@ tiq init --check <file.tiq.toml>
 
 - `tiq init [name]` scaffolds a package manifest. With no argument it writes the deterministic template to `tiq.toml` for the default package name `my-package`; with an argument it writes `<name>.tiq.toml` with `name = "<name>"` (see "Package manifests" below for the template). It refuses to clobber an existing manifest: an existing target exits 1 with `<path> already exists` on stderr and nothing is written. An invalid package name (empty, `.`/`..`, or any character other than ASCII letters/digits/`-`/`_`/`.`) exits 2 before any file is touched.
 - `tiq init --check <file.tiq.toml>` validates an existing manifest without writing anything: it exits 0 when the file parses and satisfies the manifest rules, and exits 1 with one or more located `path:line: error[E30]: ...` diagnostics on stderr otherwise. An unreadable or missing file exits 1 with `cannot read` on stderr. Unknown options, `--check` without an argument, and extra positional arguments exit 2.
+
+- `tiq cache clear` removes all cached entries from the compiler's artifact cache directory (`/tmp/.tiq-cache`). Exits 0 on success, 1 if the removal fails.
+- `tiq cache <path>` prints the cache entry path for a source file when the file has a valid cache entry (exit 0), or prints `not cached: <path>` to stderr and exits 1 when the file is not cached or the cache entry is stale (source content changed). The cache uses an FNV-1a content hash of the source file for validation; a cache entry is valid only when the stored hash matches the current source content. Unknown options and extra arguments exit 2.
 
 ### Package manifests
 
@@ -100,7 +105,6 @@ Developer tooling is implemented as Tiq programs (`src/tiq/tools/*.tiq`) after s
 
 ```text
 tiq lsp [--root <path>]
-tiq cache [clear|path]
 ```
 
 The removed C implementations remain available in git history.

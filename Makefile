@@ -4,7 +4,7 @@ CFLAGS ?= -std=c11 -Wall -Wextra -Wpedantic -Werror -O2
 BUILD := build
 TIQ := $(BUILD)/tiq
 
-.PHONY: all clean test test-unit test-fuzz example test-check test-run tool-test tool-fmt tool-bench tool-init
+.PHONY: all clean test test-unit test-fuzz example test-check test-run tool-test tool-fmt tool-bench tool-init tool-cache tool-lsp
 
 # Build the unit runner with the same flags as the compiler. Besides keeping
 # `make` useful as a complete build gate, this preserves sanitizer link flags
@@ -59,6 +59,8 @@ test: $(TIQ) test-unit
 	sh tests/formatter_tool.sh
 	sh tests/bench_tool.sh
 	sh tests/init_tool.sh
+	sh tests/cache_tool.sh
+	sh tests/lsp_tool.sh
 	sh tests/check.sh
 	sh tests/run.sh
 
@@ -89,6 +91,17 @@ tool-bench: $(TIQ)
 # validation diagnostics, usage errors, and ASan/UBSan on the emitted C.
 tool-init: $(TIQ)
 	sh tests/init_tool.sh
+
+# M14.5: build the Tiq incremental module cache via the bootstrap and verify
+# fail-closed usage, cache status, cache clear, and ASan/UBSan.
+tool-cache: $(TIQ)
+	sh tests/cache_tool.sh
+
+# M14.6: build the Tiq LSP server via the bootstrap and verify the JSON-RPC
+# handshake, document sync, hover, definition, semantic tokens, and
+# fail-closed behavior.
+tool-lsp: $(TIQ)
+	sh tests/lsp_tool.sh
 
 clean:
 	rm -rf $(BUILD)
