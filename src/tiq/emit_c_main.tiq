@@ -2,9 +2,10 @@
 // backend slice. The final print supplies the generated file's last newline.
 
 import "emit_c.tiq"
+import "module.tiq"
 
 path = cli_arg(0)
-source = fs_read(path)
+source = mod_flatten(path)
 toks = vec_new()
 lex_err = lex_scan(source, path, toks)
 st = vec_new()
@@ -30,7 +31,7 @@ bad <- 0 - 1
 ?[has_err == 0] {
     j <- 0
     [j < vec_len(tops) && bad == 0 - 1] {
-        bad <- ec_find_slice(nodes, kids, types, tp, vec_get(tops, j))
+        bad <- ec_find_unsupported(source, toks, nodes, kids, types, tp, vec_get(tops, j))
         j <- j + 1
     }
     ?[bad != 0 - 1] {

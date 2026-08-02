@@ -325,6 +325,7 @@ chk_generic ctx:vec[int] path:str toks:vec[Token] nodes:vec[int] kids:vec[int] t
     ?[str_eq(nm, "int_str")] { ar <- 1; exp <- TY.Int; ret <- TY.Str; exp2 <- 0; hit <- 1 }
     ?[str_eq(nm, "str_sub")] { ar <- 3; exp <- TY.Str; ret <- TY.Str; exp2 <- TY.Int; hit <- 1 }
     ?[str_eq(nm, "str_eq")] { ar <- 2; exp <- TY.Str; ret <- TY.Bool; exp2 <- 0; hit <- 1 }
+    ?[str_eq(nm, "str_sub_code")] { ar <- 2; exp <- TY.Str; ret <- TY.Int; exp2 <- TY.Int; hit <- 1 }
     ?[str_eq(nm, "eprint")] { ar <- 1; exp <- TY.Str; ret <- TY.Int; exp2 <- 0; hit <- 1 }
     ?[str_eq(nm, "fs_read")] { ar <- 1; exp <- TY.Str; ret <- TY.Str; exp2 <- 0; hit <- 1 }
     ?[str_eq(nm, "fs_write")] { ar <- 2; exp <- TY.Str; ret <- TY.Int; exp2 <- 0; hit <- 1 }

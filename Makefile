@@ -6,7 +6,10 @@ TIQ := $(BUILD)/tiq
 
 .PHONY: all clean test test-unit test-fuzz example test-check test-run
 
-all: $(TIQ)
+# Build the unit runner with the same flags as the compiler. Besides keeping
+# `make` useful as a complete build gate, this preserves sanitizer link flags
+# for the documented two-step `make CFLAGS=...` then `make test` workflow.
+all: $(TIQ) $(BUILD)/unit_tests
 
 SRCS = src/main.c src/emit_c.c src/lexer.c src/diag.c src/parser.c src/semantic.c \
        src/type.c src/arena.c src/module.c

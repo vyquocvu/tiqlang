@@ -1,0 +1,107 @@
+// M13.5 module flattener. Modules are appended in deterministic DFS
+// post-order after their import prefix is removed, so imported declarations
+// precede their importers in the single source consumed by the Tiq frontend.
+
+import "lexer.tiq"
+
+// Canonicalize the path spelling available to the self-hosted frontend. This
+// removes repeated separators plus `.`/`..` components before DFS identity
+// checks, covering the deterministic relative aliases used by Tiq modules.
+mod_norm path:str -> str -> {
+    parts = vec_new(); vec_push(parts, ""); init = vec_pop(parts)
+    absolute = len(path) > 0 && str_sub_code(path, 0) == 47
+    start <- 0; i <- 0
+    [i <= len(path)] {
+        ?[i == len(path) || str_sub_code(path, i) == 47] {
+            part = str_sub(path, start, i)
+            ?[len(part) > 0 && str_eq(part, ".") == false] {
+                ?[str_eq(part, "..")] {
+                    collapsed <- false
+                    ?[vec_len(parts) > 0 && str_eq(vec_get(parts, vec_len(parts) - 1), "..") == false] { old = vec_pop(parts); collapsed <- true }
+                    ?[collapsed == false && absolute == false] { vec_push(parts, part) }
+                }
+                ?[str_eq(part, "..") == false] { vec_push(parts, part) }
+            }
+            start <- i + 1
+        }
+        i <- i + 1
+    }
+    b = str_buf_new()
+    ?[absolute] { str_buf_append(b, "/") }
+    j <- 0
+    [j < vec_len(parts)] {
+        ?[j > 0] { str_buf_append(b, "/") }
+        str_buf_append(b, vec_get(parts, j)); j <- j + 1
+    }
+    str_buf_to_str(b)
+}
+
+mod_join importer:str rel:str -> str -> {
+    r <- rel
+    cut <- 0
+    ?[str_eq(str_sub(rel, 0, 1), "/") == false] {
+        i <- 0
+        [i < len(importer)] {
+            ?[str_sub_code(importer, i) == 47] { cut <- i + 1 }
+            i <- i + 1
+        }
+        r <- str_cat(str_sub(importer, 0, cut), rel)
+    }
+    mod_norm(r)
+}
+
+mod_flatten_one path:str seen:map stack:map out:strbuf -> i64 -> {
+    failed <- 0
+    done <- 0
+    ?[map_has(stack, path) && map_get(stack, path) == 1] { eprint(diag_line(path, 1, 28, str_cat("circular import: ", path))); failed <- 1; done <- 1 }
+    ?[done == 0 && map_has(seen, path)] { done <- 1 }
+    ?[done == 0] {
+        map_set(stack, path, 1)
+        ?[fs_exists(path) == false] { eprint(diag_line(path, 1, 27, str_cat("module not found: ", path))); failed <- 1 }
+        source = fs_read(path)
+        toks = vec_new()
+        ?[failed == 0] { failed <- lex_scan(source, path, toks) }
+        i <- 0
+        [tk_kind(toks, i) == TokenKind.Newline || tk_kind(toks, i) == TokenKind.Semicolon] { i <- i + 1 }
+        [failed == 0 && tk_kind(toks, i) == TokenKind.Import] {
+            imp = i
+            i <- i + 1
+            ?[tk_kind(toks, i) != TokenKind.String] {
+                eprint(diag_line(path, tk_line(toks, imp), 4, "expected string literal path after 'import'"))
+                failed <- 1
+                break
+            }
+            raw = tk_lex(source, toks, i)
+            rel = str_sub(raw, 1, len(raw) - 1)
+            child = mod_join(path, rel)
+            ?[fs_exists(child) == false] {
+                eprint(diag_line(path, tk_line(toks, imp), 27, str_cat("module not found: ", rel)))
+                failed <- 1
+            }
+            ?[failed == 0 && map_has(stack, child) && map_get(stack, child) == 1] {
+                eprint(diag_line(path, tk_line(toks, imp), 28, str_cat("circular import: ", child)))
+                failed <- 1
+            }
+            ?[failed == 0] { failed <- mod_flatten_one(child, seen, stack, out) }
+            i <- i + 1
+            [tk_kind(toks, i) == TokenKind.Newline || tk_kind(toks, i) == TokenKind.Semicolon] { i <- i + 1 }
+        }
+        ?[failed == 0] {
+            start = tk_start(toks, i)
+            str_buf_append(out, str_sub(source, start, len(source)))
+            str_buf_append(out, "\n")
+            map_set(seen, path, 1)
+        }
+        map_set(stack, path, 0)
+    }
+    failed
+}
+
+mod_flatten path:str -> str -> {
+    out = str_buf_new()
+    seen = map_new()
+    stack = map_new()
+    failed = mod_flatten_one(mod_norm(path), seen, stack, out)
+    ?[failed != 0] { proc_exit(1) }
+    str_buf_to_str(out)
+}

@@ -4,7 +4,7 @@ Updated: 2026-08-02
 
 ## Current milestone
 
-M13.5 — Self-hosted C11 backend emitter (active; scalar-core P0, arrays P1, slices P2 landed; struct/enum/option/stream/ownership/module coverage remains). See `docs/POST_BOOTSTRAP_ROADMAP.md` for milestone-level status.
+M13.5 — Self-hosted C11 backend emitter (complete 2026-08-02; full checked-language lowering, generated platform runtime, module dogfooding, §16.4 ownership, and exhaustive fail-closed coverage). M13.6 three-stage identity is next. See `docs/POST_BOOTSTRAP_ROADMAP.md` for milestone-level status.
 
 ## Bootstrap scope reduction (2026-07-30)
 
@@ -468,6 +468,17 @@ corrected audits. None of these milestones is complete.
   - `emit_c.tiq` now emits the `TiqSlice` typedef (`{ const void *ptr; int len; }`) in the generated C preamble and lowers slice operations: slice creation from fixed arrays (pointer arithmetic with `sizeof(int64_t)` stride, compile-time length for open-end), slice creation from slices (`.ptr` offset, `.len`-relative end), bounds-checked indexed reads (`tiq: index %lld out of bounds for slice of length %lld` + exit 1), `len(slice)` via `.len` field access, and bounds-checked indexed writes through `((int64_t*)(name.ptr))[idx]`. Typed `print` for slice/str_view uses `%.*s` formatting.
   - The emitter preflight (`ec_find_slice`) now takes `types` and `tp` parameters and only rejects slice nodes whose result type is `TY.StrView` (string views); array/slice slices pass through to the lowering. The E07 message generalised to `self-hosted C emitter does not support this expression yet`.
   - `tests/selfhost_emit_c.sh` grew 5 new executable cases (slice_basic, slice_open_end, slice_len, slice_of_slice, slice_open_start) and the fail-closed preflight now uses a string slice (`msg[1..]`) which produces str_view. Total: 17 core cases + 1 located-E07/no-partial-stdout preflight; repeat-emission determinism and strict C11 warnings-as-errors compilation remain mandatory. Full ASan/UBSan suite clean.
+- M13.5-P3–P6: aggregate/runtime/module dogfood backend (2026-08-02):
+  - Added structs/record literals/field access, enum variants, match, Option/Result constructors and fallback, string views and byte indexing, one- and two-seed streams, statement-form conditionals, defer order, and shared/mutable borrow lowering.
+  - Added typed vec lowering (integer, string, and struct elements), strbuf and map lowering/runtime support, including deterministic vec/map bounds behavior and map insertion-order accessors. Function annotations now lower compiler container parameters to their C handle types.
+  - Added `src/tiq/module.tiq`: deterministic DFS post-order import flattening with deduplication and cycle detection for the self-hosted driver. The retained semantic builtin table now includes the previously omitted `str_sub_code` case exposed by whole-compiler checking.
+  - `tests/selfhost_emit_c.sh` initially covered 34 executable differential cases, strict repeat emission, a located-E07/no-partial-output unsupported case, and an end-to-end compiler dogfood gate: the Tiq emitter consumes its own module graph, emits a standalone C compiler, compiles it under strict C11 warnings-as-errors, and that compiled stage reproduces byte-identical C.
+- M13.5-P7: runtime, ownership, modules, and fail-closed closure (2026-08-02):
+  - `tools/gen_selfhost_runtime.sh` deterministically derives `src/tiq/emit_c_runtime.tiq` from the authoritative bootstrap prelude; the harness rejects a stale generated runtime. The emitted standalone C therefore carries the complete JSON, network, event-loop, process, filesystem, CLI, string, vec, strbuf, and map surface used by checked Tiq programs.
+  - §16.4 ownership now matches the bootstrap policy for immutable and conservatively qualified mutable owners, reverse scope destruction after defers, `break`/`skip`/statement-level `proc_exit`, scalar/fresh/transferred function results, fresh-result caller ownership, and owned/fresh/conditional statement temporaries. Failing-first free-order goldens and sanitizer executions cover the added paths.
+  - `src/tiq/module.tiq` normalizes repeated separators and `.`/`..` components before DFS identity checks, preserving deterministic post-order loading and deduping relative aliases. The self-host harness pins a normalized diamond and located E27/E28 no-partial-output failures.
+  - The recursive backend preflight covers the complete AST family set; semantically rejected `spawn`/`chan` nodes are explicitly unsupported, and the expression fallback is an invalid-C sentinel rather than a numeric semantic placeholder. A builtin-table audit found every semantic runtime builtin mapped (primitive conversions are lowered separately).
+  - Final evidence: `tests/selfhost_emit_c.sh` is green over 43 executable differential cases plus ownership/module/fail-closed and compiler dogfood identity gates; `make clean && make && make test` and the documented ASan/UBSan clean build plus full suite both pass. `Makefile` now builds the unit runner in the default target so sanitizer link flags survive the documented two-step build/test workflow.
 
 ## Known bootstrap limitations
 
