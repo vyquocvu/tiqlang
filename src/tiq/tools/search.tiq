@@ -1,0 +1,114 @@
+// M18.4-T4: package search tool (`tiq search`). Queries the registry for
+// packages matching a query string.
+//
+// CLI:
+//   tiq search [query]     -- search for packages (default registry: http://127.0.0.1:7070)
+//   tiq search --registry <url> [query]
+//
+// Determinism: output depends only on the registry state and query string.
+
+import "std/net.tiq"
+import "std/json.tiq"
+import "../manifest.tiq"
+
+// Default registry URL
+default_registry <- "http://127.0.0.1:7070"
+
+// Parse CLI args
+registry_url <- default_registry
+query <- ""
+nargs <- cli_arg_count()
+ai <- 0
+[ai < nargs] {
+    arg <- cli_arg(ai)
+    handled <- 0
+    ?[str_eq(arg, "--registry") && handled == 0] {
+        ?[ai + 1 < nargs] {
+            registry_url <- cli_arg(ai + 1)
+            ai <- ai + 2
+            handled <- 1
+        }
+        ?[ai + 1 >= nargs && handled == 0] {
+            eprint("tiq search: --registry requires a URL argument")
+            proc_exit(2)
+        }
+    }
+    ?[!str_eq(arg, "--registry") && handled == 0] {
+        query <- arg
+        ai <- ai + 1
+    }
+}
+
+// Build the API URL
+api_url <- str_cat(registry_url, "/api/v1/packages")
+
+// Fetch package list
+body <- net_fetch(api_url)
+?[len(body) == 0] {
+    eprint(str_cat("tiq search: cannot reach registry at ", registry_url))
+    proc_exit(1)
+}
+
+// Parse the JSON array
+arr_len <- json_arr_len(body)
+?[arr_len < 0] {
+    eprint("tiq search: invalid response from registry")
+    proc_exit(1)
+}
+
+// Filter and display
+matched <- 0
+idx <- 0
+[idx < arr_len] {
+    name <- json_arr_get(body, idx)
+    // If no query, show all; otherwise filter by substring match
+    show <- 1
+    ?[len(query) > 0] {
+        show <- 0
+        // Simple substring match
+        ni <- 0
+        nn <- len(name)
+        qn <- len(query)
+        [ni <= nn - qn && show == 0] {
+            match_ok <- 1
+            ji <- 0
+            [ji < qn] {
+                ?[str_sub_code(name, ni + ji) != str_sub_code(query, ji)] {
+                    match_ok <- 0
+                    ji <- qn
+                }
+                ji <- ji + 1
+            }
+            ?[match_ok == 1] { show <- 1 }
+            ni <- ni + 1
+        }
+    }
+    ?[show == 1] {
+        // Fetch package details
+        pkg_url <- str_cat(str_cat(registry_url, "/api/v1/packages/"), name)
+        pkg_body <- net_fetch(pkg_url)
+        ?[len(pkg_body) > 0] {
+            vers_str <- json_get(pkg_body, "versions")
+            n_vers <- json_arr_len(vers_str)
+            latest <- ""
+            ?[n_vers > 0] {
+                latest <- json_arr_get(vers_str, n_vers - 1)
+            }
+            print(str_cat(str_cat(name, " ("), str_cat(latest, ")")))
+            matched <- matched + 1
+        }
+    }
+    idx <- idx + 1
+}
+
+?[matched == 0] {
+    ?[len(query) > 0] {
+        eprint(str_cat("tiq search: no packages matching '", str_cat(query, "'")))
+    }
+    ?[len(query) == 0] {
+        eprint("tiq search: no packages in registry")
+    }
+    proc_exit(1)
+}
+
+0

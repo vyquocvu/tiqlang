@@ -18,6 +18,8 @@
 // timestamps reach the output.
 
 import "../manifest.tiq"
+import "std/net.tiq"
+import "std/json.tiq"
 
 // FNV-1a hash (32-bit, unsigned). Same as cache.tiq.
 fnv_hash s: str -> i64 -> {
@@ -177,6 +179,91 @@ i <- 0
                 eprint(str_cat(str_cat("tiq install: git clone failed for '", name), "'"))
                 proc_exit(1)
             }
+        }
+        installed <- installed + 1
+    }
+    ?[scheme == 3] {
+        // Registry dependency: query registry for source URL, then clone
+        reg_url <- "http://127.0.0.1:7070"
+        pkg_name <- mf_reg_name(source)
+        constraint <- mf_reg_constraint(source)
+        // Fetch package metadata
+        api_url <- str_cat(str_cat(reg_url, "/api/v1/packages/"), pkg_name)
+        pkg_body <- net_fetch(api_url)
+        ?[len(pkg_body) == 0] {
+            eprint(str_cat(str_cat("tiq install: cannot find '", pkg_name), "' in registry"))
+            proc_exit(1)
+        }
+        // Find best matching version
+        vers_str <- json_get(pkg_body, "versions")
+        n_vers <- json_arr_len(vers_str)
+        best_ver <- ""
+        best_num <- -1
+        vi <- 0
+        [vi < n_vers] {
+            v <- json_arr_get(vers_str, vi)
+            ok <- 1
+            ?[len(constraint) > 0] {
+                ok <- mf_ver_satisfies(v, constraint)
+            }
+            ?[ok == 1] {
+                vnum <- mf_semver(v)
+                ?[vnum > best_num] {
+                    best_num <- vnum
+                    best_ver <- v
+                }
+            }
+            vi <- vi + 1
+        }
+        ?[len(best_ver) == 0] {
+            eprint(str_cat(str_cat("tiq install: no version matching '", constraint), str_cat("' found for '", str_cat(pkg_name, "' in registry"))))
+            proc_exit(1)
+        }
+        // Fetch version details to get source URL
+        ver_url <- str_cat(str_cat(api_url, "/"), best_ver)
+        ver_body <- net_fetch(ver_url)
+        ?[len(ver_body) == 0] {
+            eprint(str_cat(str_cat("tiq install: cannot fetch version '", best_ver), str_cat("' for '", str_cat(pkg_name, "'"))))
+            proc_exit(1)
+        }
+        dep_source <- json_get(ver_body, "source")
+        ?[len(dep_source) == 0] {
+            eprint(str_cat(str_cat("tiq install: no source for '", pkg_name), "' in registry"))
+            proc_exit(1)
+        }
+        // Now install using the resolved source (should be git: or path:)
+        dep_scheme <- mf_dep_scheme(dep_source)
+        ?[dep_scheme == 2] {
+            // Git source from registry
+            git_url <- mf_git_url(dep_source)
+            git_ref <- mf_git_ref(dep_source)
+            proc_exec(str_cat("rm -rf ", dep_dir))
+            ?[len(git_ref) > 0] {
+                clone_cmd <- str_cat(str_cat("git clone --depth 1 -b ", git_ref), str_cat(" ", str_cat(git_url, str_cat(" ", dep_dir))))
+                rc <- proc_exec(clone_cmd)
+                ?[rc != 0] {
+                    eprint(str_cat(str_cat("tiq install: git clone failed for '", name), "'"))
+                    proc_exit(1)
+                }
+            }
+            ?[len(git_ref) == 0] {
+                clone_cmd <- str_cat("git clone --depth 1 ", str_cat(git_url, str_cat(" ", dep_dir)))
+                rc <- proc_exec(clone_cmd)
+                ?[rc != 0] {
+                    eprint(str_cat(str_cat("tiq install: git clone failed for '", name), "'"))
+                    proc_exit(1)
+                }
+            }
+        }
+        ?[dep_scheme == 1] {
+            // Path source from registry
+            dep_path <- mf_dep_strip(dep_source)
+            ?[!fs_exists(dep_path)] {
+                eprint(str_cat(str_cat("tiq install: registry source path not found for '", name), str_cat("': ", dep_path)))
+                proc_exit(1)
+            }
+            cp_cmd <- str_cat(str_cat("cp -r ", dep_path), str_cat("/* ", dep_dir))
+            proc_exec(cp_cmd)
         }
         installed <- installed + 1
     }

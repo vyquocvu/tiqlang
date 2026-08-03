@@ -4,7 +4,7 @@ CFLAGS ?= -std=c11 -Wall -Wextra -Wpedantic -Werror -O2
 BUILD := build
 TIQ := $(BUILD)/tiq
 
-.PHONY: all clean test test-unit test-fuzz example test-check test-run tool-test tool-fmt tool-bench tool-init tool-cache tool-lsp tool-install tool-std
+.PHONY: all clean test test-unit test-fuzz example test-check test-run tool-test tool-fmt tool-bench tool-init tool-cache tool-lsp tool-install tool-registry tool-std
 
 # Build the unit runner with the same flags as the compiler. Besides keeping
 # `make` useful as a complete build gate, this preserves sanitizer link flags
@@ -66,6 +66,7 @@ test: $(TIQ) test-unit
 	sh tests/check.sh
 	sh tests/run.sh
 	sh tests/ffi.sh
+	sh tests/registry_tool.sh
 
 test-check: $(TIQ)
 	sh tests/check.sh
@@ -111,6 +112,11 @@ tool-install: $(TIQ)
 # fail-closed behavior.
 tool-lsp: $(TIQ)
 	sh tests/lsp_tool.sh
+
+# M18.4: build the Tiq registry server and search tool, verify API endpoints,
+# search filtering, manifest validation for registry: scheme.
+tool-registry: $(TIQ)
+	sh tests/registry_tool.sh
 
 # M15: verify std/ module gating — domain builtins require import, core
 # builtins remain always available, cwd fallback, wrapper correctness, ASan.

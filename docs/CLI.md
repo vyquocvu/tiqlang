@@ -40,6 +40,8 @@ tiq bench [-i N] <file|dir>...
 tiq init [name]
 tiq init --check <file.tiq.toml>
 tiq install
+tiq search [query]
+tiq registry [port]
 tiq cache clear
 tiq cache <path>
 ```
@@ -60,7 +62,11 @@ tiq cache <path>
 - `tiq init [name]` scaffolds a package manifest. With no argument it writes the deterministic template to `tiq.toml` for the default package name `my-package`; with an argument it writes `<name>.tiq.toml` with `name = "<name>"` (see "Package manifests" below for the template). It refuses to clobber an existing manifest: an existing target exits 1 with `<path> already exists` on stderr and nothing is written. An invalid package name (empty, `.`/`..`, or any character other than ASCII letters/digits/`-`/`_`/`.`) exits 2 before any file is touched.
 - `tiq init --check <file.tiq.toml>` validates an existing manifest without writing anything: it exits 0 when the file parses and satisfies the manifest rules, and exits 1 with one or more located `path:line: error[E30]: ...` diagnostics on stderr otherwise. An unreadable or missing file exits 1 with `cannot read` on stderr. Unknown options, `--check` without an argument, and extra positional arguments exit 2.
 
-- `tiq install` reads the package manifest (`tiq.toml`) from the current directory, resolves each `[deps]` entry, and installs dependencies into `.tiq-deps/<name>/`. Path dependencies (`path:<dir>`) are copied from the local filesystem; git dependencies (`git:<url>`, `git:<url>#<ref>`) are cloned. When the git ref is a version constraint (e.g., `>=1.0.0,<2.0.0`), the installer resolves it against the repository's git tags (stripping `v` prefixes) and clones the highest matching version. A `tiq.lock` lockfile is generated with FNV-1a content hashes for integrity verification. Prints `Installed N dependencies` (or `Installed 1 dependency`) on success. When the manifest has no `[deps]` entries, prints `No dependencies to install`. A missing or invalid manifest exits 1 with a diagnostic on stderr. A nonexistent dependency path exits 1 naming the dependency. Git clone failures and unresolvable version constraints exit 1.
+- `tiq install` reads the package manifest (`tiq.toml`) from the current directory, resolves each `[deps]` entry, and installs dependencies into `.tiq-deps/<name>/`. Path dependencies (`path:<dir>`) are copied from the local filesystem; git dependencies (`git:<url>`, `git:<url>#<ref>`) are cloned. When the git ref is a version constraint (e.g., `>=1.0.0,<2.0.0`), the installer resolves it against the repository's git tags (stripping `v` prefixes) and clones the highest matching version. Registry dependencies (`registry:<name>`, `registry:<name>#<constraint>`) are resolved by querying the registry at `http://127.0.0.1:7070` for the package metadata, selecting the highest version satisfying the constraint, fetching the source URL, and installing accordingly. A `tiq.lock` lockfile is generated with FNV-1a content hashes for integrity verification. Prints `Installed N dependencies` (or `Installed 1 dependency`) on success. When the manifest has no `[deps]` entries, prints `No dependencies to install`. A missing or invalid manifest exits 1 with a diagnostic on stderr. A nonexistent dependency path exits 1 naming the dependency. Git clone failures and unresolvable version constraints exit 1.
+
+- `tiq search [query]` queries the Tiq package registry for packages matching the query string (substring match). With no query, lists all packages in the registry. Each match is printed as `name (latest_version)`. `--registry <url>` overrides the default registry URL (`http://127.0.0.1:7070`). Exits 1 with a diagnostic on stderr when the registry is unreachable or no packages match.
+
+- `tiq registry [port]` starts the Tiq package registry server on the given port (default 7070). The registry provides an HTTP/JSON API for publishing, discovering, and managing Tiq packages. API endpoints: `GET /api/v1/packages` (list), `GET /api/v1/packages/<name>` (metadata), `GET /api/v1/packages/<name>/<version>` (version details), `PUT /api/v1/packages/<name>/<version>` (publish, body: JSON with `"source"`), `DELETE /api/v1/packages/<name>/<version>` (yank). Package data is stored under `/tmp/.tiq-registry/packages/`.
 
 - `tiq cache clear` removes all cached entries from the compiler's artifact cache directory (`/tmp/.tiq-cache`). Exits 0 on success, 1 if the removal fails.
 - `tiq cache <path>` prints the cache entry path for a source file when the file has a valid cache entry (exit 0), or prints `not cached: <path>` to stderr and exits 1 when the file is not cached or the cache entry is stale (source content changed). The cache uses an FNV-1a content hash of the source file for validation; a cache entry is valid only when the stored hash matches the current source content. Unknown options and extra arguments exit 2.
@@ -69,10 +75,12 @@ tiq cache <path>
 
 Package manifests are INI-style `*.tiq.toml` files with three recognized sections — `[package]`, `[deps]`, and `[tests]` — whose bodies are `key = value` lines, `#` comments, or blank lines. Values may be bare or quoted (`"..."` or `'...'`, quotes stripped). `[package]` requires a non-empty `name`; a package name is a non-empty string of ASCII letters, digits, `-`, `_`, and `.`, and must not be `.` or `..`. `version` must be `major.minor.patch`, three dot-separated runs of digits with no empty part. Valid keys are `name`, `version`, `description`, `license`, `repository`, and `src` in `[package]`; `[deps]` entries are dependency names (valid package names) mapped to sources (`name = value`, both non-empty); `[tests]` accepts `dir` and `include`. The full rules and diagnostics are in LANGUAGE_SPEC §18.2.
 
-`[deps]` source values use a scheme prefix to identify the dependency type (M18.1, M18.3):
+`[deps]` source values use a scheme prefix to identify the dependency type (M18.1, M18.3, M18.4):
 - `path:<dir>` — local directory path (copied to `.tiq-deps/<name>/` by `tiq install`)
 - `git:<url>` — git repository (cloned by `tiq install`)
 - `git:<url>#<ref>` — git repository at a specific tag, branch, or version constraint
+- `registry:<name>` — package from the Tiq registry (latest version)
+- `registry:<name>#<constraint>` — package from the Tiq registry with version constraint
 - Bare values (no prefix) are treated as `path:` sources
 
 Version constraints in git refs use semver format (M18.3): `1.2.3` (exact), `>=1.0.0`, `<=2.0.0`, `>1.0.0`, `<2.0.0`, `!=1.5.0`, or comma-separated combinations like `>=1.0.0,<2.0.0`. When a version constraint is provided, `tiq install` lists the repository's git tags, strips any `v` prefix, and clones the highest version that satisfies the constraint.

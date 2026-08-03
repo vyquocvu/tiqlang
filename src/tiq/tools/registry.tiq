@@ -1,0 +1,353 @@
+// M18.4-T1: package registry server (`tiq registry`). A simple HTTP/JSON
+// API for publishing and discovering Tiq packages.
+//
+// Storage: filesystem-based under /tmp/.tiq-registry/packages/<name>/.
+// Each package has an index.json with name and version list, plus
+// <version>.json files with version metadata.
+//
+// API:
+//   GET  /api/v1/packages              — list all packages
+//   GET  /api/v1/packages/<name>       — get package metadata
+//   GET  /api/v1/packages/<name>/<ver> — get specific version
+//   PUT  /api/v1/packages/<name>/<ver> — publish a version (body: JSON with "source")
+//   DELETE /api/v1/packages/<name>/<ver> — yank a version
+//
+// CLI:
+//   tiq registry [port]   -- start server on port (default 7070)
+//
+// Determinism: responses depend only on the stored package data.
+
+import "std/net.tiq"
+import "std/json.tiq"
+import "../manifest.tiq"
+
+// Registry data directory
+reg_dir dummy:i64 -> str -> {
+    "/tmp/.tiq-registry/packages"
+}
+
+// Ensure registry directory exists
+proc_exec(str_cat("mkdir -p ", reg_dir(0)))
+
+// --- HTTP response helpers ---
+
+http_response status:i64 body:str -> str -> {
+    status_text <- "200 OK"
+    ?[status == 201] { status_text <- "201 Created" }
+    ?[status == 400] { status_text <- "400 Bad Request" }
+    ?[status == 404] { status_text <- "404 Not Found" }
+    ?[status == 409] { status_text <- "409 Conflict" }
+    ?[status == 422] { status_text <- "422 Unprocessable Entity" }
+    sb <- str_buf_new()
+    str_buf_append(sb, "HTTP/1.1 ")
+    str_buf_append(sb, status_text)
+    str_buf_append(sb, "\r\nContent-Type: application/json\r\nContent-Length: ")
+    str_buf_append(sb, int_str(len(body)))
+    str_buf_append(sb, "\r\nConnection: close\r\n\r\n")
+    str_buf_append(sb, body)
+    str_buf_to_str(sb)
+}
+
+json_ok msg:str -> str -> {
+    json_set("{}", "ok", json_encode_str(msg))
+}
+
+json_err msg:str -> str -> {
+    json_set("{}", "error", json_encode_str(msg))
+}
+
+// --- Path parsing helpers ---
+
+// Extract path segments after /api/v1/packages
+// Returns: 0=no match, 1=/api/v1/packages, 2=+name, 3=+name+version
+parse_api_path path:str -> i64 -> {
+    r <- 0
+    prefix <- "/api/v1/packages"
+    pn <- len(prefix)
+    pathn <- len(path)
+    // Check prefix match
+    ok <- 1
+    j <- 0
+    [j < pn && j < pathn] {
+        ?[str_sub_code(path, j) != str_sub_code(prefix, j)] { ok <- 0 }
+        j <- j + 1
+    }
+    ?[ok == 1 && pathn == pn] { r <- 1 }
+    ?[ok == 1 && pathn > pn && str_sub_code(path, pn) == 47] {
+        // Has / after prefix — extract name
+        rest <- str_sub(path, pn + 1, pathn)
+        // Find next / for version
+        slash_at <- 0 - 1
+        ri <- 0
+        [ri < len(rest)] {
+            ?[str_sub_code(rest, ri) == 47] { slash_at <- ri; break }
+            ri <- ri + 1
+        }
+        ?[slash_at == 0 - 1] { r <- 2 }  // name only
+        ?[slash_at > 0] { r <- 3 }       // name + version
+    }
+    r
+}
+
+// Extract name from path (after /api/v1/packages/)
+extract_name path:str -> str -> {
+    prefix <- "/api/v1/packages/"
+    pn <- len(prefix)
+    pathn <- len(path)
+    rest <- str_sub(path, pn, pathn)
+    // Find next /
+    slash_at <- len(rest)
+    ri <- 0
+    [ri < len(rest)] {
+        ?[str_sub_code(rest, ri) == 47] { slash_at <- ri; break }
+        ri <- ri + 1
+    }
+    str_sub(rest, 0, slash_at)
+}
+
+// Extract version from path (after /api/v1/packages/<name>/)
+extract_version path:str -> str -> {
+    name <- extract_name(path)
+    prefix <- str_cat("/api/v1/packages/", str_cat(name, "/"))
+    pn <- len(prefix)
+    pathn <- len(path)
+    str_sub(path, pn, pathn)
+}
+
+// --- Package index operations ---
+
+// Read a package index. Returns the JSON string, or "" if not found.
+read_index name:str -> str -> {
+    r <- ""
+    idx_path <- str_cat(str_cat(reg_dir(0), "/"), str_cat(name, "/index.json"))
+    ?[fs_exists(idx_path)] { r <- fs_read(idx_path) }
+    r
+}
+
+// Write a package index.
+write_index name:str content:str -> i64 -> {
+    pkg_dir <- str_cat(reg_dir(0), "/")
+    proc_exec(str_cat("mkdir -p ", pkg_dir))
+    pkg_dir <- str_cat(str_cat(reg_dir(0), "/"), name)
+    proc_exec(str_cat("mkdir -p ", pkg_dir))
+    idx_path <- str_cat(pkg_dir, "/index.json")
+    fs_write(idx_path, content)
+}
+
+// List all package names. Returns a JSON array string.
+list_packages dummy:i64 -> str -> {
+    content <- fs_list(reg_dir(0))
+    // Build JSON array from newline-separated names
+    result <- "["
+    first <- 1
+    n <- len(content)
+    start <- 0
+    li <- 0
+    [li <= n] {
+        ?[li == n || str_sub_code(content, li) == 10] {
+            name <- str_sub(content, start, li)
+            ?[len(name) > 0] {
+                ?[first == 0] { result <- str_cat(result, ",") }
+                result <- str_cat(result, json_encode_str(name))
+                first <- 0
+            }
+            start <- li + 1
+        }
+        li <- li + 1
+    }
+    result <- str_cat(result, "]")
+    result
+}
+
+// --- Request handlers ---
+
+handle_list dummy:i64 -> str -> {
+    http_response(200, list_packages(0))
+}
+
+handle_get_pkg name:str -> str -> {
+    r <- ""
+    idx <- read_index(name)
+    ?[len(idx) == 0] { r <- http_response(404, json_err("package not found")) }
+    ?[len(idx) > 0] { r <- http_response(200, idx) }
+    r
+}
+
+handle_get_ver name:str version:str -> str -> {
+    r <- ""
+    ver_path <- str_cat(str_cat(reg_dir(0), "/"), str_cat(name, str_cat("/", str_cat(version, ".json"))))
+    ?[!fs_exists(ver_path)] { r <- http_response(404, json_err("version not found")) }
+    ?[fs_exists(ver_path)] {
+        content <- fs_read(ver_path)
+        r <- http_response(200, content)
+    }
+    r
+}
+
+handle_publish name:str version:str body:str -> str -> {
+    r <- ""
+    // Validate version format
+    ?[mf_semver(version) < 0] {
+        r <- http_response(422, json_err("invalid version format"))
+    }
+    ?[mf_semver(version) >= 0] {
+        // Check if version already exists
+        ver_path <- str_cat(str_cat(reg_dir(0), "/"), str_cat(name, str_cat("/", str_cat(version, ".json"))))
+        ?[fs_exists(ver_path)] {
+            r <- http_response(409, json_err("version already exists"))
+        }
+        ?[!fs_exists(ver_path)] {
+            // Extract source from body
+            source <- json_get(body, "source")
+            ?[len(source) == 0] {
+                r <- http_response(400, json_err("missing source field"))
+            }
+            ?[len(source) > 0] {
+                // Create package directory
+                pkg_dir <- str_cat(str_cat(reg_dir(0), "/"), name)
+                proc_exec(str_cat("mkdir -p ", pkg_dir))
+                // Write version file
+                ver_json <- str_cat("{\"name\":", str_cat(json_encode_str(name), str_cat(",\"version\":", str_cat(json_encode_str(version), str_cat(",\"source\":", str_cat(json_encode_str(source), "}"))))))
+                fs_write(ver_path, ver_json)
+                // Update index
+                idx <- read_index(name)
+                ?[len(idx) == 0] {
+                    // New package
+                    new_idx <- str_cat("{\"name\":", str_cat(json_encode_str(name), str_cat(",\"versions\":[", str_cat(json_encode_str(version), "]}"))))
+                    write_index(name, new_idx)
+                }
+                ?[len(idx) > 0] {
+                    // Add version to existing index
+                    vers_str <- json_get(idx, "versions")
+                    arr_len <- json_arr_len(vers_str)
+                    new_vers <- "["
+                    ai <- 0
+                    [ai < arr_len] {
+                        ?[ai > 0] { new_vers <- str_cat(new_vers, ",") }
+                        new_vers <- str_cat(new_vers, json_encode_str(json_arr_get(vers_str, ai)))
+                        ai <- ai + 1
+                    }
+                    ?[arr_len > 0] { new_vers <- str_cat(new_vers, ",") }
+                    new_vers <- str_cat(new_vers, json_encode_str(version))
+                    new_vers <- str_cat(new_vers, "]")
+                    new_idx <- str_cat("{\"name\":", str_cat(json_encode_str(name), str_cat(",\"versions\":", str_cat(new_vers, "}"))))
+                    write_index(name, new_idx)
+                }
+                r <- http_response(201, json_ok("published"))
+            }
+        }
+    }
+    r
+}
+
+handle_yank name:str version:str -> str -> {
+    r <- ""
+    ver_path <- str_cat(str_cat(reg_dir(0), "/"), str_cat(name, str_cat("/", str_cat(version, ".json"))))
+    ?[!fs_exists(ver_path)] {
+        r <- http_response(404, json_err("version not found"))
+    }
+    ?[fs_exists(ver_path)] {
+        proc_exec(str_cat("rm -f ", ver_path))
+        // Update index: remove version from list
+        idx <- read_index(name)
+        ?[len(idx) > 0] {
+            vers_str <- json_get(idx, "versions")
+            arr_len <- json_arr_len(vers_str)
+            new_vers <- "["
+            first <- 1
+            ai <- 0
+            [ai < arr_len] {
+                v <- json_arr_get(vers_str, ai)
+                // json_arr_get returns unquoted value
+                ?[!str_eq(v, version)] {
+                    ?[first == 0] { new_vers <- str_cat(new_vers, ",") }
+                    new_vers <- str_cat(new_vers, json_encode_str(v))
+                    first <- 0
+                }
+                ai <- ai + 1
+            }
+            new_vers <- str_cat(new_vers, "]")
+            new_idx <- str_cat("{\"name\":", str_cat(json_encode_str(name), str_cat(",\"versions\":", str_cat(new_vers, "}"))))
+            write_index(name, new_idx)
+        }
+        r <- http_response(200, json_ok("yanked"))
+    }
+    r
+}
+
+// --- Main server loop ---
+
+port <- 7070
+nargs <- cli_arg_count()
+?[nargs > 0] {
+    arg <- cli_arg(0)
+    p <- 0
+    pi <- 0
+    [pi < len(arg)] {
+        c <- str_sub_code(arg, pi)
+        ?[c >= 48 && c <= 57] { p <- p * 10 + (c - 48) }
+        pi <- pi + 1
+    }
+    ?[p > 0] { port <- p }
+}
+
+srv <- net_listen(port)
+?[srv < 0] {
+    eprint(str_cat("tiq registry: cannot listen on port ", int_str(port)))
+    proc_exit(1)
+}
+
+print(str_cat("tiq registry listening on port ", int_str(port)))
+
+[1 == 1] {
+    conn <- net_accept(srv)
+    ?[conn < 0] { break }
+
+    req <- net_recv(conn)
+    ?[len(req) == 0] {
+        net_close(conn)
+        break
+    }
+
+    method <- http_method(req)
+    path <- http_path(req)
+
+    resp <- ""
+    kind <- parse_api_path(path)
+
+    ?[str_eq(method, "GET")] {
+        ?[kind == 1] { resp <- handle_list(0) }
+        ?[kind == 2] { resp <- handle_get_pkg(extract_name(path)) }
+        ?[kind == 3] { resp <- handle_get_ver(extract_name(path), extract_version(path)) }
+        ?[kind == 0] { resp <- http_response(404, json_err("not found")) }
+    }
+    ?[str_eq(method, "PUT")] {
+        ?[kind == 3] {
+            // Extract body (after \r\n\r\n)
+            body_start <- 0
+            bi <- 0
+            bn <- len(req)
+            [bi < bn] {
+                ?[bi + 3 < bn && str_sub_code(req, bi) == 13 && str_sub_code(req, bi + 1) == 10 && str_sub_code(req, bi + 2) == 13 && str_sub_code(req, bi + 3) == 10] {
+                    body_start <- bi + 4
+                    break
+                }
+                bi <- bi + 1
+            }
+            body <- ""
+            ?[body_start > 0] { body <- str_sub(req, body_start, bn) }
+            resp <- handle_publish(extract_name(path), extract_version(path), body)
+        }
+        ?[kind != 3] { resp <- http_response(404, json_err("not found")) }
+    }
+    ?[str_eq(method, "DELETE")] {
+        ?[kind == 3] { resp <- handle_yank(extract_name(path), extract_version(path)) }
+        ?[kind != 3] { resp <- http_response(404, json_err("not found")) }
+    }
+    ?[len(resp) == 0] { resp <- http_response(404, json_err("not found")) }
+
+    net_send(conn, resp)
+    net_close(conn)
+}
+
+0
