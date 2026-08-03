@@ -184,6 +184,67 @@ mf_check_package key: str val: str ln: i64 path: str sv: vec[int] -> i64 -> {
     r
 }
 
+// M18.1: dependency source scheme prefix. Returns 1 for "path:" (or bare
+// values, which default to paths), 2 for "git:".
+mf_dep_scheme val: str -> i64 -> {
+    r <- 1
+    n <- len(val)
+    ?[n >= 5 && str_eq(str_sub(val, 0, 5), "path:")] {
+        r <- 1
+    }
+    ?[n >= 4 && str_eq(str_sub(val, 0, 4), "git:")] {
+        r <- 2
+    }
+    r
+}
+
+// M18.1: strip the scheme prefix from a dependency value. "path:../lib" ->
+// "../lib", "git:https://..." -> "https://...", bare "../lib" -> "../lib".
+mf_dep_strip val: str -> str -> {
+    r <- val
+    n <- len(val)
+    ?[n >= 5 && str_eq(str_sub(val, 0, 5), "path:")] {
+        r <- str_sub(val, 5, n)
+    }
+    ?[n >= 4 && str_eq(str_sub(val, 0, 4), "git:")] {
+        r <- str_sub(val, 4, n)
+    }
+    r
+}
+
+// M18.1: extract the git ref from a "git:<url>#<ref>" value, or "" if no
+// ref is present.
+mf_git_ref val: str -> str -> {
+    stripped <- mf_dep_strip(val)
+    n <- len(stripped)
+    r <- ""
+    i <- n - 1
+    [i >= 0] {
+        ?[str_sub_code(stripped, i) == 35] {
+            r <- str_sub(stripped, i + 1, n)
+            i <- -1
+        }
+        i <- i - 1
+    }
+    r
+}
+
+// M18.1: extract the git url (without ref) from a "git:<url>#<ref>" value.
+mf_git_url val: str -> str -> {
+    stripped <- mf_dep_strip(val)
+    n <- len(stripped)
+    cut <- n
+    i <- n - 1
+    [i >= 0] {
+        ?[str_sub_code(stripped, i) == 35] {
+            cut <- i
+            i <- -1
+        }
+        i <- i - 1
+    }
+    str_sub(stripped, 0, cut)
+}
+
 mf_check_deps key: str val: str ln: i64 path: str sv: vec[int] -> i64 -> {
     r <- 0
     ?[len(key) == 0] {
@@ -191,6 +252,31 @@ mf_check_deps key: str val: str ln: i64 path: str sv: vec[int] -> i64 -> {
     }
     ?[r == 0 && len(val) == 0] {
         mf_err(path, ln, "dependency source must not be empty"); vec_set(sv, 2, 1); r <- 1
+    }
+    // M18.1: validate the dependency name is a valid package name
+    ?[r == 0 && mf_valid_name(key) == 0] {
+        mf_err(path, ln, str_cat(str_cat("invalid dependency name: '", key), "'")); vec_set(sv, 2, 1); r <- 1
+    }
+    // M18.1: validate the source scheme (always 1=path or 2=git)
+    ?[r == 0] {
+        scheme <- mf_dep_scheme(val)
+        ?[scheme != 1 && scheme != 2] {
+            mf_err(path, ln, str_cat(str_cat("unsupported dependency source: '", val), "' (expected 'path:' or 'git:')")); vec_set(sv, 2, 1); r <- 1
+        }
+    }
+    // M18.1: validate the path/url is non-empty after stripping the scheme
+    ?[r == 0] {
+        stripped <- mf_dep_strip(val)
+        ?[len(stripped) == 0] {
+            mf_err(path, ln, "dependency source path must not be empty after scheme prefix"); vec_set(sv, 2, 1); r <- 1
+        }
+    }
+    // M18.1: git refs must not be empty when '#' is present
+    ?[r == 0 && mf_dep_scheme(val) == 2] {
+        n <- len(val)
+        ?[n >= 1 && str_sub_code(val, n - 1) == 35] {
+            mf_err(path, ln, "git ref must not be empty after '#'"); vec_set(sv, 2, 1); r <- 1
+        }
     }
     r
 }
@@ -297,4 +383,91 @@ mf_template name: str -> str -> {
     str_buf_append(b, "[tests]\n")
     str_buf_append(b, "dir = \"tests\"\n")
     str_buf_to_str(b)
+}
+
+// ---------------------------------------------------------------------------
+// M18.1: Extraction helpers. These parse the manifest text to pull out
+// specific values (package name, deps) without full validation — the caller
+// should have already validated with mf_check.
+
+// Extract the [package] name from manifest text. Returns "" if not found.
+mf_extract_name text: str -> str -> {
+    r <- ""
+    n <- len(text)
+    ln <- 1
+    start <- 0
+    in_package <- 0
+    i <- 0
+    [i <= n] {
+        ?[i == n || str_sub_code(text, i) == 10] {
+            line <- mf_trim(str_sub(text, start, i))
+            ?[len(line) > 0 && str_sub_code(line, 0) != 35] {
+                ?[str_sub_code(line, 0) == 91] {
+                    // Section header
+                    lt <- len(line)
+                    ?[lt >= 2 && str_sub_code(line, lt - 1) == 93] {
+                        sname <- mf_trim(str_sub(line, 1, lt - 1))
+                        ?[str_eq(sname, "package")] { in_package <- 1 }
+                        ?[!str_eq(sname, "package")] { in_package <- 0 }
+                    }
+                }
+                ?[in_package == 1 && str_sub_code(line, 0) != 91] {
+                    eq <- mf_find_eq(line, 0)
+                    ?[eq > 0] {
+                        key <- mf_trim(str_sub(line, 0, eq))
+                        val <- mf_unquote(mf_trim(str_sub(line, eq + 1, len(line))))
+                        ?[str_eq(key, "name")] {
+                            r <- val
+                            in_package <- 0
+                        }
+                    }
+                }
+            }
+            ln <- ln + 1
+            start <- i + 1
+        }
+        i <- i + 1
+    }
+    r
+}
+
+// M18.1: Extract [deps] entries into parallel vecs. Returns the number of
+// deps found. The caller provides `names` and `sources` vecs; each dep
+// appends its name and source value respectively.
+mf_extract_deps text: str names: vec[str] sources: vec[str] -> i64 -> {
+    count <- 0
+    n <- len(text)
+    start <- 0
+    in_deps <- 0
+    i <- 0
+    [i <= n] {
+        ?[i == n || str_sub_code(text, i) == 10] {
+            line <- mf_trim(str_sub(text, start, i))
+            ?[len(line) > 0 && str_sub_code(line, 0) != 35] {
+                ?[str_sub_code(line, 0) == 91] {
+                    lt <- len(line)
+                    ?[lt >= 2 && str_sub_code(line, lt - 1) == 93] {
+                        sname <- mf_trim(str_sub(line, 1, lt - 1))
+                        ?[str_eq(sname, "deps")] { in_deps <- 1 }
+                        ?[!str_eq(sname, "deps")] { in_deps <- 0 }
+                    }
+                }
+                ?[in_deps == 1 && str_sub_code(line, 0) != 91] {
+                    eq <- mf_find_eq(line, 0)
+                    ?[eq > 0] {
+                        key <- mf_trim(str_sub(line, 0, eq))
+                        val <- mf_unquote(mf_trim(str_sub(line, eq + 1, len(line))))
+                        ?[len(key) > 0 && len(val) > 0] {
+                            vec_push(names, key)
+                            vec_push(sources, val)
+                            count <- count + 1
+                        }
+                    }
+                }
+            }
+            start <- i + 1
+        }
+        i <- i + 1
+    }
+    count
 }

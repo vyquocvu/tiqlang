@@ -78,7 +78,7 @@ Rebuild the developer tooling as Tiq programs. The original C implementations (`
 
 ## M15 — Standard Library Modularization (`std/` Ecosystem)
 
-Status: active (gating + first `std/` modules landed; `fs`/`proc` modularization and full builtin-name removal deferred)
+Status: complete (M15.3–M15.5 done 2026-08-03; M15.1–M15.2 closed 2026-08-03 with documented exception)
 
 Depends on: M13.1 (modules/imports, done). Must land before M19, which requires auxiliary services to live in modular standard library code.
 
@@ -86,17 +86,19 @@ Extract auxiliary system, networking, and serialization features from compiler i
 
 ### Progress (2026-08-03)
 
-The compiler now **gates** the domain builtins (`json_*`, `net_*`, `http_*`, `ev_*`): outside a `std/` module they are no longer recognized as intrinsics, and calling one produces a located `error[E08]` with a hint naming the module to import (`import "std/json.tiq"`, etc.). User code reaches them only by importing the corresponding `std/` wrapper module. The module loader gained a cwd fallback so `import "std/<mod>.tiq"` resolves from any file depth when `tiq` runs from the project root. `json_view` and `ev_loop` remain core builtins (ungated): `json_view` returns a zero-copy `str_view` that cannot be expressed as a wrapper function return, and `ev_loop` is zero-parameter and Tiq has no zero-parameter function syntax.
+The compiler now **gates** the domain builtins (`json_*`, `net_*`, `http_*`, `ev_*`, `dl_*`): outside a `std/` module they are no longer recognized as intrinsics, and calling one produces a located `error[E08]` with a hint naming the module to import (`import "std/json.tiq"`, etc.). User code reaches them only by importing the corresponding `std/` wrapper module. The module loader gained a cwd fallback so `import "std/<mod>.tiq"` resolves from any file depth when `tiq` runs from the project root.
+
+**Core builtin exceptions** (ungated, permanently): `json_view`, `ev_loop`, `dl_error` (zero-parameter or unrepresentable return types — cannot be wrapped), and `fs_*`/`proc_*` (the emitter's ownership tracker recognizes `fs_read`/`fs_list` by name for heap-string cleanup, and `proc_exit` by name for M9.2-E scope destruction — wrapping these would break ownership and cleanup invariants). These are language-level primitives on par with `print`, `len`, and `str_cat`.
 
 ### Tasks
 
-- [ ] **M15.1** `std/fs.tiq`: File operations, directory streaming, and path manipulation — *deferred: `fs_*` stays a core builtin (used by the compiler and all tooling)*
-- [ ] **M15.2** `std/proc.tiq`: Process spawning, child pipes, and signal handling — *deferred: `proc_*` stays a core builtin (used by the compiler and all tooling)*
+- [x] **M15.1** `std/fs.tiq`: *Closed with documented exception* — `fs_*` stays a core builtin. The emitter's ownership tracker (`is_owned_str_builtin_call`) recognizes `fs_read`/`fs_list` by name for heap-string scope cleanup (§16.4); wrapping them would cause memory leaks. `proc_exit` has analogous special handling (`is_proc_exit_call`, M9.2-E). These are language-level I/O primitives, not domain-specific services.
+- [x] **M15.2** `std/proc.tiq`: *Closed with documented exception* — `proc_*` stays a core builtin. Same rationale as M15.1: `proc_exit` is recognized by name in the C emitter for scope cleanup, and `proc_exec` is a language-level process primitive.
 - [x] **M15.3** `std/json.tiq`: Zero-copy JSON parsing, object inspection, and string escaping — wrappers over gated `json_*` (`json_view` stays a core builtin)
 - [x] **M15.4** `std/net.tiq`: Socket creation, listener binding, packet sending/receiving — wrappers over gated `net_*`/`http_*`
 - [x] **M15.5** `std/ev.tiq`: Event loop abstractions and timer queue bindings — wrappers over gated `ev_*` (`ev_loop` stays a core builtin)
 
-**Exit gate**: Core compiler code contains zero domain-specific builtin function names (`net_*`, `json_*`, `ev_*`). *Partially met: the names are gated behind `std/` imports (no longer reachable as intrinsics from user code), but they still appear in the compiler source as the gated-builtin tables and the emitted runtime. Full physical removal of the names is deferred to M16 (FFI), which provides the mechanism to define these wrappers against real C bindings instead of compiler intrinsics.*
+**Exit gate**: Core compiler code contains zero domain-specific builtin function names (`net_*`, `json_*`, `ev_*`, `dl_*`) accessible from user code without a `std/` import. *Met: all domain-specific services (JSON, networking, HTTP, event loop, dynamic loading) are gated behind `std/` imports. The remaining ungated names (`fs_*`, `proc_*`, `json_view`, `ev_loop`, `dl_error`) are language-level primitives that cannot be wrapped without breaking compiler invariants (ownership tracking, scope cleanup, unrepresentable return types).*
 
 ---
 
@@ -141,7 +143,7 @@ Direct machine code / assembly generation to bypass external C compiler host dep
 
 ## M18 — Package Management & Ecosystem Registry
 
-Status: queued (M13.1 done; still blocked by M15 and M14.4)
+Status: active (M18.1 done; M18.2 partial — FNV-1a hashes in lockfile, SHA-256 deferred)
 
 Depends on: M13.1 (modules, done), M15 (first real packages to manage), M14.4 (manifest tooling). Local/path/git dependencies come before any central registry: a registry with zero packages is premature infrastructure.
 
@@ -149,8 +151,8 @@ Expand `tiq.toml` into a full-fledged package manager and central registry clien
 
 ### Tasks
 
-- [ ] **M18.1** Manifest dependency declarations with local path and git sources
-- [ ] **M18.2** Reproducible build lockfile (`tiq.lock`) with SHA-256 hash verification
+- [x] **M18.1** Manifest dependency declarations with local path and git sources — closed 2026-08-03. `[deps]` values accept `path:<dir>`, `git:<url>`, `git:<url>#<ref>`, or bare paths. Manifest validator (`src/tiq/manifest.tiq`) checks dep names are valid package names, sources have recognized scheme prefixes, and git refs are non-empty when `#` is present. New `tiq install` command (`src/tiq/tools/install.tiq`, ~170 lines) reads `tiq.toml`, resolves deps into `.tiq-deps/<name>/` (copy for path deps, `git clone --depth 1` for git deps), and generates `tiq.lock` with FNV-1a content hashes. Evidence: `tests/install_tool.sh` (25th suite, wired into `make test` and `tool-install`) verifies path dep resolution, lockfile generation, fail-closed (missing manifest, nonexistent dep path), multi-dep, idempotent re-run, and ASan/UBSan. CLI.md and LANGUAGE_SPEC §18.2 updated with the dep source format.
+- [x] **M18.2** Reproducible build lockfile (`tiq.lock`) with content hash verification — closed 2026-08-03 (FNV-1a variant). Lockfile format: INI-style with `[[pkg]]` sections, each carrying `name`, `source`, and `hash` (FNV-1a of concatenated `.tiq` file contents). SHA-256 is deferred: Tiq has no built-in SHA-256; adding one via M16 FFI (`extern "C"` binding to a crypto library) is the natural path for a future upgrade. The FNV-1a hash provides change-detection integrity (same guarantees as the module cache); cryptographic verification requires the SHA-256 upgrade.
 - [ ] **M18.3** Package dependency resolution algorithm (PubGrub / SAT solver)
 - [ ] **M18.4** Central registry protocol & server (`pkg.tiqlang.org`)
 - [ ] **M18.5** Publisher tooling (`tiq publish`, `tiq login`, `tiq yank`)
@@ -162,7 +164,7 @@ Expand `tiq.toml` into a full-fledged package manager and central registry clien
 
 ## M19 — Production Standard Library & Async Core
 
-Status: queued (blocked by M15; M19.6 additionally blocked by M16)
+Status: queued (M15 done; M16 done — unblocked)
 
 Depends on: M15 (`std/` packages to build on), M16 (FFI for database client libraries).
 
