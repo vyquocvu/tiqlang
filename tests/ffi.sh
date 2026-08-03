@@ -285,4 +285,119 @@ if [ "$OUT" != "$EXPECTED" ]; then
 fi
 echo "ffi embedding_end_to_end: passed"
 
+# --- M16.4: std/dl.tiq dynamic loading (dlopen/dlsym bindings) --------
+
+# Fixture C library with integer-ABI symbols for dl_call to invoke.
+cat > "$TMP_DIR/dltest.c" << 'EOF'
+#include <stdint.h>
+int64_t dltest_add(int64_t a, int64_t b) { return a + b; }
+int64_t dltest_mul(int64_t a, int64_t b) { return a * b; }
+EOF
+if [ "$(uname)" = "Darwin" ]; then
+  "$CC_BIN" -std=c11 -dynamiclib "$TMP_DIR/dltest.c" -o "$TMP_DIR/libdltest.dylib"
+  DLPATH="$TMP_DIR/libdltest.dylib"
+else
+  "$CC_BIN" -std=c11 -shared -fPIC "$TMP_DIR/dltest.c" -o "$TMP_DIR/libdltest.so"
+  DLPATH="$TMP_DIR/libdltest.so"
+fi
+
+# End-to-end: open the fixture library, resolve symbols, and call them
+# through the generic 6-register integer ABI.
+cat > "$TMP_DIR/dl_e2e.tiq" << EOF
+import "std/dl.tiq"
+h = dl_open("$DLPATH")
+sa = dl_sym(h, "dltest_add")
+print(dl_call(sa, 20, 22, 0, 0, 0, 0))
+sm = dl_sym(h, "dltest_mul")
+print(dl_call(sm, 20, 21, 0, 0, 0, 0))
+EOF
+set +e
+OUT=$("$TIQ" run "$TMP_DIR/dl_e2e.tiq" 2>"$TMP_DIR/dl_e2e.err")
+rc=$?
+set -e
+EXPECTED="42
+420"
+if [ "$rc" -ne 0 ] || [ "$OUT" != "$EXPECTED" ]; then
+  echo "ffi: dl_e2e output mismatch" >&2
+  cat "$TMP_DIR/dl_e2e.err" >&2
+  echo "got: $OUT" >&2
+  exit 1
+fi
+echo "ffi dl_end_to_end: passed"
+
+# Runtime fail-closed: missing symbols and failed opens surface as 0
+# returns, never a crash, and dl_error carries the reason.
+cat > "$TMP_DIR/dl_fail.tiq" << EOF
+import "std/dl.tiq"
+h = dl_open("$DLPATH")
+s = dl_sym(h, "dltest_missing_symbol")
+print(dl_call(s, 1, 1, 0, 0, 0, 0))
+bad = dl_open("/nonexistent_tiq_dl_fixture")
+print(dl_call(dl_sym(bad, "x"), 0, 0, 0, 0, 0, 0))
+e = dl_error()
+print(len(e) > 0)
+EOF
+set +e
+OUT=$("$TIQ" run "$TMP_DIR/dl_fail.tiq" 2>"$TMP_DIR/dl_fail.err")
+rc=$?
+set -e
+EXPECTED="0
+0
+true"
+if [ "$rc" -ne 0 ] || [ "$OUT" != "$EXPECTED" ]; then
+  echo "ffi: dl_fail output mismatch" >&2
+  cat "$TMP_DIR/dl_fail.err" >&2
+  echo "got: $OUT" >&2
+  exit 1
+fi
+echo "ffi dl_runtime_fail_closed: passed"
+
+# Compile fail-closed: gating (E08 with import hint) and arity (E12)
+# reject before any C is emitted. User code resolves through the
+# imported wrapper, so the arity diagnostic comes from the generic
+# call checks. (Argument type-checking of imported wrapper calls is a
+# pre-existing language gap shared with the other gated modules.)
+printf '%s\n' 'h = dl_open("x")' 'print(h)' > "$TMP_DIR/dl_gate.tiq"
+if "$TIQ" build "$TMP_DIR/dl_gate.tiq" -o "$TMP_DIR/dl_gate" 2>"$TMP_DIR/dl_gate.err"; then
+  echo "ffi: dl_open without import must fail closed" >&2
+  exit 1
+fi
+if ! grep -q 'error\[E08\]' "$TMP_DIR/dl_gate.err" || ! grep -q 'import "std/dl.tiq"' "$TMP_DIR/dl_gate.err"; then
+  echo "ffi: dl gating diagnostic missing E08 or std/dl.tiq hint" >&2
+  cat "$TMP_DIR/dl_gate.err" >&2
+  exit 1
+fi
+printf '%s\n' 'import "std/dl.tiq"' 'print(dl_call(0, 1))' > "$TMP_DIR/dl_arity.tiq"
+if "$TIQ" build "$TMP_DIR/dl_arity.tiq" -o "$TMP_DIR/dl_arity" 2>"$TMP_DIR/dl_arity.err"; then
+  echo "ffi: dl_call wrong arity must fail closed" >&2
+  exit 1
+fi
+if ! grep -q 'error\[E12\]: arity mismatch' "$TMP_DIR/dl_arity.err"; then
+  echo "ffi: dl_call arity diagnostic mismatch" >&2
+  cat "$TMP_DIR/dl_arity.err" >&2
+  exit 1
+fi
+printf '%s\n' 'import "std/dl.tiq"' 'print(dl_open(42, 1))' > "$TMP_DIR/dl_type.tiq"
+if "$TIQ" build "$TMP_DIR/dl_type.tiq" -o "$TMP_DIR/dl_type" 2>"$TMP_DIR/dl_type.err"; then
+  echo "ffi: dl_open wrong arity must fail closed" >&2
+  exit 1
+fi
+if ! grep -q 'error\[E12\]' "$TMP_DIR/dl_type.err"; then
+  echo "ffi: dl_open arity diagnostic mismatch" >&2
+  cat "$TMP_DIR/dl_type.err" >&2
+  exit 1
+fi
+echo "ffi dl_compile_fail_closed: passed"
+
+# ASan/UBSan clean on the dynamic-loading path (host-compiled emitted C).
+"$TIQ" emit-c "$TMP_DIR/dl_e2e.tiq" > "$TMP_DIR/dl_asan.c"
+"$CC_BIN" -std=c11 -g -fsanitize=address,undefined "$TMP_DIR/dl_asan.c" -o "$TMP_DIR/dl_asan"
+OUT=$("$TMP_DIR/dl_asan")
+if [ "$OUT" != "42
+420" ]; then
+  echo "ffi: dl sanitized run output mismatch (got $OUT)" >&2
+  exit 1
+fi
+echo "ffi dl_asan_clean: passed"
+
 echo "ffi: ok"

@@ -980,6 +980,36 @@ static const char TIQ_RUNTIME_PRELUDE_AUX11[] =
 
     "static int64_t tiq_map_val_at(TiqMap *m, int64_t i) {\n"
     "    return m->vals[tiq_map_index(m, i)];\n"
+    "}\n\n"
+
+    // M16.4: dynamic library loading (LANGUAGE_SPEC §19.11). Handles and
+    // symbol addresses cross the boundary as u64 (M16.2 pointer decision);
+    // failures surface as 0 returns and dl_error carries the reason.
+    "static uint64_t tiq_dl_open(const char *path) {\n"
+    "    void *h = dlopen(path, RTLD_NOW | RTLD_LOCAL);\n"
+    "    return (uint64_t)(uintptr_t)h;\n"
+    "}\n\n"
+
+    "static uint64_t tiq_dl_sym(uint64_t handle, const char *name) {\n"
+    "    void *s = dlsym((void *)(uintptr_t)handle, name);\n"
+    "    return (uint64_t)(uintptr_t)s;\n"
+    "}\n\n"
+
+    "static const char *tiq_dl_error(void) {\n"
+    "    const char *e = dlerror();\n"
+    "    return tiq_str_dup(e ? e : \"\");\n"
+    "}\n\n"
+
+    // Generic integer-ABI invocation: the six-register calling convention
+    // for int64_t args/return (x86-64 and ARM64). Callees with fewer
+    // parameters ignore the extra register arguments. A null symbol
+    // returns 0 instead of calling. f64 results are not supported.
+    "static int64_t tiq_dl_call(uint64_t sym, int64_t a, int64_t b, int64_t c,\n"
+    "                           int64_t d, int64_t e, int64_t f) {\n"
+    "    if (!sym) return 0;\n"
+    "    int64_t (*fn)(int64_t, int64_t, int64_t, int64_t, int64_t, int64_t) =\n"
+    "        (int64_t (*)(int64_t, int64_t, int64_t, int64_t, int64_t, int64_t))(uintptr_t)sym;\n"
+    "    return fn(a, b, c, d, e, f);\n"
     "}\n";
 
 #endif

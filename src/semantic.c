@@ -598,6 +598,7 @@ static void check_node(SemanticContext *ctx, AstNode *node) {
                     else if (nl >= 4 && memcmp(p, "net_", 4) == 0) hint = " \xe2\x80\x94 import \"std/net.tiq\" for networking";
                     else if (nl >= 5 && memcmp(p, "http_", 5) == 0) hint = " \xe2\x80\x94 import \"std/net.tiq\" for HTTP";
                     else if (nl >= 3 && memcmp(p, "ev_", 3) == 0) hint = " \xe2\x80\x94 import \"std/ev.tiq\" for event loop";
+                    else if (nl >= 3 && memcmp(p, "dl_", 3) == 0) hint = " \xe2\x80\x94 import \"std/dl.tiq\" for dynamic library loading";
                     if (hint) {
                         size_t base = strlen(msg);
                         snprintf(msg + base, sizeof(msg) - base, "%s", hint);
@@ -975,6 +976,14 @@ static void check_node(SemanticContext *ctx, AstNode *node) {
                         {"cli_arg",        7, 1, TYPE_INT, TYPE_STR, TYPE_UNKNOWN, false},
                         // M14.3: monotonic millisecond clock (LANGUAGE_SPEC §19.6).
                         {"clock_ms",       8, 0, TYPE_INT, TYPE_INT, TYPE_UNKNOWN, false},
+                        // M16.4: dynamic library loading (LANGUAGE_SPEC §19.11).
+                        // dl_error stays ungated — zero-parameter functions
+                        // cannot be defined in Tiq, so it cannot be wrapped
+                        // (same as ev_loop).
+                        {"dl_open",        7, 1, TYPE_STR, TYPE_U64, TYPE_UNKNOWN, true},
+                        {"dl_sym",         6, 2, TYPE_U64, TYPE_U64, TYPE_STR, true},
+                        {"dl_error",       8, 0, TYPE_INT, TYPE_STR, TYPE_UNKNOWN, false},
+                        {"dl_call",        7, 7, TYPE_U64, TYPE_INT, TYPE_INT, true},
                     };
                     bool matched = false;
                     for (int bi = 0; bi < (int)(sizeof builtins / sizeof builtins[0]); bi++) {

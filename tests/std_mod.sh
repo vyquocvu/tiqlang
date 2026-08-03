@@ -76,6 +76,12 @@ print(r)
 EOF
 assert_rejects "gate_ev" "$TMP_DIR/no_import_ev.tiq" 'import "std/ev.tiq"'
 
+cat > "$TMP_DIR/no_import_dl.tiq" <<'EOF'
+h <- dl_open("x")
+print(h)
+EOF
+assert_rejects "gate_dl" "$TMP_DIR/no_import_dl.tiq" 'import "std/dl.tiq"'
+
 # --- 2. Gated builtins work with import ---
 
 cat > "$TMP_DIR/with_import.tiq" <<'EOF'
@@ -137,6 +143,27 @@ true
 false
 3
 20"
+
+# M16.4: std/dl.tiq wrappers load a real dynamic library and call
+# through the generic integer ABI.
+cat > "$TMP_DIR/dltest.c" <<'EOF'
+#include <stdint.h>
+int64_t dltest_add(int64_t a, int64_t b) { return a + b; }
+EOF
+if [ "$(uname)" = "Darwin" ]; then
+  "$CC_BIN" -std=c11 -dynamiclib "$TMP_DIR/dltest.c" -o "$TMP_DIR/libdltest.dylib"
+  DL_LIB="$TMP_DIR/libdltest.dylib"
+else
+  "$CC_BIN" -std=c11 -shared -fPIC "$TMP_DIR/dltest.c" -o "$TMP_DIR/libdltest.so"
+  DL_LIB="$TMP_DIR/libdltest.so"
+fi
+cat > "$TMP_DIR/dl_wrapper.tiq" <<EOF
+import "std/dl.tiq"
+h <- dl_open("$DL_LIB")
+s <- dl_sym(h, "dltest_add")
+print(dl_call(s, 20, 22, 0, 0, 0, 0))
+EOF
+assert_runs "dl_wrapper_results" "$TMP_DIR/dl_wrapper.tiq" "42"
 
 # --- 6. ASan/UBSan on a program using std/ imports ---
 

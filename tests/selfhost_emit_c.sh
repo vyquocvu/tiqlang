@@ -473,6 +473,29 @@ for m16_compiler in "$TIQ" "$SELFHOST"; do
   fi
 done
 
+# --- M16.4: std/dl.tiq behavioral lock-step ------------------------------
+# Load a fixture dynamic library through the gated dl_* builtins; case_run
+# pins determinism and observable behavior against the C reference.
+cat > "$TMP_DIR/m16_dltest.c" <<'EOF'
+#include <stdint.h>
+int64_t dltest_add(int64_t a, int64_t b) { return a + b; }
+EOF
+if [ "$(uname)" = "Darwin" ]; then
+  "$CC_BIN" -std=c11 -dynamiclib "$TMP_DIR/m16_dltest.c" -o "$TMP_DIR/libm16dl.dylib"
+  M16_DL_LIB="$TMP_DIR/libm16dl.dylib"
+else
+  "$CC_BIN" -std=c11 -shared -fPIC "$TMP_DIR/m16_dltest.c" -o "$TMP_DIR/libm16dl.so"
+  M16_DL_LIB="$TMP_DIR/libm16dl.so"
+fi
+case_run "m16_dl" "import \"std/dl.tiq\"
+h = dl_open(\"$M16_DL_LIB\")
+s = dl_sym(h, \"dltest_add\")
+print(dl_call(s, 20, 22, 0, 0, 0, 0))
+bad = dl_open(\"/nonexistent_tiq_dl_fixture\")
+print(dl_call(dl_sym(bad, \"x\"), 0, 0, 0, 0, 0, 0))
+e = dl_error()
+print(len(e) > 0)"
+
 if [ "$fail" -ne 0 ]; then
   echo "selfhost_emit_c: failed" >&2
   exit 1

@@ -17,7 +17,7 @@ tiq check <file.tiq>...
 
 `tiq emit-c --lib <file.tiq>` (M16.3) runs the normal `emit-c` pipeline but omits the generated `int main`, so the emitted C links into a host program. `tiq emit-header <file.tiq>` (M16.3) emits a deterministic C header declaring the library's FFI-safe export surface to stdout, or to a file with `-o output` (LANGUAGE_SPEC §18.3). Both library modes fail closed with `error[E31]` on any top-level executable statement; unknown or duplicate arguments print the usage block to stderr and exit 2.
 
-All commands that compile or check source resolve `import` paths relative to the importing file, with one addition for the standard library (LANGUAGE_SPEC §17.7): an `import "std/<mod>.tiq"` that does not resolve next to the importing file is retried from the current working directory, so `std/` modules resolve from any file depth when `tiq` is invoked from the project root. The gated domain builtins (`json_*`, `net_*`, `http_*`, `ev_*`) are only reachable through these imports; calling one without the matching `import` fails with a located `error[E08]` whose message names the module to import.
+All commands that compile or check source resolve `import` paths relative to the importing file, with one addition for the standard library (LANGUAGE_SPEC §17.7): an `import "std/<mod>.tiq"` that does not resolve next to the importing file is retried from the current working directory, so `std/` modules resolve from any file depth when `tiq` is invoked from the project root. The gated domain builtins (`json_*`, `net_*`, `http_*`, `ev_*`, `dl_*`) are only reachable through these imports; calling one without the matching `import` fails with a located `error[E08]` whose message names the module to import.
 
 ### Debug / inspect commands
 
@@ -97,7 +97,7 @@ The formatter re-emits the token stream with the repository's canonical layout, 
 ## Option notes
 
 - `tiq build`: `--target <triple>` is forwarded to the host C compiler; cross-compilation targets are planned but not tested (M11).
-- `tiq build` / `tiq run`: repeatable `-l <lib>` and `-L <dir>` options are forwarded to the host C compiler after the generated source, for linking external libraries declared with `extern "C"` (LANGUAGE_SPEC §7.1). Both options require an argument; any other trailing token, or more than 16 `-l`/`-L` pairs, fails closed with a usage error (exit 1) before compilation.
+- `tiq build` / `tiq run`: repeatable `-l <lib>` and `-L <dir>` options are forwarded to the host C compiler after the generated source, for linking external libraries declared with `extern "C"` (LANGUAGE_SPEC §7.1). Both options require an argument; any other trailing token, or more than 16 `-l`/`-L` pairs, fails closed with a usage error (exit 1) before compilation. Libraries loaded at runtime through `std/dl.tiq` (LANGUAGE_SPEC §19.11) need no `-l` flags — `dlopen` resolves them from the path given to `dl_open`.
 - Unknown commands fail closed: `tiq` prints usage to stderr and exits with code 2.
 
 ## Planned

@@ -146,7 +146,8 @@ ec_runtime_builtin n:str -> bool ->
     str_eq(n, "http_header") || str_eq(n, "ev_loop") || str_eq(n, "ev_add") || str_eq(n, "ev_wait") ||
     str_eq(n, "ev_ready") || str_eq(n, "str_cat") || str_eq(n, "int_str") || str_eq(n, "str_sub") ||
     str_eq(n, "str_eq") || str_eq(n, "str_sub_code") || str_eq(n, "eprint") ||
-    str_eq(n, "clock_ms")
+    str_eq(n, "clock_ms") ||
+    str_eq(n, "dl_open") || str_eq(n, "dl_sym") || str_eq(n, "dl_error") || str_eq(n, "dl_call")
 
 // Backend preflight. A partial self-hosting package must still fail closed:
 // find the first unsupported node before any C bytes are written.

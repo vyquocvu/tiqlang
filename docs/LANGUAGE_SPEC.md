@@ -720,16 +720,17 @@ Gated domains and their modules:
 - `import "std/json.tiq"` — `json_parse_int`, `json_encode_str`, `json_get`, `json_arr_len`, `json_arr_get`, `json_has`, `json_set`, `json_del` (§19.1).
 - `import "std/net.tiq"` — `net_fetch`, `net_listen`, `net_accept`, `net_connect`, `net_recv`, `net_send`, `net_close`, `net_port`, `net_shutdown`, `http_method`, `http_path`, `http_header` (§19.2–§19.3).
 - `import "std/ev.tiq"` — `ev_add`, `ev_wait`, `ev_ready` (§19.4).
+- `import "std/dl.tiq"` — `dl_open`, `dl_sym`, `dl_call` (§19.11).
 
 Behavior:
 - Outside a `std/` module, calling a gated builtin without importing its module is a compile-time `error[E08]: undefined symbol '<name>'` whose message carries a hint naming the module to import (for example, `— import "std/json.tiq" for JSON operations`). With the import present, the call resolves to the wrapper function defined in that module, which has the same name and signature as the builtin.
 - Inside a `std/` module the builtin is recognized directly, so each wrapper body calls the intrinsic.
 - Core builtins remain always available with no import: `print`, `eprint`, `len`, `str_cat`, `int_str`, `str_sub`, `str_sub_code`, `str_eq`, `fs_read`, `fs_write`, `fs_exists`, `fs_list`, `proc_exec`, `proc_exit`, `cli_arg_count`, `cli_arg`, `clock_ms`, and the `vec_*`, `str_buf_*`, and `map_*` families.
-- Two domain builtins stay ungated because they cannot be wrapped in a Tiq function: `json_view` (§19.1) returns a zero-copy `str_view` for which there is no function-return annotation, and `ev_loop` (§19.4) takes no parameters while Tiq has no zero-parameter function syntax.
+- Two domain builtins stay ungated because they cannot be wrapped in a Tiq function: `json_view` (§19.1) returns a zero-copy `str_view` for which there is no function-return annotation, and `ev_loop` (§19.4) takes no parameters while Tiq has no zero-parameter function syntax. `dl_error` (§19.11) is likewise ungated for the zero-parameter reason.
 
 Import resolution for `std/`: the path is first resolved relative to the importing file (§17.6); if that fails, it is retried from the current working directory, so `import "std/<mod>.tiq"` resolves from any file depth when `tiq` is invoked from the project root.
 
-Status: implemented — gating, the three `std/` modules, the cwd import fallback, and the diagnostic hint are specified, compiled, and tested (M15).
+Status: implemented — gating, the four `std/` modules, the cwd import fallback, and the diagnostic hint are specified, compiled, and tested (M15, M16.4).
 
 ### 17.8 Extern declarations (FFI) (implemented)
 
@@ -806,7 +807,7 @@ Both commands are implemented in lock-step in the C bootstrap and the self-hoste
 
 ## 19. Standard library builtins
 
-Most domain builtins described below (`json_*`, `net_*`, `http_*`, `ev_*`) are **gated** behind a `std/` module import (§17.7): they are compiler intrinsics only inside a `std/` module, and user code accesses them by importing `std/json.tiq`, `std/net.tiq`, or `std/ev.tiq`. Core builtins (`print`, string/`fs`/`proc`/`cli`/`clock_ms`, and the `vec_*`/`str_buf_*`/`map_*` families) and the two non-wrappable builtins `json_view` and `ev_loop` remain available without any import.
+Most domain builtins described below (`json_*`, `net_*`, `http_*`, `ev_*`, `dl_*`) are **gated** behind a `std/` module import (§17.7): they are compiler intrinsics only inside a `std/` module, and user code accesses them by importing `std/json.tiq`, `std/net.tiq`, `std/ev.tiq`, or `std/dl.tiq`. Core builtins (`print`, string/`fs`/`proc`/`cli`/`clock_ms`, and the `vec_*`/`str_buf_*`/`map_*` families) and the non-wrappable builtins `json_view`, `ev_loop`, and `dl_error` remain available without any import.
 
 ### 19.1 JSON access
 
@@ -989,6 +990,30 @@ Container values cross function boundaries through the §7 annotation syntax: `v
 **strbuf/map at boundaries.** `strbuf` and `map` are unparametrized: an argument for a `strbuf`/`map` parameter must be a strbuf/map (E09 otherwise), and `-> strbuf ->` / `-> map ->` returns type-check the body the same way. Shared-handle semantics apply: a `map_set` in the callee is visible via `map_get` in the caller.
 
 **Arity.** Calls to container-typed functions check arity like any other user function: wrong argument count is E12.
+
+### 19.11 Dynamic library loading (`std/dl.tiq`) (implemented)
+
+Runtime dynamic loading of native libraries through four builtins, gated behind `import "std/dl.tiq"` (§17.7):
+
+```text
+dl_open(path:str) -> u64
+dl_sym(handle:u64, name:str) -> u64
+dl_error() -> str
+dl_call(sym:u64, a:i64, b:i64, c:i64, d:i64, e:i64, f:i64) -> i64
+```
+
+- `dl_open` loads the library at `path` with `RTLD_NOW | RTLD_LOCAL` and returns the handle as a `u64`; a failed load returns `0`.
+- `dl_sym` resolves the symbol `name` in `handle` and returns its address as a `u64`; a failed lookup returns `0` (POSIX caveat: a data symbol legitimately residing at address 0 is indistinguishable from failure; function symbols are never NULL, so function lookups are unambiguous).
+- `dl_error` returns the text of the last loader error, or `""` when there is none. The string is Tiq-owned. It is a core builtin (no import required) because zero-parameter functions cannot be defined in Tiq, so it cannot be wrapped (§17.7).
+- `dl_call` invokes the function at address `sym` through the integer register ABI: it casts the address to `i64(i64, i64, i64, i64, i64, i64)` and passes the six arguments. Callees with fewer parameters ignore the extra register arguments. `dl_call(0, ...)` returns `0` without calling anything (never calls NULL).
+
+**Failure semantics.** Runtime failures never abort the program and produce no diagnostics: they surface as `0`/`""` returns, and the reason is available from `dl_error()` (the same convention as `fs_read`). Compile-time errors are the standard builtin checks: gating (E08, with the import hint), arity (E12), and argument types (E09).
+
+**Pointer values.** Handles and symbol addresses cross the boundary as `u64` (§7.1 pointer decision); pass them between `dl_open`, `dl_sym`, and `dl_call` without conversion.
+
+**Limitations.** `dl_call` covers integer/pointer signatures only (valid on x86-64 and ARM64): f64-returning symbols and struct-by-value parameters are out of scope. There is no `dl_close` in v0.1 — handles live for the process lifetime. No `-l dl` flag is appended automatically; macOS (libSystem) and glibc ≥ 2.34 resolve `dlopen` without it, and older glibc needs `-l dl` via the M16.2 link options.
+
+Status: implemented — builtins, gating, the `std/dl.tiq` wrapper module, runtime helpers, and fail-closed tests in both compilers (M16.4).
 
 ## 20. Bootstrap conformance
 

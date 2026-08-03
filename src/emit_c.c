@@ -214,6 +214,9 @@ static bool is_safe_builtin_callee(AstNode *callee) {
         {"net_port", 8}, {"net_shutdown", 12},
         {"http_method", 11}, {"http_path", 9},
         {"ev_loop", 7}, {"ev_add", 6}, {"ev_wait", 7}, {"ev_ready", 8},
+        // M16.4: dl_open/dl_sym read their path/name strings without
+        // retaining them (dlopen/dlsym copy as needed).
+        {"dl_open", 7}, {"dl_sym", 6}, {"dl_error", 8}, {"dl_call", 7},
         {"json_set", 8}, {"json_del", 8}, {"str_cat", 7}, {"int_str", 7},
         {"http_header", 11},
         // M13.1-P1: read their string arguments without retaining them.
@@ -959,6 +962,9 @@ static void emit_expr(AstNode *node, EmitContext *ctx) {
                     {"http_method", 11, "tiq_http_method", 1}, {"http_path", 9, "tiq_http_path", 1},
                     {"ev_loop", 7, "tiq_ev_loop", 0}, {"ev_add", 6, "tiq_ev_add", 1}, // M15: ev_loop ungated (zero-param cannot be wrapped)
                     {"ev_wait", 7, "tiq_ev_wait", 1}, {"ev_ready", 8, "tiq_ev_ready", 1},
+                    // M16.4: dl_error ungated (zero-param cannot be wrapped).
+                    {"dl_open", 7, "tiq_dl_open", 1}, {"dl_sym", 6, "tiq_dl_sym", 1},
+                    {"dl_error", 8, "tiq_dl_error", 0}, {"dl_call", 7, "tiq_dl_call", 1},
                     {"json_set", 8, "tiq_json_set", 1}, {"json_del", 8, "tiq_json_del", 1},
                     {"str_cat", 7, "tiq_str_cat", 0}, {"int_str", 7, "tiq_int_str", 0},
                     {"http_header", 11, "tiq_http_header", 1},

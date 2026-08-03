@@ -1,0 +1,15 @@
+// M16.4: runtime dynamic library loading (LANGUAGE_SPEC §19.11).
+// Import this module to use dl_open/dl_sym/dl_call:
+//   import "std/dl.tiq"
+//
+// These are thin wrappers over the compiler's dlopen/dlsym builtins.
+// Inside this std/ module the builtins are recognized directly; user
+// code accesses them only through these imported function definitions.
+//
+// dl_error is not wrapped: zero-parameter functions cannot be defined
+// in Tiq, so it stays a core builtin available without this import
+// (same as ev_loop).
+
+dl_open path:str -> u64 -> { dl_open(path) }
+dl_sym handle:u64 name:str -> u64 -> { dl_sym(handle, name) }
+dl_call sym:u64 a:i64 b:i64 c:i64 d:i64 e:i64 f:i64 -> i64 -> { dl_call(sym, a, b, c, d, e, f) }
