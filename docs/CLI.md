@@ -42,6 +42,8 @@ tiq init --check <file.tiq.toml>
 tiq install
 tiq search [query]
 tiq registry [port]
+tiq publish [--registry <url>]
+tiq yank [--registry <url>] <name> <version>
 tiq cache clear
 tiq cache <path>
 ```
@@ -67,6 +69,10 @@ tiq cache <path>
 - `tiq search [query]` queries the Tiq package registry for packages matching the query string (substring match). With no query, lists all packages in the registry. Each match is printed as `name (latest_version)`. `--registry <url>` overrides the default registry URL (`http://127.0.0.1:7070`). Exits 1 with a diagnostic on stderr when the registry is unreachable or no packages match.
 
 - `tiq registry [port]` starts the Tiq package registry server on the given port (default 7070). The registry provides an HTTP/JSON API for publishing, discovering, and managing Tiq packages. API endpoints: `GET /api/v1/packages` (list), `GET /api/v1/packages/<name>` (metadata), `GET /api/v1/packages/<name>/<version>` (version details), `PUT /api/v1/packages/<name>/<version>` (publish, body: JSON with `"source"`), `DELETE /api/v1/packages/<name>/<version>` (yank). Package data is stored under `/tmp/.tiq-registry/packages/`.
+
+- `tiq publish [--registry <url>]` reads the package manifest (`tiq.toml`) from the current directory, extracts the package name, version, and source URL, and publishes to the registry. The source URL is taken from `repository` (preferred, prefixed with `git:`), then `src`, or defaults to `path:.` if neither is set. `--registry <url>` overrides the default registry URL (`http://127.0.0.1:7070`). Prints `Published <name> <version>` on success. A missing or invalid manifest exits 1. A duplicate version exits 1 with `version already exists`. An unreachable registry exits 1. Unknown options exit 2.
+
+- `tiq yank [--registry <url>] <name> <version>` removes a specific version of a package from the registry. `--registry <url>` overrides the default registry URL (`http://127.0.0.1:7070`). Prints `Yanked <name> <version>` on success. A nonexistent version exits 1 with `version not found`. Missing name/version arguments exit 2 with a usage message. An unreachable registry exits 1.
 
 - `tiq cache clear` removes all cached entries from the compiler's artifact cache directory (`/tmp/.tiq-cache`). Exits 0 on success, 1 if the removal fails.
 - `tiq cache <path>` prints the cache entry path for a source file when the file has a valid cache entry (exit 0), or prints `not cached: <path>` to stderr and exits 1 when the file is not cached or the cache entry is stale (source content changed). The cache uses an FNV-1a content hash of the source file for validation; a cache entry is valid only when the stored hash matches the current source content. Unknown options and extra arguments exit 2.

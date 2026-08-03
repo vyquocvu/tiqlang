@@ -1,0 +1,123 @@
+// M18.5-T2: package yanker (`tiq yank`). Removes a specific version of a
+// package from the registry by sending DELETE /api/v1/packages/<name>/<version>.
+//
+// CLI:
+//   tiq yank <name> <version>                    -- yank from default registry
+//   tiq yank --registry <url> <name> <version>   -- yank from specific registry
+//
+// Determinism: the output depends only on the registry state.
+
+import "std/net.tiq"
+import "std/json.tiq"
+
+// Extract port from http://host:port URL. Returns 7070 as default.
+extract_port url:str -> i64 -> {
+    r <- 7070
+    n <- len(url)
+    colon_at <- -1
+    i <- n - 1
+    [i >= 0] {
+        ?[str_sub_code(url, i) == 58] { colon_at <- i; i <- -1 }
+        i <- i - 1
+    }
+    ?[colon_at > 0] {
+        p <- 0
+        pi <- colon_at + 1
+        [pi < n] {
+            c <- str_sub_code(url, pi)
+            ?[c >= 48 && c <= 57] { p <- p * 10 + (c - 48) }
+            pi <- pi + 1
+        }
+        ?[p > 0] { r <- p }
+    }
+    r
+}
+
+// Send HTTP DELETE request and return the response body (JSON).
+http_delete host_port:i64 url_path:str -> str -> {
+    r <- ""
+    conn <- net_connect(host_port)
+    ?[conn < 0] { r <- "" }
+    ?[conn >= 0] {
+        req <- str_buf_new()
+        str_buf_append(req, "DELETE ")
+        str_buf_append(req, url_path)
+        str_buf_append(req, " HTTP/1.1\r\n")
+        str_buf_append(req, "Host: 127.0.0.1\r\n")
+        str_buf_append(req, "Connection: close\r\n\r\n")
+        net_send(conn, str_buf_to_str(req))
+        resp <- net_recv(conn)
+        net_close(conn)
+        // Extract body after \r\n\r\n
+        rn <- len(resp)
+        bi <- 0
+        body_start <- 0
+        [bi < rn] {
+            ?[bi + 3 < rn && str_sub_code(resp, bi) == 13 && str_sub_code(resp, bi + 1) == 10 && str_sub_code(resp, bi + 2) == 13 && str_sub_code(resp, bi + 3) == 10] {
+                body_start <- bi + 4
+                bi <- rn
+            }
+            bi <- bi + 1
+        }
+        ?[body_start > 0] { r <- str_sub(resp, body_start, rn) }
+    }
+    r
+}
+
+// Parse CLI args
+reg_url <- "http://127.0.0.1:7070"
+nargs <- cli_arg_count()
+ai <- 0
+pkg_name <- ""
+pkg_version <- ""
+handled <- 0
+[ai < nargs] {
+    ?[handled == 0 && str_eq(cli_arg(ai), "--registry")] {
+        ?[ai + 1 >= nargs] {
+            eprint("tiq yank: --registry requires a URL argument")
+            proc_exit(2)
+        }
+        reg_url <- cli_arg(ai + 1)
+        ai <- ai + 2
+        handled <- 1
+    }
+    ?[handled == 0 && len(pkg_name) == 0] {
+        pkg_name <- cli_arg(ai)
+        ai <- ai + 1
+    }
+    ?[handled == 0 && len(pkg_name) > 0 && len(pkg_version) == 0] {
+        pkg_version <- cli_arg(ai)
+        ai <- ai + 1
+    }
+    ?[handled == 1] { handled <- 0 }
+}
+
+?[len(pkg_name) == 0 || len(pkg_version) == 0] {
+    eprint("tiq yank: usage: tiq yank [--registry <url>] <name> <version>")
+    proc_exit(2)
+}
+
+// Send DELETE request
+api_path <- str_cat(str_cat("/api/v1/packages/", pkg_name), str_cat("/", pkg_version))
+port <- extract_port(reg_url)
+resp <- http_delete(port, api_path)
+
+?[len(resp) == 0] {
+    eprint(str_cat("tiq yank: cannot reach registry at ", reg_url))
+    proc_exit(1)
+}
+
+ok_field <- json_get(resp, "ok")
+err_field <- json_get(resp, "error")
+?[len(ok_field) > 0] {
+    print(str_cat(str_cat("Yanked ", pkg_name), str_cat(" ", pkg_version)))
+}
+?[len(err_field) > 0] {
+    eprint(str_cat("tiq yank: ", err_field))
+    proc_exit(1)
+}
+?[len(ok_field) == 0 && len(err_field) == 0] {
+    eprint(str_cat("tiq yank: unexpected response: ", resp))
+    proc_exit(1)
+}
+0

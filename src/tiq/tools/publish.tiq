@@ -1,0 +1,254 @@
+// M18.5-T1: package publisher (`tiq publish`). Reads the manifest (`tiq.toml`)
+// from the current directory, extracts the package name, version, and source
+// URL, and publishes to the registry via PUT /api/v1/packages/<name>/<version>.
+//
+// CLI:
+//   tiq publish                    -- publish cwd package to default registry
+//   tiq publish --registry <url>   -- publish to a specific registry
+//
+// The manifest must have [package] name, version, and either `repository`
+// (preferred) or `src` as the source URL. If neither is set, the publisher
+// uses "path:." (current directory) as the source.
+//
+// Determinism: the output depends only on the manifest content and the
+// registry state. No environment variables or timestamps reach the output.
+
+import "../manifest.tiq"
+import "std/net.tiq"
+import "std/json.tiq"
+
+// Extract port from http://host:port URL. Returns 7070 as default.
+extract_port url:str -> i64 -> {
+    r <- 7070
+    n <- len(url)
+    // Find last ':'
+    colon_at <- -1
+    i <- n - 1
+    [i >= 0] {
+        ?[str_sub_code(url, i) == 58] { colon_at <- i; i <- -1 }
+        i <- i - 1
+    }
+    ?[colon_at > 0] {
+        p <- 0
+        pi <- colon_at + 1
+        [pi < n] {
+            c <- str_sub_code(url, pi)
+            ?[c >= 48 && c <= 57] { p <- p * 10 + (c - 48) }
+            pi <- pi + 1
+        }
+        ?[p > 0] { r <- p }
+    }
+    r
+}
+
+// Extract path from http://host:port/path URL.
+extract_url_path url:str -> str -> {
+    n <- len(url)
+    // Find first '/' after "http://"
+    r <- "/api/v1/packages"
+    start <- 0
+    i <- 0
+    slashes <- 0
+    [i < n] {
+        ?[str_sub_code(url, i) == 47] {
+            slashes <- slashes + 1
+            ?[slashes == 3] { start <- i; i <- n }
+        }
+        i <- i + 1
+    }
+    ?[start > 0] { r <- str_sub(url, start, n) }
+    r
+}
+
+// Send HTTP PUT request and return the response body (JSON).
+http_put host_port:i64 url_path:str body:str -> str -> {
+    r <- ""
+    conn <- net_connect(host_port)
+    ?[conn < 0] { r <- "" }
+    ?[conn >= 0] {
+        // Build HTTP request
+        req <- str_buf_new()
+        str_buf_append(req, "PUT ")
+        str_buf_append(req, url_path)
+        str_buf_append(req, " HTTP/1.1\r\n")
+        str_buf_append(req, "Host: 127.0.0.1\r\n")
+        str_buf_append(req, "Content-Type: application/json\r\n")
+        str_buf_append(req, "Content-Length: ")
+        str_buf_append(req, int_str(len(body)))
+        str_buf_append(req, "\r\n")
+        str_buf_append(req, "Connection: close\r\n\r\n")
+        str_buf_append(req, body)
+        net_send(conn, str_buf_to_str(req))
+        // Read response
+        resp <- net_recv(conn)
+        net_close(conn)
+        // Extract body after \r\n\r\n
+        rn <- len(resp)
+        bi <- 0
+        body_start <- 0
+        [bi < rn] {
+            ?[bi + 3 < rn && str_sub_code(resp, bi) == 13 && str_sub_code(resp, bi + 1) == 10 && str_sub_code(resp, bi + 2) == 13 && str_sub_code(resp, bi + 3) == 10] {
+                body_start <- bi + 4
+                bi <- rn
+            }
+            bi <- bi + 1
+        }
+        ?[body_start > 0] { r <- str_sub(resp, body_start, rn) }
+    }
+    r
+}
+
+// Parse CLI args
+reg_url <- "http://127.0.0.1:7070"
+nargs <- cli_arg_count()
+ai <- 0
+handled <- 0
+[ai < nargs] {
+    ?[handled == 0 && str_eq(cli_arg(ai), "--registry")] {
+        ?[ai + 1 >= nargs] {
+            eprint("tiq publish: --registry requires a URL argument")
+            proc_exit(2)
+        }
+        reg_url <- cli_arg(ai + 1)
+        ai <- ai + 2
+        handled <- 1
+    }
+    ?[handled == 0] {
+        eprint(str_cat("tiq publish: unknown option '", str_cat(cli_arg(ai), "'")))
+        proc_exit(2)
+    }
+    ?[handled == 1] { handled <- 0 }
+}
+
+// Read and validate manifest
+manifest_path <- "tiq.toml"
+?[!fs_exists(manifest_path)] {
+    eprint(str_cat("tiq publish: cannot read ", manifest_path))
+    proc_exit(1)
+}
+
+src <- fs_read(manifest_path)
+sv <- vec_new()
+vec_push(sv, 0)  // section
+vec_push(sv, 0)  // name seen
+vec_push(sv, 0)  // error flag
+vec_push(sv, 0)  // version seen
+vec_push(sv, 0)  // package seen
+
+err <- mf_check(src, manifest_path, sv)
+?[err != 0] {
+    proc_exit(1)
+}
+
+pkg_name <- mf_extract_name(src)
+?[len(pkg_name) == 0] {
+    eprint("tiq publish: manifest has no package name")
+    proc_exit(1)
+}
+
+// Extract version from [package] section
+pkg_version <- ""
+n <- len(src)
+start <- 0
+in_package <- 0
+i <- 0
+[i <= n] {
+    ?[i == n || str_sub_code(src, i) == 10] {
+        line <- mf_trim(str_sub(src, start, i))
+        ?[len(line) > 0 && str_sub_code(line, 0) != 35] {
+            ?[str_sub_code(line, 0) == 91] {
+                lt <- len(line)
+                ?[lt >= 2 && str_sub_code(line, lt - 1) == 93] {
+                    sname <- mf_trim(str_sub(line, 1, lt - 1))
+                    ?[str_eq(sname, "package")] { in_package <- 1 }
+                    ?[!str_eq(sname, "package")] { in_package <- 0 }
+                }
+            }
+            ?[in_package == 1 && str_sub_code(line, 0) != 91] {
+                eq <- mf_find_eq(line, 0)
+                ?[eq > 0] {
+                    key <- mf_trim(str_sub(line, 0, eq))
+                    val <- mf_unquote(mf_trim(str_sub(line, eq + 1, len(line))))
+                    ?[str_eq(key, "version")] {
+                        pkg_version <- val
+                        in_package <- 0
+                    }
+                }
+            }
+        }
+        start <- i + 1
+    }
+    i <- i + 1
+}
+
+?[len(pkg_version) == 0] {
+    eprint("tiq publish: manifest has no package version")
+    proc_exit(1)
+}
+
+// Extract source URL: prefer repository, then src, then default to path:.
+pkg_source <- ""
+start <- 0
+in_package <- 0
+i <- 0
+[i <= n] {
+    ?[i == n || str_sub_code(src, i) == 10] {
+        line <- mf_trim(str_sub(src, start, i))
+        ?[len(line) > 0 && str_sub_code(line, 0) != 35] {
+            ?[str_sub_code(line, 0) == 91] {
+                lt <- len(line)
+                ?[lt >= 2 && str_sub_code(line, lt - 1) == 93] {
+                    sname <- mf_trim(str_sub(line, 1, lt - 1))
+                    ?[str_eq(sname, "package")] { in_package <- 1 }
+                    ?[!str_eq(sname, "package")] { in_package <- 0 }
+                }
+            }
+            ?[in_package == 1 && str_sub_code(line, 0) != 91] {
+                eq <- mf_find_eq(line, 0)
+                ?[eq > 0] {
+                    key <- mf_trim(str_sub(line, 0, eq))
+                    val <- mf_unquote(mf_trim(str_sub(line, eq + 1, len(line))))
+                    ?[str_eq(key, "repository")] {
+                        pkg_source <- str_cat("git:", val)
+                    }
+                    ?[str_eq(key, "src") && len(pkg_source) == 0] {
+                        pkg_source <- val
+                    }
+                }
+            }
+        }
+        start <- i + 1
+    }
+    i <- i + 1
+}
+
+?[len(pkg_source) == 0] {
+    pkg_source <- "path:."
+}
+
+// Build API path and send PUT
+api_path <- str_cat(str_cat("/api/v1/packages/", pkg_name), str_cat("/", pkg_version))
+body <- str_cat("{\"source\":", str_cat(json_encode_str(pkg_source), "}"))
+port <- extract_port(reg_url)
+resp <- http_put(port, api_path, body)
+
+?[len(resp) == 0] {
+    eprint(str_cat("tiq publish: cannot reach registry at ", reg_url))
+    proc_exit(1)
+}
+
+// Check response for success
+ok_field <- json_get(resp, "ok")
+err_field <- json_get(resp, "error")
+?[len(ok_field) > 0] {
+    print(str_cat(str_cat("Published ", pkg_name), str_cat(" ", pkg_version)))
+}
+?[len(err_field) > 0] {
+    eprint(str_cat("tiq publish: ", err_field))
+    proc_exit(1)
+}
+?[len(ok_field) == 0 && len(err_field) == 0] {
+    eprint(str_cat("tiq publish: unexpected response: ", resp))
+    proc_exit(1)
+}
+0
