@@ -6,6 +6,7 @@
 
 import "../ast.tiq"
 import "../lexer.tiq"
+import "std/json.tiq"
 //
 // Comments are trivia attached to tokens (comment_start/comment_length) and
 // are re-emitted verbatim in place. The output is a function of the token

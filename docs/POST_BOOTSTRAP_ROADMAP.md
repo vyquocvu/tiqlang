@@ -78,21 +78,25 @@ Rebuild the developer tooling as Tiq programs. The original C implementations (`
 
 ## M15 — Standard Library Modularization (`std/` Ecosystem)
 
-Status: queued (prerequisite M13.1 module system done 2026-07-31)
+Status: active (gating + first `std/` modules landed; `fs`/`proc` modularization and full builtin-name removal deferred)
 
 Depends on: M13.1 (modules/imports, done). Must land before M19, which requires auxiliary services to live in modular standard library code.
 
 Extract auxiliary system, networking, and serialization features from compiler intrinsics into modular `std/` packages.
 
+### Progress (2026-08-03)
+
+The compiler now **gates** the domain builtins (`json_*`, `net_*`, `http_*`, `ev_*`): outside a `std/` module they are no longer recognized as intrinsics, and calling one produces a located `error[E08]` with a hint naming the module to import (`import "std/json.tiq"`, etc.). User code reaches them only by importing the corresponding `std/` wrapper module. The module loader gained a cwd fallback so `import "std/<mod>.tiq"` resolves from any file depth when `tiq` runs from the project root. `json_view` and `ev_loop` remain core builtins (ungated): `json_view` returns a zero-copy `str_view` that cannot be expressed as a wrapper function return, and `ev_loop` is zero-parameter and Tiq has no zero-parameter function syntax.
+
 ### Tasks
 
-- [ ] **M15.1** `std/fs.tiq`: File operations, directory streaming, and path manipulation
-- [ ] **M15.2** `std/proc.tiq`: Process spawning, child pipes, and signal handling
-- [ ] **M15.3** `std/json.tiq`: Zero-copy JSON parsing, object inspection, and string escaping
-- [ ] **M15.4** `std/net.tiq`: Socket creation, listener binding, packet sending/receiving
-- [ ] **M15.5** `std/ev.tiq`: Event loop abstractions and timer queue bindings
+- [ ] **M15.1** `std/fs.tiq`: File operations, directory streaming, and path manipulation — *deferred: `fs_*` stays a core builtin (used by the compiler and all tooling)*
+- [ ] **M15.2** `std/proc.tiq`: Process spawning, child pipes, and signal handling — *deferred: `proc_*` stays a core builtin (used by the compiler and all tooling)*
+- [x] **M15.3** `std/json.tiq`: Zero-copy JSON parsing, object inspection, and string escaping — wrappers over gated `json_*` (`json_view` stays a core builtin)
+- [x] **M15.4** `std/net.tiq`: Socket creation, listener binding, packet sending/receiving — wrappers over gated `net_*`/`http_*`
+- [x] **M15.5** `std/ev.tiq`: Event loop abstractions and timer queue bindings — wrappers over gated `ev_*` (`ev_loop` stays a core builtin)
 
-**Exit gate**: Core compiler code contains zero domain-specific builtin function names (`net_*`, `json_*`, `ev_*`).
+**Exit gate**: Core compiler code contains zero domain-specific builtin function names (`net_*`, `json_*`, `ev_*`). *Partially met: the names are gated behind `std/` imports (no longer reachable as intrinsics from user code), but they still appear in the compiler source as the gated-builtin tables and the emitted runtime. Full physical removal of the names is deferred to M16 (FFI), which provides the mechanism to define these wrappers against real C bindings instead of compiler intrinsics.*
 
 ---
 

@@ -1,0 +1,18 @@
+// M15: Networking and HTTP primitives (LANGUAGE_SPEC §19.2–§19.3).
+// Import this module to use net_* and http_* functions:
+//   import "std/net.tiq"
+//
+// These are thin wrappers over the compiler's networking builtins.
+
+net_fetch url:str -> str -> { net_fetch(url) }
+net_listen port:i64 -> i64 -> { net_listen(port) }
+net_accept fd:i64 -> i64 -> { net_accept(fd) }
+net_connect port:i64 -> i64 -> { net_connect(port) }
+net_recv fd:i64 -> str -> { net_recv(fd) }
+net_send fd:i64 data:str -> i64 -> { net_send(fd, data) }
+net_close fd:i64 -> i64 -> { net_close(fd) }
+net_port fd:i64 -> i64 -> { net_port(fd) }
+net_shutdown fd:i64 -> i64 -> { net_shutdown(fd) }
+http_method req:str -> str -> { http_method(req) }
+http_path req:str -> str -> { http_path(req) }
+http_header req:str key:str -> str -> { http_header(req, key) }

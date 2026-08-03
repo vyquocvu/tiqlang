@@ -14,6 +14,8 @@ tiq emit-c <file.tiq>
 tiq check <file.tiq>...
 ```
 
+All commands that compile or check source resolve `import` paths relative to the importing file, with one addition for the standard library (LANGUAGE_SPEC §17.7): an `import "std/<mod>.tiq"` that does not resolve next to the importing file is retried from the current working directory, so `std/` modules resolve from any file depth when `tiq` is invoked from the project root. The gated domain builtins (`json_*`, `net_*`, `http_*`, `ev_*`) are only reachable through these imports; calling one without the matching `import` fails with a located `error[E08]` whose message names the module to import.
+
 ### Debug / inspect commands
 
 These commands emit intermediate representations for debugging and are not part of the primary workflow:

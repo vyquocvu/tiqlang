@@ -77,6 +77,10 @@ typedef struct EmitContext {
     // order, deterministic; mirrors the semantic enum registry).
     AstNode **top_stmts;
     int top_count;
+    // M15: true when emitting a function from a std/ module; gated domain
+    // builtins (json_*, net_*, http_*, ev_*) map to C runtime calls only
+    // inside std/ wrappers — user code emits plain calls to the wrappers.
+    int is_std;
 } EmitContext;
 
 static void emit_expr(AstNode *node, EmitContext *ctx);
@@ -936,54 +940,58 @@ static void emit_expr(AstNode *node, EmitContext *ctx) {
                         }
                     }
                 }
-                typedef struct { const char *tiq; int len; const char *c; } Btn;
+                typedef struct { const char *tiq; int len; const char *c; int gated; } Btn;
                 static const Btn btn[] = {
-                    {"fs_read", 7, "tiq_fs_read"}, {"fs_write", 8, "tiq_fs_write"},
-                    {"fs_exists", 9, "tiq_fs_exists"}, {"proc_exec", 9, "tiq_proc_exec"},
-                    {"proc_exit", 9, "tiq_proc_exit"}, {"json_parse_int", 14, "tiq_json_parse_int"},
-                    {"json_encode_str", 15, "tiq_json_encode_str"}, {"net_fetch", 9, "tiq_net_fetch"},
-                    {"cli_arg_count", 13, "tiq_cli_arg_count"}, {"cli_arg", 7, "tiq_cli_arg"},
-                    {"clock_ms", 8, "tiq_clock_ms"},
-                    {"json_get", 8, "tiq_json_get"},
-                    {"json_arr_len", 12, "tiq_json_arr_len"}, {"json_arr_get", 12, "tiq_json_arr_get"},
-                    {"json_view", 9, "tiq_json_view"},
-                    {"json_has", 8, "tiq_json_has"},
-                    {"net_listen", 10, "tiq_net_listen"}, {"net_accept", 10, "tiq_net_accept"},
-                    {"net_connect", 11, "tiq_net_connect"}, {"net_recv", 8, "tiq_net_recv"},
-                    {"net_send", 8, "tiq_net_send"}, {"net_close", 9, "tiq_net_close"},
-                    {"net_port", 8, "tiq_net_port"}, {"net_shutdown", 12, "tiq_net_shutdown"},
-                    {"http_method", 11, "tiq_http_method"}, {"http_path", 9, "tiq_http_path"},
-                    {"ev_loop", 7, "tiq_ev_loop"}, {"ev_add", 6, "tiq_ev_add"},
-                    {"ev_wait", 7, "tiq_ev_wait"}, {"ev_ready", 8, "tiq_ev_ready"},
-                    {"json_set", 8, "tiq_json_set"}, {"json_del", 8, "tiq_json_del"},
-                    {"str_cat", 7, "tiq_str_cat"}, {"int_str", 7, "tiq_int_str"},
-                    {"http_header", 11, "tiq_http_header"},
-                    {"str_sub", 7, "tiq_str_sub"}, {"str_eq", 6, "tiq_str_eq"},
+                    {"fs_read", 7, "tiq_fs_read", 0}, {"fs_write", 8, "tiq_fs_write", 0},
+                    {"fs_exists", 9, "tiq_fs_exists", 0}, {"proc_exec", 9, "tiq_proc_exec", 0},
+                    {"proc_exit", 9, "tiq_proc_exit", 0}, {"json_parse_int", 14, "tiq_json_parse_int", 1},
+                    {"json_encode_str", 15, "tiq_json_encode_str", 1}, {"net_fetch", 9, "tiq_net_fetch", 1},
+                    {"cli_arg_count", 13, "tiq_cli_arg_count", 0}, {"cli_arg", 7, "tiq_cli_arg", 0},
+                    {"clock_ms", 8, "tiq_clock_ms", 0},
+                    {"json_get", 8, "tiq_json_get", 1},
+                    {"json_arr_len", 12, "tiq_json_arr_len", 1}, {"json_arr_get", 12, "tiq_json_arr_get", 1},
+                    {"json_view", 9, "tiq_json_view", 0}, // M15: ungated (str_view result cannot be wrapped)
+                    {"json_has", 8, "tiq_json_has", 1},
+                    {"net_listen", 10, "tiq_net_listen", 1}, {"net_accept", 10, "tiq_net_accept", 1},
+                    {"net_connect", 11, "tiq_net_connect", 1}, {"net_recv", 8, "tiq_net_recv", 1},
+                    {"net_send", 8, "tiq_net_send", 1}, {"net_close", 9, "tiq_net_close", 1},
+                    {"net_port", 8, "tiq_net_port", 1}, {"net_shutdown", 12, "tiq_net_shutdown", 1},
+                    {"http_method", 11, "tiq_http_method", 1}, {"http_path", 9, "tiq_http_path", 1},
+                    {"ev_loop", 7, "tiq_ev_loop", 0}, {"ev_add", 6, "tiq_ev_add", 1}, // M15: ev_loop ungated (zero-param cannot be wrapped)
+                    {"ev_wait", 7, "tiq_ev_wait", 1}, {"ev_ready", 8, "tiq_ev_ready", 1},
+                    {"json_set", 8, "tiq_json_set", 1}, {"json_del", 8, "tiq_json_del", 1},
+                    {"str_cat", 7, "tiq_str_cat", 0}, {"int_str", 7, "tiq_int_str", 0},
+                    {"http_header", 11, "tiq_http_header", 1},
+                    {"str_sub", 7, "tiq_str_sub", 0}, {"str_eq", 6, "tiq_str_eq", 0},
                     // M13.4-S3: byte value at index for self-hosted checker.
-                    {"str_sub_code", 12, "tiq_str_sub_code"},
-                    {"eprint", 6, "tiq_eprint"}, {"fs_list", 7, "tiq_fs_list"},
+                    {"str_sub_code", 12, "tiq_str_sub_code", 0},
+                    {"eprint", 6, "tiq_eprint", 0}, {"fs_list", 7, "tiq_fs_list", 0},
                     // M13.1-P4: StrBuf builtins (LANGUAGE_SPEC §19.8); every
                     // signature is homogeneous, so the generic mapping fits.
-                    {"str_buf_new", 11, "tiq_str_buf_new"},
-                    {"str_buf_append", 14, "tiq_str_buf_append"},
-                    {"str_buf_to_str", 14, "tiq_str_buf_to_str"},
-                    {"str_buf_len", 11, "tiq_str_buf_len"},
+                    {"str_buf_new", 11, "tiq_str_buf_new", 0},
+                    {"str_buf_append", 14, "tiq_str_buf_append", 0},
+                    {"str_buf_to_str", 14, "tiq_str_buf_to_str", 0},
+                    {"str_buf_len", 11, "tiq_str_buf_len", 0},
                     // M13.1-P5: Map builtins (LANGUAGE_SPEC §19.9); the map is
                     // unparametrized (str keys, int values), so every emission
                     // is a plain call and the generic mapping fits — including
                     // the heterogeneous map_set, whose checking alone needed
                     // the dedicated per-builtin path.
-                    {"map_new", 7, "tiq_map_new"},
-                    {"map_set", 7, "tiq_map_set"},
-                    {"map_get", 7, "tiq_map_get"},
-                    {"map_has", 7, "tiq_map_has"},
-                    {"map_len", 7, "tiq_map_len"},
-                    {"map_key_at", 10, "tiq_map_key_at"},
-                    {"map_val_at", 10, "tiq_map_val_at"},
+                    {"map_new", 7, "tiq_map_new", 0},
+                    {"map_set", 7, "tiq_map_set", 0},
+                    {"map_get", 7, "tiq_map_get", 0},
+                    {"map_has", 7, "tiq_map_has", 0},
+                    {"map_len", 7, "tiq_map_len", 0},
+                    {"map_key_at", 10, "tiq_map_key_at", 0},
+                    {"map_val_at", 10, "tiq_map_val_at", 0},
                 };
                 const char *builtin_fn = NULL;
                 for (int bi = 0; bi < (int)(sizeof btn / sizeof btn[0]); bi++) {
                     if ((int)name.length == btn[bi].len && memcmp(name.start, btn[bi].tiq, name.length) == 0) {
+                        // M15: gated builtins only emit C runtime calls inside
+                        // std/ modules; user code emits a plain call to the
+                        // imported wrapper function.
+                        if (btn[bi].gated && !ctx->is_std) break;
                         builtin_fn = btn[bi].c;
                         break;
                     }
@@ -1778,7 +1786,7 @@ void compile_modules_to_c(SemanticModule *mods, int mod_count, const char *root_
                           FILE *out, DiagContext *diag) {
     EmitContext ectx = { out, diag, root_path, {{0, 0, 0}}, 0, NULL,
                          {{NULL, 0, 0, false, NULL, NULL, 0}}, 0,
-                         {NULL}, {0}, 0, NULL, 0, NULL, 0 };
+                         {NULL}, {0}, 0, NULL, 0, NULL, 0, 0 };
     EmitContext *ctx = &ectx;
 
     // M13.1-P6: flatten the post-order module sequence into one top-level
@@ -1788,11 +1796,24 @@ void compile_modules_to_c(SemanticModule *mods, int mod_count, const char *root_
     for (int m = 0; m < mod_count; m++) count += mods[m].count;
     AstNode **stmts = malloc(sizeof(AstNode *) * (size_t)(count > 0 ? count : 1));
     if (!stmts) { fprintf(stderr, "tiq: out of memory\n"); exit(1); }
+    // M15: parallel flag array — true for statements from std/ modules.
+    bool *stmt_std = calloc((size_t)(count > 0 ? count : 1), sizeof(bool));
+    if (!stmt_std) { fprintf(stderr, "tiq: out of memory\n"); exit(1); }
     count = 0;
     for (int m = 0; m < mod_count; m++) {
+        // M15: detect std/ module by path prefix or substring.
+        bool mod_is_std = false;
+        if (mods[m].path) {
+            const char *p = mods[m].path;
+            if ((p[0] == 's' && p[1] == 't' && p[2] == 'd' && p[3] == '/') ||
+                strstr(p, "/std/"))
+                mod_is_std = true;
+        }
         for (int i = 0; i < mods[m].count; i++) {
-            if (mods[m].stmts[i] && mods[m].stmts[i]->kind != AST_IMPORT)
+            if (mods[m].stmts[i] && mods[m].stmts[i]->kind != AST_IMPORT) {
+                stmt_std[count] = mod_is_std;
                 stmts[count++] = mods[m].stmts[i];
+            }
         }
     }
     // M13.1-P2/P6: enum variant use sites resolve against the full
@@ -1803,11 +1824,11 @@ void compile_modules_to_c(SemanticModule *mods, int mod_count, const char *root_
     TypePool pool;
     type_pool_init(&pool);
     semantic_check_modules(mods, mod_count, diag, &pool);
-    if (diag->has_error) { free(stmts); type_pool_free(&pool); return; }
+    if (diag->has_error) { free(stmts); free(stmt_std); type_pool_free(&pool); return; }
 
     for (int i = 0; i < count && !diag->fatal_error; i++)
         emit_check_node(stmts[i], ctx);
-    if (diag->has_error) { free(stmts); type_pool_free(&pool); return; }
+    if (diag->has_error) { free(stmts); free(stmt_std); type_pool_free(&pool); return; }
 
     // Collect stream gen bindings
     typedef struct { const char *name; AstNode *gen; Token *params; int param_count; } StreamGenDef;
@@ -1975,6 +1996,7 @@ void compile_modules_to_c(SemanticModule *mods, int mod_count, const char *root_
     for (int i = 0; i < count; i++) {
         if (stmts[i] && stmts[i]->kind == AST_FUNCTION && stmts[i]->as.function.body->kind != AST_STREAM_GEN) {
             ctx->current_fn = stmts[i]; // M9.1: body emission derefs ref params
+            ctx->is_std = stmt_std[i];  // M15: gate domain builtins per module
             SemanticType *t = stmts[i]->semantic_type;
             emit_semantic_type(t, ctx->out);
             fprintf(ctx->out, "\n%.*s(", (int)stmts[i]->as.function.name.length, stmts[i]->as.function.name.start);
@@ -2081,6 +2103,7 @@ void compile_modules_to_c(SemanticModule *mods, int mod_count, const char *root_
                 fputs(";\n}\n\n", ctx->out);
             }
             ctx->current_fn = NULL;
+            ctx->is_std = 0;
         }
     }
 
@@ -2088,6 +2111,7 @@ void compile_modules_to_c(SemanticModule *mods, int mod_count, const char *root_
     for (int g = 0; g < stream_gen_count; g++) free((void*)stream_gens[g].name);
 
     free(stmts);
+    free(stmt_std);
     type_pool_free(&pool);
 }
 

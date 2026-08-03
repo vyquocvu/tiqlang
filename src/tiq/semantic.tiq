@@ -13,7 +13,21 @@ import "type.tiq"
 // with EW=4 slots per binding: mut, moved, type, line.
 enum EF { EMut, EMoved, EType, ELine }
 // Context: packed into ctx:vec[int].
-enum CX { HasErr, Fatal, LoopDepth, InRange }
+enum CX { HasErr, Fatal, LoopDepth, InRange, IsStd }
+
+// M15: gated domain builtins — only recognized inside std/ module wrappers.
+// json_view stays ungated: its str_view result cannot be wrapped in a
+// function; ev_loop stays ungated: zero-parameter functions cannot be
+// defined in Tiq. Both remain core builtins (same as the C bootstrap).
+is_gated_name n:str -> bool ->
+    str_eq(n, "json_parse_int") || str_eq(n, "json_encode_str") || str_eq(n, "json_get") ||
+    str_eq(n, "json_arr_len") || str_eq(n, "json_arr_get") ||
+    str_eq(n, "json_has") || str_eq(n, "json_set") || str_eq(n, "json_del") ||
+    str_eq(n, "net_fetch") || str_eq(n, "net_listen") || str_eq(n, "net_accept") ||
+    str_eq(n, "net_connect") || str_eq(n, "net_recv") || str_eq(n, "net_send") ||
+    str_eq(n, "net_close") || str_eq(n, "net_port") || str_eq(n, "net_shutdown") ||
+    str_eq(n, "http_method") || str_eq(n, "http_path") || str_eq(n, "http_header") ||
+    str_eq(n, "ev_add") || str_eq(n, "ev_wait") || str_eq(n, "ev_ready")
 
 // Prime the pool with primitive kinds so pool[i] = TY.i for simple types.
 // OPTION (10) and RESULT (11) are NOT primed: C's generic interner ignores
@@ -361,6 +375,8 @@ chk_generic ctx:vec[int] path:str toks:vec[Token] nodes:vec[int] kids:vec[int] t
     ?[str_eq(nm, "ev_wait")] { ar <- 2; exp <- TY.Int; ret <- TY.Int; exp2 <- TY.Int; hit <- 1 }
     ?[str_eq(nm, "ev_ready")] { ar <- 2; exp <- TY.Int; ret <- TY.Int; exp2 <- TY.Int; hit <- 1 }
     ?[str_eq(nm, "clock_ms")] { ar <- 0; exp <- TY.Int; ret <- TY.Int; exp2 <- 0; hit <- 1 }
+    // M15: gated domain builtins only match inside std/ wrapper functions.
+    ?[hit == 1 && is_gated_name(nm) && vec_get(ctx, CX.IsStd) == 0] { hit <- 0; r <- 0 }
     ?[hit == 0] r <- 0
     // hit == 1: check arity + arg types
     ?[hit == 1 && c1 != ar] { msg <- str_cat(str_cat(str_cat(nm, " expects exactly "), int_str(ar)), ar == 1 ? " argument" : " arguments"); s_diag(ctx, path, ln, 12, msg); vec_set(types, ni, ty_get(tp, tpn, ret)); r <- 1; hit <- 0 }
@@ -856,8 +872,13 @@ check_node src:str path:str toks:vec[Token] nodes:vec[int] kids:vec[int] types:v
             j <- j + 1
         }
         // Check body
+        // M15: set IsStd when the function name matches a gated builtin
+        // (std/ wrappers share the builtin name; user code does not).
+        old_std <- vec_get(ctx, CX.IsStd)
+        ?[is_gated_name(nm)] { vec_set(ctx, CX.IsStd, 1) }
         bi <- nd_get(nodes, ni, NF.A)
         check_node(src, path, toks, nodes, kids, types, en, ed, sc, st_reg, st_data, st_names, st_meta, en_reg, en_data, fn_reg, fn_data, fpts, frks, tp, tpn, ctx, bi)
+        vec_set(ctx, CX.IsStd, old_std)
         // Update param types from env (may have been refined)
         j <- 0
         [j < pc] {
@@ -1395,7 +1416,7 @@ semantic_run src:str path:str toks:vec[Token] nodes:vec[int] kids:vec[int] tops:
     fn_reg <- vec_new(); fn_data <- vec_new()
     fpts <- vec_new(); frks <- vec_new()
     ctx <- vec_new()
-    vec_push(ctx, 0); vec_push(ctx, 0); vec_push(ctx, 0); vec_push(ctx, 0)
+    vec_push(ctx, 0); vec_push(ctx, 0); vec_push(ctx, 0); vec_push(ctx, 0); vec_push(ctx, 0)
     top_count <- vec_len(tops)
     // Only run semantic checking if parse was clean
     ?[parse_err == 0] {

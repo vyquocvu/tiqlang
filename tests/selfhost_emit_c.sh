@@ -132,7 +132,8 @@ case_run "numeric_conversions" 'print(i8(130))
 print(u16(65537))
 print(i32(42.9))
 print(f32(7))'
-case_run "owned_scopes" 'a = json_get("{\"x\":\"one\"}", "x")
+case_run "owned_scopes" 'import "std/json.tiq"
+a = json_get("{\"x\":\"one\"}", "x")
 {
   b = json_encode_str("two")
   defer print(b)
@@ -155,7 +156,8 @@ if "$CC_BIN" -std=c11 -g -fsanitize=address,undefined "$TMP_DIR/owned_scopes.1.c
     fail=1
   }
 fi
-case_run "owned_early_exit" '[0..2] {
+case_run "owned_early_exit" 'import "std/json.tiq"
+[0..2] {
   a = json_get("{\"a\":1}", "a")
   [(i < 1)] {
     b = json_get("{\"b\":2}", "b")
@@ -178,7 +180,8 @@ if ! cmp -s "$TMP_DIR/owned_early_exit.frees" "$TMP_DIR/owned_early_exit.frees.e
   cat "$TMP_DIR/owned_early_exit.frees" >&2
   fail=1
 fi
-case_run "owned_mutable" 's <- json_get("{\"a\":\"one\"}", "a")
+case_run "owned_mutable" 'import "std/json.tiq"
+s <- json_get("{\"a\":\"one\"}", "a")
 print(s)
 s <- json_get("{\"b\":\"two\"}", "b")
 print(s)
@@ -196,7 +199,8 @@ if ! cmp -s "$TMP_DIR/owned_mutable.frees" "$TMP_DIR/owned_mutable.frees.expecte
   cat "$TMP_DIR/owned_mutable.frees" >&2
   fail=1
 fi
-case_run "owned_proc_exit" 'a = json_get("{\"a\":\"one\"}", "a")
+case_run "owned_proc_exit" 'import "std/json.tiq"
+a = json_get("{\"a\":\"one\"}", "a")
 print(a)
 [0..3] {
   b = json_get("{\"b\":\"two\"}", "b")
@@ -210,7 +214,8 @@ if ! cmp -s "$TMP_DIR/owned_proc_exit.frees" "$TMP_DIR/owned_proc_exit.frees.exp
   cat "$TMP_DIR/owned_proc_exit.frees" >&2
   fail=1
 fi
-case_run "owned_fresh_calls" 'mk src:str -> str -> {
+case_run "owned_fresh_calls" 'import "std/json.tiq"
+mk src:str -> str -> {
   a = json_get(src, "a")
   json_encode_str(a)
 }
@@ -233,7 +238,8 @@ if ! cmp -s "$TMP_DIR/owned_fresh_calls.frees" "$TMP_DIR/owned_fresh_calls.frees
   cat "$TMP_DIR/owned_fresh_calls.frees" >&2
   fail=1
 fi
-case_run "owned_temporaries" 'mk src:str -> str -> json_encode_str(src)
+case_run "owned_temporaries" 'import "std/json.tiq"
+mk src:str -> str -> json_encode_str(src)
 keep src:str -> str -> src
 print(json_get("{\"k\":\"one\"}", "k"))
 json_encode_str("two")
@@ -310,7 +316,8 @@ print(map_get(m, "a") + map_get(m, "b"))
 print(map_get(m, "missing"))
 print(map_key_at(m, 1))
 print(map_val_at(m, 1))'
-case_run "json_runtime" 'print(json_parse_int("42"))
+case_run "json_runtime" 'import "std/json.tiq"
+print(json_parse_int("42"))
 print(json_encode_str("tiq"))
 print(json_get("{\"name\":\"Tiq\"}", "name"))
 print(json_arr_len("[1,2,3]"))

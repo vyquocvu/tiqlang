@@ -643,6 +643,25 @@ Rules (all violations are compile-time errors with source location):
 
 Status: implemented — multi-file programs, canonical-path dedupe, cycle detection, and deterministic post-order emission are fully specified, compiled, and tested (M13.1-P6).
 
+### 17.7 Standard-library modules (`std/`) and gated builtins (implemented)
+
+A subset of the builtins in §19 is **gated**: they are recognized as compiler intrinsics only inside a `std/` module, and user code reaches them by importing the matching standard-library module.
+
+Gated domains and their modules:
+- `import "std/json.tiq"` — `json_parse_int`, `json_encode_str`, `json_get`, `json_arr_len`, `json_arr_get`, `json_has`, `json_set`, `json_del` (§19.1).
+- `import "std/net.tiq"` — `net_fetch`, `net_listen`, `net_accept`, `net_connect`, `net_recv`, `net_send`, `net_close`, `net_port`, `net_shutdown`, `http_method`, `http_path`, `http_header` (§19.2–§19.3).
+- `import "std/ev.tiq"` — `ev_add`, `ev_wait`, `ev_ready` (§19.4).
+
+Behavior:
+- Outside a `std/` module, calling a gated builtin without importing its module is a compile-time `error[E08]: undefined symbol '<name>'` whose message carries a hint naming the module to import (for example, `— import "std/json.tiq" for JSON operations`). With the import present, the call resolves to the wrapper function defined in that module, which has the same name and signature as the builtin.
+- Inside a `std/` module the builtin is recognized directly, so each wrapper body calls the intrinsic.
+- Core builtins remain always available with no import: `print`, `eprint`, `len`, `str_cat`, `int_str`, `str_sub`, `str_sub_code`, `str_eq`, `fs_read`, `fs_write`, `fs_exists`, `fs_list`, `proc_exec`, `proc_exit`, `cli_arg_count`, `cli_arg`, `clock_ms`, and the `vec_*`, `str_buf_*`, and `map_*` families.
+- Two domain builtins stay ungated because they cannot be wrapped in a Tiq function: `json_view` (§19.1) returns a zero-copy `str_view` for which there is no function-return annotation, and `ev_loop` (§19.4) takes no parameters while Tiq has no zero-parameter function syntax.
+
+Import resolution for `std/`: the path is first resolved relative to the importing file (§17.6); if that fails, it is retried from the current working directory, so `import "std/<mod>.tiq"` resolves from any file depth when `tiq` is invoked from the project root.
+
+Status: implemented — gating, the three `std/` modules, the cwd import fallback, and the diagnostic hint are specified, compiled, and tested (M15).
+
 ## 18. Program entry
 
 Top-level executable statements form the implicit entry point. Libraries may contain definitions only. A future explicit `main` function may be supported but is not required for scripts and tools.
@@ -670,6 +689,8 @@ The manifest rules (M14.4, `src/tiq/manifest.tiq`; see `docs/CLI.md` "Package ma
 Manifest errors are reported to standard error in the standard located form `path:line: error[E30]: message` — `line` is 1-based and points at the offending line (structural errors such as a missing `[package]` or `name` are reported at line 1). E30 is a tool-local code used by `tiq init`'s `--check` mode (LANGUAGE_SPEC §18.2 context); it is never emitted by the compiler itself. A manifest is valid only when it parses and satisfies every rule above; `tiq init --check` exits 0 for a valid manifest and 1 otherwise. `tiq init [name]` scaffolds a deterministic template (default `name = "my-package"`, `version = "0.1.0"`, `description = "A Tiq package"`, `[tests] dir = "tests"`) and refuses to overwrite an existing file.
 
 ## 19. Standard library builtins
+
+Most domain builtins described below (`json_*`, `net_*`, `http_*`, `ev_*`) are **gated** behind a `std/` module import (§17.7): they are compiler intrinsics only inside a `std/` module, and user code accesses them by importing `std/json.tiq`, `std/net.tiq`, or `std/ev.tiq`. Core builtins (`print`, string/`fs`/`proc`/`cli`/`clock_ms`, and the `vec_*`/`str_buf_*`/`map_*` families) and the two non-wrappable builtins `json_view` and `ev_loop` remain available without any import.
 
 ### 19.1 JSON access
 

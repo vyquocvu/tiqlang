@@ -10,6 +10,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 #include "../include/module.h"
 
 // Hard bound on the in-progress DFS stack; true cycles are detected
@@ -109,8 +110,29 @@ static bool load_module(Loader *ld, const char *fs_path, const char *written,
                         const char *importer_path, int import_line) {
     DiagContext *diag = ld->diag;
     char *canon = realpath(fs_path, NULL);
+    const char *open_path = fs_path;
+
+    // M15: cwd fallback — if the relative join fails, retry from the
+    // current working directory. This allows `import "std/json.tiq"`
+    // to resolve from any file depth when tiq is invoked from the
+    // project root.
+    char *alt_path = NULL;
+    if (!canon && importer_path) {
+        char cwd_buf[4096];
+        if (getcwd(cwd_buf, sizeof cwd_buf)) {
+            size_t cl = strlen(cwd_buf);
+            size_t wl = strlen(written);
+            alt_path = xmalloc(cl + 1U + wl + 1U);
+            memcpy(alt_path, cwd_buf, cl);
+            alt_path[cl] = '/';
+            memcpy(alt_path + cl + 1U, written, wl + 1U);
+            canon = realpath(alt_path, NULL);
+            if (canon) open_path = alt_path;
+        }
+    }
 
     if (!canon) {
+        free(alt_path);
         if (importer_path) {
             char msg[512];
             snprintf(msg, sizeof msg, "module not found: \"%s\"", written);
@@ -153,8 +175,9 @@ static bool load_module(Loader *ld, const char *fs_path, const char *written,
         return false;
     }
 
-    char *source = read_file(fs_path);
+    char *source = read_file(open_path);
     if (!source) {
+        free(alt_path);
         if (importer_path) {
             char msg[512];
             snprintf(msg, sizeof msg, "module not found: \"%s\"", written);
@@ -170,8 +193,9 @@ static bool load_module(Loader *ld, const char *fs_path, const char *written,
     Module m;
     memset(&m, 0, sizeof m);
     m.canon = canon;
-    m.path = xstrdup(fs_path);
+    m.path = xstrdup(open_path);
     m.source = source;
+    free(alt_path);
     parser_init(&m.parser, m.source, m.path, diag);
     m.stmts = parser_parse(&m.parser, &m.count);
     if (diag->has_error) {

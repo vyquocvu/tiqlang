@@ -20,6 +20,7 @@ import "../lexer.tiq"
 import "../parser.tiq"
 import "../semantic.tiq"
 import "../module.tiq"
+import "std/json.tiq"
 
 ends_with s:str suf:str -> i64 -> {
     n <- len(s)

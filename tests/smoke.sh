@@ -10,7 +10,7 @@ trap 'rm -rf "$TMP_DIR"' EXIT INT TERM
 ./build/tiq build examples/hello.tiq -o "$TMP_DIR/hello"
 
 # Runtime helpers must use int64_t in an i64 world (plan 1.3)
-printf 'fs_write("p", "d")\nx = json_parse_int("42")\nprint(x)\n' > "$TMP_DIR/rt_i64.tiq"
+printf 'import "std/json.tiq"\nfs_write("p", "d")\nx = json_parse_int("42")\nprint(x)\n' > "$TMP_DIR/rt_i64.tiq"
 ./build/tiq emit-c "$TMP_DIR/rt_i64.tiq" > "$TMP_DIR/rt_i64.c"
 if ! grep -q 'static int64_t tiq_fs_write' "$TMP_DIR/rt_i64.c"; then
   echo "tiq_fs_write does not return int64_t" >&2
@@ -23,7 +23,7 @@ if grep -qE 'static int tiq_' "$TMP_DIR/rt_i64.c"; then
 fi
 
 # json_parse_int must not truncate 64-bit values
-printf 'big = json_parse_int("5000000000")\nprint(big)\n' > "$TMP_DIR/rt_i64_parse.tiq"
+printf 'import "std/json.tiq"\nbig = json_parse_int("5000000000")\nprint(big)\n' > "$TMP_DIR/rt_i64_parse.tiq"
 ./build/tiq build "$TMP_DIR/rt_i64_parse.tiq" -o "$TMP_DIR/rt_i64_parse"
 [ "$("$TMP_DIR/rt_i64_parse")" = "5000000000" ]
 
@@ -180,7 +180,7 @@ printf 'p = "%s/m6_test.txt"\nfs_write(p, "hello m6")\ne = fs_exists(p)\nr = fs_
 
 # net_fetch("ftp://...") fails the scheme check without touching the network
 # (LANGUAGE_SPEC §19.2), keeping this test deterministic.
-printf 'cmd = "true"\nres = proc_exec(cmd)\nval = json_parse_int("42")\nenc = json_encode_str("test")\nnet = net_fetch("ftp://unused")\n' > "$TMP_DIR/m6_sys.tiq"
+printf 'import "std/json.tiq"\nimport "std/net.tiq"\ncmd = "true"\nres = proc_exec(cmd)\nval = json_parse_int("42")\nenc = json_encode_str("test")\nnet = net_fetch("ftp://unused")\n' > "$TMP_DIR/m6_sys.tiq"
 ./build/tiq build "$TMP_DIR/m6_sys.tiq" -o "$TMP_DIR/m6_sys" 2>"$TMP_DIR/m6_sys.err"
 [ -x "$TMP_DIR/m6_sys" ]
 "$TMP_DIR/m6_sys"
@@ -438,6 +438,7 @@ cmp "$TMP_DIR/esc_decode.out" "$TMP_DIR/esc_decode.expected"
 # M10.2: json_get decodes strings, returns raw scalars/sub-documents, and
 # yields the empty string for missing keys or non-object input (LANGUAGE_SPEC §19).
 cat > "$TMP_DIR/m10_json_get.tiq" <<'EOF'
+import "std/json.tiq"
 j = "{\"name\": \"tiq\", \"n\": 42, \"ok\": true, \"nested\": {\"x\": 7}, \"esc\": \"a\\nb\"}"
 print(json_get(j, "name"))
 print(json_get(j, "n"))
@@ -456,6 +457,7 @@ cmp "$TMP_DIR/m10_json_get.out" "$TMP_DIR/m10_json_get.expected"
 # M10.3: json_arr_len / json_arr_get read JSON arrays; out-of-range index,
 # non-array input, and malformed input fail soft (LANGUAGE_SPEC §19).
 cat > "$TMP_DIR/m10_json_arr.tiq" <<'EOF'
+import "std/json.tiq"
 a = "[10, \"two\", {\"x\": 5}, [1, 2], true]"
 print(json_arr_len(a))
 print(json_arr_get(a, 0))
@@ -526,6 +528,8 @@ done
 [ -n "$PORT" ]
 
 cat > "$TMP_DIR/m10_net_fetch.tiq" <<'EOF'
+import "std/net.tiq"
+import "std/json.tiq"
 body = net_fetch(cli_arg(0))
 print(json_get(body, "greet"))
 print(net_fetch("ftp://example.invalid/"))
@@ -595,6 +599,8 @@ done
 [ -n "$PORT" ]
 
 cat > "$TMP_DIR/m105_chunked.tiq" <<'EOF'
+import "std/net.tiq"
+import "std/json.tiq"
 body = net_fetch(cli_arg(0))
 print(json_get(body, "greet"))
 EOF
@@ -608,6 +614,7 @@ cmp "$TMP_DIR/m105_chunked.out" "$TMP_DIR/m105_chunked.expected"
 # after defers (LANGUAGE_SPEC §16.4); aliases and cli_arg results are not
 # freed. ASan build of the emitted C catches double-free / use-after-free.
 cat > "$TMP_DIR/m92_scope.tiq" <<'EOF'
+import "std/json.tiq"
 a = json_get("{\"x\": \"one\"}", "x")
 b = json_encode_str("two")
 c = a
@@ -639,6 +646,7 @@ cmp "$TMP_DIR/m92_scope.out" "$TMP_DIR/m92_scope.expected"
 # (innermost first, through the enclosing loop body) before jumping; only
 # owners already bound at the jump point are freed (LANGUAGE_SPEC §16.4).
 cat > "$TMP_DIR/m92b_early.tiq" <<'EOF'
+import "std/json.tiq"
 [0..3] {
     a = json_get("{\"n\": 7}", "n")
     [(i == 0)] {
@@ -679,6 +687,7 @@ cmp "$TMP_DIR/m92b_early.out" "$TMP_DIR/m92b_early.expected"
 # result is computed; a str-result function must not free (the result may
 # alias an owner) (LANGUAGE_SPEC §16.4).
 cat > "$TMP_DIR/m92c_fn.tiq" <<'EOF'
+import "std/json.tiq"
 get_n src:str -> {
     v = json_get(src, "n")
     json_parse_int(v)
@@ -704,6 +713,7 @@ cmp "$TMP_DIR/m92c_fn.out" "$TMP_DIR/m92c_fn.expected"
 # freed at scope end; an aliased mutable is disqualified and never freed
 # (LANGUAGE_SPEC §16.4).
 cat > "$TMP_DIR/m92d_mut.tiq" <<'EOF'
+import "std/json.tiq"
 s <- json_get("{\"a\": \"one\"}", "a")
 print(s)
 s <- json_get("{\"b\": \"two\"}", "b")
@@ -729,6 +739,7 @@ cmp "$TMP_DIR/m92d_mut.out" "$TMP_DIR/m92d_mut.expected"
 # enclosing scope (innermost first) before terminating; the exit code is
 # computed before destruction (LANGUAGE_SPEC §16.4).
 cat > "$TMP_DIR/m92e_exit.tiq" <<'EOF'
+import "std/json.tiq"
 a = json_get("{\"a\": \"one\"}", "a")
 print(a)
 [0..3] {
@@ -755,6 +766,7 @@ cmp "$TMP_DIR/m92e_exit.out" "$TMP_DIR/m92e_exit.expected"
 # standard-library builtin) is hoisted into a hidden binding and freed at the
 # end of the statement; a user-function argument is not (LANGUAGE_SPEC §16.4).
 cat > "$TMP_DIR/m92f_tmp.tiq" <<'EOF'
+import "std/json.tiq"
 id x:str -> str -> {
     x
 }
@@ -780,6 +792,7 @@ cmp "$TMP_DIR/m92f_tmp.out" "$TMP_DIR/m92f_tmp.expected"
 # (it may alias an owner) (LANGUAGE_SPEC §16.4). Since M9.2-J the two
 # fresh-result calls in argument position are hoisted and freed by the caller.
 cat > "$TMP_DIR/m92g_strfn.tiq" <<'EOF'
+import "std/json.tiq"
 make_s src:str -> str -> {
     v = json_get(src, "s")
     json_encode_str(v)
@@ -812,6 +825,7 @@ cmp "$TMP_DIR/m92g_strfn.out" "$TMP_DIR/m92g_strfn.expected"
 # (LANGUAGE_SPEC §16.4). Since M9.2-J the transferring call in argument
 # position is hoisted and freed by the caller; the alias-returning call is not.
 cat > "$TMP_DIR/m92h_xfer.tiq" <<'EOF'
+import "std/json.tiq"
 pick src:str -> str -> {
     a = json_get(src, "a")
     b = json_get(src, "b")
@@ -840,6 +854,7 @@ cmp "$TMP_DIR/m92h_xfer.out" "$TMP_DIR/m92h_xfer.expected"
 # returning a string literal is not fresh-result, so its result is never freed
 # (LANGUAGE_SPEC §16.4).
 cat > "$TMP_DIR/m92i_call.tiq" <<'EOF'
+import "std/json.tiq"
 mk src:str -> str -> {
     a = json_get(src, "a")
     json_encode_str(a)
@@ -874,6 +889,7 @@ cmp "$TMP_DIR/m92i_call.out" "$TMP_DIR/m92i_call.expected"
 # result cannot alias them); a call to a function that is not fresh-result is
 # still not a hoist position (LANGUAGE_SPEC §16.4).
 cat > "$TMP_DIR/m92j_tmp.tiq" <<'EOF'
+import "std/json.tiq"
 mk src:str -> str -> {
     a = json_get(src, "a")
     json_encode_str(a)
@@ -907,6 +923,7 @@ cmp "$TMP_DIR/m92j_tmp.out" "$TMP_DIR/m92j_tmp.expected"
 # source buffer: raw string bytes without quotes/escape decoding, verbatim
 # scalar tokens, raw sub-documents; missing key yields an empty view.
 cat > "$TMP_DIR/m106_jview.tiq" <<'EOF'
+import "std/json.tiq"
 j = "{\"name\": \"hello\", \"age\": 42, \"nested\": {\"a\": 1}}"
 v = json_view(j, "name")
 print(v)
@@ -931,6 +948,7 @@ cmp "$TMP_DIR/m106_jview.out" "$TMP_DIR/m106_jview.expected"
 # fresh-result calls, or nested conditionals thereof); a conditional with a
 # non-owning branch (e.g. a literal) does not create an owner.
 cat > "$TMP_DIR/m92k_cond.tiq" <<'EOF'
+import "std/json.tiq"
 mk src:str -> str -> {
     a = json_get(src, "a")
     json_encode_str(a)
@@ -954,6 +972,7 @@ cmp "$TMP_DIR/m92k_cond.out" "$TMP_DIR/m92k_cond.expected"
 # M10.7: json_has(json, key) returns true when the key exists (even if the
 # value is the empty string) and false for missing keys / non-objects.
 cat > "$TMP_DIR/m107_jhas.tiq" <<'EOF'
+import "std/json.tiq"
 j = "{\"a\": \"\", \"b\": 42}"
 print(json_has(j, "a"))
 print(json_has(j, "b"))
@@ -972,6 +991,7 @@ cmp "$TMP_DIR/m107_jhas.out" "$TMP_DIR/m107_jhas.expected"
 # binding and freed at statement end; a conditional with a non-owning branch
 # is not hoisted (leaks, never dangles).
 cat > "$TMP_DIR/m92l_cond_tmp.tiq" <<'EOF'
+import "std/json.tiq"
 mk src:str -> str -> {
     json_get(src, "v")
 }
@@ -994,6 +1014,7 @@ cmp "$TMP_DIR/m92l_cond_tmp.out" "$TMP_DIR/m92l_cond_tmp.expected"
 # M10.8: TCP socket primitives — a Tiq server (net_listen/net_accept/net_recv/
 # net_send/net_close) serves one HTTP response to a net_fetch client.
 cat > "$TMP_DIR/m108_srv.tiq" <<'EOF'
+import "std/net.tiq"
 fd = net_listen(18923)
 c = net_accept(fd)
 req = net_recv(c)
@@ -1002,6 +1023,8 @@ net_close(c)
 net_close(fd)
 EOF
 cat > "$TMP_DIR/m108_cli.tiq" <<'EOF'
+import "std/net.tiq"
+import "std/json.tiq"
 r = net_fetch("http://127.0.0.1:18923/")
 print(json_get(r, "ok"))
 EOF
@@ -1019,6 +1042,7 @@ cmp "$TMP_DIR/m108_cli.out" "$TMP_DIR/m108_cli.expected"
 # M10.9: HTTP request-line parsing — http_method and http_path extract the
 # method and path tokens from an HTTP request line; owned heap strings.
 cat > "$TMP_DIR/m109_http.tiq" <<'EOF'
+import "std/net.tiq"
 req = "GET /index.html HTTP/1.1"
 print(http_method(req))
 print(http_path(req))
@@ -1036,6 +1060,8 @@ cmp "$TMP_DIR/m109_http.out" "$TMP_DIR/m109_http.expected"
 # ev_ready to detect and serve one client connection without blocking on
 # accept; a net_fetch client verifies the response.
 cat > "$TMP_DIR/m1010_srv.tiq" <<'EOF'
+import "std/ev.tiq"
+import "std/net.tiq"
 fd = net_listen(18924)
 lp = ev_loop()
 ev_add(lp, fd)
@@ -1049,6 +1075,8 @@ net_close(c)
 net_close(fd)
 EOF
 cat > "$TMP_DIR/m1010_cli.tiq" <<'EOF'
+import "std/net.tiq"
+import "std/json.tiq"
 r = net_fetch("http://127.0.0.1:18924/")
 print(json_get(r, "ev"))
 EOF
@@ -1065,6 +1093,7 @@ cmp "$TMP_DIR/m1010_cli.out" "$TMP_DIR/m1010_cli.expected"
 
 # M10.11: json_set — build and modify JSON objects; owned heap result.
 cat > "$TMP_DIR/m1011_jset.tiq" <<'EOF'
+import "std/json.tiq"
 a = json_set("{}", "name", json_encode_str("tiq"))
 print(json_get(a, "name"))
 b = json_set(a, "ver", "1")
@@ -1081,6 +1110,7 @@ cmp "$TMP_DIR/m1011_jset.out" "$TMP_DIR/m1011_jset.expected"
 
 # M10.12: json_del — remove members from JSON objects; owned heap result.
 cat > "$TMP_DIR/m1012_jdel.tiq" <<'EOF'
+import "std/json.tiq"
 a = json_set("{}", "x", "1")
 b = json_set(a, "y", "2")
 c = json_del(b, "x")
@@ -1123,6 +1153,7 @@ cmp "$TMP_DIR/m1014_istr.out" "$TMP_DIR/m1014_istr.expected"
 
 # M10.15: http_header — extract header values from HTTP requests.
 cat > "$TMP_DIR/m1015_hdr.tiq" <<'EOF'
+import "std/net.tiq"
 req = "GET / HTTP/1.1\r\nHost: localhost\r\nContent-Type: text/html\r\n\r\n"
 print(http_header(req, "Host"))
 print(http_header(req, "Content-Type"))

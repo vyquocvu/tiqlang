@@ -345,14 +345,15 @@ assert_semantic "proc_exec_bad_type" 'proc_exec(123)
 assert_semantic "proc_exit_bad_type" 'proc_exit("bad")
 ' "$TMP_DIR/proc_exit_bad_type.tiq:1: error[E09]: proc_exit argument: expected int, found str"
 
-assert_semantic "json_parse_int_bad_type" 'json_parse_int(123)
-' "$TMP_DIR/json_parse_int_bad_type.tiq:1: error[E09]: json_parse_int argument: expected str, found int"
+# M15: gated builtins require std/ import.
+assert_semantic "json_parse_int_gated" 'json_parse_int(123)
+' "$TMP_DIR/json_parse_int_gated.tiq:1: error[E08]: undefined symbol 'json_parse_int' — import \"std/json.tiq\" for JSON operations"
 
-assert_semantic "json_encode_str_bad_type" 'json_encode_str(123)
-' "$TMP_DIR/json_encode_str_bad_type.tiq:1: error[E09]: json_encode_str argument: expected str, found int"
+assert_semantic "json_encode_str_gated" 'json_encode_str(123)
+' "$TMP_DIR/json_encode_str_gated.tiq:1: error[E08]: undefined symbol 'json_encode_str' — import \"std/json.tiq\" for JSON operations"
 
-assert_semantic "net_fetch_bad_type" 'net_fetch(123)
-' "$TMP_DIR/net_fetch_bad_type.tiq:1: error[E09]: net_fetch argument: expected str, found int"
+assert_semantic "net_fetch_gated" 'net_fetch(123)
+' "$TMP_DIR/net_fetch_gated.tiq:1: error[E08]: undefined symbol 'net_fetch' — import \"std/net.tiq\" for networking"
 
 # M10.1: CLI argument builtins (LANGUAGE_SPEC §18.1).
 assert_semantic_ast "typed_cli_builtins" 'n = cli_arg_count()
@@ -374,41 +375,38 @@ assert_semantic "cli_arg_no_args" 'x = cli_arg()
 assert_semantic "cli_arg_bad_type" 'x = cli_arg("0")
 ' "$TMP_DIR/cli_arg_bad_type.tiq:1: error[E09]: cli_arg argument: expected int, found str"
 
-# M10.2: JSON decoder builtin (LANGUAGE_SPEC §19).
-assert_semantic_ast "typed_json_get" 'v = json_get("{}", "k")
+# M10.2: JSON decoder builtin (LANGUAGE_SPEC §19) — via std/json.tiq import.
+assert_semantic_ast "typed_json_get" 'import "std/json.tiq"
+v = json_get("{}", "k")
 ' 'BINDING v <TYPE_STR>
   CALL <TYPE_STR>
-    IDENT json_get
+    IDENT json_get <TYPE_STR>
     STRING "{}" <TYPE_STR>
     STRING "k" <TYPE_STR>'
 
-assert_semantic "json_get_bad_arity" 'x = json_get("{}")
-' "$TMP_DIR/json_get_bad_arity.tiq:1: error[E12]: json_get expects exactly 2 arguments"
+assert_semantic "json_get_gated" 'x = json_get("{}")
+' "$TMP_DIR/json_get_gated.tiq:1: error[E08]: undefined symbol 'json_get' — import \"std/json.tiq\" for JSON operations"
 
-assert_semantic "json_get_bad_type" 'x = json_get("{}", 1)
-' "$TMP_DIR/json_get_bad_type.tiq:1: error[E09]: json_get argument: expected str, found int"
-
-# M10.3: JSON array builtins (LANGUAGE_SPEC §19).
-assert_semantic_ast "typed_json_arr" 'n = json_arr_len("[1]")
+# M10.3: JSON array builtins (LANGUAGE_SPEC §19) — via std/json.tiq import.
+assert_semantic_ast "typed_json_arr" 'import "std/json.tiq"
+n = json_arr_len("[1]")
 v = json_arr_get("[1]", 0)
 ' 'BINDING n <TYPE_INT>
   CALL <TYPE_INT>
-    IDENT json_arr_len
+    IDENT json_arr_len <TYPE_INT>
     STRING "[1]" <TYPE_STR>
 BINDING v <TYPE_STR>
   CALL <TYPE_STR>
-    IDENT json_arr_get
+    IDENT json_arr_get <TYPE_STR>
     STRING "[1]" <TYPE_STR>
     INT 0 <TYPE_INT>'
 
-assert_semantic "json_arr_get_bad_arity" 'x = json_arr_get("[1]")
-' "$TMP_DIR/json_arr_get_bad_arity.tiq:1: error[E12]: json_arr_get expects exactly 2 arguments"
-
-assert_semantic "json_arr_get_bad_index_type" 'x = json_arr_get("[1]", "0")
-' "$TMP_DIR/json_arr_get_bad_index_type.tiq:1: error[E09]: json_arr_get argument: expected int, found str"
-
-assert_semantic "json_arr_len_bad_type" 'x = json_arr_len(1)
-' "$TMP_DIR/json_arr_len_bad_type.tiq:1: error[E09]: json_arr_len argument: expected str, found int"
+# M15: via the std/ wrapper the call is a plain user-function call, so
+# arity uses the generic diagnostic and scalar argument annotations are
+# not enforced at the call site (same as any user-defined function).
+assert_semantic "json_arr_get_bad_arity" 'import "std/json.tiq"
+x = json_arr_get("[1]")
+' "$TMP_DIR/json_arr_get_bad_arity.tiq:2: error[E12]: arity mismatch"
 
 # unify() (plan 3.1): conditional branches and every match arm are checked.
 assert_semantic "conditional_branch_mismatch" 'b = true

@@ -160,16 +160,20 @@ static int dump_ast(const char *input, DiagContext *diag) {
 }
 
 static int dump_typed_ast(const char *input, DiagContext *diag) {
-    char *source = read_all(input);
-    Parser parser;
-    parser_init(&parser, source, input, diag);
-    int count;
-    AstNode **stmts = parser_parse(&parser, &count);
+    // M15: resolve imports so cross-module symbols (e.g. std/ wrappers)
+    // are visible; dump only the root module's non-import statements.
+    Program prog;
+    if (!program_load(&prog, input, diag)) {
+        program_free(&prog);
+        return 1;
+    }
     TypePool pool;
     type_pool_init(&pool);
-    if (!diag->has_error) semantic_check(stmts, count, input, diag, &pool);
-    for (int i = 0; i < count; i++) ast_print(stmts[i], 0);
-    parser_free(&parser); type_pool_free(&pool); free(source);
+    if (!diag->has_error) semantic_check_modules(prog.sem, prog.count, diag, &pool);
+    SemanticModule *root = &prog.sem[prog.count - 1];
+    for (int i = 0; i < root->count; i++) ast_print(root->stmts[i], 0);
+    program_free(&prog);
+    type_pool_free(&pool);
     return diag->has_error ? 1 : 0;
 }
 

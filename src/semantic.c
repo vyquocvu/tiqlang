@@ -88,6 +88,7 @@ typedef struct {
     int loop_depth;
     TypePool *pool;
     bool in_range_context;  // true when inside [...] loop/slice brackets
+    bool is_std;            // M15: true when current module is a std/ library
     // M12.6: struct registry
     StructEntry *structs;
     int struct_count;
@@ -579,6 +580,20 @@ static void check_node(SemanticContext *ctx, AstNode *node) {
                 }
                 snprintf(msg, sizeof(msg), "undefined symbol '%.*s'",
                          (int)node->as.identifier.name.length, node->as.identifier.name.start);
+                // M15: helpful hint for gated domain builtins.
+                if (!ctx->is_std) {
+                    const char *p = node->as.identifier.name.start;
+                    int nl = (int)node->as.identifier.name.length;
+                    const char *hint = NULL;
+                    if (nl >= 5 && memcmp(p, "json_", 5) == 0) hint = " \xe2\x80\x94 import \"std/json.tiq\" for JSON operations";
+                    else if (nl >= 4 && memcmp(p, "net_", 4) == 0) hint = " \xe2\x80\x94 import \"std/net.tiq\" for networking";
+                    else if (nl >= 5 && memcmp(p, "http_", 5) == 0) hint = " \xe2\x80\x94 import \"std/net.tiq\" for HTTP";
+                    else if (nl >= 3 && memcmp(p, "ev_", 3) == 0) hint = " \xe2\x80\x94 import \"std/ev.tiq\" for event loop";
+                    if (hint) {
+                        size_t base = strlen(msg);
+                        snprintf(msg + base, sizeof(msg) - base, "%s", hint);
+                    }
+                }
                 diag_error(ctx->diag, ctx->path, node->token.line, ERR_UNDEFINED_SYMBOL, msg);
                 node->semantic_type = ty(ctx, TYPE_UNKNOWN);
             } else if (sym->is_moved) {
@@ -886,71 +901,83 @@ static void check_node(SemanticContext *ctx, AstNode *node) {
                         // later arguments; TYPE_UNKNOWN (0) means "same as
                         // expected".
                         PrimitiveType expected2;
+                        // M15: gated builtins require import "std/<mod>.tiq".
+                        bool gated;
                     } Builtin;
                     static const Builtin builtins[] = {
                         // Auxiliary Standard Library Primitives
                         // (Isolated stubs; under Milestone M19, these will be rewritten
                         // natively in Tiq language (`std/*.tiq`) using C FFI interop).
-                        {"fs_read",        7, 1, TYPE_STR, TYPE_STR, TYPE_UNKNOWN},
-                        {"fs_write",       8, 2, TYPE_STR, TYPE_INT, TYPE_UNKNOWN},
-                        {"fs_exists",      9, 1, TYPE_STR, TYPE_BOOL, TYPE_UNKNOWN},
-                        {"proc_exec",      9, 1, TYPE_STR, TYPE_INT, TYPE_UNKNOWN},
-                        {"proc_exit",      9, 1, TYPE_INT, TYPE_INT, TYPE_UNKNOWN},
-                        {"json_parse_int",14, 1, TYPE_STR, TYPE_INT, TYPE_UNKNOWN},
-                        {"json_encode_str",15,1, TYPE_STR, TYPE_STR, TYPE_UNKNOWN},
+                        {"fs_read",        7, 1, TYPE_STR, TYPE_STR, TYPE_UNKNOWN, false},
+                        {"fs_write",       8, 2, TYPE_STR, TYPE_INT, TYPE_UNKNOWN, false},
+                        {"fs_exists",      9, 1, TYPE_STR, TYPE_BOOL, TYPE_UNKNOWN, false},
+                        {"proc_exec",      9, 1, TYPE_STR, TYPE_INT, TYPE_UNKNOWN, false},
+                        {"proc_exit",      9, 1, TYPE_INT, TYPE_INT, TYPE_UNKNOWN, false},
+                        {"json_parse_int",14, 1, TYPE_STR, TYPE_INT, TYPE_UNKNOWN, true},
+                        {"json_encode_str",15,1, TYPE_STR, TYPE_STR, TYPE_UNKNOWN, true},
                         // M10.2: JSON decoder builtin (LANGUAGE_SPEC §19).
-                        {"json_get",       8, 2, TYPE_STR, TYPE_STR, TYPE_UNKNOWN},
+                        {"json_get",       8, 2, TYPE_STR, TYPE_STR, TYPE_UNKNOWN, true},
                         // M10.3: JSON array builtins (LANGUAGE_SPEC §19).
-                        {"json_arr_len",  12, 1, TYPE_STR, TYPE_INT, TYPE_UNKNOWN},
-                        {"json_arr_get",  12, 2, TYPE_STR, TYPE_STR, TYPE_INT},
+                        {"json_arr_len",  12, 1, TYPE_STR, TYPE_INT, TYPE_UNKNOWN, true},
+                        {"json_arr_get",  12, 2, TYPE_STR, TYPE_STR, TYPE_INT, true},
                         // M10.6: zero-copy JSON member view (LANGUAGE_SPEC §19.1).
-                        {"json_view",      9, 2, TYPE_STR, TYPE_STR_VIEW, TYPE_UNKNOWN},
+                        // M15: stays ungated — its str_view (TiqSlice) result has
+                        // no function return annotation, so it cannot be wrapped.
+                        {"json_view",      9, 2, TYPE_STR, TYPE_STR_VIEW, TYPE_UNKNOWN, false},
                         // M10.7: JSON key-existence check (LANGUAGE_SPEC §19.1).
-                        {"json_has",       8, 2, TYPE_STR, TYPE_BOOL, TYPE_UNKNOWN},
+                        {"json_has",       8, 2, TYPE_STR, TYPE_BOOL, TYPE_UNKNOWN, true},
                         // M10.11: JSON object encoder (LANGUAGE_SPEC §19.1).
-                        {"json_set",       8, 3, TYPE_STR, TYPE_STR, TYPE_UNKNOWN},
-                        {"json_del",       8, 2, TYPE_STR, TYPE_STR, TYPE_UNKNOWN},
+                        {"json_set",       8, 3, TYPE_STR, TYPE_STR, TYPE_UNKNOWN, true},
+                        {"json_del",       8, 2, TYPE_STR, TYPE_STR, TYPE_UNKNOWN, true},
                         // M10.13: String utilities (LANGUAGE_SPEC §19.5).
-                        {"str_cat",        7, 2, TYPE_STR, TYPE_STR, TYPE_UNKNOWN},
-                        {"int_str",        7, 1, TYPE_INT, TYPE_STR, TYPE_UNKNOWN},
+                        {"str_cat",        7, 2, TYPE_STR, TYPE_STR, TYPE_UNKNOWN, false},
+                        {"int_str",        7, 1, TYPE_INT, TYPE_STR, TYPE_UNKNOWN, false},
                         // M13.1-P1: substring, byte equality, stderr print,
                         // directory listing (LANGUAGE_SPEC §12, §19.5, §19.6).
-                        {"str_sub",        7, 3, TYPE_STR, TYPE_STR, TYPE_INT},
+                        {"str_sub",        7, 3, TYPE_STR, TYPE_STR, TYPE_INT, false},
                         // M13.4-S3: byte value at index for self-hosted checker.
-                        {"str_sub_code",  12, 2, TYPE_STR, TYPE_INT, TYPE_INT},
-                        {"str_eq",         6, 2, TYPE_STR, TYPE_BOOL, TYPE_UNKNOWN},
-                        {"eprint",         6, 1, TYPE_STR, TYPE_INT, TYPE_UNKNOWN},
-                        {"fs_list",        7, 1, TYPE_STR, TYPE_STR, TYPE_UNKNOWN},
-                        {"net_fetch",      9, 1, TYPE_STR, TYPE_STR, TYPE_UNKNOWN},
+                        {"str_sub_code",  12, 2, TYPE_STR, TYPE_INT, TYPE_INT, false},
+                        {"str_eq",         6, 2, TYPE_STR, TYPE_BOOL, TYPE_UNKNOWN, false},
+                        {"eprint",         6, 1, TYPE_STR, TYPE_INT, TYPE_UNKNOWN, false},
+                        {"fs_list",        7, 1, TYPE_STR, TYPE_STR, TYPE_UNKNOWN, false},
+                        {"net_fetch",      9, 1, TYPE_STR, TYPE_STR, TYPE_UNKNOWN, true},
                         // M10.8: TCP socket primitives (LANGUAGE_SPEC §19.3).
-                        {"net_listen",    10, 1, TYPE_INT, TYPE_INT, TYPE_UNKNOWN},
-                        {"net_accept",    10, 1, TYPE_INT, TYPE_INT, TYPE_UNKNOWN},
-                        {"net_connect",   11, 1, TYPE_INT, TYPE_INT, TYPE_UNKNOWN},
-                        {"net_recv",       8, 1, TYPE_INT, TYPE_STR, TYPE_UNKNOWN},
-                        {"net_send",       8, 2, TYPE_INT, TYPE_INT, TYPE_STR},
-                        {"net_close",      9, 1, TYPE_INT, TYPE_INT, TYPE_UNKNOWN},
-                        {"net_port",       8, 1, TYPE_INT, TYPE_INT, TYPE_UNKNOWN},
-                        {"net_shutdown",  12, 1, TYPE_INT, TYPE_INT, TYPE_UNKNOWN},
+                        {"net_listen",    10, 1, TYPE_INT, TYPE_INT, TYPE_UNKNOWN, true},
+                        {"net_accept",    10, 1, TYPE_INT, TYPE_INT, TYPE_UNKNOWN, true},
+                        {"net_connect",   11, 1, TYPE_INT, TYPE_INT, TYPE_UNKNOWN, true},
+                        {"net_recv",       8, 1, TYPE_INT, TYPE_STR, TYPE_UNKNOWN, true},
+                        {"net_send",       8, 2, TYPE_INT, TYPE_INT, TYPE_STR, true},
+                        {"net_close",      9, 1, TYPE_INT, TYPE_INT, TYPE_UNKNOWN, true},
+                        {"net_port",       8, 1, TYPE_INT, TYPE_INT, TYPE_UNKNOWN, true},
+                        {"net_shutdown",  12, 1, TYPE_INT, TYPE_INT, TYPE_UNKNOWN, true},
                         // M10.9: HTTP request-line parsing (LANGUAGE_SPEC §19.3).
-                        {"http_method",  11, 1, TYPE_STR, TYPE_STR, TYPE_UNKNOWN},
-                        {"http_path",     9, 1, TYPE_STR, TYPE_STR, TYPE_UNKNOWN},
-                        {"http_header",  11, 2, TYPE_STR, TYPE_STR, TYPE_UNKNOWN},
+                        {"http_method",  11, 1, TYPE_STR, TYPE_STR, TYPE_UNKNOWN, true},
+                        {"http_path",     9, 1, TYPE_STR, TYPE_STR, TYPE_UNKNOWN, true},
+                        {"http_header",  11, 2, TYPE_STR, TYPE_STR, TYPE_UNKNOWN, true},
                         // M10.10: Event loop / kqueue (LANGUAGE_SPEC §19.4).
-                        {"ev_loop",       7, 0, TYPE_INT, TYPE_INT, TYPE_UNKNOWN},
-                        {"ev_add",        6, 2, TYPE_INT, TYPE_INT, TYPE_INT},
-                        {"ev_wait",       7, 2, TYPE_INT, TYPE_INT, TYPE_INT},
-                        {"ev_ready",      8, 2, TYPE_INT, TYPE_INT, TYPE_INT},
+                        // M15: ev_loop stays ungated — zero-parameter functions
+                        // cannot be defined in Tiq, so it cannot be wrapped.
+                        {"ev_loop",       7, 0, TYPE_INT, TYPE_INT, TYPE_UNKNOWN, false},
+                        {"ev_add",        6, 2, TYPE_INT, TYPE_INT, TYPE_INT, true},
+                        {"ev_wait",       7, 2, TYPE_INT, TYPE_INT, TYPE_INT, true},
+                        {"ev_ready",      8, 2, TYPE_INT, TYPE_INT, TYPE_INT, true},
                         // M10.1: CLI argument builtins (LANGUAGE_SPEC §18.1)
-                        {"cli_arg_count", 13, 0, TYPE_INT, TYPE_INT, TYPE_UNKNOWN},
-                        {"cli_arg",        7, 1, TYPE_INT, TYPE_STR, TYPE_UNKNOWN},
+                        {"cli_arg_count", 13, 0, TYPE_INT, TYPE_INT, TYPE_UNKNOWN, false},
+                        {"cli_arg",        7, 1, TYPE_INT, TYPE_STR, TYPE_UNKNOWN, false},
                         // M14.3: monotonic millisecond clock (LANGUAGE_SPEC §19.6).
-                        {"clock_ms",       8, 0, TYPE_INT, TYPE_INT, TYPE_UNKNOWN},
+                        {"clock_ms",       8, 0, TYPE_INT, TYPE_INT, TYPE_UNKNOWN, false},
                     };
                     bool matched = false;
                     for (int bi = 0; bi < (int)(sizeof builtins / sizeof builtins[0]); bi++) {
                         if ((int)name.length != builtins[bi].name_len ||
                             memcmp(name.start, builtins[bi].name, name.length) != 0)
                             continue;
+                        // M15: gate domain builtins behind std/ module import.
+                        // Skip the builtin so the call resolves to the imported
+                        // wrapper function instead.
+                        if (builtins[bi].gated && !ctx->is_std) {
+                            continue;
+                        }
                         matched = true;
                         if (node->as.call.arg_count != builtins[bi].arity) {
                             char msg[128];
@@ -1150,7 +1177,9 @@ static void check_node(SemanticContext *ctx, AstNode *node) {
                 // against the recorded definition below.
                 if (!node->as.call.is_bracket_call && callee_type->kind != TYPE_STRUCT &&
                     callee_type->kind != TYPE_VEC &&
-                    callee_type->param_count >= 0 && callee_type->param_count != node->as.call.arg_count) {
+                    (callee_type->param_count > 0 ||
+                     (callee_type->param_count == 0 && callee_type->kind != TYPE_UNKNOWN)) &&
+                    callee_type->param_count != node->as.call.arg_count) {
                     diag_error(ctx->diag, ctx->path, node->token.line, ERR_ARITY_MISMATCH, "arity mismatch");
                 }
             }
@@ -1991,6 +2020,7 @@ void semantic_check_modules(SemanticModule *mods, int mod_count, DiagContext *di
     ctx.loop_depth = 0;
     ctx.pool = pool;
     ctx.in_range_context = false;
+    ctx.is_std = false;
     ctx.structs = NULL;
     ctx.struct_count = 0;
     ctx.struct_capacity = 0;
@@ -2005,6 +2035,11 @@ void semantic_check_modules(SemanticModule *mods, int mod_count, DiagContext *di
     ctx.current_env = &global_env;
     for (int m = 0; m < mod_count; m++) {
         ctx.path = mods[m].path;
+        // M15: detect std/ library modules by path prefix.
+        const char *p = mods[m].path;
+        ctx.is_std = (strncmp(p, "std/", 4) == 0) ||
+                     (p[0] == '/' && strstr(p, "/std/") != NULL) ||
+                     (strstr(p, "./std/") != NULL);
         for (int i = 0; i < mods[m].count; i++) {
             check_node(&ctx, mods[m].stmts[i]);
         }

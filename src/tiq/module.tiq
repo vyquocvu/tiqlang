@@ -73,7 +73,10 @@ mod_flatten_one path:str seen:map stack:map out:strbuf -> i64 -> {
             }
             raw = tk_lex(source, toks, i)
             rel = str_sub(raw, 1, len(raw) - 1)
-            child = mod_join(path, rel)
+            child <- mod_join(path, rel)
+            // M15: cwd fallback — if the relative join doesn't resolve, try
+            // the written path directly from the working directory.
+            ?[fs_exists(child) == false && fs_exists(rel)] { child <- rel }
             ?[fs_exists(child) == false] {
                 eprint(diag_line(path, tk_line(toks, imp), 27, str_cat("module not found: ", rel)))
                 failed <- 1
