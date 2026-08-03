@@ -245,6 +245,142 @@ mf_git_url val: str -> str -> {
     str_sub(stripped, 0, cut)
 }
 
+// M18.3: Parse a semver string "major.minor.patch" into a single i64 for
+// comparison. Returns -1 on invalid input. Encoding: major*1000000 +
+// minor*1000 + patch.
+mf_semver s: str -> i64 -> {
+    r <- -1
+    n <- len(s)
+    ?[n > 0] {
+        maj <- 0
+        min <- 0
+        pat <- 0
+        dots <- 0
+        cur <- 0
+        part <- 0  // 0=maj, 1=min, 2=pat
+        ok <- 1
+        i <- 0
+        [i < n && ok == 1] {
+            c <- str_sub_code(s, i)
+            ?[c == 46] {
+                ?[part == 0] { maj <- cur }
+                ?[part == 1] { min <- cur }
+                cur <- 0
+                part <- part + 1
+                dots <- dots + 1
+            }
+            ?[c >= 48 && c <= 57] {
+                cur <- cur * 10 + (c - 48)
+            }
+            ?[c != 46 && (c < 48 || c > 57)] {
+                ok <- 0
+            }
+            i <- i + 1
+        }
+        ?[ok == 1 && part == 2] {
+            pat <- cur
+            r <- maj * 1000000 + min * 1000 + pat
+        }
+    }
+    r
+}
+
+// M18.3: Check if version `v` (encoded) satisfies constraint `op` against
+// `target` (encoded). op: 0=exact, 1=>=, 2=<=, 3=>, 4=<, 5=!=
+mf_ver_match v: i64 op: i64 target: i64 -> i64 -> {
+    r <- 0
+    ?[op == 0] { r <- v == target }
+    ?[op == 1] { r <- v >= target }
+    ?[op == 2] { r <- v <= target }
+    ?[op == 3] { r <- v > target }
+    ?[op == 4] { r <- v < target }
+    ?[op == 5] { r <- v != target }
+    r
+}
+
+// M18.3: Parse constraint operator prefix, return op code and strip prefix.
+// Sets out_op to 0=exact,1=>=,2=<=,3=>,4=<,5=!= and returns the version part.
+mf_ver_parse_op s: str out_op: vec[int] -> str -> {
+    n <- len(s)
+    op <- 0
+    rest <- s
+    ?[n >= 2 && str_eq(str_sub(s, 0, 2), ">=")] {
+        op <- 1; rest <- str_sub(s, 2, n)
+    }
+    ?[n >= 2 && str_eq(str_sub(s, 0, 2), "<=")] {
+        op <- 2; rest <- str_sub(s, 2, n)
+    }
+    ?[n >= 2 && str_eq(str_sub(s, 0, 2), "!=")] {
+        op <- 5; rest <- str_sub(s, 2, n)
+    }
+    ?[n >= 1 && str_sub_code(s, 0) == 62 && op == 0] {
+        op <- 3; rest <- str_sub(s, 1, n)
+    }
+    ?[n >= 1 && str_sub_code(s, 0) == 60 && op == 0] {
+        op <- 4; rest <- str_sub(s, 1, n)
+    }
+    vec_set(out_op, 0, op)
+    // Trim whitespace from rest
+    mf_trim(rest)
+}
+
+// M18.3: Check if version string `ver` satisfies constraint string `cs`.
+// Constraint is comma-separated: ">=1.0.0,<2.0.0". Returns 1 if satisfied.
+mf_ver_satisfies ver: str cs: str -> i64 -> {
+    r <- 1
+    v <- mf_semver(ver)
+    ?[v < 0] { r <- 0 }
+    ?[r == 1] {
+        op_box = vec_new()
+        vec_push(op_box, 0)
+        cn <- len(cs)
+        start <- 0
+        i <- 0
+        [r == 1 && i <= cn] {
+            ?[i == cn || str_sub_code(cs, i) == 44] {
+                part <- mf_trim(str_sub(cs, start, i))
+                ?[len(part) > 0] {
+                    vstr <- mf_ver_parse_op(part, op_box)
+                    tv <- mf_semver(vstr)
+                    ?[tv < 0] { r <- 0 }
+                    ?[r == 1] {
+                        op <- vec_get(op_box, 0)
+                        ?[mf_ver_match(v, op, tv) == 0] { r <- 0 }
+                    }
+                }
+                start <- i + 1
+            }
+            i <- i + 1
+        }
+    }
+    r
+}
+
+// M18.3: Check if a version constraint string is valid. Returns 1 if valid.
+mf_valid_constraint cs: str -> i64 -> {
+    r <- 1
+    op_box = vec_new()
+    vec_push(op_box, 0)
+    cn <- len(cs)
+    start <- 0
+    i <- 0
+    [r == 1 && i <= cn] {
+        ?[i == cn || str_sub_code(cs, i) == 44] {
+            part <- mf_trim(str_sub(cs, start, i))
+            ?[len(part) > 0] {
+                vstr <- mf_ver_parse_op(part, op_box)
+                ?[len(vstr) == 0] { r <- 0 }
+                ?[r == 1 && mf_semver(vstr) < 0] { r <- 0 }
+            }
+            ?[len(part) == 0] { r <- 0 }
+            start <- i + 1
+        }
+        i <- i + 1
+    }
+    ?[cn == 0] { r <- 0 }
+    r
+}
+
 mf_check_deps key: str val: str ln: i64 path: str sv: vec[int] -> i64 -> {
     r <- 0
     ?[len(key) == 0] {
@@ -271,11 +407,11 @@ mf_check_deps key: str val: str ln: i64 path: str sv: vec[int] -> i64 -> {
             mf_err(path, ln, "dependency source path must not be empty after scheme prefix"); vec_set(sv, 2, 1); r <- 1
         }
     }
-    // M18.1: git refs must not be empty when '#' is present
+    // M18.3: git refs with version constraints must have valid constraints
     ?[r == 0 && mf_dep_scheme(val) == 2] {
-        n <- len(val)
-        ?[n >= 1 && str_sub_code(val, n - 1) == 35] {
-            mf_err(path, ln, "git ref must not be empty after '#'"); vec_set(sv, 2, 1); r <- 1
+        ref <- mf_git_ref(val)
+        ?[len(ref) > 0 && mf_valid_constraint(ref) == 0] {
+            mf_err(path, ln, str_cat(str_cat("invalid version constraint: '", ref), "' (expected semver like '>=1.0.0,<2.0.0')")); vec_set(sv, 2, 1); r <- 1
         }
     }
     r

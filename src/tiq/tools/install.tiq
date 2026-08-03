@@ -108,11 +108,66 @@ i <- 0
         // Remove existing directory for clean clone
         proc_exec(str_cat("rm -rf ", dep_dir))
         ?[len(ref) > 0] {
-            clone_cmd <- str_cat(str_cat("git clone --depth 1 -b ", ref), str_cat(" ", str_cat(url, str_cat(" ", dep_dir))))
-            rc <- proc_exec(clone_cmd)
-            ?[rc != 0] {
-                eprint(str_cat(str_cat("tiq install: git clone failed for '", name), "'"))
-                proc_exit(1)
+            // Check if ref is a version constraint (contains operator chars)
+            is_constraint <- 0
+            rn <- len(ref)
+            ri <- 0
+            [ri < rn && is_constraint == 0] {
+                rc <- str_sub_code(ref, ri)
+                ?[rc == 62 || rc == 60 || rc == 33 || rc == 44] { is_constraint <- 1 }
+                ri <- ri + 1
+            }
+            ?[is_constraint == 1] {
+                // Version constraint: list tags and find best match
+                tmp_tags <- str_cat("/tmp/.tiq-tags-", int_str(fnv_hash(url)))
+                ls_cmd <- str_cat("git ls-remote --tags ", str_cat(url, str_cat(" 2>/dev/null | awk -F/ '{print $3}' > ", tmp_tags)))
+                proc_exec(ls_cmd)
+                tag_list <- fs_read(tmp_tags)
+                proc_exec(str_cat("rm -f ", tmp_tags))
+                // Find best matching version
+                best_ver <- ""
+                best_num <- -1
+                tn <- len(tag_list)
+                tstart <- 0
+                ti <- 0
+                [ti <= tn] {
+                    ?[ti == tn || str_sub_code(tag_list, ti) == 10] {
+                        tag <- mf_trim(str_sub(tag_list, tstart, ti))
+                        // Strip 'v' prefix if present
+                        vtag <- tag
+                        ?[len(tag) > 0 && str_sub_code(tag, 0) == 118] {
+                            vtag <- str_sub(tag, 1, len(tag))
+                        }
+                        ?[len(vtag) > 0 && mf_ver_satisfies(vtag, ref) == 1] {
+                            vnum <- mf_semver(vtag)
+                            ?[vnum > best_num] {
+                                best_num <- vnum
+                                best_ver <- tag
+                            }
+                        }
+                        tstart <- ti + 1
+                    }
+                    ti <- ti + 1
+                }
+                ?[len(best_ver) == 0] {
+                    eprint(str_cat(str_cat("tiq install: no version matching '", ref), str_cat("' found for '", str_cat(name, "'"))))
+                    proc_exit(1)
+                }
+                clone_cmd <- str_cat(str_cat("git clone --depth 1 -b ", best_ver), str_cat(" ", str_cat(url, str_cat(" ", dep_dir))))
+                rc <- proc_exec(clone_cmd)
+                ?[rc != 0] {
+                    eprint(str_cat(str_cat("tiq install: git clone failed for '", name), "'"))
+                    proc_exit(1)
+                }
+            }
+            ?[is_constraint == 0] {
+                // Exact ref (branch/tag name)
+                clone_cmd <- str_cat(str_cat("git clone --depth 1 -b ", ref), str_cat(" ", str_cat(url, str_cat(" ", dep_dir))))
+                rc <- proc_exec(clone_cmd)
+                ?[rc != 0] {
+                    eprint(str_cat(str_cat("tiq install: git clone failed for '", name), "'"))
+                    proc_exit(1)
+                }
             }
         }
         ?[len(ref) == 0] {

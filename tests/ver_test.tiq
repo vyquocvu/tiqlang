@@ -1,0 +1,37 @@
+// Test version constraint parsing and matching
+import "../src/tiq/manifest.tiq"
+
+// Test mf_semver parsing
+v1 <- mf_semver("1.2.3")
+print(str_cat("semver 1.2.3 = ", int_str(v1)))
+
+v2 <- mf_semver("0.1.0")
+print(str_cat("semver 0.1.0 = ", int_str(v2)))
+
+v3 <- mf_semver("10.20.30")
+print(str_cat("semver 10.20.30 = ", int_str(v3)))
+
+v_bad <- mf_semver("abc")
+print(str_cat("semver abc = ", int_str(v_bad)))
+
+v_bad2 <- mf_semver("1.2")
+print(str_cat("semver 1.2 = ", int_str(v_bad2)))
+
+// Test constraint satisfaction
+print(str_cat("1.5.0 satisfies >=1.0.0: ", int_str(mf_ver_satisfies("1.5.0", ">=1.0.0"))))
+print(str_cat("0.9.0 satisfies >=1.0.0: ", int_str(mf_ver_satisfies("0.9.0", ">=1.0.0"))))
+print(str_cat("1.5.0 satisfies <2.0.0: ", int_str(mf_ver_satisfies("1.5.0", "<2.0.0"))))
+print(str_cat("2.0.0 satisfies <2.0.0: ", int_str(mf_ver_satisfies("2.0.0", "<2.0.0"))))
+print(str_cat("1.5.0 satisfies >=1.0.0,<2.0.0: ", int_str(mf_ver_satisfies("1.5.0", ">=1.0.0,<2.0.0"))))
+print(str_cat("2.0.0 satisfies >=1.0.0,<2.0.0: ", int_str(mf_ver_satisfies("2.0.0", ">=1.0.0,<2.0.0"))))
+print(str_cat("1.0.0 satisfies 1.0.0: ", int_str(mf_ver_satisfies("1.0.0", "1.0.0"))))
+print(str_cat("1.0.1 satisfies 1.0.0: ", int_str(mf_ver_satisfies("1.0.1", "1.0.0"))))
+print(str_cat("1.0.0 satisfies !=1.0.0: ", int_str(mf_ver_satisfies("1.0.0", "!=1.0.0"))))
+print(str_cat("1.0.1 satisfies !=1.0.0: ", int_str(mf_ver_satisfies("1.0.1", "!=1.0.0"))))
+
+// Test constraint validation
+print(str_cat("valid >=1.0.0: ", int_str(mf_valid_constraint(">=1.0.0"))))
+print(str_cat("valid >=1.0.0,<2.0.0: ", int_str(mf_valid_constraint(">=1.0.0,<2.0.0"))))
+print(str_cat("valid abc: ", int_str(mf_valid_constraint("abc"))))
+print(str_cat("valid empty: ", int_str(mf_valid_constraint(""))))
+print(str_cat("valid >=1.0: ", int_str(mf_valid_constraint(">=1.0"))))

@@ -7,6 +7,10 @@
 set -u
 
 TIQ="${TIQ:-./build/tiq}"
+# Make TIQ path absolute for use after cd
+if [ "${TIQ#/}" = "$TIQ" ]; then
+  TIQ="$(pwd)/$TIQ"
+fi
 CC_BIN="${CC:-cc}"
 ROOT="$(pwd)"
 INSTALL="$ROOT/build/tiq-install"
@@ -17,6 +21,14 @@ trap 'rm -rf "$TMP_DIR"' EXIT INT TERM
 if ! "$TIQ" build src/tiq/tools/install.tiq -o "$INSTALL" 2>"$TMP_DIR/build.err"; then
   echo "install_tool: FAIL (cannot build src/tiq/tools/install.tiq)" >&2
   cat "$TMP_DIR/build.err" >&2
+  exit 1
+fi
+
+# Build init tool for manifest validation tests
+INIT="$ROOT/build/tiq-init"
+if ! "$TIQ" build src/tiq/tools/init.tiq -o "$INIT" 2>"$TMP_DIR/build_init.err"; then
+  echo "install_tool: FAIL (cannot build src/tiq/tools/init.tiq)" >&2
+  cat "$TMP_DIR/build_init.err" >&2
   exit 1
 fi
 
@@ -156,7 +168,64 @@ fi
 
 cd "$ROOT"
 
-# 9. The tool's generated C is memory-clean under ASan/UBSan.
+# 9. M18.3: Valid version constraints in git deps pass manifest validation.
+mkdir -p "$TMP_DIR/ver_ok"
+cd "$TMP_DIR/ver_ok"
+cat > "tiq.toml" << 'VEREOF'
+[package]
+name = "verapp"
+
+[deps]
+foo = "git:https://example.com/foo.git#>=1.0.0,<2.0.0"
+bar = "git:https://example.com/bar.git#1.5.0"
+VEREOF
+# Use tiq init --check to validate the manifest without actually cloning
+"$INIT" --check tiq.toml >"$TMP_DIR/ver_ok.out" 2>"$TMP_DIR/ver_ok.err"
+if [ "$?" -ne 0 ]; then
+  echo "install_tool: FAIL ver_ok (valid constraint rejected)" >&2
+  cat "$TMP_DIR/ver_ok.err" >&2
+  fail=1
+fi
+
+# 10. M18.3: Invalid version constraints fail closed.
+mkdir -p "$TMP_DIR/ver_bad"
+cd "$TMP_DIR/ver_bad"
+cat > "tiq.toml" << 'BADCONEOF'
+[package]
+name = "badver"
+
+[deps]
+foo = "git:https://example.com/foo.git#not-a-version"
+BADCONEOF
+"$INIT" --check tiq.toml >"$TMP_DIR/ver_bad.out" 2>"$TMP_DIR/ver_bad.err"
+if [ "$?" -eq 0 ]; then
+  echo "install_tool: FAIL ver_bad (invalid constraint accepted)" >&2
+  fail=1
+fi
+if ! grep -qF "invalid version constraint" "$TMP_DIR/ver_bad.err"; then
+  echo "install_tool: FAIL ver_bad (missing diagnostic)" >&2
+  cat "$TMP_DIR/ver_bad.err" >&2
+  fail=1
+fi
+
+# 11. M18.3: Version constraint test program passes.
+cd "$ROOT"
+"$TIQ" run tests/ver_test.tiq >"$TMP_DIR/ver_test.out" 2>"$TMP_DIR/ver_test.err"
+if [ "$?" -ne 0 ]; then
+  echo "install_tool: FAIL ver_test (test program failed)" >&2
+  cat "$TMP_DIR/ver_test.err" >&2
+  fail=1
+fi
+if ! grep -qF "semver 1.2.3 = 1002003" "$TMP_DIR/ver_test.out"; then
+  echo "install_tool: FAIL ver_test (semver parsing wrong)" >&2
+  fail=1
+fi
+if ! grep -qF "1.5.0 satisfies >=1.0.0,<2.0.0: 1" "$TMP_DIR/ver_test.out"; then
+  echo "install_tool: FAIL ver_test (constraint matching wrong)" >&2
+  fail=1
+fi
+
+# 12. The tool's generated C is memory-clean under ASan/UBSan.
 if "$TIQ" emit-c src/tiq/tools/install.tiq >"$TMP_DIR/install.c" 2>"$TMP_DIR/install.emit.err"; then
   if "$CC_BIN" -std=c11 -g -fsanitize=address,undefined "$TMP_DIR/install.c" -o "$TMP_DIR/install.asan" 2>"$TMP_DIR/install.cc.err"; then
     cd "$TMP_DIR/project"
@@ -174,4 +243,4 @@ if [ "$fail" -ne 0 ]; then
   echo "install_tool: failed" >&2
   exit 1
 fi
-echo "install_tool: ok (path deps, lockfile, fail-closed, multi-dep, idempotent, ASan verified)"
+echo "install_tool: ok (path deps, lockfile, fail-closed, multi-dep, idempotent, version constraints, ASan verified)"
