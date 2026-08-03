@@ -1,0 +1,225 @@
+// M18.6-T1: dependency audit tool (`tiq audit`). Reads the manifest
+// (`tiq.toml`) and lockfile (`tiq.lock`) from the current directory, verifies
+// each dependency's content hash against the lockfile, and reports integrity
+// issues.
+//
+// CLI:
+//   tiq audit   -- audit deps from tiq.toml/tiq.lock in cwd
+//
+// Checks performed:
+//   1. Lockfile exists and is readable
+//   2. Every dep in the manifest has a matching lockfile entry
+//   3. Every lockfile entry has a matching manifest dep (no stale entries)
+//   4. Each installed dep's content hash matches the lockfile hash
+//
+// Exit codes:
+//   0 — all deps pass integrity check
+//   1 — one or more integrity issues found
+//   2 — usage error (missing manifest, etc.)
+//
+// Determinism: the output depends only on the manifest, lockfile, and
+// installed dependency contents. No environment variables or timestamps.
+
+import "../manifest.tiq"
+
+// FNV-1a hash (32-bit, unsigned). Same as install.tiq and cache.tiq.
+fnv_hash s: str -> i64 -> {
+    h <- 2166136261
+    i <- 0
+    [i < len(s)] {
+        h <- h ^ str_sub_code(s, i)
+        h <- h * 16777619
+        i <- i + 1
+    }
+    h
+}
+
+// Compute a content hash for a dependency directory by hashing the
+// concatenated contents of all .tiq files.
+dep_hash dir: str -> str -> {
+    tmp <- str_cat("/tmp/.tiq-audit-hash-", int_str(fnv_hash(dir)))
+    cmd <- str_cat(str_cat("find ", dir), str_cat(" -name '*.tiq' -exec cat {} \\; > ", tmp))
+    proc_exec(cmd)
+    content <- fs_read(tmp)
+    proc_exec(str_cat("rm -f ", tmp))
+    int_str(fnv_hash(content))
+}
+
+// Parse lockfile to extract dep entries. Returns parallel vecs of
+// (name, source, hash). Returns the count of entries found.
+parse_lockfile text: str names: vec[str] sources: vec[str] hashes: vec[str] -> i64 -> {
+    count <- 0
+    n <- len(text)
+    start <- 0
+    in_pkg <- 0
+    cur_name <- ""
+    cur_source <- ""
+    cur_hash <- ""
+    i <- 0
+    [i <= n] {
+        ?[i == n || str_sub_code(text, i) == 10] {
+            line <- mf_trim(str_sub(text, start, i))
+            ?[len(line) > 0 && str_sub_code(line, 0) != 35] {
+                ?[str_eq(line, "[[pkg]]")] {
+                    // Save previous entry if any
+                    ?[in_pkg == 1 && len(cur_name) > 0] {
+                        vec_push(names, cur_name)
+                        vec_push(sources, cur_source)
+                        vec_push(hashes, cur_hash)
+                        count <- count + 1
+                    }
+                    in_pkg <- 1
+                    cur_name <- ""
+                    cur_source <- ""
+                    cur_hash <- ""
+                }
+                ?[!str_eq(line, "[[pkg]]") && in_pkg == 1] {
+                    eq <- mf_find_eq(line, 0)
+                    ?[eq > 0] {
+                        key <- mf_trim(str_sub(line, 0, eq))
+                        val <- mf_unquote(mf_trim(str_sub(line, eq + 1, len(line))))
+                        ?[str_eq(key, "name")] { cur_name <- val }
+                        ?[str_eq(key, "source")] { cur_source <- val }
+                        ?[str_eq(key, "hash")] { cur_hash <- val }
+                    }
+                }
+            }
+            start <- i + 1
+        }
+        i <- i + 1
+    }
+    // Save last entry
+    ?[in_pkg == 1 && len(cur_name) > 0] {
+        vec_push(names, cur_name)
+        vec_push(sources, cur_source)
+        vec_push(hashes, cur_hash)
+        count <- count + 1
+    }
+    count
+}
+
+// Check if a name exists in a vec of strings (up to count elements).
+// Returns 1 if found.
+vec_contains v: vec[str] name: str count: i64 -> i64 -> {
+    r <- 0
+    i <- 0
+    [i < count] {
+        ?[str_eq(vec_get(v, i), name)] { r <- 1; i <- count }
+        i <- i + 1
+    }
+    r
+}
+
+// --- Main ---
+
+// Read manifest
+manifest_path <- "tiq.toml"
+?[!fs_exists(manifest_path)] {
+    eprint("tiq audit: cannot read tiq.toml")
+    proc_exit(2)
+}
+
+src <- fs_read(manifest_path)
+sv <- vec_new()
+vec_push(sv, 0)  // section
+vec_push(sv, 0)  // name seen
+vec_push(sv, 0)  // error flag
+vec_push(sv, 0)  // version seen
+vec_push(sv, 0)  // package seen
+
+err <- mf_check(src, manifest_path, sv)
+?[err != 0] {
+    proc_exit(2)
+}
+
+// Extract manifest deps
+mf_dep_names = vec_new()
+mf_dep_sources = vec_new()
+mf_count <- mf_extract_deps(src, mf_dep_names, mf_dep_sources)
+
+// Read lockfile
+lock_path <- "tiq.lock"
+?[!fs_exists(lock_path)] {
+    eprint("tiq audit: tiq.lock not found (run 'tiq install' first)")
+    proc_exit(1)
+}
+
+lock_text <- fs_read(lock_path)
+lk_names = vec_new()
+lk_sources = vec_new()
+lk_hashes = vec_new()
+lk_count <- parse_lockfile(lock_text, lk_names, lk_sources, lk_hashes)
+
+issues <- 0
+
+// Check 1: Every manifest dep has a lockfile entry
+i <- 0
+[i < mf_count] {
+    name <- vec_get(mf_dep_names, i)
+    ?[vec_contains(lk_names, name, lk_count) == 0] {
+        msg <- str_cat("tiq audit: '", name)
+        msg <- str_cat(msg, "' in manifest but not in lockfile")
+        eprint(msg)
+        issues <- issues + 1
+    }
+    i <- i + 1
+}
+
+// Check 2: Every lockfile entry has a manifest dep (no stale)
+i <- 0
+[i < lk_count] {
+    name <- vec_get(lk_names, i)
+    ?[vec_contains(mf_dep_names, name, mf_count) == 0] {
+        msg <- str_cat("tiq audit: '", name)
+        msg <- str_cat(msg, "' in lockfile but not in manifest (stale)")
+        eprint(msg)
+        issues <- issues + 1
+    }
+    i <- i + 1
+}
+
+// Check 3: Hash verification for each installed dep
+i <- 0
+[i < lk_count] {
+    name <- vec_get(lk_names, i)
+    expected_hash <- vec_get(lk_hashes, i)
+    dep_dir <- str_cat(".tiq-deps/", name)
+    ?[fs_exists(dep_dir)] {
+        actual_hash <- dep_hash(dep_dir)
+        ?[!str_eq(actual_hash, expected_hash)] {
+            msg <- str_cat("tiq audit: '", name)
+            msg <- str_cat(msg, "' hash mismatch (expected: ")
+            msg <- str_cat(msg, expected_hash)
+            msg <- str_cat(msg, ", got: ")
+            msg <- str_cat(msg, actual_hash)
+            msg <- str_cat(msg, ")")
+            eprint(msg)
+            issues <- issues + 1
+        }
+    }
+    ?[!fs_exists(dep_dir)] {
+        msg <- str_cat("tiq audit: '", name)
+        msg <- str_cat(msg, "' not installed (.tiq-deps/")
+        msg <- str_cat(msg, name)
+        msg <- str_cat(msg, " missing)")
+        eprint(msg)
+        issues <- issues + 1
+    }
+    i <- i + 1
+}
+
+// Report
+?[issues == 0] {
+    print(str_cat("tiq audit: ok (", str_cat(int_str(lk_count), " dependencies verified)")))
+}
+?[issues > 0] {
+    eprint(str_cat("tiq audit: ", str_cat(int_str(issues), " issue" )))
+    ?[issues == 1] {
+        eprint("")
+    }
+    ?[issues != 1] {
+        eprint("s")
+    }
+    proc_exit(1)
+}
+0
