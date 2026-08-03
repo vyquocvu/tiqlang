@@ -261,7 +261,7 @@ static bool mut_uses_ok(AstNode *n, Token name) {
     switch (n->kind) {
         case AST_LITERAL: case AST_BREAK: case AST_SKIP:
         case AST_STRUCT_DEF: case AST_ENUM_DEF: case AST_CHAN:
-        case AST_IMPORT:
+        case AST_IMPORT: case AST_EXTERN:
             return true;
         case AST_IDENTIFIER:
             return !tok_name_eq(n->as.identifier.name, name);
@@ -1529,6 +1529,9 @@ static void emit_stmt(AstNode *node, EmitContext *ctx, int indent) {
             break;
         case AST_FUNCTION:
             break;
+        case AST_EXTERN:
+            // M16.2: prototypes are emitted in the top-level extern pass.
+            break;
         case AST_STRUCT_DEF:
             // M12.6: Struct definitions are emitted at the top level, not in statements
             break;
@@ -1682,7 +1685,7 @@ static void emit_check_node(AstNode *node, EmitContext *ctx) {
     if (!node || ctx->diag->fatal_error) return;
     switch (node->kind) {
         case AST_LITERAL: case AST_IDENTIFIER: case AST_BINDING:
-        case AST_ASSIGN: case AST_FUNCTION: case AST_BREAK: case AST_SKIP:
+        case AST_ASSIGN: case AST_FUNCTION: case AST_EXTERN: case AST_BREAK: case AST_SKIP:
         case AST_ARRAY:
             break;
         case AST_BINARY:
@@ -1780,6 +1783,26 @@ static void emit_stream_gen_def(const char *name, AstNode *node, Token *params, 
         fputs("    return a;\n", ctx->out);
         fputs("}\n\n", ctx->out);
     }
+}
+
+// M16.2: extern "C" names that the preamble's system headers already
+// declare with a signature Tiq's fixed-width ABI table cannot spell
+// (size_t/pid_t/int/void returns). Redeclaring them in the extern pass
+// would conflict with the header prototype, so the pass skips them: the
+// header declaration serves for codegen and the symbol links normally.
+// Both compilers carry the identical table (selfhost byte-compare).
+static bool ffi_shadows_preamble_header(Token name) {
+    static const char *conflicts[] = {
+        "clock", "close", "exit", "fork", "getpid", "getppid",
+        "memcmp", "rand", "read", "sleep", "strcmp", "strlen",
+        "time", "write",
+    };
+    for (size_t i = 0; i < sizeof conflicts / sizeof conflicts[0]; i++) {
+        size_t n = strlen(conflicts[i]);
+        if (name.length == n && memcmp(name.start, conflicts[i], n) == 0)
+            return true;
+    }
+    return false;
 }
 
 void compile_modules_to_c(SemanticModule *mods, int mod_count, const char *root_path,
@@ -1930,6 +1953,38 @@ void compile_modules_to_c(SemanticModule *mods, int mod_count, const char *root_
         }
     }
 
+    // M16.2: extern "C" prototypes in declaration order, immediately after
+    // the enum constants (M13_DETERMINISM.md §1 pass sequence). Programs
+    // without extern decls emit nothing here, so legacy output stays
+    // byte-identical. Names shadowed by the preamble's system headers
+    // (ffi_shadows_preamble_header) are skipped: their fixed-width
+    // redeclaration would conflict with the header prototype, and the
+    // header already declares the symbol for linking.
+    for (int i = 0; i < count; i++) {
+        if (stmts[i] && stmts[i]->kind == AST_EXTERN) {
+            if (ffi_shadows_preamble_header(stmts[i]->as.function.name))
+                continue;
+            fputs("extern ", ctx->out);
+            emit_semantic_type(stmts[i]->semantic_type, ctx->out);
+            fprintf(ctx->out, " %.*s(", (int)stmts[i]->as.function.name.length,
+                    stmts[i]->as.function.name.start);
+            if (stmts[i]->as.function.param_count == 0) {
+                fputs("void);\n", ctx->out);
+            } else {
+                for (int j = 0; j < stmts[i]->as.function.param_count; j++) {
+                    if (j > 0) fputs(", ", ctx->out);
+                    SemanticType *pt = (SemanticType *)(stmts[i]->as.function.param_types ?
+                        stmts[i]->as.function.param_types[j] : NULL);
+                    emit_semantic_type(pt, ctx->out);
+                    fputs(" ", ctx->out);
+                    fprintf(ctx->out, "%.*s", (int)stmts[i]->as.function.params[j].length,
+                            stmts[i]->as.function.params[j].start);
+                }
+                fputs(");\n", ctx->out);
+            }
+        }
+    }
+
     // Forward-declare stream gen functions
     for (int g = 0; g < stream_gen_count; g++) {
         fprintf(ctx->out, "int64_t tiq_gen_%s(", stream_gens[g].name);
@@ -1969,7 +2024,7 @@ void compile_modules_to_c(SemanticModule *mods, int mod_count, const char *root_
     emit_scope_push(ctx, stmts, count, false, NULL, NULL, 0);
     for (int i = 0; i < count; i++) {
         if (stmts[i] && stmts[i]->kind != AST_FUNCTION && stmts[i]->kind != AST_STRUCT_DEF &&
-            stmts[i]->kind != AST_ENUM_DEF) {
+            stmts[i]->kind != AST_ENUM_DEF && stmts[i]->kind != AST_EXTERN) {
             if (stmts[i]->kind == AST_BINDING && stmts[i]->as.binding.expr &&
                 stmts[i]->as.binding.expr->kind == AST_STREAM_GEN) {
                 // stream gen bindings are emitted via tiq_gen_* functions below

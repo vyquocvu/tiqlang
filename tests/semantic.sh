@@ -1044,4 +1044,91 @@ vec_push(v, A { x: 1 })
 f(v)
 ' "$TMP_DIR/p9_vec_struct_elem_nominal_neg.tiq:6: error[E09]: argument 1: expected vec<B>, found vec<A>"
 
+# M16.1/M16.2: extern "C" declarations (LANGUAGE_SPEC §7.1). Fail-closed
+# semantic checks carry the new E29 code; calls type-check like user
+# functions (E12 arity, E09 argument types).
+assert_semantic "extern_bad_abi" 'extern "Rust" f x:i64 -> i64
+' "$TMP_DIR/extern_bad_abi.tiq:1: error[E29]: extern ABI must be \"C\""
+
+assert_semantic "extern_unannotated_param" 'extern "C" f x -> i64
+' "$TMP_DIR/extern_unannotated_param.tiq:1: error[E29]: extern parameters require type annotations"
+
+assert_semantic "extern_borrow_param" 'extern "C" f x:&i64 -> i64
+' "$TMP_DIR/extern_borrow_param.tiq:1: error[E23]: extern parameters cannot use borrow annotations"
+
+assert_semantic "extern_vec_param" 'extern "C" f v:vec[int] -> i64
+' "$TMP_DIR/extern_vec_param.tiq:1: error[E29]: extern parameter type is not FFI-safe"
+
+assert_semantic "extern_array_param" 'extern "C" f a:[i64; 4] -> i64
+' "$TMP_DIR/extern_array_param.tiq:1: error[E29]: extern parameter type is not FFI-safe"
+
+assert_semantic "extern_vec_return" 'extern "C" f x:i64 -> vec[int]
+' "$TMP_DIR/extern_vec_return.tiq:1: error[E29]: extern return type is not FFI-safe"
+
+assert_semantic "extern_unknown_type" 'extern "C" f x:unknown -> i64
+' "$TMP_DIR/extern_unknown_type.tiq:1: error[E09]: unknown type 'unknown'"
+
+assert_semantic "extern_duplicate" 'extern "C" llabs x:i64 -> i64
+extern "C" llabs y:i64 -> i64
+' "$TMP_DIR/extern_duplicate.tiq:2: error[E29]: duplicate extern declaration 'llabs'"
+
+assert_semantic "extern_function_collision" 'f x:i64 -> i64 -> x
+extern "C" f y:i64 -> i64
+' "$TMP_DIR/extern_function_collision.tiq:2: error[E29]: extern declaration 'f' collides with an existing declaration"
+
+assert_semantic "extern_struct_collision" 'struct P { x: i64 }
+extern "C" P y:i64 -> i64
+' "$TMP_DIR/extern_struct_collision.tiq:2: error[E29]: extern declaration 'P' collides with an existing declaration"
+
+assert_semantic "extern_enum_collision" 'enum P { A }
+extern "C" P y:i64 -> i64
+' "$TMP_DIR/extern_enum_collision.tiq:2: error[E29]: extern declaration 'P' collides with an existing declaration"
+
+# Calls to extern functions type-check like user functions.
+assert_semantic "extern_arity" 'extern "C" llabs x:i64 -> i64
+y = llabs(1, 2)
+' "$TMP_DIR/extern_arity.tiq:2: error[E12]: arity mismatch"
+
+assert_semantic "extern_arg_type" 'extern "C" llabs x:i64 -> i64
+y = llabs("a")
+' "$TMP_DIR/extern_arg_type.tiq:2: error[E09]: argument 1: expected int, found str"
+
+# Typed-AST goldens: extern decls register with their declared return type.
+assert_semantic_ast "extern_typed_call" 'extern "C" llabs x:i64 -> i64
+y = llabs(3 - 10)
+' 'EXTERN llabs <TYPE_INT>
+  PARAM x
+BINDING y <TYPE_INT>
+  CALL <TYPE_INT>
+    IDENT llabs <TYPE_INT>
+    BINARY MINUS <TYPE_INT>
+      INT 3 <TYPE_INT>
+      INT 10 <TYPE_INT>'
+
+assert_semantic_ast "extern_typed_zero_param" 'extern "C" getpid -> i64
+y = getpid()
+' 'EXTERN getpid <TYPE_INT>
+BINDING y <TYPE_INT>
+  CALL <TYPE_INT>
+    IDENT getpid <TYPE_INT>'
+
+assert_semantic_ast "extern_typed_str_f64" 'extern "C" strlen s:str -> i64
+extern "C" sqrt x:f64 -> f64
+n = strlen("tiq")
+' 'EXTERN strlen <TYPE_INT>
+  PARAM s
+EXTERN sqrt <TYPE_FLOAT>
+  PARAM x
+BINDING n <TYPE_INT>
+  CALL <TYPE_INT>
+    IDENT strlen <TYPE_INT>
+    STRING "tiq" <TYPE_STR>'
+
+# Structs pass by value through the C ABI (M16.2).
+assert_semantic_ast "extern_struct_by_value" 'struct Point { x: i64 }
+extern "C" px p:Point -> i64
+' 'UNKNOWN <TYPE_STRUCT>
+EXTERN px <TYPE_INT>
+  PARAM p'
+
 echo "semantic: ok"

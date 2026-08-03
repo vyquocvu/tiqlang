@@ -27,10 +27,11 @@ Implementation status annotation (see also LANGUAGE_SPEC §17 for the complete t
 ```ebnf
 program       = { import_decl }, { top_item } ;                    (* ✅ — imports must precede all other top items (M13.1-P6) *)
 import_decl   = "import", string_literal ;                          (* ✅ — M13.1-P6; path relative to importing file *)
-top_item      = function_def | struct_def | enum_def | binding | statement ; (* ✅ *)
+top_item      = function_def | extern_decl | struct_def | enum_def | binding | statement ; (* ✅ — extern_decl M16.1 *)
 
 function_def  = identifier, { param }, "->", [ ( type | container_type ), "->" ], expression ;  (* ✅ — param:type M12.4; container_type M13.1-P8 *)
-param         = identifier, [ ":", param_type ] ;                        (* ✅ — M12.4 *)
+extern_decl   = "extern", string_literal, identifier, { param }, "->", ( type | container_type ) ; (* ✅ — M16.1; ABI operand must be "C" (E29); annotated params mandatory (E29), borrow prefixes E23; no body *)
+param         = identifier, [ ":", param_type ] ;                        (*  ✅ — M12.4 *)
 param_type    = [ "&", [ "mut" ] ], ( type | container_type ) ;   (* ✅ — M9.1 borrowed params; "&" on container_type is semantic E23 (M13.1-P8) *)
 struct_def    = "struct", identifier, "{", { field_def, [ "," ] }, "}" ; (* ✅ — M12.6 *)
 field_def     = identifier, ":", type ;                              (* ✅ — M12.6 *)

@@ -308,6 +308,28 @@ corpus "p9_ret_elem_mismatch" 'g d:i64 -> vec[str] -> {
   n = vec_push(v, 1)
   v
 }'
+# M16.1/M16.2 extern declarations: the parse-clean E29/E23/E09/E12 shapes
+# of tests/semantic.sh. The ABI operand, FFI-safety, collisions, and the
+# call-site arity/argument checks must agree byte-for-byte.
+corpus "extern_bad_abi" 'extern "Rust" f x:i64 -> i64'
+corpus "extern_unannotated_param" 'extern "C" f x -> i64'
+corpus "extern_borrow_param" 'extern "C" f x:&i64 -> i64'
+corpus "extern_vec_param" 'extern "C" f v:vec[int] -> i64'
+corpus "extern_array_param" 'extern "C" f a:[i64; 4] -> i64'
+corpus "extern_vec_return" 'extern "C" f x:i64 -> vec[int]'
+corpus "extern_unknown_type" 'extern "C" f x:unknown -> i64'
+corpus "extern_duplicate" 'extern "C" llabs x:i64 -> i64
+extern "C" llabs y:i64 -> i64'
+corpus "extern_function_collision" 'f x:i64 -> i64 -> x
+extern "C" f y:i64 -> i64'
+corpus "extern_struct_collision" 'struct P { x: i64 }
+extern "C" P y:i64 -> i64'
+corpus "extern_enum_collision" 'enum P { A }
+extern "C" P y:i64 -> i64'
+corpus "extern_arity" 'extern "C" llabs x:i64 -> i64
+y = llabs()'
+corpus "extern_arg_type" 'extern "C" llabs x:i64 -> i64
+y = llabs("a")'
 
 # Positive-construct corpus: well-formed sources exercising the types and
 # checker paths the fixture set never reaches (strbuf/map/vec-of-struct in
@@ -456,6 +478,19 @@ e = eprint("hi")'
 construct "io_builtins" 'x = fs_exists("f")
 y = cli_arg(0)
 n = cli_arg_count()'
+# M16.1/M16.2 extern positives: the decl registers with its declared return
+# type and calls type-check like user functions (typed-dump goldens).
+construct "extern_typed_call" 'extern "C" llabs x:i64 -> i64
+y = llabs(3 - 10)'
+construct "extern_zero_param" 'extern "C" getpid -> i64
+p = getpid()'
+construct "extern_str_f64" 'extern "C" strlen s:str -> i64
+extern "C" sqrt x:f64 -> f64
+n = strlen("abc")
+r = sqrt(4.0)'
+construct "extern_struct_by_value" 'struct Point { x: i64 }
+extern "C" px p:Point -> i64
+q = Point { x: 1 }'
 
 if [ "$fixture_count" -eq 0 ]; then
   echo "selfhost_semantic: FAIL (no fixtures found)" >&2
@@ -478,7 +513,7 @@ for t in $REQUIRED_TYPES; do
     fail=1
   fi
 done
-REQUIRED_CODES="E07 E08 E09 E10 E11 E12 E14 E15 E16 E17 E18 E20 E21 E23 E24 E25 E26"
+REQUIRED_CODES="E07 E08 E09 E10 E11 E12 E14 E15 E16 E17 E18 E20 E21 E23 E24 E25 E26 E29"
 for c in $REQUIRED_CODES; do
   if ! grep -q "error\[$c\]" "$TMP_DIR/hist_codes.txt"; then
     echo "selfhost_semantic: FAIL (diagnostic $c never emitted - vacuous coverage)" >&2

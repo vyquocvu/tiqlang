@@ -714,6 +714,92 @@ static AstNode *statement(Parser *parser) {
     return expr;
 }
 
+// M16.1: shared parameter-list parsing for AST_FUNCTION and AST_EXTERN
+// (LANGUAGE_SPEC §7.1). Parameters are 'name' with an optional ':type'
+// annotation (borrow prefix, vec[T], and compound forms); each
+// declaration kind validates them in semantic analysis.
+static void parse_param_list(Parser *parser, AstNode *node) {
+    int capacity = 0;
+    while (check(parser, TOK_IDENT)) {
+        if (node->as.function.param_count + 1 > capacity) {
+            int new_cap = capacity < 4 ? 4 : capacity * 2;
+            node->as.function.params = arena_realloc(&parser->arena, node->as.function.params,
+                                                     sizeof(Token) * capacity,
+                                                     sizeof(Token) * new_cap);
+            node->as.function.param_type_annots = arena_realloc(&parser->arena, node->as.function.param_type_annots,
+                                                     sizeof(Token) * capacity,
+                                                     sizeof(Token) * new_cap);
+            node->as.function.param_elem_annots = arena_realloc(&parser->arena, node->as.function.param_elem_annots,
+                                                     sizeof(Token) * capacity,
+                                                     sizeof(Token) * new_cap);
+            node->as.function.param_ref_kinds = arena_realloc(&parser->arena, node->as.function.param_ref_kinds,
+                                                     sizeof(unsigned char) * capacity,
+                                                     sizeof(unsigned char) * new_cap);
+            capacity = new_cap;
+        }
+        node->as.function.params[node->as.function.param_count] = parser->current;
+        node->as.function.param_type_annots[node->as.function.param_count].kind = TOK_EOF; // default: no annotation
+        node->as.function.param_elem_annots[node->as.function.param_count].kind = TOK_EOF; // M13.1-P8: default: no element
+        node->as.function.param_ref_kinds[node->as.function.param_count] = 0; // default: by value
+        advance(parser);
+        // M12.4: parse optional :type annotation
+        if (check(parser, TOK_COLON)) {
+            advance(parser); // consume ':'
+            // M9.1: optional borrow prefix &type / &mut type
+            if (check(parser, TOK_AMP)) {
+                advance(parser); // consume '&'
+                if (check(parser, TOK_MUT)) {
+                    advance(parser); // consume 'mut'
+                    node->as.function.param_ref_kinds[node->as.function.param_count] = 2;
+                } else {
+                    node->as.function.param_ref_kinds[node->as.function.param_count] = 1;
+                }
+            }
+            if (check(parser, TOK_IDENT)) {
+                Token type_tok = parser->current;
+                node->as.function.param_type_annots[node->as.function.param_count] = type_tok;
+                advance(parser);
+                // M13.1-P8: vec[T] container annotation — the element
+                // type name sits between the existing bracket tokens.
+                if (type_tok.length == 3 && memcmp(type_tok.start, "vec", 3) == 0 &&
+                    check(parser, TOK_LBRACKET)) {
+                    advance(parser); // consume '['
+                    if (check(parser, TOK_IDENT)) {
+                        node->as.function.param_elem_annots[node->as.function.param_count] = parser->current;
+                        advance(parser);
+                    } else {
+                        diag_error(parser->diag, parser->lexer.path, parser->current.line,
+                                   ERR_UNEXPECTED_TOKEN, "expected element type name in vec[...]");
+                    }
+                    consume(parser, TOK_RBRACKET, ERR_UNEXPECTED_TOKEN, "expected ']' after vec element type");
+                }
+            } else if (check(parser, TOK_LBRACKET)) {
+                // Compound type: [T; N] or []T - store '[' as marker, parse in semantic
+                node->as.function.param_type_annots[node->as.function.param_count] = parser->current;
+                advance(parser); // consume '['
+                // For now, skip until we find the closing ']'
+                int bracket_depth = 1;
+                while (bracket_depth > 0 && !check(parser, TOK_EOF)) {
+                    if (check(parser, TOK_LBRACKET)) bracket_depth++;
+                    else if (check(parser, TOK_RBRACKET)) bracket_depth--;
+                    if (bracket_depth > 0) advance(parser);
+                }
+                if (check(parser, TOK_RBRACKET)) advance(parser); // consume final ']'
+            } else {
+                diag_error(parser->diag, parser->lexer.path, parser->current.line,
+                           ERR_UNEXPECTED_TOKEN, "expected type name after ':'");
+            }
+        }
+        node->as.function.param_count++;
+    }
+    // param_types is filled in by semantic analysis; it must live
+    // in the same arena as the node it annotates (plan 4.1).
+    node->as.function.param_types = arena_alloc(&parser->arena,
+        sizeof(void *) * (node->as.function.param_count > 0 ? node->as.function.param_count : 1));
+    memset(node->as.function.param_types, 0,
+           sizeof(void *) * (node->as.function.param_count > 0 ? node->as.function.param_count : 1));
+}
+
 static AstNode *declaration(Parser *parser) {
     // M13.1-P6: import declaration — the operand must be a string literal
     // path (LANGUAGE_SPEC §17.6). Position (before any other top-level
@@ -729,6 +815,52 @@ static AstNode *declaration(Parser *parser) {
             error_at_current(parser, ERR_UNEXPECTED_TOKEN,
                              "expected string literal path after 'import'");
         }
+        return node;
+    }
+    // M16.1: extern "C" declaration — extern <abi-string> <name> { param }
+    // "->" <return-type> (LANGUAGE_SPEC §7.1, GRAMMAR extern_decl). Top
+    // level only: inside blocks 'extern' has no parse path and fails
+    // closed with E05. The ABI operand must be a string literal here;
+    // its content and the FFI-safety of the signature are semantic (E29).
+    if (match(parser, TOK_EXTERN)) {
+        AstNode *node = allocate_node(parser, AST_EXTERN);
+        node->as.function.return_type_annot.kind = TOK_EOF;
+        node->as.function.return_elem_annot.kind = TOK_EOF;
+        if (check(parser, TOK_STRING)) {
+            node->token = parser->current; // ABI operand string
+            advance(parser);
+        } else {
+            error_at_current(parser, ERR_UNEXPECTED_TOKEN,
+                             "expected string literal after 'extern'");
+            // Recovery: skip the rest of the logical line so the broken
+            // declaration is not re-parsed as statements (one diagnostic).
+            while (parser->crossed_newline == false && !check(parser, TOK_EOF))
+                advance(parser);
+            return node;
+        }
+        consume(parser, TOK_IDENT, ERR_UNEXPECTED_TOKEN,
+                "expected extern function name after 'extern'");
+        node->as.function.name = parser->previous;
+        parse_param_list(parser, node);
+        consume(parser, TOK_RARROW, ERR_UNEXPECTED_TOKEN, "expected '->' after extern parameters");
+        consume(parser, TOK_IDENT, ERR_UNEXPECTED_TOKEN, "expected return type after '->'");
+        node->as.function.return_type_annot = parser->previous;
+        // vec[T] return annotation parses here so semantic can reject it
+        // as not FFI-safe (E29) instead of cascading a parse error.
+        if (node->as.function.return_type_annot.length == 3 &&
+            memcmp(node->as.function.return_type_annot.start, "vec", 3) == 0 &&
+            check(parser, TOK_LBRACKET)) {
+            advance(parser); // consume '['
+            if (check(parser, TOK_IDENT)) {
+                node->as.function.return_elem_annot = parser->current;
+                advance(parser);
+            } else {
+                diag_error(parser->diag, parser->lexer.path, parser->current.line,
+                           ERR_UNEXPECTED_TOKEN, "expected element type name in vec[...]");
+            }
+            consume(parser, TOK_RBRACKET, ERR_UNEXPECTED_TOKEN, "expected ']' after vec element type");
+        }
+        // No body: the declaration ends at the return type.
         return node;
     }
     // M12.6: struct definition
@@ -803,85 +935,7 @@ static AstNode *declaration(Parser *parser) {
             node->as.function.name = name;
             node->as.function.return_type_annot.kind = TOK_EOF; // no return type by default
             node->as.function.return_elem_annot.kind = TOK_EOF; // M13.1-P8: no vec[T] element by default
-            int capacity = 0;
-            while (check(parser, TOK_IDENT)) {
-                if (node->as.function.param_count + 1 > capacity) {
-                    int new_cap = capacity < 4 ? 4 : capacity * 2;
-                    node->as.function.params = arena_realloc(&parser->arena, node->as.function.params,
-                                                             sizeof(Token) * capacity,
-                                                             sizeof(Token) * new_cap);
-                    node->as.function.param_type_annots = arena_realloc(&parser->arena, node->as.function.param_type_annots,
-                                                             sizeof(Token) * capacity,
-                                                             sizeof(Token) * new_cap);
-                    node->as.function.param_elem_annots = arena_realloc(&parser->arena, node->as.function.param_elem_annots,
-                                                             sizeof(Token) * capacity,
-                                                             sizeof(Token) * new_cap);
-                    node->as.function.param_ref_kinds = arena_realloc(&parser->arena, node->as.function.param_ref_kinds,
-                                                             sizeof(unsigned char) * capacity,
-                                                             sizeof(unsigned char) * new_cap);
-                    capacity = new_cap;
-                }
-                node->as.function.params[node->as.function.param_count] = parser->current;
-                node->as.function.param_type_annots[node->as.function.param_count].kind = TOK_EOF; // default: no annotation
-                node->as.function.param_elem_annots[node->as.function.param_count].kind = TOK_EOF; // M13.1-P8: default: no element
-                node->as.function.param_ref_kinds[node->as.function.param_count] = 0; // default: by value
-                advance(parser);
-                // M12.4: parse optional :type annotation
-                if (check(parser, TOK_COLON)) {
-                    advance(parser); // consume ':'
-                    // M9.1: optional borrow prefix &type / &mut type
-                    if (check(parser, TOK_AMP)) {
-                        advance(parser); // consume '&'
-                        if (check(parser, TOK_MUT)) {
-                            advance(parser); // consume 'mut'
-                            node->as.function.param_ref_kinds[node->as.function.param_count] = 2;
-                        } else {
-                            node->as.function.param_ref_kinds[node->as.function.param_count] = 1;
-                        }
-                    }
-                    if (check(parser, TOK_IDENT)) {
-                        Token type_tok = parser->current;
-                        node->as.function.param_type_annots[node->as.function.param_count] = type_tok;
-                        advance(parser);
-                        // M13.1-P8: vec[T] container annotation — the element
-                        // type name sits between the existing bracket tokens.
-                        if (type_tok.length == 3 && memcmp(type_tok.start, "vec", 3) == 0 &&
-                            check(parser, TOK_LBRACKET)) {
-                            advance(parser); // consume '['
-                            if (check(parser, TOK_IDENT)) {
-                                node->as.function.param_elem_annots[node->as.function.param_count] = parser->current;
-                                advance(parser);
-                            } else {
-                                diag_error(parser->diag, parser->lexer.path, parser->current.line,
-                                           ERR_UNEXPECTED_TOKEN, "expected element type name in vec[...]");
-                            }
-                            consume(parser, TOK_RBRACKET, ERR_UNEXPECTED_TOKEN, "expected ']' after vec element type");
-                        }
-                    } else if (check(parser, TOK_LBRACKET)) {
-                        // Compound type: [T; N] or []T - store '[' as marker, parse in semantic
-                        node->as.function.param_type_annots[node->as.function.param_count] = parser->current;
-                        advance(parser); // consume '['
-                        // For now, skip until we find the closing ']'
-                        int bracket_depth = 1;
-                        while (bracket_depth > 0 && !check(parser, TOK_EOF)) {
-                            if (check(parser, TOK_LBRACKET)) bracket_depth++;
-                            else if (check(parser, TOK_RBRACKET)) bracket_depth--;
-                            if (bracket_depth > 0) advance(parser);
-                        }
-                        if (check(parser, TOK_RBRACKET)) advance(parser); // consume final ']'
-                    } else {
-                        diag_error(parser->diag, parser->lexer.path, parser->current.line,
-                                   ERR_UNEXPECTED_TOKEN, "expected type name after ':'");
-                    }
-                }
-                node->as.function.param_count++;
-            }
-            // param_types is filled in by semantic analysis; it must live
-            // in the same arena as the node it annotates (plan 4.1).
-            node->as.function.param_types = arena_alloc(&parser->arena,
-                sizeof(void *) * (node->as.function.param_count > 0 ? node->as.function.param_count : 1));
-            memset(node->as.function.param_types, 0,
-                   sizeof(void *) * (node->as.function.param_count > 0 ? node->as.function.param_count : 1));
+            parse_param_list(parser, node);
             consume(parser, TOK_RARROW, ERR_UNEXPECTED_TOKEN, "expected '->' after function parameters");
             // M12.4: parse optional return type annotation: -> type -> body
             if (check(parser, TOK_IDENT)) {
@@ -1182,6 +1236,16 @@ void ast_print(AstNode *node, int indent) {
             // M13.1-P6: the path token includes its quotes.
             printf("IMPORT %.*s%s\n", (int)node->as.import_stmt.path.length,
                    node->as.import_stmt.path.start, t_str);
+            break;
+        case AST_EXTERN:
+            // M16.1: mirrors the FUNCTION shape (body is always absent).
+            printf("EXTERN %.*s%s\n", (int)node->as.function.name.length,
+                   node->as.function.name.start, t_str);
+            for (int i = 0; i < node->as.function.param_count; i++) {
+                for (int j = 0; j < indent + 1; j++) printf("  ");
+                printf("PARAM %.*s\n", (int)node->as.function.params[i].length,
+                       node->as.function.params[i].start);
+            }
             break;
         default:
             printf("UNKNOWN%s\n", t_str);

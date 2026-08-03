@@ -8,8 +8,8 @@ The following commands match the `usage:` output of `tiq` exactly:
 
 ```text
 tiq --version
-tiq run <file.tiq>
-tiq build <file.tiq> [-o output] [--target <triple>]
+tiq run <file.tiq> [-l lib] [-L dir]
+tiq build <file.tiq> [-o output] [--target <triple>] [-l lib] [-L dir]
 tiq emit-c <file.tiq>
 tiq check <file.tiq>...
 ```
@@ -94,6 +94,7 @@ The formatter re-emits the token stream with the repository's canonical layout, 
 ## Option notes
 
 - `tiq build`: `--target <triple>` is forwarded to the host C compiler; cross-compilation targets are planned but not tested (M11).
+- `tiq build` / `tiq run`: repeatable `-l <lib>` and `-L <dir>` options are forwarded to the host C compiler after the generated source, for linking external libraries declared with `extern "C"` (LANGUAGE_SPEC §7.1). Both options require an argument; any other trailing token, or more than 16 `-l`/`-L` pairs, fails closed with a usage error (exit 1) before compilation.
 - Unknown commands fail closed: `tiq` prints usage to stderr and exits with code 2.
 
 ## Planned

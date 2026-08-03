@@ -656,6 +656,13 @@ check_node src:str path:str toks:vec[Token] nodes:vec[int] kids:vec[int] types:v
                 // Non-borrow argument (mirrors C: check_node + want_ref diag + container establish + continue)
                 ?[done_arg == 0 && arg_is_borrow == 0] {
                     check_node(src, path, toks, nodes, kids, types, en, ed, sc, st_reg, st_data, st_names, st_meta, en_reg, en_data, fn_reg, fn_data, fpts, frks, tp, tpn, ctx, ai)
+                    // M16.2: extern calls check argument types against the
+                    // declared C ABI signature (LANGUAGE_SPEC §7.1);
+                    // containers never reach here (rejected at the decl).
+                    ?[fn_def != 0 - 1 && nd_get(nodes, fn_def, NF.Kind) == AstKind.Extern && j < nd_get(nodes, fn_def, NF.L1n)] {
+                        ept <- vec_get(fpts, fn_pb + j)
+                        ?[ept != 0 - 1] { unify(ctx, path, ln, tp, tpn, ept, vec_get(types, ai), str_cat("argument ", int_str(j + 1))) }
+                    }
                     ?[want_ref != 0] { msg <- str_cat(str_cat("argument ", int_str(j + 1)), str_cat(" must be borrowed with ", want_ref == 2 ? "&mut" : "&")); s_diag(ctx, path, ln, 23, msg) }
                     ?[fn_def != -1 && j < nd_get(nodes, fn_def, NF.L1n)] {
                         cpt <- vec_get(fpts, fn_pb + j)
@@ -936,6 +943,91 @@ check_node src:str path:str toks:vec[Token] nodes:vec[int] kids:vec[int] types:v
             }
         }
         vec_set(types, ni, ret_type != -1 ? ret_type : ty_get(tp, tpn, ret_kind)); done <- 1
+    }
+    // --- EXTERN --- (M16.1/M16.2: mirrors C's AST_EXTERN case,
+    // LANGUAGE_SPEC §7.1. The ABI operand must be exactly "C"; every
+    // parameter needs an FFI-safe annotation; the name must not collide
+    // with an existing declaration. Registration mirrors a user function
+    // with no body, so calls see the declared signature.)
+    ?[done == 0 && k == AstKind.Extern] {
+        nm <- tk_lex(src, toks, nd_get(nodes, ni, NF.Name))
+        abi_tok <- nd_get(nodes, ni, NF.Tok)
+        is_c <- 0
+        ?[abi_tok != -1 && tk_kind(toks, abi_tok) == TokenKind.String] { ?[str_eq(tk_lex(src, toks, abi_tok), "\"C\"")] is_c <- 1 }
+        ?[is_c == 0] { s_diag(ctx, path, ln, 29, "extern ABI must be \"C\"") }
+        // Duplicate / collision checks against the registries.
+        fi <- vec_len(fn_reg) / 2 - 1; prev <- 0 - 1
+        [fi >= 0 && prev == 0 - 1] { ?[str_eq(vec_get(fn_reg, fi * 2), nm)] prev <- vec_get(fn_data, fi * 2); fi <- fi - 1 }
+        dup <- 0
+        ?[prev != 0 - 1 && nd_get(nodes, prev, NF.Kind) == AstKind.Extern] dup <- 1
+        ?[dup == 1] { s_diag(ctx, path, ln, 29, str_cat(str_cat("duplicate extern declaration '", nm), "'")) }
+        ?[dup == 0 && (prev != 0 - 1 || struct_lookup(st_names, nm) != 0 - 1 || enum_lookup(en_reg, en_data, nm) != 0 - 1)] {
+            s_diag(ctx, path, ln, 29, str_cat(str_cat("extern declaration '", nm), "' collides with an existing declaration"))
+        }
+        pc <- nd_get(nodes, ni, NF.L1n)
+        s2 <- nd_get(nodes, ni, NF.L2s)
+        pts_base <- vec_len(fpts)
+        j <- 0
+        [j < pc] {
+            pt_tok <- vec_get(kids, s2 + j * 3)
+            et_tok <- vec_get(kids, s2 + j * 3 + 1)
+            ref_k <- vec_get(kids, s2 + j * 3 + 2)
+            kept <- 0 - 1
+            ?[ref_k != 0] { s_diag(ctx, path, ln, 23, "extern parameters cannot use borrow annotations") }
+            ?[pt_tok == 0 - 1] { s_diag(ctx, path, ln, 29, "extern parameters require type annotations") }
+            ?[pt_tok != 0 - 1 && tk_kind(toks, pt_tok) != TokenKind.Ident] {
+                // Compound annotations ([T; N] forms) are not FFI-safe.
+                s_diag(ctx, path, ln, 29, "extern parameter type is not FFI-safe")
+            }
+            took <- 0
+            ?[pt_tok != 0 - 1 && tk_kind(toks, pt_tok) == TokenKind.Ident] {
+                cont <- resolve_cont(src, toks, tp, tpn, st_names, st_meta, pt_tok, et_tok, path, ctx)
+                ?[cont != 0 - 1] {
+                    ?[vec_get(tp, cont * 8 + TF.Kind) != TY.Unknown] { s_diag(ctx, path, ln, 29, "extern parameter type is not FFI-safe") }
+                    took <- 1
+                }
+                ?[cont == 0 - 1] {
+                    ann <- resolve_type(src, toks, tp, tpn, pt_tok)
+                    ?[ann == 0 - 1] { nm2 <- tk_lex(src, toks, pt_tok); si2 <- struct_lookup(st_names, nm2); ?[si2 != 0 - 1] ann <- vec_get(st_meta, si2) }
+                    ?[ann == 0 - 1] { s_diag(ctx, path, tk_line(toks, pt_tok), 9, str_cat(str_cat("unknown type '", tk_lex(src, toks, pt_tok)), "'")); took <- 1 }
+                    ?[ann != 0 - 1] {
+                        ak <- vec_get(tp, ann * 8 + TF.Kind)
+                        ffs <- ak == TY.I8 || ak == TY.I16 || ak == TY.I32 || ak == TY.Int || ak == TY.U8 || ak == TY.U16 || ak == TY.U32 || ak == TY.U64 || ak == TY.F32 || ak == TY.Float || ak == TY.Bool || ak == TY.Str || ak == TY.Struct ? 1 : 0
+                        ?[ffs == 0] { s_diag(ctx, path, ln, 29, "extern parameter type is not FFI-safe"); took <- 1 }
+                        ?[ffs == 1] { kept <- ann }
+                    }
+                }
+            }
+            vec_push(fpts, kept); vec_push(frks, ref_k)
+            j <- j + 1
+        }
+        // The return type is mandatory, resolved, and FFI-safe.
+        ret <- 0 - 1
+        r_tok <- nd_get(nodes, ni, NF.R1); re_tok <- nd_get(nodes, ni, NF.R2)
+        ?[r_tok != 0 - 1 && tk_kind(toks, r_tok) == TokenKind.Ident] {
+            rcont <- resolve_cont(src, toks, tp, tpn, st_names, st_meta, r_tok, re_tok, path, ctx)
+            ?[rcont != 0 - 1] {
+                ?[vec_get(tp, rcont * 8 + TF.Kind) != TY.Unknown] { s_diag(ctx, path, ln, 29, "extern return type is not FFI-safe") }
+            }
+            ?[rcont == 0 - 1] {
+                rann <- resolve_type(src, toks, tp, tpn, r_tok)
+                ?[rann == 0 - 1] { rnm <- tk_lex(src, toks, r_tok); rsi <- struct_lookup(st_names, rnm); ?[rsi != 0 - 1] rann <- vec_get(st_meta, rsi) }
+                ?[rann == 0 - 1] { s_diag(ctx, path, tk_line(toks, r_tok), 9, str_cat(str_cat("unknown type '", tk_lex(src, toks, r_tok)), "'")) }
+                ?[rann != 0 - 1] {
+                    rk2 <- vec_get(tp, rann * 8 + TF.Kind)
+                    ffs2 <- rk2 == TY.I8 || rk2 == TY.I16 || rk2 == TY.I32 || rk2 == TY.Int || rk2 == TY.U8 || rk2 == TY.U16 || rk2 == TY.U32 || rk2 == TY.U64 || rk2 == TY.F32 || rk2 == TY.Float || rk2 == TY.Bool || rk2 == TY.Str || rk2 == TY.Struct ? 1 : 0
+                    ?[ffs2 == 0] { s_diag(ctx, path, ln, 29, "extern return type is not FFI-safe") }
+                    ?[ffs2 == 1] { ret <- rann }
+                }
+            }
+        }
+        // Register like a user function (body == NULL): calls see the
+        // declared signature through the symbol and the func registry.
+        ft <- ret != 0 - 1 && vec_get(tp, ret * 8 + TF.Kind) == TY.Struct ? ret : ty_func(tp, tpn, ret != 0 - 1 ? ret : ty_get(tp, tpn, TY.Unknown), pc)
+        env_define(en, ed, sc, nm, 0, ft, ln)
+        vec_push(fn_reg, nm); vec_push(fn_reg, "")
+        vec_push(fn_data, ni); vec_push(fn_data, pts_base)
+        vec_set(types, ni, ret != 0 - 1 ? ret : ty_get(tp, tpn, TY.Unknown)); done <- 1
     }
     // --- BRACKET_LOOP ---
     ?[done == 0 && k == AstKind.BracketLoop] {
@@ -1328,6 +1420,23 @@ typed_ast_show src:str toks:vec[Token] nodes:vec[int] kids:vec[int] types:vec[in
                 j <- j + 1
             }
             typed_ast_show(src, toks, nodes, kids, types, tp, tpn, nd_get(nodes, ni, NF.A), indent + 1)
+            d2 <- 1
+        }
+        // --- EXTERN --- (M16.1: mirrors the FUNCTION shape; no body). A
+        // missing name (broken ABI operand) prints empty, like C's
+        // zero-length token.
+        ?[d2 == 0 && k == AstKind.Extern] {
+            nt <- nd_get(nodes, ni, NF.Name)
+            nm <- nt != 0 - 1 ? tk_lex(src, toks, nt) : ""
+            print(str_cat(str_cat(str_cat(pd, "EXTERN "), nm), ts))
+            s1 <- nd_get(nodes, ni, NF.L1s); c1 <- nd_get(nodes, ni, NF.L1n)
+            j <- 0
+            [j < c1] {
+                pn_tok <- vec_get(kids, s1 + j)
+                pn <- tk_lex(src, toks, pn_tok)
+                print(str_cat(str_cat(pad(indent + 1), "PARAM "), pn))
+                j <- j + 1
+            }
             d2 <- 1
         }
         // --- BRACKET_LOOP ---

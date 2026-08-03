@@ -1,13 +1,13 @@
 // M13.2-S1: shared token definitions for the self-hosted Tiq compiler.
 // TokenKind mirrors include/lexer.h's TokenKind exactly: same variant set,
 // declared in the same order, so the integer values match the C enum
-// (0 = Eof .. 64 = Import). Token mirrors the C Token struct; the C
+// (0 = Eof .. 64 = Import, 65 = Extern). Token mirrors the C Token struct; the C
 // pointers (start / comment_start) become byte offsets into the source
 // string, and comment_start is -1 when no comment trivia is attached
 // (the C side uses NULL).
 //
 // M13.3-S2 adds the AST representation: AstKind mirrors include/ast.h's
-// AstKind (0 = Literal .. 24 = Import) and the arena of AstNode structs
+// AstKind (0 = Literal .. 25 = Extern) and the arena of AstNode structs
 // becomes a flat `nodes:vec[int]` where every node owns NodeWidth (15)
 // consecutive slots, indexed by the NF field offsets. A node reference is
 // its index, and -1 is the NULL pointer of the C AST — so the whole AST is
@@ -83,7 +83,8 @@ enum TokenKind {
     QuestionQuestion,
     Underscore,
     Dot,
-    Import
+    Import,
+    Extern
 }
 
 // One lexed token. Comment trivia preceding the token attaches to it
@@ -116,7 +117,7 @@ tk_same src:str toks:vec[Token] a:i64 b:i64 -> i64 -> str_eq(tk_lex(src, toks, a
 
 // AstKind mirrors include/ast.h. MatchArm is not an AstKind in C (arms are
 // a side struct); here each arm is a node so that one child-list span can
-// hold them, and it is numbered past Import so no C kind is shadowed.
+// hold them, and it is numbered past Extern so no C kind is shadowed.
 enum AstKind {
     Literal,
     Identifier,
@@ -143,6 +144,7 @@ enum AstKind {
     Spawn,
     Chan,
     Import,
+    Extern,
     MatchArm
 }
 
@@ -294,6 +296,7 @@ token_kind_name k:i64 -> str -> match k {
     TokenKind.QuestionQuestion => "QUESTION_QUESTION",
     TokenKind.Underscore => "UNDERSCORE",
     TokenKind.Dot => "DOT",
-    TokenKind.Import => "IMPORT",
+        TokenKind.Import => "IMPORT",
+    TokenKind.Extern => "EXTERN",
     _ => "UNKNOWN"
 }

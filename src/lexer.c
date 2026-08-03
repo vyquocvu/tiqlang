@@ -147,7 +147,15 @@ static TokenKind identifier_type(Lexer *lexer, const char *start) {
         case 'b': return check_keyword(lexer, start, 1, 4, "reak", TOK_BREAK);
         case 'c': return check_keyword(lexer, start, 1, 3, "han", TOK_CHAN);
         case 'd': return check_keyword(lexer, start, 1, 4, "efer", TOK_DEFER);
-        case 'e': return check_keyword(lexer, start, 1, 3, "num", TOK_ENUM);
+        case 'e':
+            if (lexer->current - start > 1) {
+                switch (start[1]) {
+                    case 'n': return check_keyword(lexer, start, 2, 2, "um", TOK_ENUM);
+                    // M16.1: 'extern' is a reserved word (LANGUAGE_SPEC §4, §7.1).
+                    case 'x': return check_keyword(lexer, start, 2, 4, "tern", TOK_EXTERN);
+                }
+            }
+            break;
         // M13.1-P6: 'import' is a reserved word (LANGUAGE_SPEC §4, §17.6).
         case 'i': return check_keyword(lexer, start, 1, 5, "mport", TOK_IMPORT);
         case 'f':
@@ -344,6 +352,7 @@ const char *token_kind_name(TokenKind kind) {
         case TOK_UNDERSCORE: return "UNDERSCORE";
         case TOK_DOT: return "DOT";
         case TOK_IMPORT: return "IMPORT";
+        case TOK_EXTERN: return "EXTERN";
     }
     return "UNKNOWN";
 }

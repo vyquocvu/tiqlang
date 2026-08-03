@@ -69,7 +69,10 @@ typedef enum {
     TOK_QUESTION_QUESTION,
     TOK_UNDERSCORE,
     TOK_DOT,
-    TOK_IMPORT
+    TOK_IMPORT,
+    // M16.1: 'extern' is a reserved word (LANGUAGE_SPEC §4, §7.1).
+    // Appended last so existing token numbers stay stable.
+    TOK_EXTERN
 } TokenKind;
 
 typedef struct {

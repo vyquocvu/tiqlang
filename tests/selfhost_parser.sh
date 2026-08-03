@@ -126,6 +126,13 @@ corpus "fuzz_bad_match" 'match x { , => 1 }'
 # Lexical failures reaching the parser as an EOF token.
 corpus "unterminated_string" 'x = "hello'
 corpus "bad_string_escape" 'x = "a\q"'
+# M16.1 extern declarations: the same malformed shapes as tests/parser.sh,
+# including the missing-ABI recovery that skips the rest of the line.
+corpus "extern_in_block" '{ extern "C" f x:i64 -> i64 }'
+corpus "extern_no_abi" 'extern llabs x:i64 -> i64'
+corpus "extern_body_attempt" 'extern "C" f x:i64 -> i64 -> x'
+corpus "extern_missing_return" 'extern "C" f x:i64 ->'
+corpus "extern_missing_name" 'extern "C" -> i64'
 
 # Positive-construct corpus: the fixture set above never reaches SLICE,
 # OMITTED, or DEFER, and covers only a few of the productions in
@@ -196,6 +203,14 @@ construct "bool_lit" 'x = true'
 construct "paren_group" 'x = (1 + 2) * 3'
 construct "block_expr" 'x = { 1; 2 }'
 construct "semicolons" 'f d:i64 -> i64 -> { a = 1; b = 2; a + b }'
+# M16.1 extern declarations: annotated, zero-param, multi-param, and the
+# parse-clean shapes semantic later rejects (vec return, borrow param). The
+# dump mirrors the FUNCTION shape and must match byte-for-byte.
+construct "extern_decl" 'extern "C" llabs x:i64 -> i64'
+construct "extern_zero_param" 'extern "C" getpid -> i64'
+construct "extern_multi_param" 'extern "C" memcmp a:str b:str n:i64 -> i64'
+construct "extern_vec_ret" 'extern "C" f x:i64 -> vec[i64]'
+construct "extern_borrow_param" 'extern "C" f x:&i64 -> i64'
 
 if [ "$fixture_count" -eq 0 ]; then
   echo "selfhost_parser: FAIL (no fixtures found)" >&2

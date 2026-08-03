@@ -64,6 +64,7 @@ test: $(TIQ) test-unit
 	sh tests/std_mod.sh
 	sh tests/check.sh
 	sh tests/run.sh
+	sh tests/ffi.sh
 
 test-check: $(TIQ)
 	sh tests/check.sh

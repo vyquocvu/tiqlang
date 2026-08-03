@@ -849,6 +849,134 @@ p_decl src:str path:str toks:vec[Token] st:vec[int] nodes:vec[int] kids:vec[int]
         hit <- 1
     }
 
+    // extern "C" name params -> ret (M16.1, LANGUAGE_SPEC §7.1, GRAMMAR
+    // extern_decl). Top-level only: inside blocks 'extern' has no parse
+    // path and fails closed with E05. The ABI operand must be a string
+    // literal here; its content and the signature's FFI-safety are
+    // semantic (E29). The node mirrors the FUNCTION shape: ABI string at
+    // Tok, params in L1 (names) / L2 (type, elem, ref triples), return
+    // annotations at R1/R2, and no body.
+    ?[hit == 0 && k0 == TokenKind.Extern] {
+        p_advance(toks, st)
+        n = nd_new(nodes, AstKind.Extern, p_pi(st))
+        abi <- 0
+        ?[p_ck(toks, st) == TokenKind.String] {
+            nd_set(nodes, n, NF.Tok, p_ci(st))
+            p_advance(toks, st)
+            abi <- 1
+        }
+        ?[abi == 0] {
+            p_errcur(toks, st, path, 4, "expected string literal after 'extern'")
+            // Recovery: skip the rest of the logical line so the broken
+            // declaration is not re-parsed as statements (one diagnostic).
+            [vec_get(st, PS.Crossed) == 0 && p_ck(toks, st) != TokenKind.Eof] {
+                p_advance(toks, st)
+            }
+        }
+        ?[abi == 1] {
+            p_expect(toks, st, path, TokenKind.Ident, 4, "expected extern function name after 'extern'")
+            nd_set(nodes, n, NF.Name, p_pi(st))
+            pb = vec_len(sk)
+            ab = vec_len(sk2)
+            pc <- 0
+            ac <- 0
+            // Parameter list: identical shape to the FUNCTION branch.
+            [p_ck(toks, st) == TokenKind.Ident] {
+                vec_push(sk, p_ci(st))
+                tan <- -1
+                ean <- -1
+                rk <- 0
+                p_advance(toks, st)
+                ?[p_ck(toks, st) == TokenKind.Colon] {
+                    p_advance(toks, st)
+                    // Borrow prefix &type / &mut type (M9.1).
+                    ?[p_ck(toks, st) == TokenKind.Amp] {
+                        p_advance(toks, st)
+                        ?[p_ck(toks, st) == TokenKind.Mut] {
+                            p_advance(toks, st)
+                            rk <- 2
+                        }
+                        ?[rk == 0] {
+                            rk <- 1
+                        }
+                    }
+                    seen <- 0
+                    ?[p_ck(toks, st) == TokenKind.Ident] {
+                        tt = p_ci(st)
+                        tan <- tt
+                        p_advance(toks, st)
+                        // vec[T] container annotation (M13.1-P8).
+                        ?[str_eq(tk_lex(src, toks, tt), "vec") && p_ck(toks, st) == TokenKind.Lbracket] {
+                            p_advance(toks, st)
+                            ?[p_ck(toks, st) == TokenKind.Ident] {
+                                ean <- p_ci(st)
+                                p_advance(toks, st)
+                            }
+                            ?[ean == -1] {
+                                p_diag(st, path, tk_line(toks, p_ci(st)), 4, "expected element type name in vec[...]")
+                            }
+                            p_expect(toks, st, path, TokenKind.Rbracket, 4, "expected ']' after vec element type")
+                        }
+                        seen <- 1
+                    }
+                    // Compound type [T; N] / []T: keep '[' as the marker and
+                    // skip to the matching ']' for semantic analysis.
+                    ?[seen == 0 && p_ck(toks, st) == TokenKind.Lbracket] {
+                        tan <- p_ci(st)
+                        p_advance(toks, st)
+                        dep <- 1
+                        [dep > 0 && p_ck(toks, st) != TokenKind.Eof] {
+                            bk = p_ck(toks, st)
+                            ?[bk == TokenKind.Lbracket] {
+                                dep += 1
+                            }
+                            ?[bk == TokenKind.Rbracket] {
+                                dep -= 1
+                            }
+                            ?[dep > 0] {
+                                p_advance(toks, st)
+                            }
+                        }
+                        ?[p_ck(toks, st) == TokenKind.Rbracket] {
+                            p_advance(toks, st)
+                        }
+                        seen <- 1
+                    }
+                    ?[seen == 0] {
+                        p_diag(st, path, tk_line(toks, p_ci(st)), 4, "expected type name after ':'")
+                    }
+                }
+                vec_push(sk2, tan)
+                vec_push(sk2, ean)
+                vec_push(sk2, rk)
+            }
+            pc <- vec_len(sk) - pb
+            ac <- vec_len(sk2) - ab
+            nd_set(nodes, n, NF.L1s, kids_flush(sk, kids, pb))
+            nd_set(nodes, n, NF.L1n, pc)
+            nd_set(nodes, n, NF.L2s, kids_flush(sk2, kids, ab))
+            nd_set(nodes, n, NF.L2n, ac)
+            p_expect(toks, st, path, TokenKind.Rarrow, 4, "expected '->' after extern parameters")
+            p_expect(toks, st, path, TokenKind.Ident, 4, "expected return type after '->'")
+            nd_set(nodes, n, NF.R1, p_pi(st))
+            // vec[T] return annotation parses here so semantic can reject
+            // it as not FFI-safe (E29) instead of cascading a parse error.
+            ?[str_eq(tk_lex(src, toks, nd_get(nodes, n, NF.R1)), "vec") && p_ck(toks, st) == TokenKind.Lbracket] {
+                p_advance(toks, st)
+                ?[p_ck(toks, st) == TokenKind.Ident] {
+                    nd_set(nodes, n, NF.R2, p_ci(st))
+                    p_advance(toks, st)
+                }
+                ?[nd_get(nodes, n, NF.R2) == -1] {
+                    p_diag(st, path, tk_line(toks, p_ci(st)), 4, "expected element type name in vec[...]")
+                }
+                p_expect(toks, st, path, TokenKind.Rbracket, 4, "expected ']' after vec element type")
+            }
+        }
+        res <- n
+        hit <- 1
+    }
+
     // struct Name { field: Type, ... } (M12.6)
     ?[hit == 0 && k0 == TokenKind.Struct] {
         p_advance(toks, st)
@@ -1236,6 +1364,17 @@ ast_show src:str toks:vec[Token] nodes:vec[int] kids:vec[int] i:i64 ind:i64 -> i
             pt = nd_get(nodes, i, NF.Name)
             px = pt == -1 ? "" : tk_lex(src, toks, pt)
             print(str_cat(str_cat(pd, "IMPORT "), px))
+        }
+        // M16.1: mirrors the FUNCTION shape (body is always absent). A
+        // missing name (broken ABI operand) prints empty, like C's
+        // zero-length token.
+        ?[k == AstKind.Extern] {
+            nt = nd_get(nodes, i, NF.Name)
+            nx = nt == -1 ? "" : tk_lex(src, toks, nt)
+            print(str_cat(str_cat(pd, "EXTERN "), nx))
+            s1 = nd_get(nodes, i, NF.L1s)
+            c1 = nd_get(nodes, i, NF.L1n)
+            [j <- 0..c1] { print(str_cat(str_cat(pp, "PARAM "), tk_lex(src, toks, vec_get(kids, s1 + j)))) }
         }
         // default: everything the C switch does not name.
         ?[k == AstKind.ArrayFill || k == AstKind.StructDef || k == AstKind.RecordLit || k == AstKind.Match || k == AstKind.Spawn || k == AstKind.Chan || k == AstKind.MatchArm] {

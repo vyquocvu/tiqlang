@@ -29,7 +29,11 @@ typedef enum {
     AST_MATCH,
     AST_SPAWN,
     AST_CHAN,
-    AST_IMPORT
+    AST_IMPORT,
+    // M16.1: extern "C" declaration (LANGUAGE_SPEC §7.1). Reuses the
+    // `function` union member (params, annotations; body == NULL) and
+    // stores the ABI string token in `token`.
+    AST_EXTERN
 } AstKind;
 
 typedef struct AstNode AstNode;

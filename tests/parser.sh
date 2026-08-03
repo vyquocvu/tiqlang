@@ -245,4 +245,61 @@ assert_parser "container_annots" 'f v:vec[int] b:strbuf m:map -> vec[int] -> v
   PARAM m
   IDENT v'
 
+# M16.1: extern "C" declarations parse at top level (LANGUAGE_SPEC §7.1,
+# GRAMMAR extern_decl). The dump mirrors the FUNCTION shape; annotations
+# and the ABI operand are not shown by dump-ast.
+assert_parser "extern_decl" 'extern "C" llabs x:i64 -> i64' 'EXTERN llabs
+  PARAM x'
+
+assert_parser "extern_zero_param" 'extern "C" getpid -> i64' 'EXTERN getpid'
+
+assert_parser "extern_multi_param" 'extern "C" memcmp a:str b:str n:i64 -> i64' 'EXTERN memcmp
+  PARAM a
+  PARAM b
+  PARAM n'
+
+assert_parser "extern_after_import" 'import "lib.tiq"
+extern "C" llabs x:i64 -> i64' 'IMPORT "lib.tiq"
+EXTERN llabs
+  PARAM x'
+
+# M16.1: malformed extern declarations fail closed at parse time.
+assert_parse_error() {
+  name="$1"
+  source="$2"
+  expected="$3"
+  input="$TMP_DIR/$name.tiq"
+  stderr_file="$TMP_DIR/$name.err"
+  expected_file="$TMP_DIR/$name.expected"
+
+  printf '%s' "$source" > "$input"
+  if ./build/tiq dump-ast "$input" >/dev/null 2>"$stderr_file"; then
+    echo "expected $name parse to fail" >&2
+    exit 1
+  fi
+  printf '%s\n' "$expected" > "$expected_file"
+  if ! cmp -s "$expected_file" "$stderr_file"; then
+    echo "parse-error mismatch for $name" >&2
+    echo "expected:" >&2
+    cat "$expected_file" >&2
+    echo "actual:" >&2
+    cat "$stderr_file" >&2
+    exit 1
+  fi
+}
+
+# Inside a block the recovery cascade is deterministic: 'extern', ':' and
+# '->' each fail as an expression start (panic recovery consumes one
+# token per error).
+assert_parse_error "extern_in_block" '{ extern "C" f x:i64 -> i64 }' \
+  "$TMP_DIR/extern_in_block.tiq:1: error[E05]: expected expression
+$TMP_DIR/extern_in_block.tiq:1: error[E05]: expected expression
+$TMP_DIR/extern_in_block.tiq:1: error[E05]: expected expression"
+assert_parse_error "extern_no_abi" 'extern llabs x:i64 -> i64' \
+  "$TMP_DIR/extern_no_abi.tiq:1: error[E04]: expected string literal after 'extern'"
+assert_parse_error "extern_body_attempt" 'extern "C" f x:i64 -> i64 -> x' \
+  "$TMP_DIR/extern_body_attempt.tiq:1: error[E05]: expected expression"
+assert_parse_error "extern_missing_return" 'extern "C" f x:i64 ->' \
+  "$TMP_DIR/extern_missing_return.tiq:1: error[E04]: expected return type after '->'"
+
 echo "parser: ok"

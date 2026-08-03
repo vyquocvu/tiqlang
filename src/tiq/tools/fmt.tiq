@@ -52,7 +52,7 @@ operand_end k:i64 -> i64 -> {
 // Keywords and keyword-like words: always take a trailing space.
 is_keyword k:i64 -> i64 -> {
     r <- 0
-    ?[k == TokenKind.While || k == TokenKind.Break || k == TokenKind.Skip || k == TokenKind.Move || k == TokenKind.Defer || k == TokenKind.Until || k == TokenKind.Spawn || k == TokenKind.Chan || k == TokenKind.Struct || k == TokenKind.Enum || k == TokenKind.Match || k == TokenKind.Mut || k == TokenKind.True || k == TokenKind.False || k == TokenKind.Import] { r <- 1 }
+    ?[k == TokenKind.While || k == TokenKind.Break || k == TokenKind.Skip || k == TokenKind.Move || k == TokenKind.Defer || k == TokenKind.Until || k == TokenKind.Spawn || k == TokenKind.Chan || k == TokenKind.Struct || k == TokenKind.Enum || k == TokenKind.Match || k == TokenKind.Mut || k == TokenKind.True || k == TokenKind.False || k == TokenKind.Import || k == TokenKind.Extern] { r <- 1 }
     r
 }
 

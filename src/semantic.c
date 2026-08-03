@@ -258,6 +258,15 @@ static SemanticType *unify(SemanticContext *ctx, int line,
     return NULL;
 }
 
+// M16.2: FFI-safe kinds per the C ABI mapping table (LANGUAGE_SPEC §7.1).
+// Everything else fails closed at the extern declaration site (E29).
+static bool ffi_safe_kind(PrimitiveType k) {
+    return k == TYPE_I8 || k == TYPE_I16 || k == TYPE_I32 || k == TYPE_INT ||
+           k == TYPE_U8 || k == TYPE_U16 || k == TYPE_U32 || k == TYPE_U64 ||
+           k == TYPE_F32 || k == TYPE_FLOAT || k == TYPE_BOOL || k == TYPE_STR ||
+           k == TYPE_STRUCT;
+}
+
 static void check_node(SemanticContext *ctx, AstNode *node);
 
 // M13.1-P3: Vec builtins (LANGUAGE_SPEC §19.7). Element type T must be
@@ -1218,6 +1227,19 @@ static void check_node(SemanticContext *ctx, AstNode *node) {
                         want_ref = fn_def->as.function.param_ref_kinds[i];
                     if (!arg_is_borrow) {
                         check_node(ctx, arg);
+                        // M16.2: extern calls check argument types against
+                        // the declared C ABI signature (LANGUAGE_SPEC §7.1);
+                        // containers never reach here (rejected at the decl).
+                        if (fn_def && fn_def->kind == AST_EXTERN &&
+                            i < fn_def->as.function.param_count &&
+                            fn_def->as.function.param_types &&
+                            fn_def->as.function.param_types[i]) {
+                            char where[64];
+                            snprintf(where, sizeof where, "argument %d", i + 1);
+                            unify(ctx, node->token.line,
+                                  (SemanticType *)fn_def->as.function.param_types[i],
+                                  arg->semantic_type, where);
+                        }
                         if (want_ref != 0) {
                             char msg[128];
                             snprintf(msg, sizeof msg, "argument %d must be borrowed with %s",
@@ -1458,6 +1480,109 @@ static void check_node(SemanticContext *ctx, AstNode *node) {
                 }
             }
             break;
+        case AST_EXTERN: {
+            // M16.1/M16.2: extern "C" declaration (LANGUAGE_SPEC §7.1).
+            // The ABI operand must be exactly "C" (the token includes its
+            // quotes); every parameter needs an FFI-safe annotation; the
+            // name must not collide with an existing declaration.
+            Token name = node->as.function.name;
+            if (!(node->token.kind == TOK_STRING && node->token.length == 3 &&
+                  memcmp(node->token.start, "\"C\"", 3) == 0)) {
+                diag_error(ctx->diag, ctx->path, node->token.line, ERR_EXTERN,
+                           "extern ABI must be \"C\"");
+            }
+            AstNode *prev = func_lookup(ctx, name);
+            if (prev && prev->kind == AST_EXTERN) {
+                char msg[160];
+                snprintf(msg, sizeof msg, "duplicate extern declaration '%.*s'",
+                         (int)name.length, name.start);
+                diag_error(ctx->diag, ctx->path, node->token.line, ERR_EXTERN, msg);
+            } else if (prev || struct_lookup(ctx, name) || enum_lookup(ctx, name)) {
+                char msg[160];
+                snprintf(msg, sizeof msg,
+                         "extern declaration '%.*s' collides with an existing declaration",
+                         (int)name.length, name.start);
+                diag_error(ctx->diag, ctx->path, node->token.line, ERR_EXTERN, msg);
+            }
+            for (int i = 0; i < node->as.function.param_count; i++) {
+                if (node->as.function.param_ref_kinds &&
+                    node->as.function.param_ref_kinds[i] != 0) {
+                    diag_error(ctx->diag, ctx->path, node->token.line, ERR_BORROW,
+                               "extern parameters cannot use borrow annotations");
+                }
+                Token annot = node->as.function.param_type_annots[i];
+                if (annot.kind == TOK_EOF) {
+                    diag_error(ctx->diag, ctx->path, node->token.line, ERR_EXTERN,
+                               "extern parameters require type annotations");
+                    continue;
+                }
+                if (annot.kind != TOK_IDENT) {
+                    // Compound annotations ([T; N] forms) are not FFI-safe.
+                    diag_error(ctx->diag, ctx->path, node->token.line, ERR_EXTERN,
+                               "extern parameter type is not FFI-safe");
+                    continue;
+                }
+                Token elem;
+                elem.kind = TOK_EOF;
+                if (node->as.function.param_elem_annots)
+                    elem = node->as.function.param_elem_annots[i];
+                SemanticType *cont = resolve_container_annot(ctx, annot, elem);
+                if (cont) {
+                    if (cont->kind != TYPE_UNKNOWN)
+                        diag_error(ctx->diag, ctx->path, node->token.line, ERR_EXTERN,
+                                   "extern parameter type is not FFI-safe");
+                    continue;
+                }
+                SemanticType *pt = resolve_type_annot(ctx, annot);
+                if (!pt) {
+                    char msg[128];
+                    snprintf(msg, sizeof msg, "unknown type '%.*s'",
+                             (int)annot.length, annot.start);
+                    diag_error(ctx->diag, ctx->path, annot.line, ERR_TYPE_MISMATCH, msg);
+                    continue;
+                }
+                if (!ffi_safe_kind(pt->kind)) {
+                    diag_error(ctx->diag, ctx->path, node->token.line, ERR_EXTERN,
+                               "extern parameter type is not FFI-safe");
+                    continue;
+                }
+                if (node->as.function.param_types)
+                    node->as.function.param_types[i] = pt;
+            }
+            // The return type is mandatory, resolved, and FFI-safe.
+            SemanticType *ret = NULL;
+            Token ra = node->as.function.return_type_annot;
+            if (ra.kind == TOK_IDENT) {
+                SemanticType *rcont = resolve_container_annot(ctx, ra,
+                    node->as.function.return_elem_annot);
+                if (rcont) {
+                    if (rcont->kind != TYPE_UNKNOWN)
+                        diag_error(ctx->diag, ctx->path, node->token.line, ERR_EXTERN,
+                                   "extern return type is not FFI-safe");
+                } else {
+                    ret = resolve_type_annot(ctx, ra);
+                    if (!ret) {
+                        char msg[128];
+                        snprintf(msg, sizeof msg, "unknown type '%.*s'",
+                                 (int)ra.length, ra.start);
+                        diag_error(ctx->diag, ctx->path, ra.line, ERR_TYPE_MISMATCH, msg);
+                    } else if (!ffi_safe_kind(ret->kind)) {
+                        diag_error(ctx->diag, ctx->path, node->token.line, ERR_EXTERN,
+                                   "extern return type is not FFI-safe");
+                        ret = NULL;
+                    }
+                }
+            }
+            // Register like a user function (body == NULL): calls see the
+            // declared signature through the symbol and the func registry.
+            PrimitiveType ret_kind = ret ? ret->kind : TYPE_UNKNOWN;
+            SemanticType *func_type = (ret && ret->kind == TYPE_STRUCT) ? ret :
+                type_get_func(ctx->pool, ret_kind, node->as.function.param_count);
+            env_define(ctx->current_env, name, false, func_type);
+            func_register(ctx, name, node);
+            node->semantic_type = ret ? ret : ty(ctx, TYPE_UNKNOWN);
+            break;
+        }
         case AST_FUNCTION: {
             // M13.4-S3: resolve the return annotation before checking the
             // body so recursive calls see the correct return type.

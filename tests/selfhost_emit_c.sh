@@ -322,6 +322,22 @@ print(json_encode_str("tiq"))
 print(json_get("{\"name\":\"Tiq\"}", "name"))
 print(json_arr_len("[1,2,3]"))
 print(json_arr_get("[10,20]", 1))'
+# M16.2 extern "C": the prototype pass and the preamble-shadow suppression
+# table must yield executable C with identical observable behavior.
+# llabs emits a prototype; strlen/getpid are suppressed and link through
+# the preamble headers.
+case_run "ffi_llabs" 'extern "C" llabs x:i64 -> i64
+print(llabs(3 - 10))'
+case_run "ffi_strlen_suppressed" 'extern "C" strlen s:str -> i64
+print(strlen("hello"))'
+case_run "ffi_zero_param_suppressed" 'extern "C" getpid -> i64
+print(getpid() > 0)'
+case_run "ffi_mixed" 'extern "C" llabs x:i64 -> i64
+extern "C" getpid -> i64
+extern "C" strlen s:str -> i64
+print(llabs(0 - 5))
+print(strlen("tiq"))
+print(getpid() > 0)'
 
 # Module graph coverage: deterministic post-order flattening and normalized
 # relative-path dedupe must produce one definition and executable C.

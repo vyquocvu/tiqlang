@@ -15,6 +15,10 @@
 
 #define TIQ_VERSION "0.1.0-dev"
 
+// M16.2: repeatable -l/-L link options forwarded to the host compiler
+// (CLI.md). Capped; overflow fails closed with a usage error.
+#define TIQ_MAX_LINK_OPTS 16
+
 static void die(const char *message) {
     fprintf(stderr, "tiq: %s\n", message);
     exit(1);
@@ -58,13 +62,14 @@ static int emit_file(const char *input, const char *output, DiagContext *diag) {
     return 0;
 }
 
-static int run_host_compiler(const char *cc, const char *source_path, const char *output_path, const char *target) {
+static int run_host_compiler(const char *cc, const char *source_path, const char *output_path,
+                             const char *target, char **link_opts, int link_count) {
     pid_t pid = fork();
     int status;
     if (pid < 0) { fprintf(stderr, "tiq: cannot start host C compiler: %s\n", strerror(errno)); return 1; }
     if (pid == 0) {
         char target_arg[128] = "";
-        char *args[16];
+        char *args[16 + TIQ_MAX_LINK_OPTS * 2];
         int idx = 0;
         args[idx++] = (char *)cc;
         args[idx++] = (char *)"-std=c11";
@@ -78,6 +83,8 @@ static int run_host_compiler(const char *cc, const char *source_path, const char
         args[idx++] = (char *)source_path;
         args[idx++] = (char *)"-o";
         args[idx++] = (char *)output_path;
+        for (int i = 0; i < link_count; i++)
+            args[idx++] = link_opts[i];
         args[idx] = NULL;
         execvp(cc, args);
         fprintf(stderr, "tiq: cannot execute host C compiler %s: %s\n", cc, strerror(errno));
@@ -108,7 +115,8 @@ static char *temporary_c_template(void) {
     return path;
 }
 
-static int build_target(const char *input, const char *output, const char *target, DiagContext *diag) {
+static int build_target(const char *input, const char *output, const char *target,
+                        char **link_opts, int link_count, DiagContext *diag) {
     const char *cc = getenv("CC");
     char *temp_name = temporary_c_template();
     int fd, result;
@@ -121,14 +129,31 @@ static int build_target(const char *input, const char *output, const char *targe
     result = compile_file_to_c_stream(input, temp_file, diag);
     if (fclose(temp_file) != 0) { remove(temp_name); fprintf(stderr, "tiq: cannot close temporary C file: %s\n", strerror(errno)); free(temp_name); return 1; }
     if (result != 0) { remove(temp_name); free(temp_name); return 1; }
-    result = run_host_compiler(cc, temp_name, output, target);
+    result = run_host_compiler(cc, temp_name, output, target, link_opts, link_count);
     if (remove(temp_name) != 0) { fprintf(stderr, "tiq: cannot remove temporary C file %s: %s\n", temp_name, strerror(errno)); free(temp_name); return 1; }
     free(temp_name);
     return result;
 }
 
-static int build(const char *input, const char *output, DiagContext *diag) {
-    return build_target(input, output, NULL, diag);
+static int build(const char *input, const char *output, char **link_opts, int link_count, DiagContext *diag) {
+    return build_target(input, output, NULL, link_opts, link_count, diag);
+}
+
+// M16.2: parse repeatable `-l <lib>` / `-L <dir>` options starting at
+// argv[from]; any other token fails closed with a usage error.
+static int parse_link_opts(int argc, char **argv, int from,
+                           char **link_buf, int *link_count) {
+    for (int i = from; i < argc; i++) {
+        if ((strcmp(argv[i], "-l") == 0 || strcmp(argv[i], "-L") == 0) && i + 1 < argc) {
+            if (*link_count + 2 > TIQ_MAX_LINK_OPTS * 2)
+                die("too many link options");
+            link_buf[(*link_count)++] = argv[i];
+            link_buf[(*link_count)++] = argv[++i];
+        } else {
+            return 0;
+        }
+    }
+    return 1;
 }
 
 static int dump_tokens(const char *input, DiagContext *diag) {
@@ -199,8 +224,8 @@ static void usage(FILE *out) {
     fputs("tiq " TIQ_VERSION " - Tiq bootstrap compiler\n\n", out);
     fputs("usage:\n", out);
     fputs("  tiq --version\n", out);
-    fputs("  tiq run <file.tiq>\n", out);
-    fputs("  tiq build <file.tiq> [-o output] [--target <triple>]\n", out);
+    fputs("  tiq run <file.tiq> [-l lib] [-L dir]\n", out);
+    fputs("  tiq build <file.tiq> [-o output] [--target <triple>] [-l lib] [-L dir]\n", out);
     fputs("  tiq emit-c <file.tiq>\n", out);
     fputs("  tiq check <file.tiq>...\n", out);
     fputs("  tiq dump-tokens <file.tiq>\n", out);
@@ -227,13 +252,19 @@ int main(int argc, char **argv) {
             if (argc < 3) { usage(stderr); return 2; }
             // Run file: build and execute
             const char *input = argv[2];
+            char *link_buf[TIQ_MAX_LINK_OPTS * 2];
+            int link_count = 0;
+            if (!parse_link_opts(argc, argv, 3, link_buf, &link_count)) {
+                usage(stderr);
+                return 2;
+            }
             char *tmp_exe = temporary_c_template();
             int fd = mkstemp(tmp_exe);
             if (fd < 0) { free(tmp_exe); return 1; }
             close(fd);
             DiagContext diag;
             diag_init(&diag);
-            int result = build(input, tmp_exe, &diag);
+            int result = build(input, tmp_exe, link_buf, link_count, &diag);
             if (result == 0) {
                 // Execute
                 pid_t pid = fork();
@@ -261,17 +292,25 @@ int main(int argc, char **argv) {
         const char *output = "a.out";
         const char *target = NULL;
         const char *input = NULL;
+        char *link_buf[TIQ_MAX_LINK_OPTS * 2];
+        int link_count = 0;
         for (int i = 2; i < argc; i++) {
             if (strcmp(argv[i], "-o") == 0 && i + 1 < argc) {
                 output = argv[++i];
             } else if (strcmp(argv[i], "--target") == 0 && i + 1 < argc) {
                 target = argv[++i];
+            } else if (strcmp(argv[i], "-l") == 0 || strcmp(argv[i], "-L") == 0) {
+                if (i + 1 >= argc) { usage(stderr); return 2; }
+                if (link_count + 2 > TIQ_MAX_LINK_OPTS * 2)
+                    die("too many link options");
+                link_buf[link_count++] = argv[i];
+                link_buf[link_count++] = argv[++i];
             } else if (argv[i][0] != '-') {
                 input = argv[i];
             }
         }
         if (!input) { usage(stderr); return 2; }
-        return build_target(input, output, target, &diag);
+        return build_target(input, output, target, link_buf, link_count, &diag);
     }
     usage(stderr);
     return 2;

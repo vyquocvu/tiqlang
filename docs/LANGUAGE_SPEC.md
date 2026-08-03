@@ -48,10 +48,10 @@ Identifiers match `[A-Za-z_][A-Za-z0-9_]*`.
 Reserved words in v0.1 (matching the lexer exactly):
 
 ```text
-break chan defer enum false import match move mut skip spawn struct true until while
+break chan defer enum extern false import match move mut skip spawn struct true until while
 ```
 
-`while` and `until` are clause keywords only: they appear in stream generator bounds and predicate slicing (§14). There are no `while`/`for` statement forms (§10). `chan`, `spawn`, `match`, `struct`, and `mut` are reserved for provisional or rejected constructs (§17). `enum` declares named integer constant sets (§17.5). `import` loads another source file into the program (§17.6).
+`while` and `until` are clause keywords only: they appear in stream generator bounds and predicate slicing (§14). There are no `while`/`for` statement forms (§10). `chan`, `spawn`, `match`, `struct`, and `mut` are reserved for provisional or rejected constructs (§17). `enum` declares named integer constant sets (§17.5). `import` loads another source file into the program (§17.6). `extern` declares a foreign C function (§7.1).
 
 Literals:
 
@@ -148,6 +148,75 @@ classify n -> {
 ```
 
 Recursive functions are allowed after their complete signature can be inferred.
+
+### 7.1 Extern declarations (FFI)
+
+A top-level `extern` declaration binds a name to a function defined by the
+host C environment (M16.1/M16.2):
+
+```tiq
+extern "C" llabs x:i64 -> i64        // fully annotated params, mandatory return
+extern "C" strlen s:str -> i64
+extern "C" getpid -> i64             // zero-param form: extern-only exception
+```
+
+Rules:
+
+- Top-level only. `extern` inside a block has no parse path and fails closed (E05).
+- The ABI operand must be the string literal `"C"`. A missing/non-string operand is a parse error (E04); any other string content is rejected with E29 (`extern ABI must be "C"`).
+- Every parameter must carry a type annotation (E29 otherwise). Borrow prefixes (`&`/`&mut`) on extern parameters are rejected with E23.
+- The return type is mandatory; the declaration ends at the return type (no body).
+- Zero parameters are allowed — the only surface form in v0.1 with a zero-parameter signature (user functions require at least one parameter).
+- The declared name must not duplicate another extern declaration or collide with an existing function, struct, or enum name (E29).
+
+FFI-safe signature types (the M16.2 C ABI mapping). Anything not listed —
+arrays, slices, `vec[T]`, `strbuf`, `map`, Option/Result, streams — fails
+closed with E29 (`extern parameter type is not FFI-safe` / `extern return
+type is not FFI-safe`):
+
+| Tiq type | C type |
+|----------|--------|
+| `i8`, `i16`, `i32`, `i64` | `int8_t`, `int16_t`, `int32_t`, `int64_t` |
+| `u8`, `u16`, `u32`, `u64` | `uint8_t`, `uint16_t`, `uint32_t`, `uint64_t` |
+| `f32`, `f64` | `float`, `double` |
+| `bool` | `int64_t` (current backend representation) |
+| `str` | `const char *` |
+| named struct | its emitted C typedef, passed by value |
+
+Pointers: v0.1 has no first-class pointer type. Pointer values cross the
+boundary as `u64` (address-as-integer); a real pointer type is deferred to a
+later v0.x.
+
+Calls to extern functions type-check exactly like user-function calls:
+arity mismatches are E12 and argument types are checked against the declared
+parameter types (E09).
+
+Ownership: an extern `str` result is not a heap-allocating builtin and not a
+fresh result (§16.4); binding one never frees it. The policy is leak,
+never dangle.
+
+Emission: each compiler emits `extern <ret> <name>(<params>);` in
+declaration order, immediately after the enum constants and before the
+stream-generator forward declarations (M13_DETERMINISM.md §1). Zero-param
+declarations emit `(void)`. Programs without extern decls emit byte-identical
+C to before this feature.
+
+Preamble shadowing: the generated C preamble includes system headers whose
+declarations of common names use types Tiq's fixed-width table cannot spell
+(`size_t`/`pid_t`/`int`/`void` returns). Redeclaring such a name with the
+fixed-width ABI would conflict with the header prototype, so both compilers
+suppress the prototype for exactly these names and let the header
+declaration serve for codegen and linking:
+
+```text
+clock close exit fork getpid getppid memcmp rand read sleep strcmp strlen time write
+```
+
+Linking external libraries: `tiq build`/`tiq run` accept repeatable
+`-l <lib>` and `-L <dir>` options forwarded to the host C compiler (CLI.md).
+
+Status: implemented (M16.1/M16.2). M16.3 (header tooling) and M16.4 (dlopen)
+remain queued.
 
 ## 8. Conditional expressions
 
@@ -509,7 +578,7 @@ This section is normative for the bootstrap compiler's observable boundary. Ever
 
 | Tier | Meaning | Example |
 |------|---------|---------|
-| **Implemented** | Fully specified, compiled, and tested | `[0..10] { print(i) }`, `move x`, `defer`, `struct`, `enum`, `f(&mut x)` |
+| **Implemented** | Fully specified, compiled, and tested | `[0..10] { print(i) }`, `move x`, `defer`, `struct`, `enum`, `f(&mut x)`, `extern "C" llabs x:i64 -> i64` |
 | **Provisional** | Parsed and partially checked; semantics may change | `match` |
 | **Fail-closed** | Parsed but rejected at semantic analysis; no code produced | `spawn`, `chan`, `b = &x` |
 | **Reserved** | Keyword exists in lexer; no parse path exists yet | `mut` (standalone) |
@@ -661,6 +730,16 @@ Behavior:
 Import resolution for `std/`: the path is first resolved relative to the importing file (§17.6); if that fails, it is retried from the current working directory, so `import "std/<mod>.tiq"` resolves from any file depth when `tiq` is invoked from the project root.
 
 Status: implemented — gating, the three `std/` modules, the cwd import fallback, and the diagnostic hint are specified, compiled, and tested (M15).
+
+### 17.8 Extern declarations (FFI) (implemented)
+
+`extern "C"` top-level declarations bind foreign C functions with the full
+C ABI type mapping, prototype emission, and fail-closed rejection of unsafe
+signatures. The complete normative text is §7.1.
+
+Status: implemented — lexer keyword, grammar production, E29 semantic
+checks, deterministic prototype pass (both compilers), and `-l`/`-L` link
+options are specified, compiled, and tested (M16.1/M16.2).
 
 ## 18. Program entry
 

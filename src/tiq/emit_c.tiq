@@ -91,6 +91,47 @@ ec_annot_type src:str toks:vec[Token] ti:i64 -> str -> {
     r
 }
 
+// M16.2: extern "C" names the preamble's system headers already declare
+// with a signature Tiq's fixed-width ABI table cannot spell
+// (size_t/pid_t/int/void returns). The prototype pass skips them: the
+// header declaration serves for codegen and the symbol links normally.
+// Mirrors C's ffi_shadows_preamble_header byte-for-byte (selfhost
+// byte-compare); keep both tables identical.
+ec_ffi_shadow n:str -> bool ->
+    str_eq(n, "clock") || str_eq(n, "close") || str_eq(n, "exit") || str_eq(n, "fork") ||
+    str_eq(n, "getpid") || str_eq(n, "getppid") || str_eq(n, "memcmp") || str_eq(n, "rand") ||
+    str_eq(n, "read") || str_eq(n, "sleep") || str_eq(n, "strcmp") || str_eq(n, "strlen") ||
+    str_eq(n, "time") || str_eq(n, "write")
+
+// FFI-safe parameter annotation to its C ABI spelling (M16.2 table).
+// Semantic already rejected everything else (E29): the surviving names
+// are the scalar keywords and top-level struct typedefs.
+ec_ffi_param_type src:str toks:vec[Token] nodes:vec[int] tops:vec[int] ti:i64 -> str -> {
+    n = tk_lex(src, toks, ti)
+    r <- ""
+    ?[str_eq(n, "i8")] { r <- "int8_t" }
+    ?[str_eq(n, "i16")] { r <- "int16_t" }
+    ?[str_eq(n, "i32")] { r <- "int32_t" }
+    ?[str_eq(n, "i64") || str_eq(n, "int") || str_eq(n, "bool")] { r <- "int64_t" }
+    ?[str_eq(n, "u8")] { r <- "uint8_t" }
+    ?[str_eq(n, "u16")] { r <- "uint16_t" }
+    ?[str_eq(n, "u32")] { r <- "uint32_t" }
+    ?[str_eq(n, "u64")] { r <- "uint64_t" }
+    ?[str_eq(n, "f32")] { r <- "float" }
+    ?[str_eq(n, "f64") || str_eq(n, "float")] { r <- "double" }
+    ?[str_eq(n, "str")] { r <- "const char *" }
+    // Any other accepted annotation names a top-level struct: emit the
+    // typedef itself (passed by value, mirroring C's emit_semantic_type).
+    j <- 0
+    [j < vec_len(tops) && str_eq(r, "")] {
+        ni = vec_get(tops, j)
+        ?[nd_get(nodes, ni, NF.Kind) == AstKind.StructDef && str_eq(tk_lex(src, toks, nd_get(nodes, ni, NF.Name)), n)] { r <- n }
+        j <- j + 1
+    }
+    ?[str_eq(r, "")] { r <- "int64_t" }
+    r
+}
+
 ec_runtime_builtin n:str -> bool ->
     str_eq(n, "fs_read") || str_eq(n, "fs_write") || str_eq(n, "fs_exists") || str_eq(n, "fs_list") ||
     str_eq(n, "proc_exec") || str_eq(n, "proc_exit") || str_eq(n, "json_parse_int") || str_eq(n, "json_encode_str") ||
@@ -1093,6 +1134,35 @@ emit_c_program src:str toks:vec[Token] nodes:vec[int] kids:vec[int] tops:vec[int
         }
         j <- j + 1
     }
+    // M16.2: extern "C" prototypes in declaration order, immediately
+    // after the enum constants (M13_DETERMINISM.md §1 pass sequence),
+    // before the stream-gen forward declarations. Programs without extern
+    // decls emit nothing here, so legacy output stays byte-identical.
+    // Names shadowed by the preamble's system headers (ec_ffi_shadow) are
+    // skipped: their fixed-width redeclaration would conflict with the
+    // header prototype, and the header already declares the symbol.
+    j <- 0
+    [j < n] {
+        ni = vec_get(tops, j)
+        ?[nd_get(nodes, ni, NF.Kind) == AstKind.Extern] {
+            en = tk_lex(src, toks, nd_get(nodes, ni, NF.Name))
+            ?[ec_ffi_shadow(en) == false] {
+                ec_put(b, "extern "); ec_put(b, ec_type(tp, tpn, types, ni)); ec_put(b, " "); ec_put(b, en); ec_put(b, "(")
+                ps = nd_get(nodes, ni, NF.L1s); s2 = nd_get(nodes, ni, NF.L2s); pc = nd_get(nodes, ni, NF.L1n)
+                ?[pc == 0] { ec_put(b, "void);\n") }
+                ?[pc > 0] {
+                    q <- 0
+                    [q < pc] {
+                        ?[q > 0] { ec_put(b, ", ") }
+                        ec_put(b, ec_ffi_param_type(src, toks, nodes, tops, vec_get(kids, s2 + q * 3))); ec_put(b, " ")
+                        ec_put(b, tk_lex(src, toks, vec_get(kids, ps + q))); q <- q + 1
+                    }
+                    ec_put(b, ");\n")
+                }
+            }
+        }
+        j <- j + 1
+    }
     j <- 0
     [j < n] {
         ni = vec_get(tops, j)
@@ -1117,7 +1187,7 @@ emit_c_program src:str toks:vec[Token] nodes:vec[int] kids:vec[int] tops:vec[int
         ni = vec_get(tops, j); k = nd_get(nodes, ni, NF.Kind)
         is_stream <- 0
         ?[k == AstKind.Binding && nd_get(nodes, nd_get(nodes, ni, NF.A), NF.Kind) == AstKind.StreamGen] { is_stream <- 1 }
-        ?[k != AstKind.Function && k != AstKind.StructDef && k != AstKind.EnumDef && k != AstKind.Import && is_stream == 0] { ec_stmt(src, toks, nodes, kids, fresh, hs, his, hem, hnext, types, tp, tpn, b, ni, 1, oss, ons, oms) }
+        ?[k != AstKind.Function && k != AstKind.StructDef && k != AstKind.EnumDef && k != AstKind.Import && k != AstKind.Extern && is_stream == 0] { ec_stmt(src, toks, nodes, kids, fresh, hs, his, hem, hnext, types, tp, tpn, b, ni, 1, oss, ons, oms) }
         j <- j + 1
     }
     ec_emit_frees(src, toks, nodes, kids, fresh, b, tops, 0, n, 1, "")

@@ -44,6 +44,7 @@ lex_scan source:str path:str toks:vec[Token] -> i64 -> {
     map_set(kw, "chan", TokenKind.Chan)
     map_set(kw, "defer", TokenKind.Defer)
     map_set(kw, "enum", TokenKind.Enum)
+    map_set(kw, "extern", TokenKind.Extern)
     map_set(kw, "import", TokenKind.Import)
     map_set(kw, "false", TokenKind.False)
     map_set(kw, "match", TokenKind.Match)
