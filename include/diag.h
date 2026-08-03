@@ -35,7 +35,9 @@ typedef enum {
     ERR_UNKNOWN_VARIANT = 26,  // M13.1-P2: Name.X where X is not a variant of enum Name (§17.5)
     ERR_MODULE_NOT_FOUND = 27, // M13.1-P6: import of a missing/unreadable file (§17.6)
     ERR_CIRCULAR_IMPORT = 28,  // M13.1-P6: cyclic import chain (§17.6)
-    ERR_EXTERN = 29            // M16.1: extern declaration violations (§7.1)
+    ERR_EXTERN = 29,           // M16.1: extern declaration violations (§7.1)
+    // Value 30 is reserved for tool-local diagnostics (manifest tooling).
+    ERR_LIBRARY = 31           // M16.3: library-mode violations (definitions-only modules)
 } ErrorCode;
 // ERR_EXPECTED_PRINT/ERR_EXPECTED_STRING (dead since the print statement was
 // removed) were retired before this numbering was first pinned and printed,

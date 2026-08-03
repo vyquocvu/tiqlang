@@ -125,7 +125,10 @@ ec_ffi_param_type src:str toks:vec[Token] nodes:vec[int] tops:vec[int] ti:i64 ->
     j <- 0
     [j < vec_len(tops) && str_eq(r, "")] {
         ni = vec_get(tops, j)
-        ?[nd_get(nodes, ni, NF.Kind) == AstKind.StructDef && str_eq(tk_lex(src, toks, nd_get(nodes, ni, NF.Name)), n)] { r <- n }
+        // str_cat materializes an owned copy: tk_lex returns a view into
+        // src, and reassigning a view into the mutable owner r dangles
+        // under self-application.
+        ?[nd_get(nodes, ni, NF.Kind) == AstKind.StructDef && str_eq(tk_lex(src, toks, nd_get(nodes, ni, NF.Name)), n)] { r <- str_cat(n, "") }
         j <- j + 1
     }
     ?[str_eq(r, "")] { r <- "int64_t" }
@@ -1094,8 +1097,154 @@ ec_function src:str toks:vec[Token] nodes:vec[int] kids:vec[int] fresh:vec[str] 
     0
 }
 
-emit_c_program src:str toks:vec[Token] nodes:vec[int] kids:vec[int] tops:vec[int] types:vec[int] tp:vec[int] tpn:vec[str] -> str -> {
-    b = str_buf_new()
+// M16.3: last path component with the .tiq suffix removed; never empty.
+// Mirrors C's emit_c_header byte-for-byte (selfhost byte-compare).
+ec_path_base path:str -> str -> {
+    pn = len(path)
+    s <- 0
+    j <- 0
+    [j < pn] {
+        ?[str_eq(str_sub(path, j, j + 1), "/")] { s <- j + 1 }
+        j <- j + 1
+    }
+    base <- str_sub(path, s, pn)
+    bl = len(base)
+    ?[bl > 4 && str_eq(str_sub(base, bl - 4, bl), ".tiq")] { base <- str_sub(base, 0, bl - 4) }
+    ?[str_eq(base, "")] { base <- "lib" }
+    base
+}
+
+// M16.3: include-guard body — uppercased, non-alphanumerics mapped to '_'.
+// Uppercasing uses paired alphabet tables (there is no code-to-str builtin).
+ec_header_guard base:str -> str -> {
+    lc = "abcdefghijklmnopqrstuvwxyz"
+    uc = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+    gb = str_buf_new()
+    j <- 0
+    [j < len(base)] {
+        ch = str_sub(base, j, j + 1)
+        cc <- str_sub_code(base, j)
+        done <- 0
+        m <- 0
+        [m < 26 && done == 0] {
+            ?[str_eq(str_sub(lc, m, m + 1), ch)] { str_buf_append(gb, str_sub(uc, m, m + 1)); done <- 1 }
+            m <- m + 1
+        }
+        ?[done == 0] {
+            ok = (cc >= 65 && cc <= 90) || (cc >= 48 && cc <= 57)
+            ?[ok] { str_buf_append(gb, ch) }
+            ?[ok == false] { str_buf_append(gb, "_") }
+        }
+        j <- j + 1
+    }
+    str_buf_to_str(gb)
+}
+
+// M16.3: FFI-safe parameter annotation names (the M16.2 scalar table plus
+// top-level struct typedefs). Everything else keeps the function internal.
+ec_ffi_safe_annot src:str toks:vec[Token] nodes:vec[int] tops:vec[int] ti:i64 -> bool -> {
+    n = tk_lex(src, toks, ti)
+    r <- str_eq(n, "i8") || str_eq(n, "i16") || str_eq(n, "i32") || str_eq(n, "i64") || str_eq(n, "int") ||
+         str_eq(n, "u8") || str_eq(n, "u16") || str_eq(n, "u32") || str_eq(n, "u64") ||
+         str_eq(n, "f32") || str_eq(n, "f64") || str_eq(n, "float") || str_eq(n, "bool") || str_eq(n, "str")
+    ?[r == false] {
+        j <- 0
+        [j < vec_len(tops) && r == false] {
+            ni = vec_get(tops, j)
+            ?[nd_get(nodes, ni, NF.Kind) == AstKind.StructDef && str_eq(tk_lex(src, toks, nd_get(nodes, ni, NF.Name)), n)] { r <- true }
+            j <- j + 1
+        }
+    }
+    r
+}
+
+// M16.3: header export filter — mirrors C's function_exportable. Borrows,
+// container annotations, stream-gen bodies, and non-FFI-safe returns keep
+// the function callable from Tiq but out of the header. Unannotated
+// parameters stay int64_t per the emitted-C convention.
+ec_exportable src:str toks:vec[Token] nodes:vec[int] kids:vec[int] tops:vec[int] types:vec[int] tp:vec[int] tpn:vec[str] ni:i64 -> bool -> {
+    ok <- true
+    ?[nd_get(nodes, ni, NF.Kind) != AstKind.Function] { ok <- false }
+    ?[ok && nd_get(nodes, nd_get(nodes, ni, NF.A), NF.Kind) == AstKind.StreamGen] { ok <- false }
+    ?[ok] {
+        s2 = nd_get(nodes, ni, NF.L2s); pc = nd_get(nodes, ni, NF.L1n); j <- 0
+        [j < pc && ok] {
+            ann = vec_get(kids, s2 + j * 3); rk = vec_get(kids, s2 + j * 3 + 2)
+            ?[rk != 0] { ok <- false }
+            ?[ok && ann != 0 - 1 && ec_ffi_safe_annot(src, toks, nodes, tops, ann) == false] { ok <- false }
+            j <- j + 1
+        }
+    }
+    ?[ok] {
+        rk = ec_kind(types, tp, ni)
+        ok <- rk == TY.Unknown || rk == TY.Int || rk == TY.Float || rk == TY.Str || rk == TY.Bool ||
+              rk == TY.I8 || rk == TY.I16 || rk == TY.I32 || rk == TY.U8 || rk == TY.U16 ||
+              rk == TY.U32 || rk == TY.U64 || rk == TY.F32 ||
+              (rk == TY.Struct && str_eq(vec_get(tpn, vec_get(types, ni)), "") == false)
+    }
+    ok
+}
+
+// M16.3: deterministic C header for a definitions-only library. Struct
+// typedefs come first (by-value parameter support), then the exported
+// prototypes spelled exactly like the --lib forward declarations.
+ec_header b:strbuf path:str src:str toks:vec[Token] nodes:vec[int] kids:vec[int] tops:vec[int] types:vec[int] tp:vec[int] tpn:vec[str] -> i64 -> {
+    base = ec_path_base(path)
+    guard = ec_header_guard(base)
+    ec_put(b, "/* Generated by tiq emit-header from "); ec_put(b, base); ec_put(b, ". Do not edit. */\n")
+    ec_put(b, "/* Returned str values are Tiq-owned: callers must not free them (leak, never dangle). */\n")
+    ec_put(b, "#ifndef TIQ_"); ec_put(b, guard); ec_put(b, "_H\n")
+    ec_put(b, "#define TIQ_"); ec_put(b, guard); ec_put(b, "_H\n\n")
+    ec_put(b, "#include <stdint.h>\n\n")
+    ec_put(b, "#ifdef __cplusplus\nextern \"C\" {\n#endif\n\n")
+    n = vec_len(tops)
+    j <- 0
+    [j < n] {
+        ni = vec_get(tops, j)
+        ?[nd_get(nodes, ni, NF.Kind) == AstKind.StructDef] {
+            ec_put(b, "typedef struct {\n")
+            ns = nd_get(nodes, ni, NF.L1s); ts = nd_get(nodes, ni, NF.L2s); fc = nd_get(nodes, ni, NF.L1n); q <- 0
+            [q < fc] {
+                ec_put(b, "    "); ec_put(b, ec_annot_type(src, toks, vec_get(kids, ts + q))); ec_put(b, " ")
+                ec_put(b, tk_lex(src, toks, vec_get(kids, ns + q))); ec_put(b, ";\n"); q <- q + 1
+            }
+            ec_put(b, "} "); ec_put(b, tk_lex(src, toks, nd_get(nodes, ni, NF.Name))); ec_put(b, ";\n\n")
+        }
+        j <- j + 1
+    }
+    j <- 0
+    [j < n] {
+        ni = vec_get(tops, j)
+        ?[ec_exportable(src, toks, nodes, kids, tops, types, tp, tpn, ni)] {
+            // Prototype spelling mirrors C's emit_c_header: return via the
+            // semantic type, params via the M16.2 FFI table + struct lookup,
+            // unannotated params follow the int64_t convention.
+            ec_put(b, ec_type(tp, tpn, types, ni)); ec_put(b, " ")
+            ec_put(b, tk_lex(src, toks, nd_get(nodes, ni, NF.Name))); ec_put(b, "(")
+            s = nd_get(nodes, ni, NF.L1s); s2 = nd_get(nodes, ni, NF.L2s); pc = nd_get(nodes, ni, NF.L1n)
+            ?[pc == 0] { ec_put(b, "void);\n") }
+            ?[pc > 0] {
+                q <- 0
+                [q < pc] {
+                    ?[q > 0] { ec_put(b, ", ") }
+                    ann = vec_get(kids, s2 + q * 3)
+                    ec_put(b, ann == 0 - 1 ? "int64_t" : ec_ffi_param_type(src, toks, nodes, tops, ann))
+                    ec_put(b, " "); ec_put(b, tk_lex(src, toks, vec_get(kids, s + q)))
+                    q <- q + 1
+                }
+                ec_put(b, ");\n")
+            }
+        }
+        j <- j + 1
+    }
+    ec_put(b, "\n#ifdef __cplusplus\n}\n#endif\n\n#endif")
+    0
+}
+
+// M16.3: program/lib emission body. mode 0 emits the full executable;
+// mode 1 (lib) omits the entry point so the definitions link into a host
+// program. Header mode is handled by emit_c_program before this runs.
+ec_program_body src:str toks:vec[Token] nodes:vec[int] kids:vec[int] tops:vec[int] types:vec[int] tp:vec[int] tpn:vec[str] b:strbuf mode:i64 -> i64 -> {
     oss = vec_new(); ons = vec_new(); oms = vec_new()
     hs = vec_new(); his = vec_new(); hem = vec_new(); hnext = vec_new(); vec_push(hnext, 0)
     ec_runtime(b)
@@ -1178,21 +1327,23 @@ emit_c_program src:str toks:vec[Token] nodes:vec[int] kids:vec[int] tops:vec[int
         j <- j + 1
     }
     j <- 0; [j < n] { ni = vec_get(tops, j); ?[nd_get(nodes, ni, NF.Kind) == AstKind.Function && nd_get(nodes, nd_get(nodes, ni, NF.A), NF.Kind) != AstKind.StreamGen] { ec_function(src, toks, nodes, kids, fresh, hs, his, hem, hnext, types, tp, tpn, b, ni, 0) }; j <- j + 1 }
-    ec_put(b, "\nint main(int argc, char **argv) {\n    tiq_argc = argc; tiq_argv = argv;\n")
-    topbase = vec_len(kids); j <- 0; [j < n] { vec_push(kids, vec_get(tops, j)); j <- j + 1 }
-    vec_push(oss, topbase); vec_push(ons, n); vec_push(oms, 0)
-    j <- 0
-    [j < n] {
-        vec_set(oms, vec_len(oms) - 1, j)
-        ni = vec_get(tops, j); k = nd_get(nodes, ni, NF.Kind)
-        is_stream <- 0
-        ?[k == AstKind.Binding && nd_get(nodes, nd_get(nodes, ni, NF.A), NF.Kind) == AstKind.StreamGen] { is_stream <- 1 }
-        ?[k != AstKind.Function && k != AstKind.StructDef && k != AstKind.EnumDef && k != AstKind.Import && k != AstKind.Extern && is_stream == 0] { ec_stmt(src, toks, nodes, kids, fresh, hs, his, hem, hnext, types, tp, tpn, b, ni, 1, oss, ons, oms) }
-        j <- j + 1
+    ?[mode == 0] {
+        ec_put(b, "\nint main(int argc, char **argv) {\n    tiq_argc = argc; tiq_argv = argv;\n")
+        topbase = vec_len(kids); j <- 0; [j < n] { vec_push(kids, vec_get(tops, j)); j <- j + 1 }
+        vec_push(oss, topbase); vec_push(ons, n); vec_push(oms, 0)
+        j <- 0
+        [j < n] {
+            vec_set(oms, vec_len(oms) - 1, j)
+            ni = vec_get(tops, j); k = nd_get(nodes, ni, NF.Kind)
+            is_stream <- 0
+            ?[k == AstKind.Binding && nd_get(nodes, nd_get(nodes, ni, NF.A), NF.Kind) == AstKind.StreamGen] { is_stream <- 1 }
+            ?[k != AstKind.Function && k != AstKind.StructDef && k != AstKind.EnumDef && k != AstKind.Import && k != AstKind.Extern && is_stream == 0] { ec_stmt(src, toks, nodes, kids, fresh, hs, his, hem, hnext, types, tp, tpn, b, ni, 1, oss, ons, oms) }
+            j <- j + 1
+        }
+        ec_emit_frees(src, toks, nodes, kids, fresh, b, tops, 0, n, 1, "")
+        pop13 = vec_pop(oss); pop14 = vec_pop(ons); pop15 = vec_pop(oms)
+        ec_put(b, "    return 0;\n}\n\n")
     }
-    ec_emit_frees(src, toks, nodes, kids, fresh, b, tops, 0, n, 1, "")
-    pop13 = vec_pop(oss); pop14 = vec_pop(ons); pop15 = vec_pop(oms)
-    ec_put(b, "    return 0;\n}\n\n")
     j <- 0
     [j < n] {
         ni = vec_get(tops, j)
@@ -1205,5 +1356,14 @@ emit_c_program src:str toks:vec[Token] nodes:vec[int] kids:vec[int] tops:vec[int
         j <- j + 1
     }
     j <- 0; [j < n] { ni = vec_get(tops, j); ?[nd_get(nodes, ni, NF.Kind) == AstKind.Function && nd_get(nodes, nd_get(nodes, ni, NF.A), NF.Kind) != AstKind.StreamGen] { ec_function(src, toks, nodes, kids, fresh, hs, his, hem, hnext, types, tp, tpn, b, ni, 1) }; j <- j + 1 }
+    0
+}
+
+// M16.3: mode 0 = program, 1 = lib (no entry point), 2 = C header.
+// path seeds the header guard; it never reaches program/lib output.
+emit_c_program path:str src:str toks:vec[Token] nodes:vec[int] kids:vec[int] tops:vec[int] types:vec[int] tp:vec[int] tpn:vec[str] mode:i64 -> str -> {
+    b = str_buf_new()
+    ?[mode == 2] { ec_header(b, path, src, toks, nodes, kids, tops, types, tp, tpn) }
+    ?[mode != 2] { ec_program_body(src, toks, nodes, kids, tops, types, tp, tpn, b, mode) }
     str_buf_to_str(b)
 }

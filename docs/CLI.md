@@ -10,9 +10,12 @@ The following commands match the `usage:` output of `tiq` exactly:
 tiq --version
 tiq run <file.tiq> [-l lib] [-L dir]
 tiq build <file.tiq> [-o output] [--target <triple>] [-l lib] [-L dir]
-tiq emit-c <file.tiq>
+tiq emit-c [--lib] <file.tiq>
+tiq emit-header <file.tiq> [-o output]
 tiq check <file.tiq>...
 ```
+
+`tiq emit-c --lib <file.tiq>` (M16.3) runs the normal `emit-c` pipeline but omits the generated `int main`, so the emitted C links into a host program. `tiq emit-header <file.tiq>` (M16.3) emits a deterministic C header declaring the library's FFI-safe export surface to stdout, or to a file with `-o output` (LANGUAGE_SPEC §18.3). Both library modes fail closed with `error[E31]` on any top-level executable statement; unknown or duplicate arguments print the usage block to stderr and exit 2.
 
 All commands that compile or check source resolve `import` paths relative to the importing file, with one addition for the standard library (LANGUAGE_SPEC §17.7): an `import "std/<mod>.tiq"` that does not resolve next to the importing file is retried from the current working directory, so `std/` modules resolve from any file depth when `tiq` is invoked from the project root. The gated domain builtins (`json_*`, `net_*`, `http_*`, `ev_*`) are only reachable through these imports; calling one without the matching `import` fails with a located `error[E08]` whose message names the module to import.
 

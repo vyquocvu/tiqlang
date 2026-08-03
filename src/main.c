@@ -38,24 +38,24 @@ static char *read_all(const char *path) {
 }
 
 
-static int compile_file_to_c_stream(const char *input, FILE *out, DiagContext *diag) {
+static int compile_file_to_c_stream(const char *input, FILE *out, DiagContext *diag, int mode) {
     // M13.1-P6: DFS-load the root file and its imports (canonical-path
     // dedupe, cycle detection), then compile the post-order module list
     // into a single C translation unit (LANGUAGE_SPEC §17.6).
     Program prog;
     if (!program_load(&prog, input, diag)) { program_free(&prog); return 1; }
-    compile_modules_to_c(prog.sem, prog.count, input, out, diag);
+    compile_modules_to_c(prog.sem, prog.count, input, out, diag, mode);
     program_free(&prog);
     if (diag->has_error) return 1;
     if (ferror(out)) { fprintf(stderr, "tiq: cannot write generated C: %s\n", strerror(errno)); return 1; }
     return 0;
 }
 
-static int emit_file(const char *input, const char *output, DiagContext *diag) {
+static int emit_file(const char *input, const char *output, DiagContext *diag, int mode) {
     FILE *out = output == NULL ? stdout : fopen(output, "wb");
     int result;
     if (out == NULL) { fprintf(stderr, "tiq: cannot create %s: %s\n", output, strerror(errno)); return 1; }
-    result = compile_file_to_c_stream(input, out, diag);
+    result = compile_file_to_c_stream(input, out, diag, mode);
     if (output != NULL && fclose(out) != 0) { fprintf(stderr, "tiq: cannot close %s: %s\n", output, strerror(errno)); return 1; }
     if (output == NULL && fflush(out) != 0) { fprintf(stderr, "tiq: cannot flush generated C: %s\n", strerror(errno)); return 1; }
     if (result != 0) return 1;
@@ -126,7 +126,7 @@ static int build_target(const char *input, const char *output, const char *targe
     if (fd < 0) { fprintf(stderr, "tiq: cannot create temporary C file: %s\n", strerror(errno)); free(temp_name); return 1; }
     temp_file = fdopen(fd, "wb");
     if (temp_file == NULL) { remove(temp_name); close(fd); fprintf(stderr, "tiq: cannot open temporary C file: %s\n", strerror(errno)); free(temp_name); return 1; }
-    result = compile_file_to_c_stream(input, temp_file, diag);
+    result = compile_file_to_c_stream(input, temp_file, diag, TIQ_EMIT_PROGRAM);
     if (fclose(temp_file) != 0) { remove(temp_name); fprintf(stderr, "tiq: cannot close temporary C file: %s\n", strerror(errno)); free(temp_name); return 1; }
     if (result != 0) { remove(temp_name); free(temp_name); return 1; }
     result = run_host_compiler(cc, temp_name, output, target, link_opts, link_count);
@@ -226,7 +226,8 @@ static void usage(FILE *out) {
     fputs("  tiq --version\n", out);
     fputs("  tiq run <file.tiq> [-l lib] [-L dir]\n", out);
     fputs("  tiq build <file.tiq> [-o output] [--target <triple>] [-l lib] [-L dir]\n", out);
-    fputs("  tiq emit-c <file.tiq>\n", out);
+    fputs("  tiq emit-c [--lib] <file.tiq>\n", out);
+    fputs("  tiq emit-header <file.tiq> [-o output]\n", out);
     fputs("  tiq check <file.tiq>...\n", out);
     fputs("  tiq dump-tokens <file.tiq>\n", out);
     fputs("  tiq dump-ast <file.tiq>\n", out);
@@ -287,7 +288,44 @@ int main(int argc, char **argv) {
     if (argc == 3 && strcmp(argv[1], "dump-tokens") == 0) return dump_tokens(argv[2], &diag);
     if (argc == 3 && strcmp(argv[1], "dump-ast") == 0) return dump_ast(argv[2], &diag);
     if (argc == 3 && strcmp(argv[1], "dump-typed-ast") == 0) return dump_typed_ast(argv[2], &diag);
-    if (argc == 3 && strcmp(argv[1], "emit-c") == 0) return emit_file(argv[2], NULL, &diag);
+    if (argc >= 3 && strcmp(argv[1], "emit-c") == 0) {
+        // M16.3: `--lib` omits the entry point so the emitted C links
+        // into a host program; the module graph must be definitions-only.
+        int mode = TIQ_EMIT_PROGRAM;
+        const char *input = NULL;
+        for (int i = 2; i < argc; i++) {
+            if (strcmp(argv[i], "--lib") == 0) {
+                mode = TIQ_EMIT_LIB;
+            } else if (argv[i][0] != '-') {
+                if (input) { usage(stderr); return 2; }
+                input = argv[i];
+            } else {
+                usage(stderr);
+                return 2;
+            }
+        }
+        if (!input) { usage(stderr); return 2; }
+        return emit_file(input, NULL, &diag, mode);
+    }
+    if (argc >= 3 && strcmp(argv[1], "emit-header") == 0) {
+        // M16.3: C header for embedding a definitions-only Tiq library
+        // into C/C++ projects (stdout by default, -o writes a file).
+        const char *input = NULL;
+        const char *output = NULL;
+        for (int i = 2; i < argc; i++) {
+            if (strcmp(argv[i], "-o") == 0 && i + 1 < argc) {
+                output = argv[++i];
+            } else if (argv[i][0] != '-') {
+                if (input) { usage(stderr); return 2; }
+                input = argv[i];
+            } else {
+                usage(stderr);
+                return 2;
+            }
+        }
+        if (!input) { usage(stderr); return 2; }
+        return emit_file(input, output, &diag, TIQ_EMIT_HEADER);
+    }
     if (argc >= 3 && strcmp(argv[1], "build") == 0) {
         const char *output = "a.out";
         const char *target = NULL;

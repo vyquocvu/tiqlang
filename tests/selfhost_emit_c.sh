@@ -404,6 +404,75 @@ else
   fi
 fi
 
+# --- M16.3: emit-header / emit-c --lib lock-step ----------------------------
+# The header mode is byte-identical across compilers (pinned goldens live in
+# tests/ffi.sh); the lib mode keeps the M13.6 observable-behavior contract, so
+# it gets a structural pin instead of a byte compare.
+printf '%s\n' 'struct Point { x: i64, y: i64 }
+add a:i64 b:i64 -> i64 -> a + b
+scale p:Point k:i64 -> Point -> Point { x: p.x * k, y: p.y * k }
+greet n:i64 -> str -> "hi"
+flag n:i64 -> bool -> n > 0
+ratio a:f64 b:f64 -> f64 -> a / b
+internal v:vec[i64] -> i64 -> 0
+helper x:&i64 -> i64 -> x
+extern "C" llabs x:i64 -> i64
+abs_wrap x:i64 -> i64 -> llabs(x)' >"$TMP_DIR/m16_hlib.tiq"
+printf '%s\n' 'struct Point { x: i64, y: i64 }
+add a:i64 b:i64 -> i64 -> a + b
+internal v:vec[i64] -> i64 -> 0
+helper x:&i64 -> i64 -> x
+scale p:Point k:i64 -> Point -> Point { x: p.x * k, y: p.y * k }' >"$TMP_DIR/m16_skiplib.tiq"
+printf '%s\n' 'add a:i64 b:i64 -> i64 -> a + b
+print(add(1, 2))' >"$TMP_DIR/m16_notlib.tiq"
+
+for m16_name in m16_hlib m16_skiplib; do
+  "$TIQ" emit-header "$TMP_DIR/$m16_name.tiq" >"$TMP_DIR/$m16_name.ref.h" 2>"$TMP_DIR/$m16_name.ref.err"
+  m16_ref_rc=$?
+  "$SELFHOST" "$TMP_DIR/$m16_name.tiq" header >"$TMP_DIR/$m16_name.sh.h" 2>"$TMP_DIR/$m16_name.sh.err"
+  m16_sh_rc=$?
+  if [ "$m16_ref_rc" -ne 0 ] || [ "$m16_sh_rc" -ne 0 ] ||
+     ! cmp -s "$TMP_DIR/$m16_name.ref.h" "$TMP_DIR/$m16_name.sh.h"; then
+    echo "selfhost_emit_c: FAIL $m16_name header (not byte-identical to tiq emit-header)" >&2
+    diff "$TMP_DIR/$m16_name.ref.h" "$TMP_DIR/$m16_name.sh.h" >&2 || true
+    fail=1
+  fi
+done
+
+# E31 fail-closed: identical diagnostic bytes, nonzero rc, empty stdout.
+"$TIQ" emit-header "$TMP_DIR/m16_notlib.tiq" >"$TMP_DIR/m16_notlib.ref.out" 2>"$TMP_DIR/m16_notlib.ref.err"
+m16_ref_rc=$?
+"$SELFHOST" "$TMP_DIR/m16_notlib.tiq" header >"$TMP_DIR/m16_notlib.sh.out" 2>"$TMP_DIR/m16_notlib.sh.err"
+m16_sh_rc=$?
+if [ "$m16_ref_rc" -eq 0 ] || [ "$m16_sh_rc" -eq 0 ] ||
+   [ -s "$TMP_DIR/m16_notlib.ref.out" ] || [ -s "$TMP_DIR/m16_notlib.sh.out" ] ||
+   ! cmp -s "$TMP_DIR/m16_notlib.ref.err" "$TMP_DIR/m16_notlib.sh.err" ||
+   ! grep -q 'error\[E31\]: library requires definitions only' "$TMP_DIR/m16_notlib.ref.err"; then
+  echo "selfhost_emit_c: FAIL m16_notlib header E31 (diagnostic mismatch)" >&2
+  cat "$TMP_DIR/m16_notlib.ref.err" "$TMP_DIR/m16_notlib.sh.err" >&2
+  fail=1
+fi
+
+# Lib mode structural pins on both compilers: no entry point, prototypes and
+# definitions still present.
+for m16_compiler in "$TIQ" "$SELFHOST"; do
+  m16_tag="ref"
+  [ "$m16_compiler" = "$SELFHOST" ] && m16_tag="sh"
+  if [ "$m16_tag" = "ref" ]; then
+    "$m16_compiler" emit-c --lib "$TMP_DIR/m16_hlib.tiq" >"$TMP_DIR/m16_lib.$m16_tag.c" 2>"$TMP_DIR/m16_lib.$m16_tag.err"
+  else
+    "$m16_compiler" "$TMP_DIR/m16_hlib.tiq" lib >"$TMP_DIR/m16_lib.$m16_tag.c" 2>"$TMP_DIR/m16_lib.$m16_tag.err"
+  fi
+  m16_lib_rc=$?
+  if [ "$m16_lib_rc" -ne 0 ] ||
+     grep -q 'int main(' "$TMP_DIR/m16_lib.$m16_tag.c" ||
+     ! grep -q 'int64_t add(int64_t a, int64_t b);' "$TMP_DIR/m16_lib.$m16_tag.c" ||
+     ! grep -q 'abs_wrap' "$TMP_DIR/m16_lib.$m16_tag.c"; then
+    echo "selfhost_emit_c: FAIL m16_lib $m16_tag (structural pin broken)" >&2
+    fail=1
+  fi
+done
+
 if [ "$fail" -ne 0 ]; then
   echo "selfhost_emit_c: failed" >&2
   exit 1
