@@ -1,0 +1,183 @@
+// M21.3-T2: loopback HTTP reverse proxy (`tiq proxy`) — infrastructure
+// dogfooding: a real network tool written entirely in Tiq on the std/net
+// socket primitives.
+//
+// Behavior: accepts one connection at a time on <listen-port>, reads the
+// request headers plus the Content-Length-declared body (capped at 256 KiB,
+// fail-closed 413 beyond that), forwards the request verbatim to the
+// upstream on <upstream-port>, and streams the upstream response back to the
+// client — honoring the response Content-Length when present, otherwise
+// forwarding until the upstream closes the connection.
+//
+// Fail-closed responses: 400 for a request whose headers never complete,
+// 413 for oversized bodies, 502 when the upstream is unreachable.
+//
+// Scope: loopback only (net_connect binds 127.0.0.1), single connection at a
+// time, no header rewriting. Multi-connection concurrency belongs to the
+// M19 event-loop work.
+//
+// CLI:
+//   tiq proxy <listen-port> <upstream-port>
+
+import "std/net.tiq"
+import "std/json.tiq"
+
+// Parse a decimal port; 0 for empty, non-numeric, or out-of-range input.
+parse_port s:str -> i64 -> {
+    p <- 0
+    ok <- 1
+    n <- len(s)
+    ?[n == 0] { ok <- 0 }
+    i <- 0
+    [i < n] {
+        c <- str_sub_code(s, i)
+        ?[c >= 48 && c <= 57] { p <- p * 10 + (c - 48) }
+        ?[c < 48 || c > 57] { ok <- 0 }
+        i <- i + 1
+    }
+    ?[ok == 0 || p > 65535] { p <- 0 }
+    p
+}
+
+// Index just past the header-terminating blank line (\r\n\r\n), or -1.
+find_hdr_end s:str -> i64 -> {
+    r <- 0 - 1
+    n <- len(s)
+    i <- 0
+    [i + 3 < n && r < 0] {
+        ?[str_sub_code(s, i) == 13 && str_sub_code(s, i + 1) == 10 && str_sub_code(s, i + 2) == 13 && str_sub_code(s, i + 3) == 10] {
+            r <- i + 4
+        }
+        i <- i + 1
+    }
+    r
+}
+
+// Content-Length of a request/response header block, 0 when absent.
+hdr_content_len s:str -> i64 -> {
+    v <- http_header(s, "Content-Length")
+    r <- 0
+    ?[len(v) > 0] { r <- json_parse_int(v) }
+    ?[r < 0] { r <- 0 }
+    r
+}
+
+// Fixed-body error response for the fail-closed paths.
+err_resp status:i64 -> str -> {
+    text <- "400 Bad Request"
+    ?[status == 413] { text <- "413 Payload Too Large" }
+    ?[status == 502] { text <- "502 Bad Gateway" }
+    body <- "tiq proxy: error"
+    sb <- str_buf_new()
+    str_buf_append(sb, "HTTP/1.1 ")
+    str_buf_append(sb, text)
+    str_buf_append(sb, "\r\nContent-Type: text/plain\r\nContent-Length: ")
+    str_buf_append(sb, int_str(len(body)))
+    str_buf_append(sb, "\r\nConnection: close\r\n\r\n")
+    str_buf_append(sb, body)
+    str_buf_to_str(sb)
+}
+
+// Handle one proxied connection end to end. Always closes `conn`.
+serve_one conn:i64 upstream:i64 -> i64 -> {
+    // 1. Read the request: headers plus the declared body, capped at 256 KiB.
+    buf <- str_buf_new()
+    total <- 0
+    hdr_end <- 0 - 1
+    need <- 0
+    done <- 0
+    [done == 0 && total < 262144] {
+        chunk <- net_recv(conn)
+        ?[len(chunk) == 0] { done <- 1 }
+        ?[len(chunk) > 0] {
+            str_buf_append(buf, chunk)
+            total <- total + len(chunk)
+            ?[hdr_end < 0] {
+                s <- str_buf_to_str(buf)
+                hdr_end <- find_hdr_end(s)
+                ?[hdr_end > 0] { need <- hdr_end + hdr_content_len(s) }
+            }
+            ?[hdr_end > 0 && total >= need] { done <- 1 }
+        }
+    }
+    req <- str_buf_to_str(buf)
+
+    ok <- 1
+    ?[hdr_end < 0] {
+        ok <- 0
+        ?[total > 0] { net_send(conn, err_resp(400)) }
+    }
+    // Headers arrived but the declared body exceeds the cap (or the client
+    // hung up before sending all of it).
+    ?[ok == 1 && total < need] {
+        ok <- 0
+        net_send(conn, err_resp(413))
+    }
+
+    // 2. Forward the request verbatim to the upstream.
+    up <- 0 - 1
+    ?[ok == 1] { up <- net_connect(upstream) }
+    ?[ok == 1 && up < 0] {
+        ok <- 0
+        net_send(conn, err_resp(502))
+    }
+    ?[ok == 1] { net_send(up, req) }
+
+    // 3. Stream the upstream response back to the client. Stop after the
+    // declared Content-Length when present; otherwise read until close.
+    ?[ok == 1] {
+        hbuf <- str_buf_new()
+        rtotal <- 0
+        rhdr <- 0 - 1
+        rneed <- 0
+        rdone <- 0
+        [rdone == 0] {
+            ch <- net_recv(up)
+            ?[len(ch) == 0] { rdone <- 1 }
+            ?[len(ch) > 0] {
+                net_send(conn, ch)
+                rtotal <- rtotal + len(ch)
+                ?[rhdr < 0 && rtotal < 262144] {
+                    str_buf_append(hbuf, ch)
+                    rs <- str_buf_to_str(hbuf)
+                    rhdr <- find_hdr_end(rs)
+                    ?[rhdr > 0] {
+                        cl <- hdr_content_len(rs)
+                        ?[cl > 0] { rneed <- rhdr + cl }
+                    }
+                }
+                ?[rneed > 0 && rtotal >= rneed] { rdone <- 1 }
+            }
+        }
+        net_close(up)
+    }
+    net_close(conn)
+    0
+}
+
+nargs <- cli_arg_count()
+?[nargs != 2] {
+    eprint("tiq proxy: usage: tiq proxy <listen-port> <upstream-port>")
+    proc_exit(2)
+}
+listen_port <- parse_port(cli_arg(0))
+upstream_port <- parse_port(cli_arg(1))
+?[listen_port == 0 || upstream_port == 0] {
+    eprint("tiq proxy: ports must be integers in 1..65535")
+    proc_exit(2)
+}
+
+srv <- net_listen(listen_port)
+?[srv < 0] {
+    eprint(str_cat("tiq proxy: cannot listen on port ", int_str(listen_port)))
+    proc_exit(1)
+}
+print(str_cat(str_cat("tiq proxy: listening on ", int_str(listen_port)), str_cat(" -> upstream ", int_str(upstream_port))))
+
+[1 == 1] {
+    conn <- net_accept(srv)
+    ?[conn < 0] { break }
+    serve_one(conn, upstream_port)
+}
+
+0
