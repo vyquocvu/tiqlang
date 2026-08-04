@@ -21,6 +21,8 @@ jobs:
         run: make
       - name: Test
         run: make test
+      - name: Performance gate (baseline check, release build)
+        run: make perf-check
       - name: Sanitizer build and test
         run: |
           make clean

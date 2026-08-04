@@ -4,7 +4,7 @@ CFLAGS ?= -std=c11 -Wall -Wextra -Wpedantic -Werror -O2
 BUILD := build
 TIQ := $(BUILD)/tiq
 
-.PHONY: all clean test test-unit test-fuzz example test-check test-run tool-test tool-fmt tool-bench tool-init tool-cache tool-lsp tool-install tool-registry tool-publish tool-audit tool-std
+.PHONY: all clean test test-unit test-fuzz example test-check test-run tool-test tool-fmt tool-bench tool-init tool-cache tool-lsp tool-install tool-registry tool-publish tool-audit tool-std perf-record perf-check
 
 # Build the unit runner with the same flags as the compiler. Besides keeping
 # `make` useful as a complete build gate, this preserves sanitizer link flags
@@ -36,6 +36,16 @@ test-unit: $(BUILD)/unit_tests
 # Deterministic seed-driven fuzz of lexer/parser via `tiq check`
 test-fuzz: $(TIQ)
 	sh tests/fuzz.sh
+
+# M21.1: record the performance baseline (tests/perf_baseline.txt) on the
+# current machine. Commit the result when compiler output sizes change.
+perf-record: $(TIQ)
+	sh tests/perf_suite.sh record
+
+# M21.1: gate the current build against the checked-in performance baseline
+# (hard gate: binary sizes; soft reports: timing and peak RSS).
+perf-check: $(TIQ)
+	sh tests/perf_suite.sh check
 
 example: $(TIQ)
 	$(TIQ) build examples/hello.tiq -o $(BUILD)/hello
@@ -69,6 +79,7 @@ test: $(TIQ) test-unit
 	sh tests/registry_tool.sh
 	sh tests/publish_tool.sh
 	sh tests/audit_tool.sh
+	sh tests/perf_suite_test.sh
 
 test-check: $(TIQ)
 	sh tests/check.sh

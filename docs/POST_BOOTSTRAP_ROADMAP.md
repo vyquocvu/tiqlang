@@ -205,7 +205,7 @@ Tooling polish, formal specification lock, and documentation suite.
 
 ## M21 — Benchmarking & Production Dogfooding (continuous)
 
-Status: queued
+Status: active (M21.1, M21.2 done 2026-08-03; M21.3 queued)
 
 Depends on: M14.3 (`tiq bench`) for the first baseline. This is a continuous activity that starts early and never closes; it is listed last only because its exit gate is measured against the finished ecosystem.
 
@@ -213,8 +213,8 @@ Real-world deployment and empirical performance validation.
 
 ### Tasks
 
-- [ ] **M21.1** Continuous Performance Benchmarking Suite (Compile-time, Binary size, Memory footprint, Throughput vs C/Go/Rust/Zig), wired into CI from the first M14.3 baseline
-- [ ] **M21.2** Fuzzing & Security hardening (libFuzzer / ASan continuous fuzzing pipeline), extending the existing deterministic fuzz harness
+- [x] **M21.1** Continuous Performance Benchmarking Suite — closed 2026-08-03. `tests/perf_suite.sh` (`record`/`check` modes) measures five metrics on every run: `binary_size_hello`/`binary_size_fib` (bytes of `tiq build` output, deterministic per toolchain+OS), `bench_total_ms`/`bench_throughput_kbs` (self-hosted front end over the largest compiler slice `src/tiq/emit_c_main.tiq`, `-i 5`), and `rss_compile_kb` (peak RSS of compiling that slice via `/usr/bin/time -l`/`-v`). The checked-in baseline `tests/perf_baseline.txt` carries an `# os:` header: matching OS applies the hard gate (binary-size growth beyond +10% fails with `perf: REGRESSION <key>`), mismatched OS downgrades to a soft check that still fails closed on unmeasurable metrics. Timing/RSS are soft-reported (warning above 4x baseline) because they are machine-dependent. Evidence: `tests/perf_suite_test.sh` (29th suite, wired into `make test`) verifies record/check modes, the baseline key contract, positive-integer format, fail-closed missing baseline, binary-size regression detection, and usage errors; `make perf-record`/`perf-check` targets; CI runs the gate on the release build. Cross-language throughput comparison (vs C/Go/Rust/Zig) deferred to M21.3-era dogfooding reports: CI runners cannot guarantee those toolchains.
+- [x] **M21.2** Fuzzing & Security hardening — closed 2026-08-03. `tests/fuzz.sh` extended from single-byte replacement to four LCG-selected mutation operators (byte replacement, deletion, insertion, truncation — including empty-input mutants) and the corpus widened from `examples/` (36 files) to also include the self-hosted compiler sources `src/tiq/*.tiq` (13 large multi-import modules): 392 deterministic mutants per run at seed 20260727, same crash/no-artifact fail-closed properties. CI already runs `make test-fuzz` against the ASan/UBSan build as its final step, which is the continuous sanitizer fuzzing pipeline; `FUZZ_MUTATIONS=<n>` deepens local runs deterministically. libFuzzer integration deferred: it requires a C harness entry point around the front end, which the M17 IR work is better positioned to provide.
 - [ ] **M21.3** Dogfooding: Build core infrastructure tools in Tiq (e.g. fast CLI tools, edge proxy)
 
 **Exit gate**: Public benchmark suite published showing competitive performance against Rust and C with clean security audits.
