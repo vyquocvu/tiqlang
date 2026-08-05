@@ -5,6 +5,7 @@
 // define/lookup/shadowing.
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
 #include <stdalign.h>
@@ -15,6 +16,8 @@
 #include "../../include/semantic.h"
 #include "../../include/type.h"
 #include "../../include/emit_c.h"
+#include "../../include/asm_arm64.h"
+#include "../../include/macho_link.h"
 
 static int tests_run = 0;
 static int tests_failed = 0;
@@ -440,6 +443,127 @@ static void test_emit_c_is_reentrant(void) {
     ASSERT(strstr(second, "tiq_gen_") == NULL);
 }
 
+
+// ------------------------------------------------------- M17.3.2 macho
+
+// Assemble fixture, write object to memory via macho_obj_write, parse it
+// back with macho_read, and pin the structural goldens.
+static uint8_t *obj_roundtrip(const char *asm_src, size_t *out_len) {
+    AsmUnit unit;
+    asm_unit_init(&unit);
+    if (asm_arm64_assemble(&unit, asm_src, strlen(asm_src)) != 0) {
+        asm_unit_free(&unit);
+        return NULL;
+    }
+    FILE *tmp = tmpfile();
+    if (!tmp || macho_obj_write(&unit, tmp) != 0) {
+        if (tmp) fclose(tmp);
+        asm_unit_free(&unit);
+        return NULL;
+    }
+    asm_unit_free(&unit);
+    fseek(tmp, 0, SEEK_END);
+    long sz = ftell(tmp);
+    fseek(tmp, 0, SEEK_SET);
+    uint8_t *buf = malloc((size_t)sz);
+    if (!buf || fread(buf, 1, (size_t)sz, tmp) != (size_t)sz) {
+        free(buf);
+        fclose(tmp);
+        return NULL;
+    }
+    fclose(tmp);
+    *out_len = (size_t)sz;
+    return buf;
+}
+
+static void test_macho_read_roundtrip_golden(void) {
+    const char *src =
+        ".text\n"
+        ".globl _main\n"
+        "_main:\n"
+        "\tmov\tx0, #42\n"
+        "\tbl\t_exit\n";
+    size_t len = 0;
+    uint8_t *obj = obj_roundtrip(src, &len);
+    ASSERT(obj != NULL);
+    if (!obj) return;
+    MachOObject o;
+    char err[256];
+    int rc = macho_read(obj, len, &o, err, sizeof(err));
+    ASSERT(rc == 0);
+    if (rc == 0) {
+        // One __text section with 8 bytes and one extern BR26 reloc.
+        ASSERT(o.nsection == 1);
+        ASSERT(strcmp(o.sections[0].sectname, "__text") == 0);
+        ASSERT(o.sections[0].size == 8);
+        ASSERT(o.sections[0].nreloc == 1);
+        ASSERT(o.sections[0].relocs[0].type == MACHO_RELOC_BRANCH26);
+        ASSERT(o.sections[0].relocs[0].pcrel == 1);
+        // Symbols: _main defined in section 0, _exit undefined.
+        int saw_main = 0, saw_exit = 0;
+        for (uint32_t i = 0; i < o.nsymbol; i++) {
+            if (strcmp(o.symbols[i].name, "_main") == 0) {
+                saw_main = 1;
+                ASSERT(o.symbols[i].section == 0);
+                ASSERT(o.symbols[i].value == 0);
+            }
+            if (strcmp(o.symbols[i].name, "_exit") == 0) {
+                saw_exit = 1;
+                ASSERT(o.symbols[i].section == -1);
+            }
+        }
+        ASSERT(saw_main);
+        ASSERT(saw_exit);
+        macho_object_free(&o);
+    }
+    free(obj);
+}
+
+static void test_macho_read_rejects_garbage(void) {
+    const uint8_t junk[16] = "notmacho";
+    MachOObject o;
+    char err[256] = {0};
+    int rc = macho_read(junk, sizeof(junk), &o, err, sizeof(err));
+    ASSERT(rc == 1);
+    ASSERT(strstr(err, "Mach-O") != NULL || strstr(err, "mach-o") != NULL);
+}
+
+static void test_link_macho_exec_produces_executable(void) {
+    const char *src =
+        ".text\n"
+        ".globl _main\n"
+        "_main:\n"
+        "\tmov\tx0, #42\n"
+        "\tbl\t_exit\n";
+    size_t len = 0;
+    uint8_t *obj = obj_roundtrip(src, &len);
+    ASSERT(obj != NULL);
+    if (!obj) return;
+    MachOObject o;
+    char err[256] = {0};
+    int rc = macho_read(obj, len, &o, err, sizeof(err));
+    ASSERT(rc == 0);
+    if (rc == 0) {
+        uint8_t *exe = NULL;
+        size_t exe_len = 0;
+        int lrc = link_macho_exec(&o, 1, "_main", &exe, &exe_len, err, sizeof(err));
+        ASSERT(lrc == 0);
+        if (lrc == 0) {
+            ASSERT(exe != NULL);
+            ASSERT(exe_len >= 32);
+            // mach_header_64: MH_MAGIC_64, CPU_TYPE_ARM64, MH_EXECUTE.
+            uint32_t hdr[4];
+            memcpy(hdr, exe, sizeof(hdr));
+            ASSERT(hdr[0] == 0xFEEDFACFu);
+            ASSERT(hdr[1] == 0x0100000Cu);
+            ASSERT(hdr[3] == 2u);
+            free(exe);
+        }
+        macho_object_free(&o);
+    }
+    free(obj);
+}
+
 // ----------------------------------------------------------------- main
 
 int main(void) {
@@ -470,6 +594,10 @@ int main(void) {
     test_emit_c_basic_program();
     test_emit_c_rejects_semantic_error();
     test_emit_c_is_reentrant();
+
+    test_macho_read_roundtrip_golden();
+    test_macho_read_rejects_garbage();
+    test_link_macho_exec_produces_executable();
 
     if (tests_failed > 0) {
         fprintf(stderr, "unit: %d/%d assertions failed\n", tests_failed, tests_run);

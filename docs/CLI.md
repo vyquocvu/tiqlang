@@ -12,10 +12,16 @@ tiq run <file.tiq> [-l lib] [-L dir]
 tiq build <file.tiq> [-o output] [--target <triple>] [--backend c|qbe] [-l lib] [-L dir]
 tiq emit-c [--lib] <file.tiq>
 tiq emit-header <file.tiq> [-o output]
+tiq emit-obj <file.s> -o <file.o>
+tiq link-qbe <obj>... -o <exe>
 tiq check <file.tiq>...
 ```
 
 `tiq emit-c --lib <file.tiq>` (M16.3) runs the normal `emit-c` pipeline but omits the generated `int main`, so the emitted C links into a host program. `tiq emit-header <file.tiq>` (M16.3) emits a deterministic C header declaring the library's FFI-safe export surface to stdout, or to a file with `-o output` (LANGUAGE_SPEC §18.3). Both library modes fail closed with `error[E31]` on any top-level executable statement; unknown or duplicate arguments print the usage block to stderr and exit 2.
+
+`tiq emit-obj <file.s> -o <file.o>` (M17.3.1) assembles the QBE arm64 Mach-O assembly subset in-process and writes a deterministic Mach-O relocatable object, using the same assembler and object writer that `tiq build --backend qbe` uses internally. It is only available on the Darwin arm64 host: invoking it elsewhere prints a diagnostic and exits 2. Any instruction or directive outside the QBE subset fails closed with a `<file>:<line>: error` diagnostic, and the output file is removed on failure.
+
+`tiq link-qbe <obj>... -o <exe>` (M17.3.2) links Mach-O relocatable objects into a runnable, self-signed arm64 `MH_EXECUTE` entirely in-process, without invoking `cc`/`ld`. Undefined symbols are resolved against the input objects first and then a fixed libSystem export set bound through dyld stubs; anything unresolved fails closed naming the symbol. Output is deterministic: identical inputs produce byte-identical executables (no timestamps; a UUID derived from the input content). It is only available on the Darwin arm64 host, and exits 2 elsewhere. Failures (missing input, non-Mach-O input, unresolved symbol) exit 1 and never leave a partial executable behind.
 
 All commands that compile or check source resolve `import` paths relative to the importing file, with one addition for the standard library (LANGUAGE_SPEC §17.7): an `import "std/<mod>.tiq"` that does not resolve next to the importing file is retried from the current working directory, so `std/` modules resolve from any file depth when `tiq` is invoked from the project root. The gated domain builtins (`json_*`, `net_*`, `http_*`, `ev_*`, `dl_*`) are only reachable through these imports; calling one without the matching `import` fails with a located `error[E08]` whose message names the module to import.
 
@@ -128,7 +134,7 @@ The formatter re-emits the token stream with the repository's canonical layout, 
 ## Option notes
 
 - `tiq build`: `--target <triple>` is forwarded to the host C compiler; cross-compilation targets are planned but not tested (M11).
-- `tiq build`: `--backend c|qbe` selects the code generation backend. The default `c` backend generates C code and uses the host C compiler for compilation. The `qbe` backend generates native code via QBE (Quick Backend Engine), producing native executables without generating intermediate C code (M17.2). The QBE backend is experimental and may not support all Tiq features (e.g., stream generators are not yet supported).
+- `tiq build`: `--backend c|qbe` selects the code generation backend. The default `c` backend generates C code and uses the host C compiler for compilation. The `qbe` backend generates native code via QBE (Quick Backend Engine), producing native executables without generating intermediate C code (M17.2). On the Darwin arm64 host, `build --backend qbe` also uses the integrated Mach-O linker (M17.3.2) so the whole pipeline is external-toolchain-free; setting `TIQ_QBE_LINK=<cmd>` (e.g. `TIQ_QBE_LINK=cc`) falls back to linking through that external toolchain. The QBE backend is experimental and may not support all Tiq features (e.g., stream generators are not yet supported).
 - `tiq build` / `tiq run`: repeatable `-l <lib>` and `-L <dir>` options are forwarded to the host C compiler after the generated source, for linking external libraries declared with `extern "C"` (LANGUAGE_SPEC §7.1). Both options require an argument; any other trailing token, or more than 16 `-l`/`-L` pairs, fails closed with a usage error (exit 1) before compilation. Libraries loaded at runtime through `std/dl.tiq` (LANGUAGE_SPEC §19.11) need no `-l` flags — `dlopen` resolves them from the path given to `dl_open`.
 - Unknown commands fail closed: `tiq` prints usage to stderr and exits with code 2.
 

@@ -12,7 +12,8 @@ TIQ := $(BUILD)/tiq
 all: $(TIQ) $(BUILD)/unit_tests $(BUILD)/qbe $(BUILD)/runtime_qbe.o
 
 SRCS = src/main.c src/emit_c.c src/emit_qbe.c src/lexer.c src/diag.c src/parser.c src/semantic.c \
-       src/type.c src/arena.c src/module.c src/ir.c src/ir_lower.c src/ir_dump.c
+       src/type.c src/arena.c src/module.c src/ir.c src/ir_lower.c src/ir_dump.c \
+       src/asm_arm64.c src/macho_obj.c src/macho_read.c src/link_macho.c
 OBJS = $(SRCS:src/%.c=$(BUILD)/%.o)
 
 # Rebuild everything when any public header changes (ABI safety).
@@ -83,6 +84,8 @@ test: $(TIQ) $(BUILD)/qbe $(BUILD)/runtime_qbe.o test-unit
 	sh tests/proxy_tool.sh
 	sh tests/ir.sh
 	sh tests/qbe_backend.sh
+	sh tests/macho_obj.sh
+	sh tests/object_link.sh
 
 test-check: $(TIQ)
 	sh tests/check.sh

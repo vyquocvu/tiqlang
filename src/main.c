@@ -15,6 +15,9 @@
 #include "../include/module.h"
 #include "../include/ir.h"
 #include "../include/emit_qbe.h"
+#include "../include/asm_arm64.h"
+#include "../include/macho_link.h"
+#include <sys/stat.h>
 
 #define TIQ_VERSION "0.1.0-dev"
 
@@ -185,126 +188,70 @@ static char *temporary_qbe_template(const char *suffix) {
     return path;
 }
 
-// M17.2: post-process QBE's ARM64 assembly for macOS.
-// QBE uses adrp/add/blr for external function calls, but the macOS
-// linker requires direct `bl` for external symbols.  This function
-// rewrites the pattern:
-//   adrp  xN, _func@PAGE
-//   add   xN, xN, #:lo12:_func@PAGEOFF
-//   blr   xN
-// into:
-//   bl    _func
-static void fixup_arm64_macho(const char *path) {
-    FILE *f = fopen(path, "r");
-    if (!f) return;
-    fseek(f, 0, SEEK_END);
-    long sz = ftell(f);
-    fseek(f, 0, SEEK_SET);
-    char *buf = malloc(sz + 1);
-    if (!buf) { fclose(f); return; }
-    fread(buf, 1, sz, f);
-    buf[sz] = '\0';
-    fclose(f);
-
-    char *out = malloc(sz * 2 + 1);
-    if (!out) { free(buf); return; }
-    char *wp = out;
-    char *line = buf;
-
-    // Buffer up to 3 lines for the adrp/add/blr pattern
-    char saved[3][512];
-    int nsaved = 0;
-    char sym[256] = "";
-    char adr_reg[16] = "";  // Register used in adrp/add
-    int state = 0; // 0=none, 1=after adrp, 2=after adrp+add
-
-    while (line && *line) {
-        char *nl = strchr(line, '\n');
-        size_t llen = nl ? (size_t)(nl - line) : strlen(line);
-        char tmp[512];
-        if (llen >= sizeof(tmp)) llen = sizeof(tmp) - 1;
-        memcpy(tmp, line, llen);
-        tmp[llen] = '\0';
-
-        char r1[16] = "", s1[256] = "";
-        char r2[16] = "", r3[16] = "", s2[256] = "";
-        char r4[16] = "";
-        int matched = 0;
-
-        if (state == 0 && sscanf(tmp, " adrp %15[^,], %255s", r1, s1) == 2 &&
-            strstr(s1, "@PAGE")) {
-            // Potential start of pattern
-            snprintf(saved[0], sizeof(saved[0]), "%s", tmp);
-            nsaved = 1;
-            snprintf(sym, sizeof(sym), "%s", s1);
-            char *at = strstr(sym, "@PAGE");
-            if (at) *at = '\0';
-            snprintf(adr_reg, sizeof(adr_reg), "%s", r1);
-            state = 1;
-            matched = 1;
-        } else if (state == 1 && sscanf(tmp, " add %15[^,], %15[^,], #:lo12:%255s",
-                                  r2, r3, s2) == 3 &&
-            strcmp(r2, r3) == 0 && strcmp(r2, adr_reg) == 0 && strstr(s2, "@PAGEOFF")) {
-            // Second line of pattern
-            snprintf(saved[1], sizeof(saved[1]), "%s", tmp);
-            nsaved = 2;
-            state = 2;
-            matched = 1;
-        } else if (state == 2 && sscanf(tmp, " blr %15s", r4) == 1 &&
-            strcmp(r4, adr_reg) == 0) {
-            // Full pattern matched — emit bl instead
-            wp += sprintf(wp, "\tbl\t%s\n", sym);
-            state = 0;
-            nsaved = 0;
-            matched = 1;
+// M17.3.2: link the program object with the QBE runtime into a self-signed
+// executable via the integrated Mach-O linker (Darwin arm64 only). Returns 0
+// on success; on failure prints a diagnostic and returns 1. The output file is
+// written only after a successful link, so failures leave no partial binary.
+#if defined(__APPLE__) && defined(__aarch64__)
+static int link_qbe_objects(const char *obj_path, const char *runtime_obj,
+                            const char *output) {
+    uint8_t *blobs[2] = {NULL, NULL};
+    MachOObject objs[2];
+    memset(objs, 0, sizeof(objs));
+    const char *paths[2] = {obj_path, runtime_obj};
+    size_t loaded = 0;
+    int result = 1;
+    for (int i = 0; i < 2; i++) {
+        FILE *f = fopen(paths[i], "rb");
+        if (!f) {
+            fprintf(stderr, "tiq: cannot read %s: %s\n", paths[i], strerror(errno));
+            goto cleanup;
         }
-
-        if (matched) {
-            line = nl ? nl + 1 : NULL;
-            continue;
+        if (fseek(f, 0, SEEK_END) != 0) { fclose(f); fprintf(stderr, "tiq: cannot read %s\n", paths[i]); goto cleanup; }
+        long size = ftell(f);
+        if (size <= 0 || fseek(f, 0, SEEK_SET) != 0) { fclose(f); fprintf(stderr, "tiq: cannot read %s\n", paths[i]); goto cleanup; }
+        uint8_t *data = malloc((size_t)size);
+        if (!data || fread(data, 1, (size_t)size, f) != (size_t)size) {
+            free(data); fclose(f);
+            fprintf(stderr, "tiq: cannot read %s\n", paths[i]);
+            goto cleanup;
         }
-
-        // Pattern broken — flush saved lines
-        for (int i = 0; i < nsaved; i++) {
-            size_t sl = strlen(saved[i]);
-            memcpy(wp, saved[i], sl);
-            wp[sl] = '\n';
-            wp += sl + 1;
+        fclose(f);
+        blobs[i] = data;
+        char err[256];
+        if (macho_read(data, (size_t)size, &objs[i], err, sizeof(err)) != 0) {
+            fprintf(stderr, "tiq: %s: %s\n", paths[i], err);
+            goto cleanup;
         }
-        nsaved = 0;
-
-        // Re-check current line as potential start of new pattern
-        if (sscanf(tmp, " adrp %15[^,], %255s", r1, s1) == 2 && strstr(s1, "@PAGE")) {
-            snprintf(saved[0], sizeof(saved[0]), "%s", tmp);
-            nsaved = 1;
-            snprintf(sym, sizeof(sym), "%s", s1);
-            char *at = strstr(sym, "@PAGE");
-            if (at) *at = '\0';
-            snprintf(adr_reg, sizeof(adr_reg), "%s", r1);
-            state = 1;
-        } else {
-            // Not a pattern start, emit current line
-            memcpy(wp, tmp, llen);
-            wp[llen] = '\n';
-            wp += llen + 1;
-            state = 0;
-        }
-        line = nl ? nl + 1 : NULL;
+        loaded++;
     }
-    // Flush any remaining saved lines
-    for (int i = 0; i < nsaved; i++) {
-        size_t sl = strlen(saved[i]);
-        memcpy(wp, saved[i], sl);
-        wp[sl] = '\n';
-        wp += sl + 1;
+    {
+        uint8_t *exe = NULL;
+        size_t exe_len = 0;
+        char err[512];
+        if (link_macho_exec(objs, 2, "_main", &exe, &exe_len, err, sizeof(err)) != 0) {
+            fprintf(stderr, "tiq: %s\n", err);
+            goto cleanup;
+        }
+        FILE *out = fopen(output, "wb");
+        int wrote = out && fwrite(exe, 1, exe_len, out) == exe_len && fclose(out) == 0;
+        free(exe);
+        if (!wrote) {
+            if (out) fclose(out);
+            fprintf(stderr, "tiq: cannot write %s\n", output);
+            remove(output);
+            goto cleanup;
+        }
+        chmod(output, 0755);
+        result = 0;
     }
-    *wp = '\0';
-    free(buf);
-
-    f = fopen(path, "w");
-    if (f) { fputs(out, f); fclose(f); }
-    free(out);
+cleanup:
+    for (size_t i = 0; i < loaded; i++) macho_object_free(&objs[i]);
+    free(blobs[0]);
+    free(blobs[1]);
+    return result;
 }
+#endif
 
 // M17.2: build via QBE backend.
 // Pipeline: source -> IR -> QBE IL -> qbe .o -> link with runtime -> exe
@@ -398,12 +345,51 @@ static int build_qbe(const char *input, const char *output, DiagContext *diag) {
         remove(asm_path); free(asm_path); free(obj_path); return 1;
     }
 
-    // 4b. Post-process assembly for ARM64 macOS (fix external call stubs)
-#if defined(__APPLE__)
-    fixup_arm64_macho(asm_path);
-#endif
-
-    // 4c. Assemble .s -> .o
+    // 4b. Assemble .s -> .o (the integrated assembler lowers QBE's extern
+    // call adrp/add/blr pattern to GOT relocations; no text fix-up needed)
+#if defined(__APPLE__) && defined(__aarch64__)
+    // M17.3.1: integrated Mach-O object writer — the QBE assembly subset
+    // is assembled in-process; no external assembler is invoked.
+    {
+        FILE *asm_file = fopen(asm_path, "rb");
+        if (!asm_file) {
+            fprintf(stderr, "tiq: cannot read %s: %s\n", asm_path, strerror(errno));
+            remove(asm_path); free(asm_path); free(obj_path); return 1;
+        }
+        fseek(asm_file, 0, SEEK_END);
+        long asm_size = ftell(asm_file);
+        fseek(asm_file, 0, SEEK_SET);
+        char *asm_text = malloc((size_t)asm_size + 1);
+        if (!asm_text || fread(asm_text, 1, (size_t)asm_size, asm_file) != (size_t)asm_size) {
+            fclose(asm_file); free(asm_text);
+            fprintf(stderr, "tiq: cannot read %s\n", asm_path);
+            remove(asm_path); free(asm_path); free(obj_path); return 1;
+        }
+        fclose(asm_file);
+        AsmUnit unit;
+        asm_unit_init(&unit);
+        int asm_ok = asm_arm64_assemble(&unit, asm_text, (size_t)asm_size) == 0;
+        if (asm_ok) {
+            FILE *obj_file = fopen(obj_path, "wb");
+            if (!obj_file || macho_obj_write(&unit, obj_file) != 0) asm_ok = 0;
+            if (obj_file && fclose(obj_file) != 0) asm_ok = 0;
+        }
+        if (!asm_ok) {
+            if (unit.has_error)
+                fprintf(stderr, "tiq: %s:%d: error: %s\n", asm_path, unit.errline, unit.errmsg);
+            else
+                fprintf(stderr, "tiq: cannot write object file %s\n", obj_path);
+            remove(obj_path);
+            asm_unit_free(&unit); free(asm_text);
+            remove(asm_path); free(asm_path); free(obj_path);
+            return 1;
+        }
+        asm_unit_free(&unit);
+        free(asm_text);
+    }
+    remove(asm_path);
+    free(asm_path);
+#else
     const char *cc = getenv("CC");
     if (!cc || !*cc) cc = "cc";
     pid_t apid = fork();
@@ -429,32 +415,46 @@ static int build_qbe(const char *input, const char *output, DiagContext *diag) {
         fprintf(stderr, "tiq: assembly failed\n");
         remove(obj_path); free(obj_path); return 1;
     }
+#endif
 
-    // 5. Link: cc obj_path runtime_obj -o output
-    const char *cc2 = getenv("CC");
-    if (!cc2 || !*cc2) cc2 = cc;
-    pid_t lpid = fork();
-    if (lpid < 0) {
-        fprintf(stderr, "tiq: fork: %s\n", strerror(errno));
-        remove(obj_path); free(obj_path); return 1;
+    // 5. Link the program object with the QBE runtime.
+    //    Default on Darwin arm64: the integrated Mach-O linker emits a
+    //    self-signed executable entirely in-process. TIQ_QBE_LINK=<cmd> is an
+    //    escape hatch that links through an external toolchain (e.g. `cc`).
+    const char *qlink = getenv("TIQ_QBE_LINK");
+#if defined(__APPLE__) && defined(__aarch64__)
+    if (!qlink || !*qlink) {
+        int lr = link_qbe_objects(obj_path, runtime_obj, output);
+        remove(obj_path);
+        free(obj_path);
+        return lr;
     }
-    if (lpid == 0) {
-        execlp(cc2, cc2, obj_path, runtime_obj, "-o", output, NULL);
-        fprintf(stderr, "tiq: cannot execute linker: %s\n", strerror(errno));
-        _exit(127);
-    }
-    for (;;) {
-        if (waitpid(lpid, &status, 0) >= 0) break;
-        if (errno != EINTR) {
-            fprintf(stderr, "tiq: waitpid: %s\n", strerror(errno));
+#endif
+    {
+        const char *linker = (qlink && *qlink) ? qlink : "cc";
+        pid_t lpid = fork();
+        if (lpid < 0) {
+            fprintf(stderr, "tiq: fork: %s\n", strerror(errno));
             remove(obj_path); free(obj_path); return 1;
         }
-    }
-    remove(obj_path);
-    free(obj_path);
-    if (!WIFEXITED(status) || WEXITSTATUS(status) != 0) {
-        fprintf(stderr, "tiq: linking QBE output failed\n");
-        return 1;
+        if (lpid == 0) {
+            execlp(linker, linker, obj_path, runtime_obj, "-o", output, NULL);
+            fprintf(stderr, "tiq: cannot execute linker: %s\n", strerror(errno));
+            _exit(127);
+        }
+        for (;;) {
+            if (waitpid(lpid, &status, 0) >= 0) break;
+            if (errno != EINTR) {
+                fprintf(stderr, "tiq: waitpid: %s\n", strerror(errno));
+                remove(obj_path); free(obj_path); return 1;
+            }
+        }
+        remove(obj_path);
+        free(obj_path);
+        if (!WIFEXITED(status) || WEXITSTATUS(status) != 0) {
+            fprintf(stderr, "tiq: linking QBE output failed\n");
+            return 1;
+        }
     }
     return 0;
 }
@@ -590,6 +590,127 @@ static int cmd_check(const char *input) {
     return diag.has_error ? 1 : 0;
 }
 
+// M17.3.1: assemble the QBE arm64 assembly subset in-process and write
+// a Mach-O relocatable object (Darwin arm64 host only).
+#if defined(__APPLE__) && defined(__aarch64__)
+static void usage(FILE *out);
+static int cmd_emit_obj(const char *input, const char *output) {
+    FILE *f = fopen(input, "rb");
+    if (!f) {
+        fprintf(stderr, "tiq: cannot read %s: %s\n", input, strerror(errno));
+        return 1;
+    }
+    fseek(f, 0, SEEK_END);
+    long size = ftell(f);
+    fseek(f, 0, SEEK_SET);
+    char *source = malloc((size_t)size + 1);
+    if (!source || fread(source, 1, (size_t)size, f) != (size_t)size) {
+        fclose(f); free(source);
+        fprintf(stderr, "tiq: cannot read %s\n", input);
+        return 1;
+    }
+    fclose(f);
+    AsmUnit unit;
+    asm_unit_init(&unit);
+    if (asm_arm64_assemble(&unit, source, (size_t)size) != 0) {
+        fprintf(stderr, "tiq: %s:%d: error: %s\n", input, unit.errline, unit.errmsg);
+        asm_unit_free(&unit); free(source);
+        return 1;
+    }
+    FILE *out = fopen(output, "wb");
+    int result = out ? macho_obj_write(&unit, out) : 1;
+    if (out && fclose(out) != 0) result = 1;
+    if (result != 0) {
+        fprintf(stderr, "tiq: cannot write %s\n", output);
+        remove(output);
+    }
+    asm_unit_free(&unit);
+    free(source);
+    return result;
+}
+
+// M17.3.2: link Mach-O relocatable objects into a self-signed arm64
+// executable entirely in-process (Darwin arm64 host only). Exit codes:
+// 2 for usage errors, 1 for link failures; the output file is only
+// written after a successful link so failures never leave a partial
+// executable behind.
+static int cmd_link_qbe(int argc, char **argv) {
+    const char *inputs[TIQ_MAX_LINK_OPTS];
+    int ninputs = 0;
+    const char *output = NULL;
+    for (int i = 2; i < argc; i++) {
+        if (strcmp(argv[i], "-o") == 0 && i + 1 < argc) {
+            output = argv[++i];
+        } else if (argv[i][0] != '-') {
+            if (ninputs >= TIQ_MAX_LINK_OPTS) { usage(stderr); return 2; }
+            inputs[ninputs++] = argv[i];
+        } else {
+            usage(stderr);
+            return 2;
+        }
+    }
+    if (ninputs == 0 || !output) { usage(stderr); return 2; }
+
+    MachOObject *objs = calloc((size_t)ninputs, sizeof(MachOObject));
+    uint8_t **blobs = calloc((size_t)ninputs, sizeof(uint8_t *));
+    if (!objs || !blobs) die("out of memory");
+    size_t loaded = 0;
+    int result = 1;
+    for (int i = 0; i < ninputs; i++) {
+        FILE *f = fopen(inputs[i], "rb");
+        if (!f) {
+            fprintf(stderr, "tiq: cannot read %s: %s\n", inputs[i], strerror(errno));
+            goto cleanup;
+        }
+        if (fseek(f, 0, SEEK_END) != 0) { fclose(f); fprintf(stderr, "tiq: cannot read %s\n", inputs[i]); goto cleanup; }
+        long size = ftell(f);
+        if (size <= 0 || fseek(f, 0, SEEK_SET) != 0) { fclose(f); fprintf(stderr, "tiq: cannot read %s\n", inputs[i]); goto cleanup; }
+        uint8_t *data = malloc((size_t)size);
+        if (!data || fread(data, 1, (size_t)size, f) != (size_t)size) {
+            free(data); fclose(f);
+            fprintf(stderr, "tiq: cannot read %s\n", inputs[i]);
+            goto cleanup;
+        }
+        fclose(f);
+        blobs[i] = data;
+        char err[256];
+        if (macho_read(data, (size_t)size, &objs[i], err, sizeof(err)) != 0) {
+            fprintf(stderr, "tiq: %s: %s\n", inputs[i], err);
+            goto cleanup;
+        }
+        loaded++;
+    }
+    {
+        uint8_t *exe = NULL;
+        size_t exe_len = 0;
+        char err[512];
+        if (link_macho_exec(objs, (size_t)ninputs, "_main", &exe, &exe_len,
+                            err, sizeof(err)) != 0) {
+            fprintf(stderr, "tiq: %s\n", err);
+            goto cleanup;
+        }
+        FILE *out = fopen(output, "wb");
+        int wrote = out && fwrite(exe, 1, exe_len, out) == exe_len &&
+                    fclose(out) == 0;
+        free(exe);
+        if (!wrote) {
+            if (out) fclose(out);
+            fprintf(stderr, "tiq: cannot write %s\n", output);
+            remove(output);
+            goto cleanup;
+        }
+        chmod(output, 0755);
+        result = 0;
+    }
+cleanup:
+    for (size_t i = 0; i < loaded; i++) macho_object_free(&objs[i]);
+    for (int i = 0; i < ninputs; i++) free(blobs[i]);
+    free(objs);
+    free(blobs);
+    return result;
+}
+#endif
+
 static void usage(FILE *out) {
     fputs("tiq " TIQ_VERSION " - Tiq bootstrap compiler\n\n", out);
     fputs("usage:\n", out);
@@ -598,6 +719,8 @@ static void usage(FILE *out) {
     fputs("  tiq build <file.tiq> [-o output] [--backend qbe] [--target <triple>] [-l lib] [-L dir]\n", out);
     fputs("  tiq emit-c [--lib] <file.tiq>\n", out);
     fputs("  tiq emit-header <file.tiq> [-o output]\n", out);
+    fputs("  tiq emit-obj <file.s> -o <file.o>\n", out);
+    fputs("  tiq link-qbe <obj>... -o <exe>\n", out);
     fputs("  tiq check <file.tiq>...\n", out);
     fputs("  tiq dump-tokens <file.tiq>\n", out);
     fputs("  tiq dump-ast <file.tiq>\n", out);
@@ -709,6 +832,38 @@ int main(int argc, char **argv) {
         }
         if (!input) { usage(stderr); return 2; }
         return emit_file(input, NULL, &diag, mode);
+    }
+    if (argc >= 3 && strcmp(argv[1], "emit-obj") == 0) {
+#if defined(__APPLE__) && defined(__aarch64__)
+        // M17.3.1: integrated assembler + Mach-O object writer.
+        const char *input = NULL;
+        const char *output = NULL;
+        for (int i = 2; i < argc; i++) {
+            if (strcmp(argv[i], "-o") == 0 && i + 1 < argc) {
+                output = argv[++i];
+            } else if (argv[i][0] != '-') {
+                if (input) { usage(stderr); return 2; }
+                input = argv[i];
+            } else {
+                usage(stderr);
+                return 2;
+            }
+        }
+        if (!input || !output) { usage(stderr); return 2; }
+        return cmd_emit_obj(input, output);
+#else
+        fprintf(stderr, "tiq: emit-obj is only supported on the Darwin arm64 host\n");
+        return 2;
+#endif
+    }
+    if (argc >= 3 && strcmp(argv[1], "link-qbe") == 0) {
+#if defined(__APPLE__) && defined(__aarch64__)
+        // M17.3.2: integrated Mach-O executable linker.
+        return cmd_link_qbe(argc, argv);
+#else
+        fprintf(stderr, "tiq: link-qbe is only supported on the Darwin arm64 host\n");
+        return 2;
+#endif
     }
     if (argc >= 3 && strcmp(argv[1], "emit-header") == 0) {
         // M16.3: C header for embedding a definitions-only Tiq library
