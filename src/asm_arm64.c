@@ -1,11 +1,12 @@
-// M17.3.1: integrated arm64 assembler for the QBE Mach-O assembly subset.
+// M17.3.1: integrated arm64 assembler for the QBE assembly subset.
+// M17.3.3: extended with ELF output mode for aarch64 Linux.
 //
-// QBE (third_party/qbe, arm64 target, Gasmacho flavor) emits a small,
-// stable subset of gas-style arm64 assembly (see arm64/emit.c omap[] and
-// gas.c). This module parses exactly that subset and produces section
-// contents plus Mach-O relocations in memory. Anything outside the
-// subset fails closed with a located diagnostic; partial objects are
-// never produced.
+// QBE (third_party/qbe, arm64 target, Gasmacho or Gaself flavor) emits
+// a small, stable subset of gas-style arm64 assembly (see arm64/emit.c
+// omap[] and gas.c). This module parses exactly that subset and
+// produces section contents plus relocations in memory. Anything outside
+// the subset fails closed with a located diagnostic; partial objects
+// are never produced.
 
 #include "../include/asm_arm64.h"
 
@@ -443,7 +444,7 @@ static int assemble_insn(Ctx *c, const char *mn, size_t mnlen,
             int symi = sym_intern(c, ops[si] + 7, lens[si] - 7 - 8);
             sec_put32(c, 0x91000000u | ((uint32_t)rn.idx << 5) | (uint32_t)rd.idx);
             add_reloc(c, ASM_SEC_TEXT, (int32_t)u->sec[ASM_SEC_TEXT].len - 4, symi, 0, 2,
-                      MACHO_ARM64_RELOC_PAGEOFF12);
+                      ASM_RELOC_PAGEOFF12);
             return 0;
         }
         if (lens[si] > 0 && ops[si][0] == '#') {
@@ -584,7 +585,7 @@ static int assemble_insn(Ctx *c, const char *mn, size_t mnlen,
         int si = sym_intern(c, sym, slen);
         sec_put32(c, 0x90000000u | (uint32_t)rd.idx);
         add_reloc(c, ASM_SEC_TEXT, (int32_t)u->sec[ASM_SEC_TEXT].len - 4, si, 1, 2,
-                  MACHO_ARM64_RELOC_PAGE21);
+                  ASM_RELOC_PAGE21);
         return 0;
     }
 
@@ -665,7 +666,7 @@ static int assemble_insn(Ctx *c, const char *mn, size_t mnlen,
         int si = sym_intern(c, ops[0], lens[0]);
         sec_put32(c, 0x94000000u);
         add_reloc(c, ASM_SEC_TEXT, (int32_t)u->sec[ASM_SEC_TEXT].len - 4, si, 1, 2,
-                  MACHO_ARM64_RELOC_BRANCH26);
+                  ASM_RELOC_BRANCH26);
         return 0;
     }
     if (mn[0] == 'b' && (mnlen == 1 || cond_code(mn + 1, mnlen - 1) >= 0)) {
@@ -912,7 +913,7 @@ static int assemble_data_values(Ctx *c, int size, const char *rest, size_t rest_
         for (int x = 0; x < 8; x++) b[x] = (uint8_t)((uint64_t)addend >> (8 * x));
         sec_put(c, b, 8);
         add_reloc(c, c->cur, (int32_t)u->sec[c->cur].len - 8, si, 0, 3,
-                  MACHO_ARM64_RELOC_UNSIGNED);
+                  ASM_RELOC_UNSIGNED);
     }
     return 0;
 }
@@ -929,6 +930,36 @@ static int assemble_directive(Ctx *c, const char *line, size_t len) {
     if (n == 5 && memcmp(line, ".text", 5) == 0) { c->cur = ASM_SEC_TEXT; u->sec[ASM_SEC_TEXT].used = 1; return 0; }
     if (n == 5 && memcmp(line, ".data", 5) == 0) { c->cur = ASM_SEC_DATA; u->sec[ASM_SEC_DATA].used = 1; return 0; }
     if (n == 4 && memcmp(line, ".bss", 4) == 0) { c->cur = ASM_SEC_BSS; u->sec[ASM_SEC_BSS].used = 1; return 0; }
+    if (n == 7 && memcmp(line, ".rodata", 7) == 0) { c->cur = ASM_SEC_RODATA; u->sec[ASM_SEC_RODATA].used = 1; return 0; }
+
+    // M17.3.3: ELF-specific directives emitted by QBE in Gaself mode.
+    // .type and .size are metadata; we parse and accept them but do not
+    // need to act on them (the object writer derives the info from the
+    // symbol table). .section .note.GNU-stack marks non-exec stack.
+    if (u->fmt == ASM_FMT_ELF) {
+        if (n == 5 && memcmp(line, ".type", 5) == 0) return 0; // parsed, ignored
+        if (n == 5 && memcmp(line, ".size", 5) == 0) return 0; // parsed, ignored
+        if (n == 8 && memcmp(line, ".section", 8) == 0) {
+            if (rest_len >= 16 && memcmp(rest, ".note.GNU-stack", 15) == 0) {
+                u->has_gnu_stack = 1;
+                return 0;
+            }
+            // Other .section directives: check for known data sections
+            if (rest_len >= 5 && memcmp(rest, ".data", 5) == 0) {
+                c->cur = ASM_SEC_DATA; u->sec[ASM_SEC_DATA].used = 1; return 0;
+            }
+            if (rest_len >= 6 && memcmp(rest, ".bss", 4) == 0 &&
+                (rest_len == 4 || rest[4] == ',' || rest[4] == ' ')) {
+                c->cur = ASM_SEC_BSS; u->sec[ASM_SEC_BSS].used = 1; return 0;
+            }
+            if (rest_len >= 7 && memcmp(rest, ".rodata", 7) == 0) {
+                c->cur = ASM_SEC_RODATA; u->sec[ASM_SEC_RODATA].used = 1; return 0;
+            }
+            if (rest_len >= 5 && memcmp(rest, ".text", 5) == 0) {
+                c->cur = ASM_SEC_TEXT; u->sec[ASM_SEC_TEXT].used = 1; return 0;
+            }
+        }
+    }
 
     if (n == 6 && memcmp(line, ".globl", 6) == 0) {
         if (rest_len == 0) { err(c, ".globl without symbol name"); return -1; }

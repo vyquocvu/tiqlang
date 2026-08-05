@@ -114,7 +114,7 @@ int macho_obj_write(const AsmUnit *u, FILE *out) {
     const AsmSectionOut *bss = &u->sec[ASM_SEC_BSS];
 
     // 1-based Mach-O section ordinals in load-command order.
-    int sect_ord[ASM_SEC_COUNT] = { 0, 0, 0 };
+    int sect_ord[ASM_SEC_COUNT] = { 0, 0, 0, 0 };
     int ord = 1;
     sect_ord[ASM_SEC_TEXT] = ord++;
     if (has_data) sect_ord[ASM_SEC_DATA] = ord++;
@@ -199,7 +199,7 @@ int macho_obj_write(const AsmUnit *u, FILE *out) {
     // --- symbol table + string table ---
     // n_value is segment-relative, so section-local offsets must be shifted
     // by the section's address within the segment.
-    uint64_t sect_addr[ASM_SEC_COUNT] = { 0, data_addr, bss_addr };
+    uint64_t sect_addr[ASM_SEC_COUNT] = { 0, data_addr, bss_addr, 0 };
     buf_pad(&b, 8);
     for (size_t i = 0; i < u->nsym; i++) {
         const AsmSymbol *s = &u->syms[i];

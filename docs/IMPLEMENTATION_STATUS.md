@@ -563,6 +563,19 @@ corrected audits. None of these milestones is complete.
   - Makefile: `src/macho_read.c` and `src/link_macho.c` added to SRCS; `sh tests/object_link.sh` added to the test target.
   - Evidence: `make clean && make && make test` green including the new harness; ASan/UBSan build green.
 
+- M17.3.3: Integrated ELF64 object writer & executable linker for aarch64 Linux (2026-08-06):
+  - New `include/elf_link.h`: ELF64 constants (ET_REL/ET_EXEC, EM_AARCH64, SHT_*, SHF_*, R_AARCH64_*, PT_*, DT_*), data structures (ElfReloc, ElfSection, ElfSymbol, ElfObject), and API (elf_read, elf_object_free, link_elf_exec).
+  - New `src/elf_obj.c`: deterministic ELF64 ET_REL writer serializing AsmUnit (fmt == ASM_FMT_ELF) with .text/.data/.bss/.rodata sections, .rela.text/.rela.data relocations (translated from internal ASM_RELOC_* to R_AARCH64_* types), .symtab/.strtab, .shstrtab, and .note.GNU-stack.
+  - New `src/elf_read.c`: bounds-checked ELF64 ET_REL reader parsing sections, symbols, and relocations from objects produced by elf_obj.c and by cc for the QBE runtime. Anything unsupported fails closed with a diagnostic.
+  - New `src/elf_link.c`: in-process ELF64 ET_EXEC linker combining parsed objects into a runnable aarch64 Linux executable. Two PT_LOAD segments (text R+X at 0x400000, data RW), PT_DYNAMIC with DT_NEEDED for libc.so.6, GOT/PLT for external symbol resolution via R_AARCH64_JUMP_SLOT, PT_INTERP pointing to /lib/ld-linux-aarch64.so.1, PT_GNU_STACK (non-executable). Internal relocations (BRANCH26, PAGE21, PAGEOFF12, UNSIGNED) are applied directly; external calls redirect through PLT stubs. Deterministic output.
+  - `include/asm_arm64.h`: added ASM_SEC_RODATA, ASM_FMT_MACHO/ASM_FMT_ELF format enum, format-agnostic ASM_RELOC_* constants (renamed from MACHO_ARM64_RELOC_*), fmt and has_gnu_stack fields to AsmUnit.
+  - `src/asm_arm64.c`: extended with ELF directive handling (.type, .size, .section .note.GNU-stack, .section .data/.bss/.rodata/.text, .rodata).
+  - `src/main.c`: `tiq build --backend qbe` on Linux aarch64 uses the integrated ELF assembler + linker by default (mirroring the Darwin arm64 Mach-O path); `tiq emit-obj` and `tiq link-qbe` work on both Darwin arm64 (Mach-O) and Linux aarch64 (ELF); `TIQ_QBE_LINK=<cmd>` escape hatch preserved.
+  - New `tests/elf_obj.sh`: usage fail-closed, located diagnostics, functional goldens (assemble + link with host linker), ELF header byte pins, readelf structural validation, byte-determinism, end-to-end qbe backend check. Skipped on non-Linux-aarch64 hosts.
+  - New `tests/elf_link.sh`: usage fail-closed, non-ELF input rejection, end-to-end equivalence with C backend, exit-code propagation, byte-determinism, readelf structural validation (EXEC type, INTERP segment), `tiq build --backend qbe` integration, TIQ_QBE_LINK escape hatch, no-leftover-temp-files check. Skipped on non-Linux-aarch64 hosts.
+  - Makefile: `src/elf_obj.c`, `src/elf_read.c`, `src/elf_link.c` added to SRCS; `sh tests/elf_obj.sh` and `sh tests/elf_link.sh` added to the test target.
+  - Evidence: `make clean && make && make test` green including the new harnesses (ELF tests skip on Darwin-arm64 as designed).
+
 ## Known bootstrap limitations
 
 - Temporary-file creation and host compiler execution currently use POSIX APIs; non-POSIX platforms need an equivalent documented process abstraction.
