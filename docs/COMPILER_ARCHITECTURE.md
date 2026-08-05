@@ -13,9 +13,9 @@ source bytes
   -> type checking
   -> typed AST
   -> SSA IR lowering (M17.1)
-  -> C11 emitter
-  -> host C compiler
-  -> native executable
+  -> code generation backend:
+     - C backend (default): SSA IR -> C11 emitter -> host C compiler -> native executable
+     - QBE backend (M17.2): SSA IR -> QBE IL emitter -> QBE -> assembly -> linker -> native executable
 ```
 
 ## Current vertical slice

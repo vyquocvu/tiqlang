@@ -66,7 +66,7 @@ void ir_func_free(IrFunction *func) {
 IrType ir_type_from_semantic(SemanticType *sem) {
     IrType t;
     if (!sem) {
-        t.kind = IR_VOID;
+        t.kind = IR_I64;  // Default to i64 for unknown types (matches C backend)
         t.semantic = NULL;
         return t;
     }
@@ -94,7 +94,7 @@ IrType ir_type_from_semantic(SemanticType *sem) {
         case TYPE_VEC: t.kind = IR_VEC; break;
         case TYPE_MAP: t.kind = IR_MAP; break;
         case TYPE_STRBUF: t.kind = IR_STRBUF; break;
-        default: t.kind = IR_VOID; break;
+        default: t.kind = IR_I64; break;  // Default to i64 for unknown types
     }
     t.semantic = sem;
     return t;

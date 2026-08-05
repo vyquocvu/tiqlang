@@ -225,7 +225,7 @@ static int lower_expr(LowerCtx *ctx, AstNode *node) {
                 arg_regs[i] = lower_expr(ctx, node->as.call.args[i]);
             }
             int dst = -1;
-            IrType type = ir_type_from_semantic(node->semantic_type);
+            IrType type = node->semantic_type ? ir_type_from_semantic(node->semantic_type) : i64_type();
             if (type.kind != IR_VOID) dst = ir_new_reg(ctx->func);
             IrOperand *ops = malloc((1 + node->as.call.arg_count) * sizeof(IrOperand));
             ops[0] = str_op(node->as.call.callee->as.identifier.name.start, node->as.call.callee->as.identifier.name.length);
@@ -383,9 +383,9 @@ static void lower_stmt(LowerCtx *ctx, AstNode *node) {
             fn->param_types = malloc(fn->param_count * sizeof(IrType));
             for (int i = 0; i < fn->param_count; i++) {
                 SemanticType *pt = node->as.function.param_types ? (SemanticType *)node->as.function.param_types[i] : NULL;
-                fn->param_types[i] = ir_type_from_semantic(pt);
+                fn->param_types[i] = pt ? ir_type_from_semantic(pt) : i64_type();
             }
-            fn->return_type = ir_type_from_semantic(node->semantic_type);
+            fn->return_type = node->semantic_type ? ir_type_from_semantic(node->semantic_type) : i64_type();
             ctx->func = fn;
 
             int entry_block = ir_add_block(ctx->func, 0);

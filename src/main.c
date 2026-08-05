@@ -1,5 +1,6 @@
 #define _POSIX_C_SOURCE 200809L
 #include <errno.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -13,6 +14,7 @@
 #include "../include/emit_c.h"
 #include "../include/module.h"
 #include "../include/ir.h"
+#include "../include/emit_qbe.h"
 
 #define TIQ_VERSION "0.1.0-dev"
 
@@ -114,6 +116,347 @@ static char *temporary_c_template(void) {
     if (need_slash) { path[dir_len] = '/'; dir_len++; }
     memcpy(path + dir_len, suffix, suffix_len + 1U);
     return path;
+}
+
+// M17.2: locate the directory containing the tiq executable so we can
+// find sibling build artifacts (qbe, runtime_qbe.o).
+static char *find_runtime_dir(void) {
+    char resolved[4096];
+#if defined(__APPLE__)
+    extern int _NSGetExecutablePath(char *, uint32_t *);
+    uint32_t sz = sizeof(resolved);
+    if (_NSGetExecutablePath(resolved, &sz) != 0) return NULL;
+#elif defined(__linux__)
+    ssize_t n = readlink("/proc/self/exe", resolved, sizeof(resolved) - 1);
+    if (n < 0) return NULL;
+    resolved[n] = '\0';
+#else
+    return NULL;
+#endif
+    char *last_slash = strrchr(resolved, '/');
+    size_t dir_len;
+    if (last_slash) dir_len = (size_t)(last_slash - resolved);
+    else dir_len = strlen(resolved);
+    // Check if qbe lives next to the tiq binary
+    char check[4096];
+    snprintf(check, sizeof(check), "%.*s/qbe", (int)dir_len, resolved);
+    if (access(check, X_OK) == 0) {
+        char *dir = malloc(dir_len + 1);
+        if (!dir) die("out of memory");
+        memcpy(dir, resolved, dir_len);
+        dir[dir_len] = '\0';
+        return dir;
+    }
+    // Fallback: walk up from cwd looking for build/qbe
+    char cwd[4096];
+    if (!getcwd(cwd, sizeof(cwd))) return NULL;
+    for (int depth = 0; depth < 4; depth++) {
+        snprintf(check, sizeof(check), "%s/build/qbe", cwd);
+        if (access(check, X_OK) == 0) {
+            size_t l = strlen(cwd);
+            char *d = malloc(l + 7);
+            if (!d) die("out of memory");
+            memcpy(d, cwd, l); memcpy(d + l, "/build", 7);
+            return d;
+        }
+        char *s = strrchr(cwd, '/');
+        if (!s || s == cwd) break;
+        *s = '\0';
+    }
+    return NULL;
+}
+
+// M17.2: temporary file name for QBE IL / object files.
+static char *temporary_qbe_template(const char *suffix) {
+    const char *dir = getenv("TMPDIR");
+    const char *pfx = "tiq-qbe-";
+    size_t dir_len, pfx_len = strlen(pfx), suf_len = strlen(suffix);
+    char *path;
+    int need_slash;
+    if (!dir || !*dir) dir = "/tmp";
+    dir_len = strlen(dir);
+    need_slash = dir_len > 0 && dir[dir_len - 1] != '/';
+    path = malloc(dir_len + (need_slash ? 1 : 0) + pfx_len + suf_len + 1);
+    if (!path) die("out of memory");
+    memcpy(path, dir, dir_len);
+    if (need_slash) path[dir_len++] = '/';
+    memcpy(path + dir_len, pfx, pfx_len);
+    memcpy(path + dir_len + pfx_len, suffix, suf_len + 1);
+    return path;
+}
+
+// M17.2: post-process QBE's ARM64 assembly for macOS.
+// QBE uses adrp/add/blr for external function calls, but the macOS
+// linker requires direct `bl` for external symbols.  This function
+// rewrites the pattern:
+//   adrp  xN, _func@PAGE
+//   add   xN, xN, #:lo12:_func@PAGEOFF
+//   blr   xN
+// into:
+//   bl    _func
+static void fixup_arm64_macho(const char *path) {
+    FILE *f = fopen(path, "r");
+    if (!f) return;
+    fseek(f, 0, SEEK_END);
+    long sz = ftell(f);
+    fseek(f, 0, SEEK_SET);
+    char *buf = malloc(sz + 1);
+    if (!buf) { fclose(f); return; }
+    fread(buf, 1, sz, f);
+    buf[sz] = '\0';
+    fclose(f);
+
+    char *out = malloc(sz * 2 + 1);
+    if (!out) { free(buf); return; }
+    char *wp = out;
+    char *line = buf;
+
+    // Buffer up to 3 lines for the adrp/add/blr pattern
+    char saved[3][512];
+    int nsaved = 0;
+    char sym[256] = "";
+    char adr_reg[16] = "";  // Register used in adrp/add
+    int state = 0; // 0=none, 1=after adrp, 2=after adrp+add
+
+    while (line && *line) {
+        char *nl = strchr(line, '\n');
+        size_t llen = nl ? (size_t)(nl - line) : strlen(line);
+        char tmp[512];
+        if (llen >= sizeof(tmp)) llen = sizeof(tmp) - 1;
+        memcpy(tmp, line, llen);
+        tmp[llen] = '\0';
+
+        char r1[16] = "", s1[256] = "";
+        char r2[16] = "", r3[16] = "", s2[256] = "";
+        char r4[16] = "";
+        int matched = 0;
+
+        if (state == 0 && sscanf(tmp, " adrp %15[^,], %255s", r1, s1) == 2 &&
+            strstr(s1, "@PAGE")) {
+            // Potential start of pattern
+            snprintf(saved[0], sizeof(saved[0]), "%s", tmp);
+            nsaved = 1;
+            snprintf(sym, sizeof(sym), "%s", s1);
+            char *at = strstr(sym, "@PAGE");
+            if (at) *at = '\0';
+            snprintf(adr_reg, sizeof(adr_reg), "%s", r1);
+            state = 1;
+            matched = 1;
+        } else if (state == 1 && sscanf(tmp, " add %15[^,], %15[^,], #:lo12:%255s",
+                                  r2, r3, s2) == 3 &&
+            strcmp(r2, r3) == 0 && strcmp(r2, adr_reg) == 0 && strstr(s2, "@PAGEOFF")) {
+            // Second line of pattern
+            snprintf(saved[1], sizeof(saved[1]), "%s", tmp);
+            nsaved = 2;
+            state = 2;
+            matched = 1;
+        } else if (state == 2 && sscanf(tmp, " blr %15s", r4) == 1 &&
+            strcmp(r4, adr_reg) == 0) {
+            // Full pattern matched — emit bl instead
+            wp += sprintf(wp, "\tbl\t%s\n", sym);
+            state = 0;
+            nsaved = 0;
+            matched = 1;
+        }
+
+        if (matched) {
+            line = nl ? nl + 1 : NULL;
+            continue;
+        }
+
+        // Pattern broken — flush saved lines
+        for (int i = 0; i < nsaved; i++) {
+            size_t sl = strlen(saved[i]);
+            memcpy(wp, saved[i], sl);
+            wp[sl] = '\n';
+            wp += sl + 1;
+        }
+        nsaved = 0;
+
+        // Re-check current line as potential start of new pattern
+        if (sscanf(tmp, " adrp %15[^,], %255s", r1, s1) == 2 && strstr(s1, "@PAGE")) {
+            snprintf(saved[0], sizeof(saved[0]), "%s", tmp);
+            nsaved = 1;
+            snprintf(sym, sizeof(sym), "%s", s1);
+            char *at = strstr(sym, "@PAGE");
+            if (at) *at = '\0';
+            snprintf(adr_reg, sizeof(adr_reg), "%s", r1);
+            state = 1;
+        } else {
+            // Not a pattern start, emit current line
+            memcpy(wp, tmp, llen);
+            wp[llen] = '\n';
+            wp += llen + 1;
+            state = 0;
+        }
+        line = nl ? nl + 1 : NULL;
+    }
+    // Flush any remaining saved lines
+    for (int i = 0; i < nsaved; i++) {
+        size_t sl = strlen(saved[i]);
+        memcpy(wp, saved[i], sl);
+        wp[sl] = '\n';
+        wp += sl + 1;
+    }
+    *wp = '\0';
+    free(buf);
+
+    f = fopen(path, "w");
+    if (f) { fputs(out, f); fclose(f); }
+    free(out);
+}
+
+// M17.2: build via QBE backend.
+// Pipeline: source -> IR -> QBE IL -> qbe .o -> link with runtime -> exe
+static int build_qbe(const char *input, const char *output, DiagContext *diag) {
+    // 1. Parse, resolve imports, semantic check
+    Program prog;
+    if (!program_load(&prog, input, diag)) { program_free(&prog); return 1; }
+    TypePool pool;
+    type_pool_init(&pool);
+    if (!diag->has_error) semantic_check_modules(prog.sem, prog.count, diag, &pool);
+    if (diag->has_error) {
+        program_free(&prog); type_pool_free(&pool); return 1;
+    }
+
+    // 2. Lower to IR
+    SemanticModule *root = &prog.sem[prog.count - 1];
+    IrModule module;
+    ir_module_init(&module);
+    ir_lower(root->stmts, root->count, &module, diag);
+    if (diag->has_error) {
+        ir_module_free(&module); program_free(&prog); type_pool_free(&pool); return 1;
+    }
+
+    // 3. Emit QBE IL to temp file
+    char *il_path = temporary_qbe_template("XXXXXX.il");
+    int fd = mkstemp(il_path);
+    if (fd < 0) {
+        fprintf(stderr, "tiq: cannot create temp QBE IL file: %s\n", strerror(errno));
+        free(il_path); ir_module_free(&module); program_free(&prog); type_pool_free(&pool);
+        return 1;
+    }
+    FILE *il_file = fdopen(fd, "w");
+    if (!il_file) {
+        close(fd); remove(il_path); free(il_path);
+        ir_module_free(&module); program_free(&prog); type_pool_free(&pool);
+        return 1;
+    }
+    if (!emit_qbe(il_file, &module)) {
+        fclose(il_file); remove(il_path); free(il_path);
+        ir_module_free(&module); program_free(&prog); type_pool_free(&pool);
+        fprintf(stderr, "tiq: QBE IL emission failed\n");
+        return 1;
+    }
+    fclose(il_file);
+    ir_module_free(&module);
+    program_free(&prog);
+    type_pool_free(&pool);
+
+    // 4. Run QBE to produce .s (assembly)
+    char *asm_path = temporary_qbe_template("XXXXXX.s");
+    char *obj_path = temporary_qbe_template("XXXXXX.o");
+    char *rt_dir = find_runtime_dir();
+    if (!rt_dir) {
+        fprintf(stderr, "tiq: cannot locate QBE runtime directory\n");
+        remove(il_path); free(il_path); free(asm_path); free(obj_path);
+        return 1;
+    }
+    char qbe_bin[4096], runtime_obj[4096];
+    snprintf(qbe_bin, sizeof(qbe_bin), "%s/qbe", rt_dir);
+    snprintf(runtime_obj, sizeof(runtime_obj), "%s/runtime_qbe.o", rt_dir);
+    free(rt_dir);
+
+    if (access(qbe_bin, X_OK) != 0) {
+        fprintf(stderr, "tiq: QBE binary not found at %s\n", qbe_bin);
+        remove(il_path); free(il_path); free(asm_path); free(obj_path);
+        return 1;
+    }
+
+    pid_t pid = fork();
+    int status;
+    if (pid < 0) {
+        fprintf(stderr, "tiq: fork: %s\n", strerror(errno));
+        remove(il_path); free(il_path); free(asm_path); free(obj_path); return 1;
+    }
+    if (pid == 0) {
+        execl(qbe_bin, qbe_bin, "-o", asm_path, il_path, NULL);
+        fprintf(stderr, "tiq: cannot execute QBE: %s\n", strerror(errno));
+        _exit(127);
+    }
+    for (;;) {
+        if (waitpid(pid, &status, 0) >= 0) break;
+        if (errno != EINTR) {
+            fprintf(stderr, "tiq: waitpid: %s\n", strerror(errno));
+            remove(il_path); free(il_path); free(asm_path); free(obj_path); return 1;
+        }
+    }
+    remove(il_path);
+    free(il_path);
+    if (!WIFEXITED(status) || WEXITSTATUS(status) != 0) {
+        fprintf(stderr, "tiq: QBE failed\n");
+        remove(asm_path); free(asm_path); free(obj_path); return 1;
+    }
+
+    // 4b. Post-process assembly for ARM64 macOS (fix external call stubs)
+#if defined(__APPLE__)
+    fixup_arm64_macho(asm_path);
+#endif
+
+    // 4c. Assemble .s -> .o
+    const char *cc = getenv("CC");
+    if (!cc || !*cc) cc = "cc";
+    pid_t apid = fork();
+    if (apid < 0) {
+        fprintf(stderr, "tiq: fork: %s\n", strerror(errno));
+        remove(asm_path); free(asm_path); free(obj_path); return 1;
+    }
+    if (apid == 0) {
+        execlp(cc, cc, "-c", asm_path, "-o", obj_path, NULL);
+        fprintf(stderr, "tiq: cannot execute assembler: %s\n", strerror(errno));
+        _exit(127);
+    }
+    for (;;) {
+        if (waitpid(apid, &status, 0) >= 0) break;
+        if (errno != EINTR) {
+            fprintf(stderr, "tiq: waitpid: %s\n", strerror(errno));
+            remove(asm_path); free(asm_path); free(obj_path); return 1;
+        }
+    }
+    remove(asm_path);
+    free(asm_path);
+    if (!WIFEXITED(status) || WEXITSTATUS(status) != 0) {
+        fprintf(stderr, "tiq: assembly failed\n");
+        remove(obj_path); free(obj_path); return 1;
+    }
+
+    // 5. Link: cc obj_path runtime_obj -o output
+    const char *cc2 = getenv("CC");
+    if (!cc2 || !*cc2) cc2 = cc;
+    pid_t lpid = fork();
+    if (lpid < 0) {
+        fprintf(stderr, "tiq: fork: %s\n", strerror(errno));
+        remove(obj_path); free(obj_path); return 1;
+    }
+    if (lpid == 0) {
+        execlp(cc2, cc2, obj_path, runtime_obj, "-o", output, NULL);
+        fprintf(stderr, "tiq: cannot execute linker: %s\n", strerror(errno));
+        _exit(127);
+    }
+    for (;;) {
+        if (waitpid(lpid, &status, 0) >= 0) break;
+        if (errno != EINTR) {
+            fprintf(stderr, "tiq: waitpid: %s\n", strerror(errno));
+            remove(obj_path); free(obj_path); return 1;
+        }
+    }
+    remove(obj_path);
+    free(obj_path);
+    if (!WIFEXITED(status) || WEXITSTATUS(status) != 0) {
+        fprintf(stderr, "tiq: linking QBE output failed\n");
+        return 1;
+    }
+    return 0;
 }
 
 static int build_target(const char *input, const char *output, const char *target,
@@ -252,7 +595,7 @@ static void usage(FILE *out) {
     fputs("usage:\n", out);
     fputs("  tiq --version\n", out);
     fputs("  tiq run <file.tiq> [-l lib] [-L dir]\n", out);
-    fputs("  tiq build <file.tiq> [-o output] [--target <triple>] [-l lib] [-L dir]\n", out);
+    fputs("  tiq build <file.tiq> [-o output] [--backend qbe] [--target <triple>] [-l lib] [-L dir]\n", out);
     fputs("  tiq emit-c [--lib] <file.tiq>\n", out);
     fputs("  tiq emit-header <file.tiq> [-o output]\n", out);
     fputs("  tiq check <file.tiq>...\n", out);
@@ -260,6 +603,7 @@ static void usage(FILE *out) {
     fputs("  tiq dump-ast <file.tiq>\n", out);
     fputs("  tiq dump-typed-ast <file.tiq>\n", out);
     fputs("  tiq dump-ir <file.tiq>\n", out);
+    fputs("  tiq dump-qbe <file.tiq>\n", out);
 }
 
 int main(int argc, char **argv) {
@@ -283,7 +627,14 @@ int main(int argc, char **argv) {
             const char *input = argv[2];
             char *link_buf[TIQ_MAX_LINK_OPTS * 2];
             int link_count = 0;
-            if (!parse_link_opts(argc, argv, 3, link_buf, &link_count)) {
+            const char *backend = NULL;
+            int run_from = 3;
+            // M17.2: peek for --backend before link opts
+            if (argc > 4 && strcmp(argv[3], "--backend") == 0) {
+                backend = argv[4];
+                run_from = 5;
+            }
+            if (!parse_link_opts(argc, argv, run_from, link_buf, &link_count)) {
                 usage(stderr);
                 return 2;
             }
@@ -293,7 +644,12 @@ int main(int argc, char **argv) {
             close(fd);
             DiagContext diag;
             diag_init(&diag);
-            int result = build(input, tmp_exe, link_buf, link_count, &diag);
+            int result;
+            if (backend && strcmp(backend, "qbe") == 0) {
+                result = build_qbe(input, tmp_exe, &diag);
+            } else {
+                result = build(input, tmp_exe, link_buf, link_count, &diag);
+            }
             if (result == 0) {
                 // Execute
                 pid_t pid = fork();
@@ -317,6 +673,24 @@ int main(int argc, char **argv) {
     if (argc == 3 && strcmp(argv[1], "dump-ast") == 0) return dump_ast(argv[2], &diag);
     if (argc == 3 && strcmp(argv[1], "dump-typed-ast") == 0) return dump_typed_ast(argv[2], &diag);
     if (argc == 3 && strcmp(argv[1], "dump-ir") == 0) return dump_ir(argv[2], &diag);
+    // M17.2: dump QBE IL for the typed AST (debugging / test inspection).
+    if (argc == 3 && strcmp(argv[1], "dump-qbe") == 0) {
+        Program prog;
+        if (!program_load(&prog, argv[2], &diag)) { program_free(&prog); return 1; }
+        TypePool pool;
+        type_pool_init(&pool);
+        if (!diag.has_error) semantic_check_modules(prog.sem, prog.count, &diag, &pool);
+        if (diag.has_error) { program_free(&prog); type_pool_free(&pool); return 1; }
+        SemanticModule *root = &prog.sem[prog.count - 1];
+        IrModule module;
+        ir_module_init(&module);
+        ir_lower(root->stmts, root->count, &module, &diag);
+        if (!diag.has_error) emit_qbe(stdout, &module);
+        ir_module_free(&module);
+        program_free(&prog);
+        type_pool_free(&pool);
+        return diag.has_error ? 1 : 0;
+    }
     if (argc >= 3 && strcmp(argv[1], "emit-c") == 0) {
         // M16.3: `--lib` omits the entry point so the emitted C links
         // into a host program; the module graph must be definitions-only.
@@ -359,6 +733,7 @@ int main(int argc, char **argv) {
         const char *output = "a.out";
         const char *target = NULL;
         const char *input = NULL;
+        const char *backend = NULL;
         char *link_buf[TIQ_MAX_LINK_OPTS * 2];
         int link_count = 0;
         for (int i = 2; i < argc; i++) {
@@ -366,6 +741,8 @@ int main(int argc, char **argv) {
                 output = argv[++i];
             } else if (strcmp(argv[i], "--target") == 0 && i + 1 < argc) {
                 target = argv[++i];
+            } else if (strcmp(argv[i], "--backend") == 0 && i + 1 < argc) {
+                backend = argv[++i];
             } else if (strcmp(argv[i], "-l") == 0 || strcmp(argv[i], "-L") == 0) {
                 if (i + 1 >= argc) { usage(stderr); return 2; }
                 if (link_count + 2 > TIQ_MAX_LINK_OPTS * 2)
@@ -377,6 +754,10 @@ int main(int argc, char **argv) {
             }
         }
         if (!input) { usage(stderr); return 2; }
+        // M17.2: --backend qbe routes through the QBE native codegen path
+        if (backend && strcmp(backend, "qbe") == 0) {
+            return build_qbe(input, output, &diag);
+        }
         return build_target(input, output, target, link_buf, link_count, &diag);
     }
     usage(stderr);

@@ -4,14 +4,14 @@ CFLAGS ?= -std=c11 -Wall -Wextra -Wpedantic -Werror -O2
 BUILD := build
 TIQ := $(BUILD)/tiq
 
-.PHONY: all clean test test-unit test-fuzz example test-check test-run tool-test tool-fmt tool-bench tool-init tool-cache tool-lsp tool-install tool-registry tool-publish tool-audit tool-proxy tool-std perf-record perf-check
+.PHONY: all clean test test-unit test-fuzz example test-check test-run test-qbe tool-test tool-fmt tool-bench tool-init tool-cache tool-lsp tool-install tool-registry tool-publish tool-audit tool-proxy tool-std perf-record perf-check
 
 # Build the unit runner with the same flags as the compiler. Besides keeping
 # `make` useful as a complete build gate, this preserves sanitizer link flags
 # for the documented two-step `make CFLAGS=...` then `make test` workflow.
-all: $(TIQ) $(BUILD)/unit_tests
+all: $(TIQ) $(BUILD)/unit_tests $(BUILD)/qbe $(BUILD)/runtime_qbe.o
 
-SRCS = src/main.c src/emit_c.c src/lexer.c src/diag.c src/parser.c src/semantic.c \
+SRCS = src/main.c src/emit_c.c src/emit_qbe.c src/lexer.c src/diag.c src/parser.c src/semantic.c \
        src/type.c src/arena.c src/module.c src/ir.c src/ir_lower.c src/ir_dump.c
 OBJS = $(SRCS:src/%.c=$(BUILD)/%.o)
 
@@ -51,7 +51,7 @@ example: $(TIQ)
 	$(TIQ) build examples/hello.tiq -o $(BUILD)/hello
 	$(BUILD)/hello
 
-test: $(TIQ) test-unit
+test: $(TIQ) $(BUILD)/qbe $(BUILD)/runtime_qbe.o test-unit
 	sh tests/smoke.sh
 	sh tests/diagnostics.sh
 	sh tests/lexer.sh
@@ -82,6 +82,7 @@ test: $(TIQ) test-unit
 	sh tests/perf_suite_test.sh
 	sh tests/proxy_tool.sh
 	sh tests/ir.sh
+	sh tests/qbe_backend.sh
 
 test-check: $(TIQ)
 	sh tests/check.sh
@@ -155,6 +156,17 @@ tool-std: $(TIQ)
 
 clean:
 	rm -rf $(BUILD)
+	rm -f third_party/qbe/qbe
 
-distclean:
-	rm -rf $(BUILD)
+# M17.2: build QBE from vendored source
+$(BUILD)/qbe: third_party/qbe/main.c
+	mkdir -p $(BUILD)
+	$(MAKE) -C third_party/qbe
+	cp third_party/qbe/qbe $(BUILD)/qbe
+
+# M17.2: compile the QBE-callable runtime library
+$(BUILD)/runtime_qbe.o: src/runtime_qbe.c
+	mkdir -p $(BUILD)
+	$(CC) -std=c11 -O2 -c $< -o $@
+
+distclean: clean

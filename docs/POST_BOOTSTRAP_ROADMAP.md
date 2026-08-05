@@ -132,7 +132,7 @@ Direct machine code / assembly generation to bypass external C compiler host dep
 ### Tasks
 
 - [x] **M17.1** Static Single Assignment (SSA) IR design for Tiq — closed 2026-08-04. `include/ir.h` defines IR types (~40 opcodes, type kinds, operands, instructions, phi nodes, basic blocks, functions, modules). `src/ir.c` provides construction/destruction helpers. `src/ir_lower.c` implements AST-to-IR lowering (bindings, arithmetic, conditionals with phi nodes, range loops, functions, calls, arrays, break/skip). `src/ir_dump.c` provides textual IR dumper. `tiq dump-ir` CLI command. `tests/ir.sh` (17 tests) verifies structural goldens, example roundtrips, and fail-closed semantic errors. Evidence: `make clean && make && make test` green.
-- [ ] **M17.2** One initial lightweight backend (QBE or Cranelift) for fast debug builds; the C11 emitter remains the reference backend
+- [x] **M17.2** One initial lightweight backend (QBE or Cranelift) for fast debug builds; the C11 emitter remains the reference backend (COMPLETED: QBE backend implemented 2026-08-05)
 - [ ] **M17.3** Integrated linker / ELF / Mach-O / PE object writer
 - [ ] **M17.4** Target architecture matrix (`x86_64`, `aarch64`, `riscv64`, `wasm32-wasi`); `wasm32-wasi` unblocks the M20.3 playground
 - [ ] **M17.5** Optional LLVM IR backend for production release builds (`-O3`), only after the initial backend is proven
