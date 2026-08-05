@@ -11,7 +11,8 @@ source bytes
   -> AST
   -> name resolution
   -> type checking
-  -> typed IR
+  -> typed AST
+  -> SSA IR lowering (M17.1)
   -> C11 emitter
   -> host C compiler
   -> native executable
@@ -45,13 +46,16 @@ src/parser.c      AST construction
 src/semantic.c    scopes, symbols, and type checking
 src/type.c        type pool (interned primitive and struct types)
 src/emit_c.c      portable C backend (EmitContext, re-entrant)
+src/ir.c          SSA IR construction/destruction helpers (M17.1)
+src/ir_lower.c    AST-to-IR lowering pass (M17.1)
+src/ir_dump.c     textual IR dumper for debugging/testing (M17.1)
 src/diag.c        structured diagnostics
 src/arena.c       AST arena allocator
 ```
 
 The bootstrap compiler contains only the core pipeline. The former C tooling modules (formatter, test runner, benchmark, manifest, cache, LSP server) were removed on 2026-07-30 and will be rewritten in Tiq after self-hosting (POST_BOOTSTRAP_ROADMAP M14).
 
-There is no separate `src/source.c`, `src/resolve.c`, or `src/ir.c`: source loading lives in `main.c`, resolution and checking are combined in `semantic.c`, and the emitter walks the typed AST directly without a lower-level IR. The C backend was split out of `main.c` into `src/emit_c.c` in 2026-07-27; all emitter state is carried in an `EmitContext` (no mutable globals), so `compile_to_c` is re-entrant and unit-tested in `tests/unit/test_main.c`.
+There is no separate `src/source.c` or `src/resolve.c`: source loading lives in `main.c`, resolution and checking are combined in `semantic.c`. The C backend was split out of `main.c` into `src/emit_c.c` in 2026-07-27; all emitter state is carried in an `EmitContext` (no mutable globals), so `compile_to_c` is re-entrant and unit-tested in `tests/unit/test_main.c`. M17.1 added an SSA IR layer (`src/ir.c`, `src/ir_lower.c`, `src/ir_dump.c`) between the typed AST and code generation backends, accessible via `tiq dump-ir`.
 
 ## Backend strategy
 

@@ -524,6 +524,18 @@ corrected audits. None of these milestones is complete.
   - Tests (added failing first): `tests/std_mod.sh` (23rd harness, wired into `make test` and `tool-std`) verifies gated builtins are rejected without the import (diagnostic names the module), work with the import, core builtins need no import, `std/` resolves from a nested directory via cwd fallback, wrappers produce correct results, and an ASan/UBSan build of a std/-importing program. Existing `.tiq` users of gated builtins (`src/tiq/tools/fmt.tiq`, `src/tiq/tools/bench.tiq`) and the smoke/semantic/selfhost harnesses were updated to import the relevant `std/` module. Full suite green from `make clean`.
   - Docs: POST_BOOTSTRAP_ROADMAP M15 status/tasks/exit-gate; LANGUAGE_SPEC std/ import note; CLI std/ resolution note.
 
+## Current milestone — M17: Native Code Generation & IR
+
+- M17.1: SSA IR design and implementation (2026-08-04):
+  - New `include/ir.h` defines the IR type system: `IrOp` (~40 opcodes covering constants, arithmetic, comparison, logical, bitwise, control flow, calls, memory, aggregates, phi nodes, builtins), `IrTypeKind` (mirrors SemanticType for IR-level tracking), `IrOperand` (tagged union: register, immediate, block label, string), `IrInstr`, `IrPhi`, `IrBlock`, `IrFunction`, `IrModule`.
+  - New `src/ir.c` provides IR construction/destruction: `ir_module_init`/`ir_module_free`, `ir_func_init`/`ir_func_free`, `ir_emit_instr`, `ir_emit_into_block`, `ir_emit_phi`, `ir_add_block`, `ir_new_reg`, `ir_type_from_semantic` (converts SemanticType* to IrType).
+  - New `src/ir_lower.c` implements the AST-to-IR lowering pass (`ir_lower`). Handles: bindings, assignments, binary/unary ops, literals, identifiers, conditionals (with phi nodes at merge points), range loops (with phi for loop variable, comparison, increment), break/skip, function definitions (direct-expression and block bodies), function calls (including print/len builtins), array literals. SSA form: each binding creates a fresh temporary, reassignment creates a new temporary. Variable tracking uses scope-aware name lookup with length-aware comparison (Token names are not null-terminated).
+  - New `src/ir_dump.c` provides a textual IR dumper (`ir_dump`) in LLVM-inspired format: `define name(params) -> ret_type { bb0: ... }`. Type names: `void`, `bool`, `i8`..`i64`, `u8`..`u64`, `f32`, `f64`, `str`, etc.
+  - New `tiq dump-ir <file.tiq>` CLI command in `src/main.c`: loads program, runs semantic checks, lowers to IR, dumps to stdout. Fail-closed: semantic errors prevent IR lowering.
+  - New `tests/ir.sh` (IR lowering test harness) with 17 tests: binding arithmetic, print, conditional (cbr), range loop (cmp_lt), function def (define), function call (call @name), array (array_init), comparison, logical, unary, multi-statement, nested expressions, boolean/integer/string literals, all examples roundtrip, semantic error fail-closed (undefined var, type mismatch).
+  - Makefile updated: `src/ir.c`, `src/ir_lower.c`, `src/ir_dump.c` added to SRCS; `sh tests/ir.sh` added to test target.
+  - Evidence: `make clean && make && make test` is green (all harnesses including IR tests). ASan/UBSan clean.
+
 ## Known bootstrap limitations
 
 - Temporary-file creation and host compiler execution currently use POSIX APIs; non-POSIX platforms need an equivalent documented process abstraction.

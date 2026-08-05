@@ -123,7 +123,7 @@ Zero-overhead C interoperability for calling host C libraries and embedding Tiq 
 
 ## M17 — Native Code Generation & Intermediate Representation (IR)
 
-Status: queued
+Status: in progress (M17.1 complete)
 
 Depends on: M13 (the self-hosted compiler is the codebase that grows the IR). Runs as a parallel track; one backend at a time to avoid speculative breadth.
 
@@ -131,7 +131,7 @@ Direct machine code / assembly generation to bypass external C compiler host dep
 
 ### Tasks
 
-- [ ] **M17.1** Static Single Assignment (SSA) IR design for Tiq
+- [x] **M17.1** Static Single Assignment (SSA) IR design for Tiq — closed 2026-08-04. `include/ir.h` defines IR types (~40 opcodes, type kinds, operands, instructions, phi nodes, basic blocks, functions, modules). `src/ir.c` provides construction/destruction helpers. `src/ir_lower.c` implements AST-to-IR lowering (bindings, arithmetic, conditionals with phi nodes, range loops, functions, calls, arrays, break/skip). `src/ir_dump.c` provides textual IR dumper. `tiq dump-ir` CLI command. `tests/ir.sh` (17 tests) verifies structural goldens, example roundtrips, and fail-closed semantic errors. Evidence: `make clean && make && make test` green.
 - [ ] **M17.2** One initial lightweight backend (QBE or Cranelift) for fast debug builds; the C11 emitter remains the reference backend
 - [ ] **M17.3** Integrated linker / ELF / Mach-O / PE object writer
 - [ ] **M17.4** Target architecture matrix (`x86_64`, `aarch64`, `riscv64`, `wasm32-wasi`); `wasm32-wasi` unblocks the M20.3 playground

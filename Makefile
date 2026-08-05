@@ -12,7 +12,7 @@ TIQ := $(BUILD)/tiq
 all: $(TIQ) $(BUILD)/unit_tests
 
 SRCS = src/main.c src/emit_c.c src/lexer.c src/diag.c src/parser.c src/semantic.c \
-       src/type.c src/arena.c src/module.c
+       src/type.c src/arena.c src/module.c src/ir.c src/ir_lower.c src/ir_dump.c
 OBJS = $(SRCS:src/%.c=$(BUILD)/%.o)
 
 # Rebuild everything when any public header changes (ABI safety).
@@ -81,6 +81,7 @@ test: $(TIQ) test-unit
 	sh tests/audit_tool.sh
 	sh tests/perf_suite_test.sh
 	sh tests/proxy_tool.sh
+	sh tests/ir.sh
 
 test-check: $(TIQ)
 	sh tests/check.sh

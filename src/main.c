@@ -12,6 +12,7 @@
 #include "../include/type.h"
 #include "../include/emit_c.h"
 #include "../include/module.h"
+#include "../include/ir.h"
 
 #define TIQ_VERSION "0.1.0-dev"
 
@@ -202,6 +203,32 @@ static int dump_typed_ast(const char *input, DiagContext *diag) {
     return diag->has_error ? 1 : 0;
 }
 
+// M17.1: dump SSA-based IR for the typed AST.
+static int dump_ir(const char *input, DiagContext *diag) {
+    Program prog;
+    if (!program_load(&prog, input, diag)) {
+        program_free(&prog);
+        return 1;
+    }
+    TypePool pool;
+    type_pool_init(&pool);
+    if (!diag->has_error) semantic_check_modules(prog.sem, prog.count, diag, &pool);
+    if (diag->has_error) {
+        program_free(&prog);
+        type_pool_free(&pool);
+        return 1;
+    }
+    SemanticModule *root = &prog.sem[prog.count - 1];
+    IrModule module;
+    ir_module_init(&module);
+    ir_lower(root->stmts, root->count, &module, diag);
+    if (!diag->has_error) ir_dump(stdout, &module);
+    ir_module_free(&module);
+    program_free(&prog);
+    type_pool_free(&pool);
+    return diag->has_error ? 1 : 0;
+}
+
 static int cmd_check(const char *input) {
     DiagContext diag;
     diag_init(&diag);
@@ -232,6 +259,7 @@ static void usage(FILE *out) {
     fputs("  tiq dump-tokens <file.tiq>\n", out);
     fputs("  tiq dump-ast <file.tiq>\n", out);
     fputs("  tiq dump-typed-ast <file.tiq>\n", out);
+    fputs("  tiq dump-ir <file.tiq>\n", out);
 }
 
 int main(int argc, char **argv) {
@@ -288,6 +316,7 @@ int main(int argc, char **argv) {
     if (argc == 3 && strcmp(argv[1], "dump-tokens") == 0) return dump_tokens(argv[2], &diag);
     if (argc == 3 && strcmp(argv[1], "dump-ast") == 0) return dump_ast(argv[2], &diag);
     if (argc == 3 && strcmp(argv[1], "dump-typed-ast") == 0) return dump_typed_ast(argv[2], &diag);
+    if (argc == 3 && strcmp(argv[1], "dump-ir") == 0) return dump_ir(argv[2], &diag);
     if (argc >= 3 && strcmp(argv[1], "emit-c") == 0) {
         // M16.3: `--lib` omits the entry point so the emitted C links
         // into a host program; the module graph must be definitions-only.
