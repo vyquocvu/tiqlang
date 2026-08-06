@@ -16,8 +16,10 @@
 #include "../include/ir.h"
 #include "../include/emit_qbe.h"
 #include "../include/asm_arm64.h"
+#include "../include/asm_amd64.h"
 #include "../include/macho_link.h"
 #include "../include/elf_link.h"
+#include "../include/pe_link.h"
 #include <sys/stat.h>
 
 #define TIQ_VERSION "0.1.0-dev"
@@ -254,9 +256,9 @@ cleanup:
 }
 #endif
 
-// M17.3.3: link the program object with the QBE runtime into an ELF
-// executable via the integrated ELF linker (Linux aarch64 only).
-#if defined(__linux__) && defined(__aarch64__)
+// M17.3.3/M17.3.4: link the program object with the QBE runtime into an ELF
+// executable via the integrated ELF linker (Linux aarch64/x86_64).
+#if defined(__linux__) && (defined(__aarch64__) || defined(__x86_64__))
 static int link_elf_objects(const char *obj_path, const char *runtime_obj,
                             const char *output) {
     uint8_t *blobs[2] = {NULL, NULL};
@@ -496,6 +498,49 @@ static int build_qbe(const char *input, const char *output, DiagContext *diag) {
     }
     remove(asm_path);
     free(asm_path);
+#elif defined(__linux__) && defined(__x86_64__)
+    // M17.3.4: integrated ELF object writer for x86_64 — the QBE amd64
+    // assembly subset is assembled in-process with ELF format.
+    {
+        FILE *asm_file = fopen(asm_path, "rb");
+        if (!asm_file) {
+            fprintf(stderr, "tiq: cannot read %s: %s\n", asm_path, strerror(errno));
+            remove(asm_path); free(asm_path); free(obj_path); return 1;
+        }
+        fseek(asm_file, 0, SEEK_END);
+        long asm_size = ftell(asm_file);
+        fseek(asm_file, 0, SEEK_SET);
+        char *asm_text = malloc((size_t)asm_size + 1);
+        if (!asm_text || fread(asm_text, 1, (size_t)asm_size, asm_file) != (size_t)asm_size) {
+            fclose(asm_file); free(asm_text);
+            fprintf(stderr, "tiq: cannot read %s\n", asm_path);
+            remove(asm_path); free(asm_path); free(obj_path); return 1;
+        }
+        fclose(asm_file);
+        AsmUnit unit;
+        asm_unit_init(&unit);
+        unit.fmt = ASM_FMT_ELF;
+        int asm_ok = asm_amd64_assemble(&unit, asm_text, (size_t)asm_size) == 0;
+        if (asm_ok) {
+            FILE *obj_file = fopen(obj_path, "wb");
+            if (!obj_file || elf_obj_write(&unit, obj_file) != 0) asm_ok = 0;
+            if (obj_file && fclose(obj_file) != 0) asm_ok = 0;
+        }
+        if (!asm_ok) {
+            if (unit.has_error)
+                fprintf(stderr, "tiq: %s:%d: error: %s\n", asm_path, unit.errline, unit.errmsg);
+            else
+                fprintf(stderr, "tiq: cannot write object file %s\n", obj_path);
+            remove(obj_path);
+            asm_unit_free(&unit); free(asm_text);
+            remove(asm_path); free(asm_path); free(obj_path);
+            return 1;
+        }
+        asm_unit_free(&unit);
+        free(asm_text);
+    }
+    remove(asm_path);
+    free(asm_path);
 #else
     const char *cc = getenv("CC");
     if (!cc || !*cc) cc = "cc";
@@ -538,6 +583,14 @@ static int build_qbe(const char *input, const char *output, DiagContext *diag) {
     }
 #endif
 #if defined(__linux__) && defined(__aarch64__)
+    if (!qlink || !*qlink) {
+        int lr = link_elf_objects(obj_path, runtime_obj, output);
+        remove(obj_path);
+        free(obj_path);
+        return lr;
+    }
+#endif
+#if defined(__linux__) && defined(__x86_64__)
     if (!qlink || !*qlink) {
         int lr = link_elf_objects(obj_path, runtime_obj, output);
         remove(obj_path);
@@ -705,9 +758,9 @@ static int cmd_check(const char *input) {
     return diag.has_error ? 1 : 0;
 }
 
-// M17.3.1/M17.3.3: assemble the QBE arm64 assembly subset in-process and
-// write a relocatable object (Mach-O on Darwin arm64, ELF64 on Linux aarch64).
-#if (defined(__APPLE__) || defined(__linux__)) && defined(__aarch64__)
+// M17.3.1/M17.3.3/M17.3.4: assemble the QBE assembly subset in-process and
+// write a relocatable object (Mach-O on Darwin arm64, ELF64 on Linux aarch64/x86_64).
+#if (defined(__APPLE__) && defined(__aarch64__)) || (defined(__linux__) && (defined(__aarch64__) || defined(__x86_64__)))
 static void usage(FILE *out);
 static int cmd_emit_obj(const char *input, const char *output) {
     FILE *f = fopen(input, "rb");
@@ -727,10 +780,14 @@ static int cmd_emit_obj(const char *input, const char *output) {
     fclose(f);
     AsmUnit unit;
     asm_unit_init(&unit);
-#if defined(__linux__) && defined(__aarch64__)
+#if defined(__linux__) && (defined(__aarch64__) || defined(__x86_64__))
     unit.fmt = ASM_FMT_ELF;
 #endif
+#if defined(__x86_64__)
+    if (asm_amd64_assemble(&unit, source, (size_t)size) != 0) {
+#else
     if (asm_arm64_assemble(&unit, source, (size_t)size) != 0) {
+#endif
         fprintf(stderr, "tiq: %s:%d: error: %s\n", input, unit.errline, unit.errmsg);
         asm_unit_free(&unit); free(source);
         return 1;
@@ -739,6 +796,8 @@ static int cmd_emit_obj(const char *input, const char *output) {
     int result;
 #if defined(__APPLE__) && defined(__aarch64__)
     result = out ? macho_obj_write(&unit, out) : 1;
+#elif defined(__x86_64__)
+    result = out ? elf_obj_write(&unit, out) : 1;
 #else
     result = out ? elf_obj_write(&unit, out) : 1;
 #endif
@@ -752,8 +811,8 @@ static int cmd_emit_obj(const char *input, const char *output) {
     return result;
 }
 
-// M17.3.2/M17.3.3: link relocatable objects into an executable entirely
-// in-process (Mach-O on Darwin arm64, ELF64 on Linux aarch64).
+// M17.3.2/M17.3.3/M17.3.4: link relocatable objects into an executable entirely
+// in-process (Mach-O on Darwin arm64, ELF64 on Linux aarch64/x86_64).
 static int cmd_link_qbe(int argc, char **argv) {
     const char *inputs[TIQ_MAX_LINK_OPTS];
     int ninputs = 0;
@@ -773,7 +832,7 @@ static int cmd_link_qbe(int argc, char **argv) {
 
 #if defined(__APPLE__) && defined(__aarch64__)
     MachOObject *objs = calloc((size_t)ninputs, sizeof(MachOObject));
-#elif defined(__linux__) && defined(__aarch64__)
+#elif defined(__linux__) && (defined(__aarch64__) || defined(__x86_64__))
     ElfObject *objs = calloc((size_t)ninputs, sizeof(ElfObject));
 #endif
     uint8_t **blobs = calloc((size_t)ninputs, sizeof(uint8_t *));
@@ -800,7 +859,7 @@ static int cmd_link_qbe(int argc, char **argv) {
         char err[256];
 #if defined(__APPLE__) && defined(__aarch64__)
         if (macho_read(data, (size_t)size, &objs[i], err, sizeof(err)) != 0) {
-#elif defined(__linux__) && defined(__aarch64__)
+#elif defined(__linux__) && (defined(__aarch64__) || defined(__x86_64__))
         if (elf_read(data, (size_t)size, &objs[i], err, sizeof(err)) != 0) {
 #endif
             fprintf(stderr, "tiq: %s: %s\n", inputs[i], err);
@@ -815,7 +874,7 @@ static int cmd_link_qbe(int argc, char **argv) {
 #if defined(__APPLE__) && defined(__aarch64__)
         if (link_macho_exec(objs, (size_t)ninputs, "_main", &exe, &exe_len,
                             err, sizeof(err)) != 0) {
-#elif defined(__linux__) && defined(__aarch64__)
+#elif defined(__linux__) && (defined(__aarch64__) || defined(__x86_64__))
         if (link_elf_exec(objs, (size_t)ninputs, "main", &exe, &exe_len,
                           err, sizeof(err)) != 0) {
 #endif
@@ -838,7 +897,7 @@ static int cmd_link_qbe(int argc, char **argv) {
 cleanup:
 #if defined(__APPLE__) && defined(__aarch64__)
     for (size_t i = 0; i < loaded; i++) macho_object_free(&objs[i]);
-#elif defined(__linux__) && defined(__aarch64__)
+#elif defined(__linux__) && (defined(__aarch64__) || defined(__x86_64__))
     for (size_t i = 0; i < loaded; i++) elf_object_free(&objs[i]);
 #endif
     for (int i = 0; i < ninputs; i++) free(blobs[i]);
@@ -971,7 +1030,7 @@ int main(int argc, char **argv) {
         return emit_file(input, NULL, &diag, mode);
     }
     if (argc >= 3 && strcmp(argv[1], "emit-obj") == 0) {
-#if (defined(__APPLE__) || defined(__linux__)) && defined(__aarch64__)
+#if (defined(__APPLE__) && defined(__aarch64__)) || (defined(__linux__) && (defined(__aarch64__) || defined(__x86_64__)))
         // M17.3.1/M17.3.3: integrated assembler + object writer.
         const char *input = NULL;
         const char *output = NULL;
@@ -989,16 +1048,16 @@ int main(int argc, char **argv) {
         if (!input || !output) { usage(stderr); return 2; }
         return cmd_emit_obj(input, output);
 #else
-        fprintf(stderr, "tiq: emit-obj is only supported on aarch64 hosts (Darwin or Linux)\n");
+        fprintf(stderr, "tiq: emit-obj is only supported on aarch64/x86_64 hosts (Darwin or Linux)\n");
         return 2;
 #endif
     }
     if (argc >= 3 && strcmp(argv[1], "link-qbe") == 0) {
-#if (defined(__APPLE__) || defined(__linux__)) && defined(__aarch64__)
+#if (defined(__APPLE__) && defined(__aarch64__)) || (defined(__linux__) && (defined(__aarch64__) || defined(__x86_64__)))
         // M17.3.2/M17.3.3: integrated executable linker.
         return cmd_link_qbe(argc, argv);
 #else
-        fprintf(stderr, "tiq: link-qbe is only supported on aarch64 hosts (Darwin or Linux)\n");
+        fprintf(stderr, "tiq: link-qbe is only supported on aarch64/x86_64 hosts (Darwin or Linux)\n");
         return 2;
 #endif
     }

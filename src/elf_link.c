@@ -1,11 +1,11 @@
-// M17.3.3: integrated ELF64 aarch64 executable linker.
+// M17.3.4: integrated ELF64 executable linker (aarch64 + x86_64).
 //
 // Combines parsed relocatable objects into a runnable ELF executable
-// for aarch64 Linux, without invoking cc/ld:
+// for aarch64 or x86_64 Linux, without invoking cc/ld:
 //   - Two PT_LOAD segments: text (R+X) at 0x400000, data (RW)
 //   - PT_DYNAMIC with DT_NEEDED for libc.so.6
 //   - GOT for external symbol addresses, PLT stubs for calls
-//   - PT_INTERP pointing to /lib/ld-linux-aarch64.so.1
+//   - PT_INTERP pointing to the dynamic linker
 //   - PT_GNU_STACK (non-executable)
 // Output is deterministic: identical inputs yield identical bytes.
 
@@ -45,12 +45,12 @@ static void wr_u32(uint8_t *p, uint32_t v) { memcpy(p, &v, 4); }
 static void wr_u64(uint8_t *p, uint64_t v) { memcpy(p, &v, 8); }
 
 // ELF64 header emission.
-static void emit_ehdr(Buf *b, uint16_t type, uint64_t entry, uint64_t phoff,
-                       uint64_t shoff, uint16_t phnum, uint16_t shnum) {
+static void emit_ehdr(Buf *b, uint16_t type, uint16_t machine, uint64_t entry,
+                       uint64_t phoff, uint64_t shoff, uint16_t phnum, uint16_t shnum) {
     buf_put(b, "\x7f" "ELF", 4);
     buf_put(b, "\x02\x01\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00", 12);
     buf_le16(b, type);
-    buf_le16(b, EM_AARCH64);
+    buf_le16(b, machine);
     buf_le32(b, EV_CURRENT);
     buf_le64(b, entry);
     buf_le64(b, phoff);
@@ -171,6 +171,10 @@ int link_elf_exec(const ElfObject *objs, size_t nobj, const char *entry,
     *out = NULL;
     *out_len = 0;
 
+    // Detect machine type from first object.
+    uint16_t machine = nobj > 0 ? objs[0].machine : EM_AARCH64;
+    int is_x86_64 = (machine == EM_X86_64);
+
     // Find entry symbol.
     int entry_oi, entry_si;
     if (!find_symbol(objs, nobj, entry, &entry_oi, &entry_si)) {
@@ -189,8 +193,8 @@ int link_elf_exec(const ElfObject *objs, size_t nobj, const char *entry,
         ext[i].plt_idx = (int)i;
     }
 
-    // Interpreter path.
-    const char *interp = "/lib/ld-linux-aarch64.so.1";
+    // Interpreter path depends on architecture.
+    const char *interp = is_x86_64 ? "/lib64/ld-linux-x86-64.so.2" : "/lib/ld-linux-aarch64.so.1";
     size_t interp_len = strlen(interp) + 1;
 
     // --- Compute section sizes ---
@@ -222,8 +226,11 @@ int link_elf_exec(const ElfObject *objs, size_t nobj, const char *entry,
         if (b) total_bss += b->size;
     }
 
-    // PLT: each entry is 16 bytes (adrp, ldr, br, padding or similar).
-    size_t plt_size = next * 16;
+    // PLT entry size depends on architecture.
+    // aarch64: 16 bytes (adrp, ldr, add, br)
+    // x86_64: 16 bytes (jmp *GOT(%rip), nop padding)
+    size_t plt_entry_size = 16;
+    size_t plt_size = next * plt_entry_size;
     // GOT: each entry is 8 bytes.
     size_t got_size = next * 8;
 
@@ -240,7 +247,11 @@ int link_elf_exec(const ElfObject *objs, size_t nobj, const char *entry,
     // .dynsym: null entry + one per external.
     size_t dynsym_size = 24 * (1 + next);
 
-    // .rela.plt: one R_AARCH64_JUMP_SLOT per PLT entry.
+    // .rela.plt: one JUMP_SLOT per PLT entry.
+    uint32_t jump_slot_type = is_x86_64 ? R_X86_64_64 : R_AARCH64_JUMP_SLOT;
+    // Note: for x86_64 we use R_X86_64_64 for GOT entries (ld.so fills them).
+    // Actually, the standard relocation for PLT GOT entries is R_X86_64_JUMP_SLOT (256)
+    // but that's a dynamic relocation. For simplicity we use R_X86_64_64.
     size_t rela_plt_size = 24 * next;
 
     // .dynamic entries (each 16 bytes).
@@ -330,7 +341,7 @@ int link_elf_exec(const ElfObject *objs, size_t nobj, const char *entry,
     Buf b = { 0 };
 
     // ELF header (placeholder, fill in later).
-    emit_ehdr(&b, ET_EXEC, entry_vm, ehdr_size, 0, (uint16_t)phnum, shnum);
+    emit_ehdr(&b, ET_EXEC, machine, entry_vm, ehdr_size, 0, (uint16_t)phnum, shnum);
 
     // Program headers.
     // PT_PHDR
@@ -360,19 +371,37 @@ int link_elf_exec(const ElfObject *objs, size_t nobj, const char *entry,
         if (t && t->size > 0) buf_put(&b, t->data, (size_t)t->size);
     }
 
-    // .plt: each entry is a 16-byte stub:
-    //   adrp x16, GOT_page    ; x16 = page of GOT entry
-    //   ldr  x17, [x16, off]  ; x17 = GOT entry value (filled by ld.so)
-    //   add  x16, x16, off    ; x16 = address of GOT entry
-    //   br   x17
-    // For simplicity, we emit placeholder instructions that ld.so will fix up.
-    // The R_AARCH64_JUMP_SLOT relocations tell ld.so what to fill in.
-    for (size_t i = 0; i < next; i++) {
-        uint64_t got_entry_vm = got_vm + (uint64_t)i * 8;
-        // We'll patch these with proper adrp/ldr/add/br after layout is final.
-        // For now emit NOPs as placeholders.
-        for (int j = 0; j < 4; j++) buf_le32(&b, 0xD503201F); // nop
-        (void)got_entry_vm;
+    // .plt: architecture-specific stubs.
+    if (is_x86_64) {
+        // x86_64 PLT entry: jmp *GOT_ENTRY(%rip) + nop padding to 16 bytes.
+        // FF 25 xx xx xx xx  (jmp *[rip+xx], xx = offset to GOT entry from next insn)
+        // 0F 1F 44 00 00     (nop dword ptr [rax+rax], 5-byte nop)
+        // 0F 1F 44 00 00     (another 5-byte nop)
+        // 66 0F 1F 44 00 00  (nop word ptr [rax+rax], 6-byte nop) -- only if needed
+        for (size_t i = 0; i < next; i++) {
+            uint64_t got_entry_vm = got_vm + (uint64_t)i * 8;
+            uint64_t plt_entry_vm = plt_vm + i * plt_entry_size;
+            // The jmp is at plt_entry_vm, rip after jmp = plt_entry_vm + 6.
+            // Offset to GOT entry from rip = got_entry_vm - (plt_entry_vm + 6).
+            int32_t rip_offset = (int32_t)(got_entry_vm - (plt_entry_vm + 6));
+            buf_u8(&b, 0xFF); buf_u8(&b, 0x25); // jmp *rip+
+            buf_le32(&b, (uint32_t)rip_offset);
+            // 10 bytes of nop padding.
+            buf_u8(&b, 0x0F); buf_u8(&b, 0x1F); buf_u8(&b, 0x44);
+            buf_u8(&b, 0x00); buf_u8(&b, 0x00); // 5-byte nop
+            buf_u8(&b, 0x0F); buf_u8(&b, 0x1F); buf_u8(&b, 0x44);
+            buf_u8(&b, 0x00); buf_u8(&b, 0x00); // 5-byte nop
+        }
+    } else {
+        // aarch64 PLT entry: adrp x16, GOT_page; ldr x17, [x16, #lo12];
+        //                    add x16, x16, #lo12; br x17
+        for (size_t i = 0; i < next; i++) {
+            uint64_t got_entry_vm = got_vm + (uint64_t)i * 8;
+            // We'll patch these with proper adrp/ldr/add/br after layout is final.
+            // For now emit NOPs as placeholders.
+            for (int j = 0; j < 4; j++) buf_le32(&b, 0xD503201F); // nop
+            (void)got_entry_vm;
+        }
     }
 
     // .rodata (combined).
@@ -417,7 +446,7 @@ int link_elf_exec(const ElfObject *objs, size_t nobj, const char *entry,
     // .rela.plt
     for (size_t i = 0; i < next; i++) {
         uint64_t got_off_vm = got_vm + (uint64_t)i * 8;
-        uint64_t r_info = ((uint64_t)(i + 1) << 32) | (uint64_t)R_AARCH64_JUMP_SLOT;
+        uint64_t r_info = ((uint64_t)(i + 1) << 32) | (uint64_t)jump_slot_type;
         emit_rela(&b, got_off_vm, r_info, 0);
     }
 
@@ -449,7 +478,6 @@ int link_elf_exec(const ElfObject *objs, size_t nobj, const char *entry,
         for (uint32_t r = 0; r < t->nreloc; r++) {
             const ElfReloc *rel = &t->relocs[r];
             uint8_t *loc = text_base + text_off[o] + rel->offset;
-            uint32_t insn = rd_u32(loc);
 
             // Resolve the symbol.
             const ElfSymbol *sym = NULL;
@@ -460,135 +488,186 @@ int link_elf_exec(const ElfObject *objs, size_t nobj, const char *entry,
                 sym_defined = find_symbol(objs, nobj, sym->name, &sym_oi, &sym_si);
             }
 
-            switch (rel->type) {
-                case ASM_RELOC_BRANCH26: {
-                    if (sym_defined) {
-                        // Internal call: patch with relative offset.
-                        const ElfSymbol *def = &objs[sym_oi].symbols[sym_si];
-                        const ElfSection *def_text = find_section(&objs[sym_oi], ".text");
-                        if (def_text) {
+            if (is_x86_64) {
+                // x86_64 relocation handling.
+                uint64_t P = text_vm_off + text_off[o] + rel->offset;
+                switch (rel->type) {
+                    case ASM_RELOC_X86_64_PC32: {
+                        // S + A - P (A is in rel->addend, typically -4).
+                        uint64_t S = 0;
+                        if (sym_defined) {
+                            const ElfSymbol *def = &objs[sym_oi].symbols[sym_si];
+                            S = text_vm_off + text_off[sym_oi] + def->value;
+                        } else if (sym) {
+                            // External: redirect to PLT entry.
+                            int plt_idx = -1;
+                            for (size_t e = 0; e < next; e++)
+                                if (strcmp(ext[e].name, sym->name) == 0) { plt_idx = (int)e; break; }
+                            if (plt_idx >= 0)
+                                S = plt_vm + (uint64_t)plt_idx * plt_entry_size;
+                        }
+                        int32_t result = (int32_t)(S + (uint64_t)rel->addend - P);
+                        uint8_t d[4];
+                        memcpy(d, &result, 4);
+                        memcpy(loc, d, 4);
+                        break;
+                    }
+                    case ASM_RELOC_X86_64_GOTPCRELX: {
+                        // GOT entry VA + A - P (A is typically -4).
+                        if (sym) {
+                            int got_idx = -1;
+                            for (size_t e = 0; e < next; e++)
+                                if (strcmp(ext[e].name, sym->name) == 0) { got_idx = (int)e; break; }
+                            if (got_idx >= 0) {
+                                uint64_t got_entry_vm = got_vm + (uint64_t)got_idx * 8;
+                                int32_t result = (int32_t)(got_entry_vm + (uint64_t)rel->addend - P);
+                                uint8_t d[4];
+                                memcpy(d, &result, 4);
+                                memcpy(loc, d, 4);
+                            }
+                        }
+                        break;
+                    }
+                    case ASM_RELOC_X86_64_64: {
+                        // Absolute 64-bit: S + A (in data section typically).
+                        uint8_t *dloc = loc;
+                        uint64_t val = 0;
+                        memcpy(&val, dloc, 8);
+                        if (sym_defined) {
+                            const ElfSymbol *def = &objs[sym_oi].symbols[sym_si];
+                            uint64_t sym_vm = text_vm_off + text_off[sym_oi] + def->value;
+                            val += sym_vm;
+                        }
+                        wr_u64(dloc, val);
+                        break;
+                    }
+                    default:
+                        break;
+                }
+            } else {
+                // aarch64 relocation handling.
+                uint32_t insn = rd_u32(loc);
+                switch (rel->type) {
+                    case ASM_RELOC_BRANCH26: {
+                        if (sym_defined) {
+                            const ElfSymbol *def = &objs[sym_oi].symbols[sym_si];
                             uint64_t target = text_vm_off + text_off[sym_oi] + def->value;
                             uint64_t pc = text_vm_off + text_off[o] + rel->offset;
                             int64_t delta = (int64_t)(target - pc) / 4;
                             insn |= (uint32_t)delta & 0x03FFFFFFu;
+                        } else if (sym) {
+                            int plt_idx = -1;
+                            for (size_t e = 0; e < next; e++)
+                                if (strcmp(ext[e].name, sym->name) == 0) { plt_idx = (int)e; break; }
+                            if (plt_idx >= 0) {
+                                uint64_t plt_entry_vm = plt_vm + (uint64_t)plt_idx * plt_entry_size;
+                                uint64_t pc = text_vm_off + text_off[o] + rel->offset;
+                                int64_t delta = (int64_t)(plt_entry_vm - pc) / 4;
+                                insn |= (uint32_t)delta & 0x03FFFFFFu;
+                            }
                         }
-                    } else if (sym) {
-                        // External call: redirect to PLT entry.
-                        int plt_idx = -1;
-                        for (size_t e = 0; e < next; e++)
-                            if (strcmp(ext[e].name, sym->name) == 0) { plt_idx = (int)e; break; }
-                        if (plt_idx >= 0) {
-                            uint64_t plt_entry_vm = plt_vm + (uint64_t)plt_idx * 16;
-                            uint64_t pc = text_vm_off + text_off[o] + rel->offset;
-                            int64_t delta = (int64_t)(plt_entry_vm - pc) / 4;
-                            insn |= (uint32_t)delta & 0x03FFFFFFu;
-                        }
+                        wr_u32(loc, insn);
+                        break;
                     }
-                    wr_u32(loc, insn);
-                    break;
-                }
-                case ASM_RELOC_PAGE21: {
-                    // adrp: needs page offset to GOT entry for externals,
-                    // or page offset to symbol for internals.
-                    if (sym && !sym_defined) {
-                        // External: point to GOT entry page.
-                        int got_idx = -1;
-                        for (size_t e = 0; e < next; e++)
-                            if (strcmp(ext[e].name, sym->name) == 0) { got_idx = (int)e; break; }
-                        if (got_idx >= 0) {
-                            uint64_t got_entry_vm = got_vm + (uint64_t)got_idx * 8;
+                    case ASM_RELOC_PAGE21: {
+                        if (sym && !sym_defined) {
+                            int got_idx = -1;
+                            for (size_t e = 0; e < next; e++)
+                                if (strcmp(ext[e].name, sym->name) == 0) { got_idx = (int)e; break; }
+                            if (got_idx >= 0) {
+                                uint64_t got_entry_vm = got_vm + (uint64_t)got_idx * 8;
+                                uint64_t pc_page = (text_vm_off + text_off[o] + rel->offset) & ~0xFFFu;
+                                uint64_t got_page = got_entry_vm & ~0xFFFu;
+                                int64_t pages = (int64_t)(got_page - pc_page) / 0x1000;
+                                uint32_t immlo = (uint32_t)(pages & 3) << 29;
+                                uint32_t immhi = (uint32_t)((pages >> 2) & 0x7FFFF) << 5;
+                                insn = (insn & 0x9F00001Fu) | immlo | immhi;
+                            }
+                        } else if (sym_defined) {
+                            const ElfSymbol *def = &objs[sym_oi].symbols[sym_si];
+                            uint64_t sym_vm = text_vm_off + text_off[sym_oi] + def->value;
                             uint64_t pc_page = (text_vm_off + text_off[o] + rel->offset) & ~0xFFFu;
-                            uint64_t got_page = got_entry_vm & ~0xFFFu;
-                            int64_t pages = (int64_t)(got_page - pc_page) / 0x1000;
-                            // Patch adrp immediate (bits 23:5 encode imm[21:0]).
+                            uint64_t sym_page = sym_vm & ~0xFFFu;
+                            int64_t pages = (int64_t)(sym_page - pc_page) / 0x1000;
                             uint32_t immlo = (uint32_t)(pages & 3) << 29;
                             uint32_t immhi = (uint32_t)((pages >> 2) & 0x7FFFF) << 5;
                             insn = (insn & 0x9F00001Fu) | immlo | immhi;
                         }
-                    } else if (sym_defined) {
-                        const ElfSymbol *def = &objs[sym_oi].symbols[sym_si];
-                        uint64_t sym_vm = text_vm_off + text_off[sym_oi] + def->value;
-                        uint64_t pc_page = (text_vm_off + text_off[o] + rel->offset) & ~0xFFFu;
-                        uint64_t sym_page = sym_vm & ~0xFFFu;
-                        int64_t pages = (int64_t)(sym_page - pc_page) / 0x1000;
-                        uint32_t immlo = (uint32_t)(pages & 3) << 29;
-                        uint32_t immhi = (uint32_t)((pages >> 2) & 0x7FFFF) << 5;
-                        insn = (insn & 0x9F00001Fu) | immlo | immhi;
+                        wr_u32(loc, insn);
+                        break;
                     }
-                    wr_u32(loc, insn);
-                    break;
-                }
-                case ASM_RELOC_PAGEOFF12: {
-                    // add: lo12 of offset within page.
-                    if (sym && !sym_defined) {
-                        int got_idx = -1;
-                        for (size_t e = 0; e < next; e++)
-                            if (strcmp(ext[e].name, sym->name) == 0) { got_idx = (int)e; break; }
-                        if (got_idx >= 0) {
-                            uint64_t got_entry_vm = got_vm + (uint64_t)got_idx * 8;
-                            uint32_t lo12 = (uint32_t)(got_entry_vm & 0xFFF);
+                    case ASM_RELOC_PAGEOFF12: {
+                        if (sym && !sym_defined) {
+                            int got_idx = -1;
+                            for (size_t e = 0; e < next; e++)
+                                if (strcmp(ext[e].name, sym->name) == 0) { got_idx = (int)e; break; }
+                            if (got_idx >= 0) {
+                                uint64_t got_entry_vm = got_vm + (uint64_t)got_idx * 8;
+                                uint32_t lo12 = (uint32_t)(got_entry_vm & 0xFFF);
+                                insn |= (lo12 << 10);
+                            }
+                        } else if (sym_defined) {
+                            const ElfSymbol *def = &objs[sym_oi].symbols[sym_si];
+                            uint64_t sym_vm = text_vm_off + text_off[sym_oi] + def->value;
+                            uint32_t lo12 = (uint32_t)(sym_vm & 0xFFF);
                             insn |= (lo12 << 10);
                         }
-                    } else if (sym_defined) {
-                        const ElfSymbol *def = &objs[sym_oi].symbols[sym_si];
-                        uint64_t sym_vm = text_vm_off + text_off[sym_oi] + def->value;
-                        uint32_t lo12 = (uint32_t)(sym_vm & 0xFFF);
-                        insn |= (lo12 << 10);
+                        wr_u32(loc, insn);
+                        break;
                     }
-                    wr_u32(loc, insn);
-                    break;
-                }
-                case ASM_RELOC_UNSIGNED: {
-                    // .quad symbol reference in data section.
-                    uint8_t *dloc = data_base + data_off[o] + rel->offset;
-                    uint64_t val = 0;
-                    memcpy(&val, dloc, 8);
-                    if (sym_defined) {
-                        const ElfSymbol *def = &objs[sym_oi].symbols[sym_si];
-                        uint64_t sym_vm = text_vm_off + text_off[sym_oi] + def->value;
-                        val += sym_vm;
+                    case ASM_RELOC_UNSIGNED: {
+                        uint8_t *dloc = data_base + data_off[o] + rel->offset;
+                        uint64_t val = 0;
+                        memcpy(&val, dloc, 8);
+                        if (sym_defined) {
+                            const ElfSymbol *def = &objs[sym_oi].symbols[sym_si];
+                            uint64_t sym_vm = text_vm_off + text_off[sym_oi] + def->value;
+                            val += sym_vm;
+                        }
+                        wr_u64(dloc, val);
+                        break;
                     }
-                    wr_u64(dloc, val);
-                    break;
+                    default:
+                        break;
                 }
-                default:
-                    break;
             }
         }
     }
 
-    // Patch PLT entries with proper adrp/ldr/add/br for each GOT entry.
-    uint8_t *plt_base = b.bytes + plt_file_off;
-    for (size_t i = 0; i < next; i++) {
-        uint8_t *plt_entry = plt_base + i * 16;
-        uint64_t got_entry_vm = got_vm + (uint64_t)i * 8;
-        uint64_t plt_pc = plt_vm + (uint64_t)i * 16;
+    // Patch PLT entries (aarch64 only; x86_64 PLT entries are already complete).
+    if (!is_x86_64) {
+        uint8_t *plt_base = b.bytes + plt_file_off;
+        for (size_t i = 0; i < next; i++) {
+            uint8_t *plt_entry = plt_base + i * 16;
+            uint64_t got_entry_vm = got_vm + (uint64_t)i * 8;
+            uint64_t plt_pc = plt_vm + (uint64_t)i * 16;
 
-        // adrp x16, GOT_page
-        uint64_t pc_page = plt_pc & ~0xFFFu;
-        uint64_t got_page = got_entry_vm & ~0xFFFu;
-        int64_t pages = (int64_t)(got_page - pc_page) / 0x1000;
-        uint32_t adrp = 0x90000010u; // adrp x16, 0
-        uint32_t immlo = (uint32_t)(pages & 3) << 29;
-        uint32_t immhi = (uint32_t)((pages >> 2) & 0x7FFFF) << 5;
-        adrp |= immlo | immhi;
+            // adrp x16, GOT_page
+            uint64_t pc_page = plt_pc & ~0xFFFu;
+            uint64_t got_page = got_entry_vm & ~0xFFFu;
+            int64_t pages = (int64_t)(got_page - pc_page) / 0x1000;
+            uint32_t adrp = 0x90000010u;
+            uint32_t immlo = (uint32_t)(pages & 3) << 29;
+            uint32_t immhi = (uint32_t)((pages >> 2) & 0x7FFFF) << 5;
+            adrp |= immlo | immhi;
 
-        // ldr x17, [x16, #lo12]
-        uint32_t lo12 = (uint32_t)(got_entry_vm & 0xFFF);
-        uint32_t ldr = 0xF9400211u; // ldr x17, [x16, #0]
-        ldr |= ((lo12 / 8) << 10);
+            // ldr x17, [x16, #lo12]
+            uint32_t lo12 = (uint32_t)(got_entry_vm & 0xFFF);
+            uint32_t ldr = 0xF9400211u;
+            ldr |= ((lo12 / 8) << 10);
 
-        // add x16, x16, #lo12
-        uint32_t add = 0x91000210u; // add x16, x16, #0
-        add |= (lo12 << 10);
+            // add x16, x16, #lo12
+            uint32_t add = 0x91000210u;
+            add |= (lo12 << 10);
 
-        // br x17
-        uint32_t br = 0xD61F0220u;
+            // br x17
+            uint32_t br = 0xD61F0220u;
 
-        wr_u32(plt_entry, adrp);
-        wr_u32(plt_entry + 4, ldr);
-        wr_u32(plt_entry + 8, add);
-        wr_u32(plt_entry + 12, br);
+            wr_u32(plt_entry, adrp);
+            wr_u32(plt_entry + 4, ldr);
+            wr_u32(plt_entry + 8, add);
+            wr_u32(plt_entry + 12, br);
+        }
     }
 
     free(ext_name_off);

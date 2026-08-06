@@ -1,7 +1,7 @@
-// M17.3.3: minimal ELF64 aarch64 relocatable-object writer.
+// M17.3.4: minimal ELF64 relocatable-object writer (aarch64 + x86_64).
 //
-// Serializes an AsmUnit (see asm_arm64.c, fmt == ASM_FMT_ELF) as an
-// ET_REL ELF64 file accepted by the host linker. Layout is
+// Serializes an AsmUnit (see asm_arm64.c/asm_amd64.c, fmt == ASM_FMT_ELF)
+// as an ET_REL ELF64 file accepted by the host linker. Layout is
 // deterministic: header, section contents, relocations, symbol table,
 // string tables, section headers. No timestamps or environment-
 // dependent bytes are emitted, so repeated emission of the same unit
@@ -37,8 +37,17 @@ static void buf_pad(Buf *b, size_t align) {
     while (b->len % align) { uint8_t z = 0; buf_put(b, &z, 1); }
 }
 
-// Translate internal relocation type to ELF aarch64 type.
-static uint32_t elf_reloc_type(int internal_type) {
+// Translate internal relocation type to ELF type based on machine.
+static uint32_t elf_reloc_type(uint16_t machine, int internal_type) {
+    if (machine == EM_X86_64) {
+        switch (internal_type) {
+            case ASM_RELOC_X86_64_64:          return R_X86_64_64;
+            case ASM_RELOC_X86_64_PC32:        return R_X86_64_PC32;
+            case ASM_RELOC_X86_64_GOTPCRELX:   return R_X86_64_GOTPCRELX;
+            default:                            return R_X86_64_NONE;
+        }
+    }
+    // aarch64
     switch (internal_type) {
         case ASM_RELOC_UNSIGNED:   return R_AARCH64_ABS64;
         case ASM_RELOC_BRANCH26:   return R_AARCH64_CALL26;
@@ -203,7 +212,7 @@ int elf_obj_write(const AsmUnit *u, FILE *out) {
     buf_put(&b, "\x02\x01\x01\x00", 4); // ELFCLASS64, ELFDATA2LSB, EV_CURRENT, ELFOSABI_NONE
     buf_put(&b, "\x00\x00\x00\x00\x00\x00\x00\x00", 8); // padding
     buf_le16(&b, ET_REL);           // e_type
-    buf_le16(&b, EM_AARCH64);       // e_machine
+    buf_le16(&b, u->machine);       // e_machine (EM_AARCH64 or EM_X86_64)
     buf_le32(&b, EV_CURRENT);       // e_version
     buf_le64(&b, 0);                // e_entry
     buf_le64(&b, 0);                // e_phoff (no program headers for ET_REL)
@@ -240,9 +249,15 @@ int elf_obj_write(const AsmUnit *u, FILE *out) {
             const AsmReloc *r = &text->relocs[i];
             buf_le64(&b, (uint64_t)r->address);
             uint64_t info = ((uint64_t)(r->symbol + 1) << 32) |
-                            (uint64_t)elf_reloc_type(r->type);
+                            (uint64_t)elf_reloc_type(u->machine, r->type);
             buf_le64(&b, info);
-            buf_le64(&b, (uint64_t)0); // addend: encoded in instruction for PC-rel
+            // x86_64 PC-relative relocations need addend = -4.
+            int64_t addend = 0;
+            if (u->machine == EM_X86_64 &&
+                (r->type == ASM_RELOC_X86_64_PC32 || r->type == ASM_RELOC_X86_64_GOTPCRELX)) {
+                addend = -4;
+            }
+            buf_le64(&b, (uint64_t)addend);
         }
     }
 
@@ -254,9 +269,14 @@ int elf_obj_write(const AsmUnit *u, FILE *out) {
             const AsmReloc *r = &ds->relocs[i];
             buf_le64(&b, (uint64_t)r->address);
             uint64_t info = ((uint64_t)(r->symbol + 1) << 32) |
-                            (uint64_t)elf_reloc_type(r->type);
+                            (uint64_t)elf_reloc_type(u->machine, r->type);
             buf_le64(&b, info);
-            buf_le64(&b, (uint64_t)0);
+            int64_t addend = 0;
+            if (u->machine == EM_X86_64 &&
+                (r->type == ASM_RELOC_X86_64_PC32 || r->type == ASM_RELOC_X86_64_GOTPCRELX)) {
+                addend = -4;
+            }
+            buf_le64(&b, (uint64_t)addend);
         }
     }
 

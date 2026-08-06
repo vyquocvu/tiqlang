@@ -1,4 +1,4 @@
-// M17.3.3: ELF64 aarch64 relocatable-object reader.
+// M17.3.4: ELF64 relocatable-object reader (aarch64 + x86_64).
 //
 // Parses the subset of ELF64 relocatable objects produced by the
 // integrated writer (elf_obj.c) and by cc for the QBE runtime
@@ -39,8 +39,18 @@ static int read_i64(const uint8_t *p, size_t end, size_t off, int64_t *out) {
     return 0;
 }
 
-// Translate ELF aarch64 relocation type to internal representation.
-static int internal_reloc_type(uint32_t elf_type) {
+// Translate ELF relocation type to internal representation based on machine.
+static int internal_reloc_type(uint16_t machine, uint32_t elf_type) {
+    if (machine == EM_X86_64) {
+        switch (elf_type) {
+            case R_X86_64_64:          return ASM_RELOC_X86_64_64;
+            case R_X86_64_PC32:        return ASM_RELOC_X86_64_PC32;
+            case R_X86_64_PLT32:       return ASM_RELOC_X86_64_PC32; // treat PLT32 as PC32
+            case R_X86_64_GOTPCRELX:   return ASM_RELOC_X86_64_GOTPCRELX;
+            default:                    return -1;
+        }
+    }
+    // aarch64
     switch (elf_type) {
         case R_AARCH64_ABS64:            return ASM_RELOC_UNSIGNED;
         case R_AARCH64_CALL26:           return ASM_RELOC_BRANCH26;
@@ -78,7 +88,11 @@ int elf_read(const uint8_t *data, size_t len, ElfObject *out,
     if (read_u16(data, len, 62, &e_shstrndx) != 0) goto trunc;
 
     if (e_type != ET_REL) { snprintf(err, errlen, "not a relocatable ELF object"); return 1; }
-    if (e_machine != EM_AARCH64) { snprintf(err, errlen, "not an aarch64 ELF object"); return 1; }
+    if (e_machine != EM_AARCH64 && e_machine != EM_X86_64) {
+        snprintf(err, errlen, "unsupported ELF machine type %u", e_machine);
+        return 1;
+    }
+    out->machine = e_machine;
     if (e_shentsize != 64) { snprintf(err, errlen, "unexpected section header size"); return 1; }
     if (e_shoff + (uint64_t)e_shnum * 64 > len) goto trunc;
     if (e_shstrndx >= e_shnum) { snprintf(err, errlen, "invalid shstrndx"); return 1; }
@@ -174,7 +188,7 @@ int elf_read(const uint8_t *data, size_t len, ElfObject *out,
 
             uint32_t r_sym = (uint32_t)(r_info >> 32);
             uint32_t r_type = (uint32_t)(r_info & 0xFFFFFFFF);
-            int itype = internal_reloc_type(r_type);
+            int itype = internal_reloc_type(e_machine, r_type);
             if (itype < 0) {
                 snprintf(err, errlen, "unsupported relocation type %u", r_type);
                 goto trunc_free;

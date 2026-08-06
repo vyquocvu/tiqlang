@@ -1,10 +1,10 @@
-// M17.3.3: integrated aarch64 ELF64 executable linker.
+// M17.3.4: integrated ELF64 executable linker (aarch64 + x86_64).
 //
 // elf_read parses the subset of ELF64 relocatable objects produced by
 // the integrated writer (elf_obj.c) and by cc for the QBE runtime
 // (build/runtime_qbe.o): .text, .data, .bss, .rodata, .cstring
-// sections; R_AARCH64_* relocations. Anything else fails closed with
-// a diagnostic in the caller-provided buffer.
+// sections; R_AARCH64_* and R_X86_64_* relocations. Anything else
+// fails closed with a diagnostic in the caller-provided buffer.
 //
 // link_elf_exec combines parsed objects into a runnable ELF executable
 // with dynamic linking to libc. Undefined symbols are resolved against
@@ -26,6 +26,7 @@
 #define ET_REL 1
 #define ET_EXEC 2
 #define EM_AARCH64 183
+#define EM_X86_64 62
 
 // Section types
 #define SHT_NULL 0
@@ -61,6 +62,15 @@ enum {
     R_AARCH64_ADR_GOT_PAGE       = 308,
     R_AARCH64_LD64_GOT_LO12_NC   = 309,
     R_AARCH64_JUMP_SLOT          = 1026,
+};
+
+// x86_64 relocation types
+enum {
+    R_X86_64_NONE      = 0,
+    R_X86_64_64        = 1,
+    R_X86_64_PC32      = 2,
+    R_X86_64_PLT32     = 4,
+    R_X86_64_GOTPCRELX = 42,
 };
 
 // Program header types
@@ -126,15 +136,17 @@ typedef struct {
     uint32_t nsection;
     ElfSymbol *symbols;
     uint32_t nsymbol;
+    uint16_t machine;  // EM_AARCH64 or EM_X86_64
 } ElfObject;
 
-// Parse an ELF64 aarch64 relocatable object. Returns 0 on success.
-// On failure returns 1 and writes a NUL-terminated diagnostic to err.
+// Parse an ELF64 relocatable object (aarch64 or x86_64).
+// Returns 0 on success; on failure returns 1 and writes a NUL-terminated
+// diagnostic to err.
 int elf_read(const uint8_t *data, size_t len, ElfObject *out,
              char *err, size_t errlen);
 void elf_object_free(ElfObject *o);
 
-// Link parsed objects into a runnable aarch64 ELF executable written
+// Link parsed objects into a runnable ELF executable written
 // to *out (malloc'd, caller frees). entry is the entry symbol name
 // ("main"). Returns 0 on success; on failure returns 1 with a
 // diagnostic in err and *out unchanged.

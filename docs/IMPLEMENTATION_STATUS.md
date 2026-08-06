@@ -576,6 +576,24 @@ corrected audits. None of these milestones is complete.
   - Makefile: `src/elf_obj.c`, `src/elf_read.c`, `src/elf_link.c` added to SRCS; `sh tests/elf_obj.sh` and `sh tests/elf_link.sh` added to the test target.
   - Evidence: `make clean && make && make test` green including the new harnesses (ELF tests skip on Darwin-arm64 as designed).
 
+- M17.3.4: PE/COFF object writer & linker + x86_64 assembler (2026-08-06):
+  - Refactored shared assembler types (`AsmUnit`, `AsmSectionOut`, `AsmSymbol`, `AsmReloc`, `ASM_SEC_*`/`ASM_RELOC_*`/`ASM_FMT_*` enums) from `include/asm_arm64.h` into new `include/asm.h`. Added `uint16_t machine` field to `AsmUnit` for architecture selection (EM_AARCH64/EM_X86_64). New x86_64 internal relocation types: `ASM_RELOC_X86_64_64`, `ASM_RELOC_X86_64_PC32`, `ASM_RELOC_X86_64_GOTPCRELX`.
+  - New `include/asm_amd64.h` + `src/asm_amd64.c`: single-pass in-process assembler for exactly the QBE amd64 assembly subset. Variable-length x86_64 CISC encoding engine with REX prefix emission, ModR/M, SIB, displacement encoding. Covers: ALU reg/mem (add/sub/and/or/xor/cmp/test), moves (mov variants including movabs/movslq/movzb), shifts (sar/shr/shl), multiply/divide (imul/mul/idiv), control flow (callq/jmp/jcc with forward-label backpatching), setcc+movzb pattern, stack ops (pushq/popq/leave/ret), lea, xchg, SSE/FP (movss/movsd/arithmetic/conversions), and all data directives. Anything outside the subset fails closed with a located diagnostic.
+  - New `include/pe_link.h`: PE/COFF constants (IMAGE_FILE_MACHINE_AMD64, section characteristics, IMAGE_REL_AMD64_* relocation types), data structures (PeSection, PeSymbol, PeObject, PeReloc), and API (pe_read, pe_object_free, link_pe_exec).
+  - New `src/pe_obj.c`: deterministic PE/COFF ET_REL writer with COFF header (Machine=0x8664, TimeDateStamp=0), section headers (.text/.data/.bss/.rdata), relocations (translated from internal ASM_RELOC_X86_64_* to IMAGE_REL_AMD64_*), symbol table, and string table.
+  - New `src/pe_read.c`: bounds-checked PE/COFF reader parsing COFF header, section headers, symbol table, and relocations. Validates machine type is AMD64.
+  - New `src/pe_link.c`: PE32+ executable linker with DOS header (MZ), PE signature, COFF header (IMAGE_FILE_EXECUTABLE_IMAGE), optional header PE32+ (ImageBase=0x140000000, SectionAlignment=0x1000, FileAlignment=0x200), sections (.text R+X, .rdata R, .data RW, .bss RW), import directory for kernel32.dll/ExitProcess, IAT entries, and base relocation table.
+  - Extended `include/elf_link.h` with EM_X86_64=62, R_X86_64_* relocation types (R_X86_64_64, R_X86_64_PC32, R_X86_64_PLT32, R_X86_64_GOTPCRELX), and `uint16_t machine` field to ElfObject.
+  - Extended `src/elf_obj.c`: parameterized `elf_reloc_type()` by machine type for x86_64/aarch64 relocation mapping; x86_64 PC-relative relocations use addend=-4 (RIP-relative convention).
+  - Extended `src/elf_read.c`: accepts both EM_AARCH64 and EM_X86_64 machine types, parameterized relocation translation.
+  - Extended `src/elf_link.c`: dual-architecture support with machine detection from objects, architecture-specific interpreter paths (/lib64/ld-linux-x86-64.so.2 vs /lib/ld-linux-aarch64.so.1), x86_64 PLT stubs (jmp *GOT(%rip)), and separate x86_64/aarch64 relocation handling.
+  - `src/main.c`: added x86_64 Linux path in `build_qbe` (asm_amd64_assemble + elf_obj_write), extended `cmd_emit_obj` and `cmd_link_qbe` guards for x86_64, integrated PE linking path for Windows objects.
+  - New `tests/amd64_asm.sh`: x86_64 assembler tests (usage fail-closed, unsupported instruction, ret/nop encoding, deterministic emission, ELF e_machine=0x3E pin, pushq/popq frame, data section). Skipped on non-x86_64.
+  - New `tests/pe_obj.sh`: PE object writer tests (usage fail-closed, missing input, assemble+verify, deterministic emission, ELF structural bytes on Linux x86_64). Skipped on non-x86_64.
+  - New `tests/pe_link.sh`: PE linker tests (usage fail-closed, no inputs, missing input file, end-to-end assemble+link on Linux x86_64). Skipped on non-x86_64.
+  - Makefile: `src/asm_amd64.c`, `src/pe_obj.c`, `src/pe_read.c`, `src/pe_link.c` added to SRCS; `sh tests/amd64_asm.sh`, `sh tests/pe_obj.sh`, `sh tests/pe_link.sh` added to the test target.
+  - Evidence: `make clean && make && make test` green including the new harnesses (x86_64 tests skip on Darwin-arm64 as designed). ASan/UBSan clean. 146 unit test assertions pass.
+
 ## Known bootstrap limitations
 
 - Temporary-file creation and host compiler execution currently use POSIX APIs; non-POSIX platforms need an equivalent documented process abstraction.

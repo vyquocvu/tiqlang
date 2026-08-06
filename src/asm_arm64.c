@@ -9,6 +9,7 @@
 // are never produced.
 
 #include "../include/asm_arm64.h"
+#include "../include/elf_link.h"
 
 #include <stdarg.h>
 #include <stdio.h>
@@ -1053,6 +1054,7 @@ int asm_arm64_assemble(AsmUnit *u, const char *text, size_t len) {
     memset(&ctx, 0, sizeof(ctx));
     ctx.u = u;
     ctx.cur = ASM_SEC_TEXT;
+    u->machine = EM_AARCH64;
 
     char *buf = malloc(len + 1);
     if (!buf) {
