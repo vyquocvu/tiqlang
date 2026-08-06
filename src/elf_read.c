@@ -41,6 +41,16 @@ static int read_i64(const uint8_t *p, size_t end, size_t off, int64_t *out) {
 
 // Translate ELF relocation type to internal representation based on machine.
 static int internal_reloc_type(uint16_t machine, uint32_t elf_type) {
+    if (machine == EM_RISCV) {
+        switch (elf_type) {
+            case R_RISCV_32:           return ASM_RELOC_RISCV_32;
+            case R_RISCV_64:           return ASM_RELOC_RISCV_64;
+            case R_RISCV_PCREL_HI20:   return ASM_RELOC_RISCV_HI20;
+            case R_RISCV_PCREL_LO12_I: return ASM_RELOC_RISCV_LO12_I;
+            case R_RISCV_PCREL_LO12_S: return ASM_RELOC_RISCV_LO12_S;
+            default:                    return -1;
+        }
+    }
     if (machine == EM_X86_64) {
         switch (elf_type) {
             case R_X86_64_64:          return ASM_RELOC_X86_64_64;
@@ -88,7 +98,7 @@ int elf_read(const uint8_t *data, size_t len, ElfObject *out,
     if (read_u16(data, len, 62, &e_shstrndx) != 0) goto trunc;
 
     if (e_type != ET_REL) { snprintf(err, errlen, "not a relocatable ELF object"); return 1; }
-    if (e_machine != EM_AARCH64 && e_machine != EM_X86_64) {
+    if (e_machine != EM_AARCH64 && e_machine != EM_X86_64 && e_machine != EM_RISCV) {
         snprintf(err, errlen, "unsupported ELF machine type %u", e_machine);
         return 1;
     }

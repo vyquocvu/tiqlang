@@ -17,6 +17,8 @@
 #include "../../include/type.h"
 #include "../../include/emit_c.h"
 #include "../../include/asm_arm64.h"
+#include "../../include/asm_rv64.h"
+#include "../../include/elf_link.h"
 #include "../../include/macho_link.h"
 
 static int tests_run = 0;
@@ -564,6 +566,103 @@ static void test_link_macho_exec_produces_executable(void) {
     free(obj);
 }
 
+// ----------------------------------------------------------------- riscv64
+
+// Assemble QBE riscv64 (Gaself) assembly, write it as an ELF64 object via
+// elf_obj_write, and parse it back with elf_read. Runs on any host: the
+// riscv64 assembler and ELF writer are arch-agnostic C code.
+static uint8_t *rv64_elf_roundtrip(const char *asm_src, size_t *out_len) {
+    AsmUnit unit;
+    asm_unit_init(&unit);
+    unit.fmt = ASM_FMT_ELF;
+    if (asm_rv64_assemble(&unit, asm_src, strlen(asm_src)) != 0) {
+        asm_unit_free(&unit);
+        return NULL;
+    }
+    FILE *tmp = tmpfile();
+    if (!tmp || elf_obj_write(&unit, tmp) != 0) {
+        if (tmp) fclose(tmp);
+        asm_unit_free(&unit);
+        return NULL;
+    }
+    asm_unit_free(&unit);
+    fseek(tmp, 0, SEEK_END);
+    long sz = ftell(tmp);
+    fseek(tmp, 0, SEEK_SET);
+    uint8_t *buf = malloc((size_t)sz);
+    if (!buf || fread(buf, 1, (size_t)sz, tmp) != (size_t)sz) {
+        free(buf);
+        fclose(tmp);
+        return NULL;
+    }
+    fclose(tmp);
+    *out_len = (size_t)sz;
+    return buf;
+}
+
+static void test_asm_rv64_requires_elf_fmt(void) {
+    AsmUnit unit;
+    asm_unit_init(&unit);
+    unit.fmt = ASM_FMT_MACHO;
+    const char *src = ".text\n.globl main\nmain:\n\tret\n";
+    ASSERT(asm_rv64_assemble(&unit, src, strlen(src)) != 0);
+    ASSERT(unit.has_error);
+    asm_unit_free(&unit);
+}
+
+static void test_asm_rv64_unsupported_fails_closed(void) {
+    AsmUnit unit;
+    asm_unit_init(&unit);
+    unit.fmt = ASM_FMT_ELF;
+    const char *src = ".text\n\tfence\n"; // not in the QBE rv64 subset
+    ASSERT(asm_rv64_assemble(&unit, src, strlen(src)) != 0);
+    ASSERT(unit.has_error);
+    ASSERT(unit.errline == 2);
+    asm_unit_free(&unit);
+}
+
+static void test_asm_rv64_elf_roundtrip_golden(void) {
+    const char *src =
+        ".text\n"
+        ".globl main\n"
+        "main:\n"
+        "\tli\ta0, 42\n"
+        "\tcall\texit\n";
+    size_t len = 0;
+    uint8_t *obj = rv64_elf_roundtrip(src, &len);
+    ASSERT(obj != NULL);
+    if (!obj) return;
+    // ELF64 little-endian relocatable: EI_CLASS=2, e_type=1, EM_RISCV (243).
+    ASSERT(len > 64);
+    ASSERT(obj[0] == 0x7F && obj[1] == 'E' && obj[2] == 'L' && obj[3] == 'F');
+    ASSERT(obj[4] == 2);                       // EI_CLASS = ELFCLASS64
+    ASSERT(obj[16] == 1 && obj[17] == 0);      // e_type = ET_REL
+    ASSERT(obj[18] == 0xF3 && obj[19] == 0);   // e_machine = EM_RISCV
+    char err[256];
+    ElfObject o;
+    int rc = elf_read(obj, len, &o, err, sizeof(err));
+    ASSERT(rc == 0);
+    if (rc == 0) {
+        ASSERT(o.machine == 243); // EM_RISCV
+        // main is defined in the text section; exit is undefined.
+        int saw_main = 0, saw_exit = 0;
+        for (uint32_t i = 0; i < o.nsymbol; i++) {
+            if (strcmp(o.symbols[i].name, "main") == 0) {
+                saw_main = 1;
+                ASSERT(o.symbols[i].section >= 0);
+            }
+            if (strcmp(o.symbols[i].name, "exit") == 0) {
+                saw_exit = 1;
+                ASSERT(o.symbols[i].section == -1);
+            }
+        }
+        ASSERT(saw_main);
+        ASSERT(saw_exit);
+        elf_object_free(&o);
+    }
+    free(obj);
+}
+
 // ----------------------------------------------------------------- main
 
 int main(void) {
@@ -598,6 +697,10 @@ int main(void) {
     test_macho_read_roundtrip_golden();
     test_macho_read_rejects_garbage();
     test_link_macho_exec_produces_executable();
+
+    test_asm_rv64_requires_elf_fmt();
+    test_asm_rv64_unsupported_fails_closed();
+    test_asm_rv64_elf_roundtrip_golden();
 
     if (tests_failed > 0) {
         fprintf(stderr, "unit: %d/%d assertions failed\n", tests_failed, tests_run);

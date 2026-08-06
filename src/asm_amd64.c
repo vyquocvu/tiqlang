@@ -143,6 +143,8 @@ static void add_reloc(Ctx *c, int section, int32_t address, int sym,
     s->relocs[s->nreloc].pcrel = pcrel;
     s->relocs[s->nreloc].length = length;
     s->relocs[s->nreloc].type = type;
+    s->relocs[s->nreloc].addend = 0;
+    s->relocs[s->nreloc].pair = -1;
     s->nreloc++;
 }
 

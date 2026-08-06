@@ -39,6 +39,16 @@ static void buf_pad(Buf *b, size_t align) {
 
 // Translate internal relocation type to ELF type based on machine.
 static uint32_t elf_reloc_type(uint16_t machine, int internal_type) {
+    if (machine == EM_RISCV) {
+        switch (internal_type) {
+            case ASM_RELOC_RISCV_32:      return R_RISCV_32;
+            case ASM_RELOC_RISCV_64:      return R_RISCV_64;
+            case ASM_RELOC_RISCV_HI20:    return R_RISCV_PCREL_HI20;
+            case ASM_RELOC_RISCV_LO12_I:  return R_RISCV_PCREL_LO12_I;
+            case ASM_RELOC_RISCV_LO12_S:  return R_RISCV_PCREL_LO12_S;
+            default:                       return R_RISCV_NONE;
+        }
+    }
     if (machine == EM_X86_64) {
         switch (internal_type) {
             case ASM_RELOC_X86_64_64:          return R_X86_64_64;
@@ -256,6 +266,8 @@ int elf_obj_write(const AsmUnit *u, FILE *out) {
             if (u->machine == EM_X86_64 &&
                 (r->type == ASM_RELOC_X86_64_PC32 || r->type == ASM_RELOC_X86_64_GOTPCRELX)) {
                 addend = -4;
+            } else if (u->machine == EM_RISCV) {
+                addend = r->addend;
             }
             buf_le64(&b, (uint64_t)addend);
         }
@@ -275,6 +287,8 @@ int elf_obj_write(const AsmUnit *u, FILE *out) {
             if (u->machine == EM_X86_64 &&
                 (r->type == ASM_RELOC_X86_64_PC32 || r->type == ASM_RELOC_X86_64_GOTPCRELX)) {
                 addend = -4;
+            } else if (u->machine == EM_RISCV) {
+                addend = r->addend;
             }
             buf_le64(&b, (uint64_t)addend);
         }

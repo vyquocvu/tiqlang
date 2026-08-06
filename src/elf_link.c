@@ -174,6 +174,7 @@ int link_elf_exec(const ElfObject *objs, size_t nobj, const char *entry,
     // Detect machine type from first object.
     uint16_t machine = nobj > 0 ? objs[0].machine : EM_AARCH64;
     int is_x86_64 = (machine == EM_X86_64);
+    int is_riscv64 = (machine == EM_RISCV);
 
     // Find entry symbol.
     int entry_oi, entry_si;
@@ -194,7 +195,10 @@ int link_elf_exec(const ElfObject *objs, size_t nobj, const char *entry,
     }
 
     // Interpreter path depends on architecture.
-    const char *interp = is_x86_64 ? "/lib64/ld-linux-x86-64.so.2" : "/lib/ld-linux-aarch64.so.1";
+    const char *interp;
+    if (is_x86_64) interp = "/lib64/ld-linux-x86-64.so.2";
+    else if (is_riscv64) interp = "/lib/ld-linux-riscv64-lp64d.so.1";
+    else interp = "/lib/ld-linux-aarch64.so.1";
     size_t interp_len = strlen(interp) + 1;
 
     // --- Compute section sizes ---
@@ -229,6 +233,7 @@ int link_elf_exec(const ElfObject *objs, size_t nobj, const char *entry,
     // PLT entry size depends on architecture.
     // aarch64: 16 bytes (adrp, ldr, add, br)
     // x86_64: 16 bytes (jmp *GOT(%rip), nop padding)
+    // riscv64: 16 bytes (auipc t0, ld t0, jalr t0, nop pad)
     size_t plt_entry_size = 16;
     size_t plt_size = next * plt_entry_size;
     // GOT: each entry is 8 bytes.
@@ -248,7 +253,10 @@ int link_elf_exec(const ElfObject *objs, size_t nobj, const char *entry,
     size_t dynsym_size = 24 * (1 + next);
 
     // .rela.plt: one JUMP_SLOT per PLT entry.
-    uint32_t jump_slot_type = is_x86_64 ? R_X86_64_64 : R_AARCH64_JUMP_SLOT;
+    uint32_t jump_slot_type;
+    if (is_x86_64) jump_slot_type = R_X86_64_64;
+    else if (is_riscv64) jump_slot_type = R_RISCV_JUMP_SLOT;
+    else jump_slot_type = R_AARCH64_JUMP_SLOT;
     // Note: for x86_64 we use R_X86_64_64 for GOT entries (ld.so fills them).
     // Actually, the standard relocation for PLT GOT entries is R_X86_64_JUMP_SLOT (256)
     // but that's a dynamic relocation. For simplicity we use R_X86_64_64.
@@ -391,6 +399,20 @@ int link_elf_exec(const ElfObject *objs, size_t nobj, const char *entry,
             buf_u8(&b, 0x00); buf_u8(&b, 0x00); // 5-byte nop
             buf_u8(&b, 0x0F); buf_u8(&b, 0x1F); buf_u8(&b, 0x44);
             buf_u8(&b, 0x00); buf_u8(&b, 0x00); // 5-byte nop
+        }
+    } else if (is_riscv64) {
+        // riscv64 PLT entry (4 instructions): auipc t0, %pcrel_hi(GOT);
+        // ld t0, %pcrel_lo(t0); jalr t0; nop. Patched below with the
+        // resolved auipc/lo12 fields.
+        for (size_t i = 0; i < next; i++) {
+            uint8_t *e = (uint8_t *)(b.bytes + b.len);
+            uint8_t stub[16] = { 0 };
+            wr_u32(stub, 0x00000297u);      // auipc t0, 0
+            wr_u32(stub + 4, 0x0002b283u);  // ld t0, 0(t0)
+            wr_u32(stub + 8, 0x00028067u);  // jalr x0, 0(t0)
+            wr_u32(stub + 12, 0x00000013u); // nop
+            buf_put(&b, stub, 16);
+            (void)e;
         }
     } else {
         // aarch64 PLT entry: adrp x16, GOT_page; ldr x17, [x16, #lo12];
@@ -544,8 +566,91 @@ int link_elf_exec(const ElfObject *objs, size_t nobj, const char *entry,
                     default:
                         break;
                 }
+            } else if (is_riscv64) {
+                // riscv64 relocation handling.
+                //
+                // Pseudo-instructions are assembled as an auipc immediately
+                // followed by its lo12 instruction (see asm_rv64.c); the
+                // auipc carries the R_RISCV_PCREL_HI20 reloc at P and the
+                // paired lo12 carries R_RISCV_PCREL_LO12_I/S at P+4, both
+                // referencing the same symbol. For an external symbol the
+                // target depends on the lo12 instruction: a jalr is a call
+                // -> PLT stub; any other instruction (load/store/addi)
+                // -> GOT slot, whose contents hold the resolved address.
+                uint32_t insn_op = rd_u32(loc) & 0x7F;
+                if (rel->type == ASM_RELOC_RISCV_HI20)
+                    insn_op = rd_u32(loc + 4) & 0x7F; // paired lo12 instruction
+                uint64_t S;
+                if (sym_defined) {
+                    const ElfSymbol *def = &objs[sym_oi].symbols[sym_si];
+                    S = text_vm_off + text_off[sym_oi] + def->value;
+                } else if (sym) {
+                    int ext_idx = -1;
+                    for (size_t e = 0; e < next; e++)
+                        if (strcmp(ext[e].name, sym->name) == 0) { ext_idx = (int)e; break; }
+                    if (ext_idx >= 0) {
+                        if (insn_op == 0x67) // jalr: call -> PLT stub
+                            S = plt_vm + (uint64_t)ext_idx * plt_entry_size;
+                        else                 // load/store/addi -> GOT slot
+                            S = got_vm + (uint64_t)ext_idx * 8;
+                    } else {
+                        S = 0;
+                    }
+                } else {
+                    S = 0;
+                }
+                switch (rel->type) {
+                    case ASM_RELOC_RISCV_HI20: {
+                        uint64_t P = text_vm_off + text_off[o] + rel->offset;
+                        int64_t val = (int64_t)(S + rel->addend - P);
+                        int64_t hi = (val + 0x800) >> 12;
+                        uint32_t w = rd_u32(loc);
+                        w = (w & 0x00000FFFu) | (uint32_t)((hi & 0xFFFFF) << 12);
+                        wr_u32(loc, w);
+                        break;
+                    }
+                    case ASM_RELOC_RISCV_LO12_I: {
+                        // lo12 refers to the paired auipc at B-4 (adjacency).
+                        uint64_t P_auipc = text_vm_off + text_off[o] + rel->offset - 4;
+                        int64_t val = (int64_t)(S + rel->addend - P_auipc);
+                        uint32_t lo12 = (uint32_t)(val & 0xFFF);
+                        uint32_t w = rd_u32(loc);
+                        w = (w & ~0xFFF00000u) | (lo12 << 20);
+                        wr_u32(loc, w);
+                        break;
+                    }
+                    case ASM_RELOC_RISCV_LO12_S: {
+                        uint64_t P_auipc = text_vm_off + text_off[o] + rel->offset - 4;
+                        int64_t val = (int64_t)(S + rel->addend - P_auipc);
+                        uint32_t lo12 = (uint32_t)(val & 0xFFF);
+                        uint32_t w = rd_u32(loc);
+                        w = (w & ~0xFE000F80u) | ((lo12 >> 5) << 25) | ((lo12 & 0x1F) << 7);
+                        wr_u32(loc, w);
+                        break;
+                    }
+                    case ASM_RELOC_RISCV_64: {
+                        // Absolute 64-bit: S + A in data.
+                        uint8_t *dloc = data_base + data_off[o] + rel->offset;
+                        uint64_t val = 0;
+                        memcpy(&val, dloc, 8);
+                        if (sym_defined)
+                            val += S + (uint64_t)rel->addend;
+                        wr_u64(dloc, val);
+                        break;
+                    }
+                    case ASM_RELOC_RISCV_32: {
+                        uint8_t *dloc = data_base + data_off[o] + rel->offset;
+                        uint32_t val = 0;
+                        memcpy(&val, dloc, 4);
+                        if (sym_defined)
+                            val = (uint32_t)((uint64_t)val + S + (uint64_t)rel->addend);
+                        memcpy(dloc, &val, 4);
+                        break;
+                    }
+                    default:
+                        break;
+                }
             } else {
-                // aarch64 relocation handling.
                 uint32_t insn = rd_u32(loc);
                 switch (rel->type) {
                     case ASM_RELOC_BRANCH26: {
@@ -634,8 +739,25 @@ int link_elf_exec(const ElfObject *objs, size_t nobj, const char *entry,
         }
     }
 
-    // Patch PLT entries (aarch64 only; x86_64 PLT entries are already complete).
-    if (!is_x86_64) {
+    // Patch PLT entries (aarch64 and riscv64; x86_64 PLT entries are already
+    // complete).
+    if (is_riscv64) {
+        // auipc t0, %pcrel_hi(GOT[i]); ld t0, %pcrel_lo(t0); jalr t0
+        uint8_t *plt_base = b.bytes + plt_file_off;
+        for (size_t i = 0; i < next; i++) {
+            uint8_t *plt_entry = plt_base + i * 16;
+            uint64_t got_entry_vm = got_vm + (uint64_t)i * 8;
+            uint64_t plt_pc = plt_vm + (uint64_t)i * 16;
+            int64_t val = (int64_t)(got_entry_vm - plt_pc);
+            int64_t hi = (val + 0x800) >> 12;
+            uint32_t lo12 = (uint32_t)(val & 0xFFF);
+            uint32_t auipc = 0x00000297u | (uint32_t)((hi & 0xFFFFF) << 12);
+            uint32_t ld = (0x0002b283u & ~0xFFF00000u) | (lo12 << 20);
+            wr_u32(plt_entry, auipc);
+            wr_u32(plt_entry + 4, ld);
+            // jalr t0 (and the nop pad) are already in place.
+        }
+    } else if (!is_x86_64) {
         uint8_t *plt_base = b.bytes + plt_file_off;
         for (size_t i = 0; i < next; i++) {
             uint8_t *plt_entry = plt_base + i * 16;

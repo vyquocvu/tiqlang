@@ -37,7 +37,15 @@ enum {
     // x86_64 relocations (M17.3.4):
     ASM_RELOC_X86_64_64 = 10,          // absolute 64-bit (data .quad)
     ASM_RELOC_X86_64_PC32 = 11,        // PC-relative 32-bit (callq, jcc, RIP-relative)
-    ASM_RELOC_X86_64_GOTPCRELX = 12    // GOT-relative (movq sym(%rip), %reg)
+    ASM_RELOC_X86_64_GOTPCRELX = 12,   // GOT-relative (movq sym(%rip), %reg)
+    // riscv64 relocations (M17.4.1):
+    ASM_RELOC_RISCV_32 = 19,           // absolute 32-bit (data .int)
+    ASM_RELOC_RISCV_64 = 20,           // absolute 64-bit (data .quad), S + A
+    ASM_RELOC_RISCV_HI20 = 21,         // auipc: upper 20 of (S + A - P) (PC-relative)
+    ASM_RELOC_RISCV_LO12_I = 22,       // addi/load lower 12 of (S + A - P), I-format
+    ASM_RELOC_RISCV_LO12_S = 23,       // store lower 12 of (S + A - P), S-format
+    ASM_RELOC_RISCV_BRANCH = 24,       // B-type branch, S + A - P
+    ASM_RELOC_RISCV_JAL = 25,          // J-type jump, S + A - P
 };
 
 typedef struct {
@@ -46,6 +54,9 @@ typedef struct {
     unsigned pcrel;    // 1 for pc-relative fixups (branches, adrp, RIP-relative)
     unsigned length;   // 2 = 4 bytes, 3 = 8 bytes
     unsigned type;     // ASM_RELOC_* internal type
+    int64_t addend;    // symbol addend (S + A), 0 when unused
+    int32_t pair;      // riscv64: section-relative offset of the paired auipc
+                       // (for LO12 relocations); -1 when unused
 } AsmReloc;
 
 typedef struct {
@@ -72,7 +83,7 @@ typedef struct {
     int has_error;
     int fmt;           // ASM_FMT_MACHO, ASM_FMT_ELF, or ASM_FMT_PE
     int has_gnu_stack; // .note.GNU-stack directive seen (ELF only)
-    uint16_t machine;  // ELF machine: EM_AARCH64 or EM_X86_64
+    uint16_t machine;  // ELF machine: EM_AARCH64, EM_X86_64, or EM_RISCV
 } AsmUnit;
 
 void asm_unit_init(AsmUnit *u);

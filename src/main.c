@@ -17,6 +17,7 @@
 #include "../include/emit_qbe.h"
 #include "../include/asm_arm64.h"
 #include "../include/asm_amd64.h"
+#include "../include/asm_rv64.h"
 #include "../include/macho_link.h"
 #include "../include/elf_link.h"
 #include "../include/pe_link.h"
@@ -541,6 +542,49 @@ static int build_qbe(const char *input, const char *output, DiagContext *diag) {
     }
     remove(asm_path);
     free(asm_path);
+#elif defined(__linux__) && defined(__riscv) && __riscv_xlen == 64
+    // M17.4.1: integrated ELF object writer for riscv64 — the QBE rv64
+    // assembly subset is assembled in-process with ELF format.
+    {
+        FILE *asm_file = fopen(asm_path, "rb");
+        if (!asm_file) {
+            fprintf(stderr, "tiq: cannot read %s: %s\n", asm_path, strerror(errno));
+            remove(asm_path); free(asm_path); free(obj_path); return 1;
+        }
+        fseek(asm_file, 0, SEEK_END);
+        long asm_size = ftell(asm_file);
+        fseek(asm_file, 0, SEEK_SET);
+        char *asm_text = malloc((size_t)asm_size + 1);
+        if (!asm_text || fread(asm_text, 1, (size_t)asm_size, asm_file) != (size_t)asm_size) {
+            fclose(asm_file); free(asm_text);
+            fprintf(stderr, "tiq: cannot read %s\n", asm_path);
+            remove(asm_path); free(asm_path); free(obj_path); return 1;
+        }
+        fclose(asm_file);
+        AsmUnit unit;
+        asm_unit_init(&unit);
+        unit.fmt = ASM_FMT_ELF;
+        int asm_ok = asm_rv64_assemble(&unit, asm_text, (size_t)asm_size) == 0;
+        if (asm_ok) {
+            FILE *obj_file = fopen(obj_path, "wb");
+            if (!obj_file || elf_obj_write(&unit, obj_file) != 0) asm_ok = 0;
+            if (obj_file && fclose(obj_file) != 0) asm_ok = 0;
+        }
+        if (!asm_ok) {
+            if (unit.has_error)
+                fprintf(stderr, "tiq: %s:%d: error: %s\n", asm_path, unit.errline, unit.errmsg);
+            else
+                fprintf(stderr, "tiq: cannot write object file %s\n", obj_path);
+            remove(obj_path);
+            asm_unit_free(&unit); free(asm_text);
+            remove(asm_path); free(asm_path); free(obj_path);
+            return 1;
+        }
+        asm_unit_free(&unit);
+        free(asm_text);
+    }
+    remove(asm_path);
+    free(asm_path);
 #else
     const char *cc = getenv("CC");
     if (!cc || !*cc) cc = "cc";
@@ -591,6 +635,14 @@ static int build_qbe(const char *input, const char *output, DiagContext *diag) {
     }
 #endif
 #if defined(__linux__) && defined(__x86_64__)
+    if (!qlink || !*qlink) {
+        int lr = link_elf_objects(obj_path, runtime_obj, output);
+        remove(obj_path);
+        free(obj_path);
+        return lr;
+    }
+#endif
+#if defined(__linux__) && defined(__riscv) && __riscv_xlen == 64
     if (!qlink || !*qlink) {
         int lr = link_elf_objects(obj_path, runtime_obj, output);
         remove(obj_path);
@@ -780,11 +832,13 @@ static int cmd_emit_obj(const char *input, const char *output) {
     fclose(f);
     AsmUnit unit;
     asm_unit_init(&unit);
-#if defined(__linux__) && (defined(__aarch64__) || defined(__x86_64__))
+#if defined(__linux__) && (defined(__aarch64__) || defined(__x86_64__) || (defined(__riscv) && __riscv_xlen == 64))
     unit.fmt = ASM_FMT_ELF;
 #endif
 #if defined(__x86_64__)
     if (asm_amd64_assemble(&unit, source, (size_t)size) != 0) {
+#elif defined(__linux__) && defined(__riscv) && __riscv_xlen == 64
+    if (asm_rv64_assemble(&unit, source, (size_t)size) != 0) {
 #else
     if (asm_arm64_assemble(&unit, source, (size_t)size) != 0) {
 #endif
@@ -1030,8 +1084,8 @@ int main(int argc, char **argv) {
         return emit_file(input, NULL, &diag, mode);
     }
     if (argc >= 3 && strcmp(argv[1], "emit-obj") == 0) {
-#if (defined(__APPLE__) && defined(__aarch64__)) || (defined(__linux__) && (defined(__aarch64__) || defined(__x86_64__)))
-        // M17.3.1/M17.3.3: integrated assembler + object writer.
+#if (defined(__APPLE__) && defined(__aarch64__)) || (defined(__linux__) && (defined(__aarch64__) || defined(__x86_64__) || (defined(__riscv) && __riscv_xlen == 64)))
+        // M17.3.1/M17.3.3/M17.4.1: integrated assembler + object writer.
         const char *input = NULL;
         const char *output = NULL;
         for (int i = 2; i < argc; i++) {
@@ -1048,12 +1102,12 @@ int main(int argc, char **argv) {
         if (!input || !output) { usage(stderr); return 2; }
         return cmd_emit_obj(input, output);
 #else
-        fprintf(stderr, "tiq: emit-obj is only supported on aarch64/x86_64 hosts (Darwin or Linux)\n");
+        fprintf(stderr, "tiq: emit-obj is only supported on aarch64/x86_64/riscv64 hosts (Darwin or Linux)\n");
         return 2;
 #endif
     }
     if (argc >= 3 && strcmp(argv[1], "link-qbe") == 0) {
-#if (defined(__APPLE__) && defined(__aarch64__)) || (defined(__linux__) && (defined(__aarch64__) || defined(__x86_64__)))
+#if (defined(__APPLE__) && defined(__aarch64__)) || (defined(__linux__) && (defined(__aarch64__) || defined(__x86_64__) || (defined(__riscv) && __riscv_xlen == 64)))
         // M17.3.2/M17.3.3: integrated executable linker.
         return cmd_link_qbe(argc, argv);
 #else

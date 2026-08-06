@@ -1,10 +1,11 @@
-// M17.3.4: integrated ELF64 executable linker (aarch64 + x86_64).
+// M17.3.4: integrated ELF64 executable linker (aarch64, x86_64, riscv64).
 //
 // elf_read parses the subset of ELF64 relocatable objects produced by
 // the integrated writer (elf_obj.c) and by cc for the QBE runtime
 // (build/runtime_qbe.o): .text, .data, .bss, .rodata, .cstring
-// sections; R_AARCH64_* and R_X86_64_* relocations. Anything else
-// fails closed with a diagnostic in the caller-provided buffer.
+// sections; R_AARCH64_*, R_X86_64_*, and R_RISCV_* relocations.
+// Anything else fails closed with a diagnostic in the caller-provided
+// buffer.
 //
 // link_elf_exec combines parsed objects into a runnable ELF executable
 // with dynamic linking to libc. Undefined symbols are resolved against
@@ -27,6 +28,7 @@
 #define ET_EXEC 2
 #define EM_AARCH64 183
 #define EM_X86_64 62
+#define EM_RISCV 243
 
 // Section types
 #define SHT_NULL 0
@@ -71,6 +73,26 @@ enum {
     R_X86_64_PC32      = 2,
     R_X86_64_PLT32     = 4,
     R_X86_64_GOTPCRELX = 42,
+};
+
+// riscv64 relocation types (M17.4.1).
+// Internal ASM_RELOC_RISCV_* values (see asm.h) are translated to these
+// by a switch table in the object writer/reader and linker.
+enum {
+    R_RISCV_NONE         = 0,
+    R_RISCV_32           = 1,
+    R_RISCV_64           = 2,
+    R_RISCV_RELATIVE     = 3,
+    R_RISCV_JUMP_SLOT    = 5,
+    R_RISCV_GLOB_DAT     = 6,
+    R_RISCV_BRANCH       = 16,
+    R_RISCV_JAL          = 17,
+    R_RISCV_PCREL_HI20   = 23,
+    R_RISCV_PCREL_LO12_I = 24,
+    R_RISCV_PCREL_LO12_S = 25,
+    R_RISCV_HI20         = 26,
+    R_RISCV_LO12_I       = 27,
+    R_RISCV_LO12_S       = 28,
 };
 
 // Program header types
@@ -136,10 +158,10 @@ typedef struct {
     uint32_t nsection;
     ElfSymbol *symbols;
     uint32_t nsymbol;
-    uint16_t machine;  // EM_AARCH64 or EM_X86_64
+    uint16_t machine;  // EM_AARCH64, EM_X86_64, or EM_RISCV
 } ElfObject;
 
-// Parse an ELF64 relocatable object (aarch64 or x86_64).
+// Parse an ELF64 relocatable object (aarch64, x86_64, or riscv64).
 // Returns 0 on success; on failure returns 1 and writes a NUL-terminated
 // diagnostic to err.
 int elf_read(const uint8_t *data, size_t len, ElfObject *out,

@@ -13,7 +13,7 @@ all: $(TIQ) $(BUILD)/unit_tests $(BUILD)/qbe $(BUILD)/runtime_qbe.o
 
 SRCS = src/main.c src/emit_c.c src/emit_qbe.c src/lexer.c src/diag.c src/parser.c src/semantic.c \
        src/type.c src/arena.c src/module.c src/ir.c src/ir_lower.c src/ir_dump.c \
-       src/asm_arm64.c src/asm_amd64.c src/macho_obj.c src/macho_read.c src/link_macho.c \
+       src/asm_arm64.c src/asm_amd64.c src/asm_rv64.c src/macho_obj.c src/macho_read.c src/link_macho.c \
        src/elf_obj.c src/elf_read.c src/elf_link.c \
        src/pe_obj.c src/pe_read.c src/pe_link.c
 OBJS = $(SRCS:src/%.c=$(BUILD)/%.o)
@@ -91,6 +91,8 @@ test: $(TIQ) $(BUILD)/qbe $(BUILD)/runtime_qbe.o test-unit
 	sh tests/elf_obj.sh
 	sh tests/elf_link.sh
 	sh tests/amd64_asm.sh
+	sh tests/rv64_asm.sh
+	sh tests/rv64_link.sh
 	sh tests/pe_obj.sh
 	sh tests/pe_link.sh
 
