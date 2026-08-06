@@ -15,6 +15,7 @@
 #include "../include/module.h"
 #include "../include/ir.h"
 #include "../include/emit_qbe.h"
+#include "../include/emit_wasm.h"
 #include "../include/asm_arm64.h"
 #include "../include/asm_amd64.h"
 #include "../include/asm_rv64.h"
@@ -703,6 +704,52 @@ static int build(const char *input, const char *output, char **link_opts, int li
     return build_target(input, output, NULL, link_opts, link_count, diag);
 }
 
+// M17.4.2: build via the wasm32-wasi backend.
+// Pipeline: source -> IR -> in-process wasm32 module (no external tools).
+static int build_wasm(const char *input, const char *output, DiagContext *diag) {
+    Program prog;
+    if (!program_load(&prog, input, diag)) { program_free(&prog); return 1; }
+    TypePool pool;
+    type_pool_init(&pool);
+    if (!diag->has_error) semantic_check_modules(prog.sem, prog.count, diag, &pool);
+    if (diag->has_error) {
+        program_free(&prog); type_pool_free(&pool); return 1;
+    }
+
+    SemanticModule *root = &prog.sem[prog.count - 1];
+    IrModule module;
+    ir_module_init(&module);
+    ir_lower(root->stmts, root->count, &module, diag);
+    if (diag->has_error) {
+        ir_module_free(&module); program_free(&prog); type_pool_free(&pool); return 1;
+    }
+
+    uint8_t *wasm = NULL;
+    size_t wasm_len = 0;
+    char err[256];
+    bool ok = emit_wasm(&module, &wasm, &wasm_len, err, sizeof(err));
+    ir_module_free(&module);
+    program_free(&prog);
+    type_pool_free(&pool);
+    if (!ok) {
+        fprintf(stderr, "tiq: %s\n", err);
+        return 1;
+    }
+
+    FILE *out = fopen(output, "wb");
+    if (out == NULL) {
+        fprintf(stderr, "tiq: cannot create %s: %s\n", output, strerror(errno));
+        free(wasm); return 1;
+    }
+    int result = 0;
+    if (fwrite(wasm, 1, wasm_len, out) != wasm_len || fclose(out) != 0) {
+        fprintf(stderr, "tiq: cannot write %s\n", output);
+        result = 1;
+    }
+    free(wasm);
+    return result;
+}
+
 // M16.2: parse repeatable `-l <lib>` / `-L <dir>` options starting at
 // argv[from]; any other token fails closed with a usage error.
 static int parse_link_opts(int argc, char **argv, int from,
@@ -1162,6 +1209,14 @@ int main(int argc, char **argv) {
         // M17.2: --backend qbe routes through the QBE native codegen path
         if (backend && strcmp(backend, "qbe") == 0) {
             return build_qbe(input, output, &diag);
+        }
+        // M17.4.2: --target wasm32-wasi routes through the in-process wasm backend
+        if (target && strcmp(target, "wasm32-wasi") == 0) {
+            if (link_count > 0) {
+                fprintf(stderr, "tiq: -l/-L link options are not supported for wasm32-wasi\n");
+                return 2;
+            }
+            return build_wasm(input, output, &diag);
         }
         return build_target(input, output, target, link_buf, link_count, &diag);
     }
