@@ -565,16 +565,12 @@ static void check_node(SemanticContext *ctx, AstNode *node) {
             else if (node->as.literal.type == TOK_FLOAT) p = TYPE_FLOAT;
             else if (node->as.literal.type == TOK_STRING) p = TYPE_STR;
             else if (node->as.literal.type == TOK_TRUE || node->as.literal.type == TOK_FALSE) p = TYPE_BOOL;
+            else if (node->as.literal.type == TOK_NONE) p = TYPE_OPTION;
             node->semantic_type = ty(ctx, p);
             break;
         }
         case AST_IDENTIFIER: {
-            // M8: 'none' is a polymorphic Option constructor keyword.
             Token id_name = node->as.identifier.name;
-            if (id_name.length == 4 && memcmp(id_name.start, "none", 4) == 0) {
-                node->semantic_type = ty(ctx, TYPE_OPTION);
-                break;
-            }
             Symbol *sym = env_lookup(ctx->current_env, node->as.identifier.name);
             if (!sym) {
                 char msg[256];
@@ -829,15 +825,6 @@ static void check_node(SemanticContext *ctx, AstNode *node) {
                     }
                     break;
                 }
-                if (name.length == 4 && memcmp(name.start, "none", 4) == 0) {
-                    if (node->as.call.arg_count != 0) {
-                        diag_error(ctx->diag, ctx->path, node->token.line, ERR_ARITY_MISMATCH, "none expects no arguments");
-                    }
-                    // none is polymorphic - type inferred from context
-                    node->semantic_type = ty(ctx, TYPE_OPTION);
-                    break;
-                }
-                // M8: Result constructors
                 if (name.length == 2 && memcmp(name.start, "ok", 2) == 0) {
                     if (node->as.call.arg_count != 1) {
                         diag_error(ctx->diag, ctx->path, node->token.line, ERR_ARITY_MISMATCH, "ok expects exactly 1 argument");

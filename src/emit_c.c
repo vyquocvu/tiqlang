@@ -666,14 +666,11 @@ static void emit_expr(AstNode *node, EmitContext *ctx) {
             else if (node->as.literal.type == TOK_STRING) emit_c_string(ctx->out, node->token.start + 1, node->token.length - 2);
             else if (node->as.literal.type == TOK_TRUE) fputs("1", ctx->out);
             else if (node->as.literal.type == TOK_FALSE) fputs("0", ctx->out);
+            else if (node->as.literal.type == TOK_NONE) fputs("((TiqOption){ .value = 0, .has_value = 0 })", ctx->out);
             break;
         }
         case AST_IDENTIFIER:
-            // M8: 'none' is a polymorphic Option constructor keyword.
-            if (node->as.identifier.name.length == 4 &&
-                memcmp(node->as.identifier.name.start, "none", 4) == 0) {
-                fputs("((TiqOption){ .value = 0, .has_value = 0 })", ctx->out);
-            } else if (ref_param_kind(ctx, node->as.identifier.name) != 0) {
+            if (ref_param_kind(ctx, node->as.identifier.name) != 0) {
                 // M9.1: reference parameters deref to the referent.
                 fprintf(ctx->out, "(*%.*s)", (int)node->as.identifier.name.length, node->as.identifier.name.start);
             } else {
@@ -813,14 +810,6 @@ static void emit_expr(AstNode *node, EmitContext *ctx) {
                 fputs("), .has_value = 1 })", ctx->out);
                 break;
             }
-            if (node->as.call.callee && node->as.call.callee->kind == AST_IDENTIFIER &&
-                node->as.call.callee->as.identifier.name.length == 4 &&
-                memcmp(node->as.call.callee->as.identifier.name.start, "none", 4) == 0 &&
-                node->as.call.arg_count == 0) {
-                fputs("((TiqOption){ .value = 0, .has_value = 0 })", ctx->out);
-                break;
-            }
-            // M8: Result constructors ok(x) and err(e).
             if (node->as.call.callee && node->as.call.callee->kind == AST_IDENTIFIER &&
                 node->as.call.callee->as.identifier.name.length == 2 &&
                 memcmp(node->as.call.callee->as.identifier.name.start, "ok", 2) == 0 &&

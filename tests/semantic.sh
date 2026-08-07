@@ -65,6 +65,14 @@ x = f(1, 2)
 assert_semantic "func_return_type_mismatch" 'f a:i32 -> str -> a
 ' "$TMP_DIR/func_return_type_mismatch.tiq:1: error[E09]: return type mismatch: expected str, found i32"
 
+# M22.1 (issue #5 Finding 3): 'none' is a reserved literal. It cannot be
+# used as a declared identifier/left-hand name, and calling it fails like
+# calling any literal.
+assert_semantic "none_reserved_lhs" 'none = 5
+' "$TMP_DIR/none_reserved_lhs.tiq:1: error[E05]: expected expression"
+assert_semantic "none_literal_not_callable" 'x = none(1)
+' "$TMP_DIR/none_literal_not_callable.tiq:1: error[E12]: arity mismatch"
+
 # Test unknown type name rejection.
 assert_semantic "func_unknown_type" 'f a:unknown -> a
 ' "$TMP_DIR/func_unknown_type.tiq:1: error[E09]: unknown type 'unknown'"

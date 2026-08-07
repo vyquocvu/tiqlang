@@ -174,6 +174,8 @@ static TokenKind identifier_type(Lexer *lexer, const char *start) {
                 }
             }
             break;
+        // M22.1: 'none' is a real reserved literal/token (issue #5 Finding 3).
+        case 'n': return check_keyword(lexer, start, 1, 3, "one", TOK_NONE);
         case 's':
             if (lexer->current - start > 1) {
                 switch (start[1]) {
@@ -294,6 +296,7 @@ const char *token_kind_name(TokenKind kind) {
         case TOK_STRING: return "STRING";
         case TOK_TRUE: return "TRUE";
         case TOK_FALSE: return "FALSE";
+        case TOK_NONE: return "NONE";
         case TOK_WHILE: return "WHILE";
         case TOK_BREAK: return "BREAK";
         case TOK_DEFER: return "DEFER";

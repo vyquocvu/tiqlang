@@ -64,6 +64,16 @@ BREAK
 SKIP
 UNTIL'
 
+# M22.1 (issue #5 Finding 3): 'none' is a real reserved literal/token.
+assert_lexer "none_keyword" 'none' 'NONE'
+assert_lexer "none_value" 'x = none' 'IDENT x
+EQ
+NONE'
+
+# Near-miss identifiers must stay identifiers.
+assert_lexer "none_near_miss" 'nones nonex' 'IDENT nones
+IDENT nonex'
+
 assert_lexer "literals" '42 3.14 "hello"' 'INT 42
 FLOAT 3.14
 STRING "hello"'

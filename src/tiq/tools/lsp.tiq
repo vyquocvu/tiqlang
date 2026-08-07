@@ -424,7 +424,7 @@ pos <- 0
                 tlen <- vec_get(toks, ti).length
                 tline <- vec_get(toks, ti).line
                 stype <- 0 - 1
-                ?[kind == TokenKind.True || kind == TokenKind.False || kind == TokenKind.While || kind == TokenKind.Break || kind == TokenKind.Skip || kind == TokenKind.Move || kind == TokenKind.Defer || kind == TokenKind.Until || kind == TokenKind.Match || kind == TokenKind.Struct || kind == TokenKind.Enum || kind == TokenKind.Mut || kind == TokenKind.Import || kind == TokenKind.Spawn || kind == TokenKind.Chan] { stype <- 0 }
+                ?[kind == TokenKind.True || kind == TokenKind.False || kind == TokenKind.None || kind == TokenKind.While || kind == TokenKind.Break || kind == TokenKind.Skip || kind == TokenKind.Move || kind == TokenKind.Defer || kind == TokenKind.Until || kind == TokenKind.Match || kind == TokenKind.Struct || kind == TokenKind.Enum || kind == TokenKind.Mut || kind == TokenKind.Import || kind == TokenKind.Spawn || kind == TokenKind.Chan] { stype <- 0 }
                 ?[kind == TokenKind.Ident] { stype <- 1 }
                 ?[kind == TokenKind.Int || kind == TokenKind.Float] { stype <- 2 }
                 ?[kind == TokenKind.String] { stype <- 3 }

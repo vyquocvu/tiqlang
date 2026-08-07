@@ -50,6 +50,7 @@ lex_scan source:str path:str toks:vec[Token] -> i64 -> {
     map_set(kw, "match", TokenKind.Match)
     map_set(kw, "move", TokenKind.Move)
     map_set(kw, "mut", TokenKind.Mut)
+    map_set(kw, "none", TokenKind.None)
     map_set(kw, "skip", TokenKind.Skip)
     map_set(kw, "spawn", TokenKind.Spawn)
     map_set(kw, "struct", TokenKind.Struct)

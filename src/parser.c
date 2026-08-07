@@ -218,7 +218,7 @@ static AstNode *bracket_loop(Parser *parser) {
 }
 
 static AstNode *primary(Parser *parser) {
-    if (match(parser, TOK_FALSE) || match(parser, TOK_TRUE) || match(parser, TOK_INT) || match(parser, TOK_FLOAT) || match(parser, TOK_STRING)) {
+    if (match(parser, TOK_FALSE) || match(parser, TOK_TRUE) || match(parser, TOK_INT) || match(parser, TOK_FLOAT) || match(parser, TOK_STRING) || match(parser, TOK_NONE)) {
         AstNode *node = allocate_node(parser, AST_LITERAL);
         node->as.literal.type = parser->previous.kind;
         return node;
@@ -1103,6 +1103,8 @@ void ast_print(AstNode *node, int indent) {
                 printf("STRING %.*s%s\n", (int)node->token.length, node->token.start, t_str);
             } else if (node->as.literal.type == TOK_INT) {
                 printf("INT %.*s%s\n", (int)node->token.length, node->token.start, t_str);
+            } else if (node->as.literal.type == TOK_NONE) {
+                printf("LITERAL none%s\n", t_str);
             } else {
                 printf("LITERAL%s\n", t_str);
             }

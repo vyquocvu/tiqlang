@@ -423,14 +423,13 @@ check_node src:str path:str toks:vec[Token] nodes:vec[int] kids:vec[int] types:v
     // --- LITERAL ---
     ?[done == 0 && k == AstKind.Literal] {
         op <- nd_get(nodes, ni, NF.Op)
-        p <- op == TokenKind.Int ? TY.Int : op == TokenKind.Float ? TY.Float : op == TokenKind.String ? TY.Str : (op == TokenKind.True || op == TokenKind.False) ? TY.Bool : TY.Unknown
+        p <- op == TokenKind.Int ? TY.Int : op == TokenKind.Float ? TY.Float : op == TokenKind.String ? TY.Str : (op == TokenKind.True || op == TokenKind.False) ? TY.Bool : op == TokenKind.None ? TY.Option : TY.Unknown
         ?[op == TokenKind.Int] { check_int_range(src, toks, ctx, path, tok) }
         vec_set(types, ni, ty_get(tp, tpn, p)); done <- 1
     }
     // --- IDENTIFIER ---
     ?[done == 0 && k == AstKind.Identifier] {
         nm <- tk_lex(src, toks, nd_get(nodes, ni, NF.Name))
-        ?[str_eq(nm, "none")] { vec_set(types, ni, ty_get(tp, tpn, TY.Option)); done <- 1 }
         ?[done == 0] {
             si <- env_lookup(en, ed, nm)
             ?[si == -1] {
@@ -544,7 +543,6 @@ check_node src:str path:str toks:vec[Token] nodes:vec[int] kids:vec[int] types:v
                 }
                 handled <- 1
             }
-            ?[str_eq(cnm, "none")] { ?[c1 != 0] s_diag(ctx, path, ln, 12, "none expects no arguments"); vec_set(types, ni, ty_get(tp, tpn, TY.Option)); handled <- 1 }
             ?[str_eq(cnm, "ok")] {
                 ?[c1 != 1] { s_diag(ctx, path, ln, 12, "ok expects exactly 1 argument") }
                 ?[c1 == 1] {
@@ -1347,6 +1345,7 @@ typed_ast_show src:str toks:vec[Token] nodes:vec[int] kids:vec[int] types:vec[in
             op <- nd_get(nodes, ni, NF.Op)
             ?[op == TokenKind.String] { lx <- tk_lex(src, toks, nd_get(nodes, ni, NF.Tok)); print(str_cat(str_cat(pd, "STRING "), str_cat(lx, ts))); d2 <- 1 }
             ?[op == TokenKind.Int] { lx <- tk_lex(src, toks, nd_get(nodes, ni, NF.Tok)); print(str_cat(str_cat(pd, "INT "), str_cat(lx, ts))); d2 <- 1 }
+            ?[op == TokenKind.None] { print(str_cat(pd, str_cat("LITERAL none", ts))); d2 <- 1 }
             ?[d2 == 0] { print(str_cat(pd, str_cat("LITERAL", ts))); d2 <- 1 }
         }
         // --- IDENTIFIER ---

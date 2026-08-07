@@ -12,6 +12,10 @@ typedef enum {
     TOK_STRING,
     TOK_TRUE,
     TOK_FALSE,
+    // M22.1: 'none' is a real reserved literal/token, like true/false, so it
+    // no longer bypasses ordinary identifier lookup (issue #5 Finding 3).
+    // Kept near true/false; token numbers are not persisted.
+    TOK_NONE,
     TOK_WHILE,
     TOK_BREAK,
     TOK_SKIP,

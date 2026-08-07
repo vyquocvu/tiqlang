@@ -414,7 +414,7 @@ pnode mode:i64 src:str path:str toks:vec[Token] st:vec[int] nodes:vec[int] kids:
     ?[hit == 0 && mode == PM.Prim] {
         k0 = p_ck(toks, st)
         sub <- 0
-        ?[k0 == TokenKind.False || k0 == TokenKind.True || k0 == TokenKind.Int || k0 == TokenKind.Float || k0 == TokenKind.String] {
+        ?[k0 == TokenKind.False || k0 == TokenKind.True || k0 == TokenKind.Int || k0 == TokenKind.Float || k0 == TokenKind.String || k0 == TokenKind.None] {
             p_advance(toks, st)
             n = nd_new(nodes, AstKind.Literal, p_pi(st))
             nd_set(nodes, n, NF.Op, tk_kind(toks, p_pi(st)))
@@ -1240,7 +1240,7 @@ ast_show src:str toks:vec[Token] nodes:vec[int] kids:vec[int] i:i64 ind:i64 -> i
         ?[k == AstKind.Literal] {
             lt = nd_get(nodes, i, NF.Op)
             lx = tk_lex(src, toks, nd_get(nodes, i, NF.Tok))
-            nm = lt == TokenKind.String ? str_cat("STRING ", lx) : (lt == TokenKind.Int ? str_cat("INT ", lx) : "LITERAL")
+            nm = lt == TokenKind.String ? str_cat("STRING ", lx) : (lt == TokenKind.Int ? str_cat("INT ", lx) : lt == TokenKind.None ? "LITERAL none" : "LITERAL")
             print(str_cat(pd, nm))
         }
         ?[k == AstKind.Identifier] {

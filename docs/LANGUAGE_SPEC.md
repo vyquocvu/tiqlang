@@ -48,10 +48,22 @@ Identifiers match `[A-Za-z_][A-Za-z0-9_]*`.
 Reserved words in v0.1 (matching the lexer exactly):
 
 ```text
-break chan defer enum extern false import match move mut skip spawn struct true until while
+break chan defer enum extern false import match move mut none skip spawn struct true until while
 ```
 
-`while` and `until` are clause keywords only: they appear in stream generator bounds and predicate slicing (§14). There are no `while`/`for` statement forms (§10). `chan`, `spawn`, `match`, `struct`, and `mut` are reserved for provisional or rejected constructs (§17). `enum` declares named integer constant sets (§17.5). `import` loads another source file into the program (§17.6). `extern` declares a foreign C function (§7.1).
+`while` and `until` are clause keywords only: they appear in stream generator bounds and predicate slicing (§14). There are no `while`/`for` statement forms (§10). `chan`, `spawn`, `match`, `struct`, and `mut` are reserved for provisional or rejected constructs (§17). `enum` declares named integer constant sets (§17.5). `import` loads another source file into the program (§17.6). `extern` declares a foreign C function (§7.1). `none` is a literal (§15.1).
+
+Literals:
+
+```tiq
+42
+-7
+3.14
+true
+false
+none
+"hello"
+```
 
 Literals:
 
@@ -436,7 +448,7 @@ parse s:str -> i64!str -> {
 
 **Constructors:**
 - `some(x)` wraps a value in an Option.
-- `none` is the absent Option value.
+- `none` is the absent Option value (a reserved literal; it cannot name a declared identifier).
 - `ok(x)` wraps a value in a Result.
 - `err(e)` wraps an error in a Result.
 

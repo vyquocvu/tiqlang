@@ -477,13 +477,13 @@ ec_expr src:str toks:vec[Token] nodes:vec[int] kids:vec[int] hs:vec[int] his:vec
         ?[done == 0 && lk == TokenKind.Int] { ec_put(b, x); ec_put(b, "LL"); done <- 1 }
         ?[done == 0 && lk == TokenKind.True] { ec_put(b, "1"); done <- 1 }
         ?[done == 0 && lk == TokenKind.False] { ec_put(b, "0"); done <- 1 }
+        ?[done == 0 && lk == TokenKind.None] { ec_put(b, "((TiqOption){ .value = 0, .has_value = 0 })"); done <- 1 }
         ?[done == 0] { ec_put(b, x) }
         done <- 1
     }
     ?[done == 0 && k == AstKind.Identifier] {
         nm = tk_lex(src, toks, nd_get(nodes, ni, NF.Name))
-        ?[str_eq(nm, "none")] { ec_put(b, "((TiqOption){ .value = 0, .has_value = 0 })") }
-        ?[str_eq(nm, "none") == false] { ec_put(b, nm) }
+        ec_put(b, nm)
         done <- 1
     }
     ?[done == 0 && k == AstKind.Binary] {

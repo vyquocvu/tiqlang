@@ -230,7 +230,7 @@ y = x ?? 0'
 corpus "propagate_non_option" 'x = 1
 y = x?'
 corpus "some_wrong_arity" 'x = some(1, 2)'
-corpus "none_wrong_arity" 'x = none(1)'
+corpus "none_literal_call" 'x = none(1)'
 corpus "ok_wrong_arity" 'x = ok(1, 2)'
 corpus "err_wrong_arity" 'x = err()'
 # P1 str/IO builtins.

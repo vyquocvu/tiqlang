@@ -40,6 +40,10 @@ assert_parser "math" 'x = 1 + 2 * 3 - 4 / 2' 'BINDING x
       INT 4
       INT 2'
 
+# M22.1 (issue #5 Finding 3): 'none' parses as a literal, not an identifier.
+assert_parser "none_literal" 'z = none' 'BINDING z
+  LITERAL none'
+
 assert_parser "logic_and_compare" 'y = a > b && c <= d || !e' 'BINDING y
   BINARY OR_OR
     BINARY AND_AND

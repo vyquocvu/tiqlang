@@ -82,7 +82,7 @@ stream_bound  = ("while" | "until"), expression ;                  (* 🔴 — s
 array_fill    = "[", expression, ";", expression, "]" ;            (* ✅ — length must be integer literal *)
 match_expr    = "match", expression, "{", { match_arm, [ "," ] }, "}" ; (* 🟡 — requires wildcard arm *)
 match_arm     = expression, "=>", expression ;                     (* 🟡 — "_ =>" wildcard required *)
-literal       = integer | float | string | "true" | "false" ;     (* ✅ — i64 range checked *)
+literal       = integer | float | string | "true" | "false" | "none" ; (* ✅ — i64 range checked; none = absent Option *)
 
 type          = type_postfix ;                                     (* ✅ — M12.4/M12.6/M8 *)
 type_postfix  = type_primary, [ "?" | "!", type_primary ] ;        (* ✅ — M8: T? = Option, T!E = Result *)
