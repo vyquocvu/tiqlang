@@ -4,7 +4,7 @@ CFLAGS ?= -std=c11 -Wall -Wextra -Wpedantic -Werror -O2
 BUILD := build
 TIQ := $(BUILD)/tiq
 
-.PHONY: all clean test test-unit test-fuzz example test-check test-run test-qbe tool-test tool-fmt tool-bench tool-init tool-cache tool-lsp tool-install tool-registry tool-publish tool-audit tool-proxy tool-std perf-record perf-check
+.PHONY: all clean test test-unit test-fuzz example test-check test-run test-qbe test-wasm tool-test tool-fmt tool-bench tool-init tool-cache tool-lsp tool-install tool-registry tool-publish tool-audit tool-proxy tool-std perf-record perf-check
 
 # Build the unit runner with the same flags as the compiler. Besides keeping
 # `make` useful as a complete build gate, this preserves sanitizer link flags
@@ -86,6 +86,7 @@ test: $(TIQ) $(BUILD)/qbe $(BUILD)/runtime_qbe.o test-unit
 	sh tests/proxy_tool.sh
 	sh tests/ir.sh
 	sh tests/qbe_backend.sh
+	sh tests/wasm.sh
 	sh tests/macho_obj.sh
 	sh tests/object_link.sh
 	sh tests/elf_obj.sh
