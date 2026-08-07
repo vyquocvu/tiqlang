@@ -19,6 +19,7 @@ typedef struct {
 
 typedef struct {
     int header;
+    int inc_block;
     int exit_block;
 } LoopEntry;
 
@@ -311,6 +312,7 @@ static void lower_stmt(LowerCtx *ctx, AstNode *node) {
 
                 int header_block = ir_add_block(ctx->func, ctx->func->block_count);
                 int body_block = ir_add_block(ctx->func, ctx->func->block_count);
+                int inc_block = ir_add_block(ctx->func, ctx->func->block_count);
                 int exit_block = ir_add_block(ctx->func, ctx->func->block_count);
 
                 IrOperand br_hdr[] = {block_op(header_block)};
@@ -318,7 +320,7 @@ static void lower_stmt(LowerCtx *ctx, AstNode *node) {
 
                 ctx->current_block = header_block;
                 int i_reg = ir_new_reg(ctx->func);
-                IrOperand phi_args[] = {reg_op(start_reg), block_op(ctx->current_block - 1), reg_op(-1), block_op(body_block)};
+                IrOperand phi_args[] = {reg_op(start_reg), block_op(ctx->current_block - 1), reg_op(-1), block_op(inc_block)};
                 ir_emit_phi(ctx->func, header_block, i_reg, i64_type(), phi_args, 4);
 
                 const char *var_name = node->as.bracket_loop.has_binder ?
@@ -335,7 +337,7 @@ static void lower_stmt(LowerCtx *ctx, AstNode *node) {
                 IrOperand cbr_ops[] = {reg_op(cond_reg), block_op(body_block), block_op(exit_block)};
                 ir_emit_into_block(ctx->func, header_block, IR_CBR, -1, void_type(), cbr_ops, 3, node->token.line);
 
-                ctx->loop_stack[ctx->loop_depth++] = (LoopEntry){header_block, exit_block};
+                ctx->loop_stack[ctx->loop_depth++] = (LoopEntry){header_block, inc_block, exit_block};
 
                 ctx->current_block = body_block;
                 lower_block_stmts(ctx, node->as.bracket_loop.body_stmts, node->as.bracket_loop.body_count);
@@ -343,17 +345,26 @@ static void lower_stmt(LowerCtx *ctx, AstNode *node) {
                     lower_stmt(ctx, node->as.bracket_loop.body_final);
                 }
 
+                // Normal fall-through: body -> increment block.
+                IrOperand br_inc[] = {block_op(inc_block)};
+                ir_emit_into_block(ctx->func, ctx->current_block, IR_BR, -1, void_type(), br_inc, 1, node->token.line);
+
+                // Increment block: next = i + 1, back to the header. This is the
+                // single back-edge, so the header phi reads a computed value even
+                // when `skip` jumps here past dead body code (wasm executes IR
+                // linearly; QBE hoists the def on its own).
+                ctx->current_block = inc_block;
                 int next_i = ir_new_reg(ctx->func);
                 IrOperand one_op[] = {(IrOperand){IR_OP_IMM, .imm = 1}};
                 int one_reg = ir_new_reg(ctx->func);
-                ir_emit_into_block(ctx->func, ctx->current_block, IR_CONST_INT, one_reg, i64_type(), one_op, 1, node->token.line);
+                ir_emit_into_block(ctx->func, inc_block, IR_CONST_INT, one_reg, i64_type(), one_op, 1, node->token.line);
                 IrOperand add_ops[] = {reg_op(i_reg), reg_op(one_reg)};
-                ir_emit_into_block(ctx->func, ctx->current_block, IR_ADD, next_i, i64_type(), add_ops, 2, node->token.line);
+                ir_emit_into_block(ctx->func, inc_block, IR_ADD, next_i, i64_type(), add_ops, 2, node->token.line);
 
                 ctx->func->blocks[header_block].phis[0].args[2] = reg_op(next_i);
 
                 IrOperand br_back[] = {block_op(header_block)};
-                ir_emit_into_block(ctx->func, ctx->current_block, IR_BR, -1, void_type(), br_back, 1, node->token.line);
+                ir_emit_into_block(ctx->func, inc_block, IR_BR, -1, void_type(), br_back, 1, node->token.line);
 
                 ctx->loop_depth--;
                 exit_scope(ctx);
@@ -364,16 +375,23 @@ static void lower_stmt(LowerCtx *ctx, AstNode *node) {
 
         case AST_BREAK: {
             if (ctx->loop_depth > 0) {
-                IrOperand ops[] = {block_op(ctx->loop_stack[ctx->loop_depth - 1].exit_block)};
+                int exit = ctx->loop_stack[ctx->loop_depth - 1].exit_block;
+                IrOperand ops[] = {block_op(exit)};
                 ir_emit_into_block(ctx->func, ctx->current_block, IR_BR, -1, void_type(), ops, 1, node->token.line);
+                // Any statements after a terminator are dead but must still be
+                // lowered into a fresh block: the wasm backend dispatches each
+                // block linearly, so instructions may not follow a br.
+                ctx->current_block = ir_add_block(ctx->func, ctx->func->block_count);
             }
             break;
         }
 
         case AST_SKIP: {
             if (ctx->loop_depth > 0) {
-                IrOperand ops[] = {block_op(ctx->loop_stack[ctx->loop_depth - 1].header)};
+                int inc = ctx->loop_stack[ctx->loop_depth - 1].inc_block;
+                IrOperand ops[] = {block_op(inc)};
                 ir_emit_into_block(ctx->func, ctx->current_block, IR_BR, -1, void_type(), ops, 1, node->token.line);
+                ctx->current_block = ir_add_block(ctx->func, ctx->func->block_count);
             }
             break;
         }

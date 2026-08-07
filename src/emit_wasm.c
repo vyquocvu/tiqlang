@@ -247,6 +247,7 @@ typedef struct {
     uint32_t buf, iov, nw;
     uint32_t off_true, off_false;
     uint32_t off_nan, off_inf, off_ninf, off_m0, off_0;
+    uint32_t off_nl;
 } RtCtx;
 
 // Function index layout.
@@ -258,7 +259,8 @@ enum {
     FUNC_PRINT_I64 = 4,
     FUNC_PRINT_BOOL = 5,
     FUNC_PRINT_F64 = 6,
-    FUNC_USER_BASE = 7,
+    FUNC_PRINT_NL = 7,
+    FUNC_USER_BASE = 8,
 };
 
 // ---------------------------------------------------------------------------
@@ -333,18 +335,31 @@ static void emit_strlen(Buf *o) {
 }
 
 // print_str(ptr: i32) -> (); locals: [1] = n
-static void emit_print_str(Buf *o, uint32_t iov, uint32_t nw) {
+static void emit_print_str(Buf *o, uint32_t iov, uint32_t nw, uint32_t off_nl) {
     b_byte(o, 0x01); b_byte(o, 0x01); b_byte(o, 0x7F);
     lg(o, 0); call(o, FUNC_STRLEN); ls(o, 1);
     i32c(o, (int32_t)iov); lg(o, 0); st32(o);
     i32c(o, (int32_t)(iov + 4)); lg(o, 1); st32(o);
     i32c(o, 1); i32c(o, (int32_t)iov); i32c(o, 1); i32c(o, (int32_t)nw);
     call(o, FUNC_FD_WRITE); op(o, 0x1A); // drop
+    i32c(o, (int32_t)off_nl); call(o, FUNC_PRINT_NL); // trailing newline
+    end(o);
+}
+
+// print_nl(off: i32) -> (); writes a single newline byte via fd_write.
+// Reuses the shared iov/nw slots. Called by the print helpers so every
+// print emits a trailing newline, per LANGUAGE_SPEC §12.
+static void emit_print_nl(Buf *o, uint32_t iov, uint32_t nw) {
+    b_byte(o, 0x00);
+    i32c(o, (int32_t)iov); lg(o, 0); st32(o);       // iov.ptr = off
+    i32c(o, (int32_t)(iov + 4)); i32c(o, 1); st32(o); // iov.len = 1
+    i32c(o, 1); i32c(o, (int32_t)iov); i32c(o, 1); i32c(o, (int32_t)nw);
+    call(o, FUNC_FD_WRITE); op(o, 0x1A); // drop
     end(o);
 }
 
 // print_i64(n: i64) -> (); locals: [1]=ptr [2]=digits [3]=is_neg
-static void emit_print_i64(Buf *o, uint32_t buf_off, uint32_t iov, uint32_t nw) {
+static void emit_print_i64(Buf *o, uint32_t buf_off, uint32_t iov, uint32_t nw, uint32_t off_nl) {
     b_byte(o, 0x01); b_byte(o, 0x03); b_byte(o, 0x7F);
     // is_neg = n < 0
     lg(o, 0); b_byte(o, 0x42); w_sleb(o, 0); op(o, 0x53); ls(o, 3);
@@ -377,6 +392,7 @@ static void emit_print_i64(Buf *o, uint32_t buf_off, uint32_t iov, uint32_t nw) 
     i32c(o, (int32_t)(iov + 4)); lg(o, 2); st32(o);
     i32c(o, 1); i32c(o, (int32_t)iov); i32c(o, 1); i32c(o, (int32_t)nw);
     call(o, FUNC_FD_WRITE); op(o, 0x1A);
+    i32c(o, (int32_t)off_nl); call(o, FUNC_PRINT_NL); // trailing newline
     end(o);
 }
 
@@ -651,6 +667,7 @@ static void emit_print_f64(Buf *o, const RtCtx *rc) {
     i32c(o, (int32_t)(rc->iov + 4)); lg(o, 4); st32(o);
     i32c(o, 1); i32c(o, (int32_t)rc->iov); i32c(o, 1); i32c(o, (int32_t)rc->nw);
     call(o, FUNC_FD_WRITE); op(o, 0x1A);
+    i32c(o, (int32_t)rc->off_nl); call(o, FUNC_PRINT_NL); // trailing newline
     end(o);
 }
 
@@ -1121,6 +1138,7 @@ bool emit_wasm(const IrModule *module, uint8_t **out, size_t *out_len,
         .buf = 0, .iov = 48, .nw = 56,
         .off_true = 0, .off_false = 0,
         .off_nan = 0, .off_inf = 0, .off_ninf = 0, .off_m0 = 0, .off_0 = 0,
+        .off_nl = 0,
     };
     int t0 = pool_add_cstr(&pool, "true");
     int t1 = pool_add_cstr(&pool, "false");
@@ -1129,7 +1147,8 @@ bool emit_wasm(const IrModule *module, uint8_t **out, size_t *out_len,
     int t4 = pool_add_cstr(&pool, "-inf");
     int t5 = pool_add_cstr(&pool, "-0");
     int t6 = pool_add_cstr(&pool, "0");
-    if (t0 < 0 || t1 < 0 || t2 < 0 || t3 < 0 || t4 < 0 || t5 < 0 || t6 < 0) {
+    int t7 = pool_add_cstr(&pool, "\n");
+    if (t0 < 0 || t1 < 0 || t2 < 0 || t3 < 0 || t4 < 0 || t5 < 0 || t6 < 0 || t7 < 0) {
         snprintf(err, errlen, "wasm: internal string pool error");
         goto fail;
     }
@@ -1155,6 +1174,7 @@ bool emit_wasm(const IrModule *module, uint8_t **out, size_t *out_len,
     rc.off_ninf = pool.e[t4].off;
     rc.off_m0 = pool.e[t5].off;
     rc.off_0 = pool.e[t6].off;
+    rc.off_nl = pool.e[t7].off;
 
     // Runtime signatures.
     const uint8_t v_i32 = 0x7F, v_i64 = 0x7E, v_f64 = 0x7C;
@@ -1165,8 +1185,9 @@ bool emit_wasm(const IrModule *module, uint8_t **out, size_t *out_len,
     int sig_print_i64 = sig_add(&tt, (const uint8_t[]){v_i64}, 1, 0, 0);
     int sig_print_bool = sig_add(&tt, (const uint8_t[]){v_i32}, 1, 0, 0);
     int sig_print_f64 = sig_add(&tt, (const uint8_t[]){v_f64}, 1, 0, 0);
+    int sig_print_nl = sig_add(&tt, (const uint8_t[]){v_i32}, 1, 0, 0);
     if (sig_fdwrite < 0 || sig_proc_exit < 0 || sig_strlen < 0 || sig_print_str < 0 ||
-        sig_print_i64 < 0 || sig_print_bool < 0 || sig_print_f64 < 0)
+        sig_print_i64 < 0 || sig_print_bool < 0 || sig_print_f64 < 0 || sig_print_nl < 0)
         goto fail;
 
     // User function signatures + name table.
@@ -1233,12 +1254,13 @@ bool emit_wasm(const IrModule *module, uint8_t **out, size_t *out_len,
     {
         Buf s;
         b_init(&s);
-        w_uleb(&s, (uint64_t)(module->func_count + 6));
+        w_uleb(&s, (uint64_t)(module->func_count + 7));
         w_uleb(&s, (uint64_t)sig_strlen);
         w_uleb(&s, (uint64_t)sig_print_str);
         w_uleb(&s, (uint64_t)sig_print_i64);
         w_uleb(&s, (uint64_t)sig_print_bool);
         w_uleb(&s, (uint64_t)sig_print_f64);
+        w_uleb(&s, (uint64_t)sig_print_nl);
         for (int i = 0; i < module->func_count; i++)
             w_uleb(&s, (uint64_t)ft.e[i].sig_idx);
         w_uleb(&s, (uint64_t)start_sig);
@@ -1276,7 +1298,7 @@ bool emit_wasm(const IrModule *module, uint8_t **out, size_t *out_len,
     {
         Buf s;
         b_init(&s);
-        w_uleb(&s, (uint64_t)(module->func_count + 6));
+        w_uleb(&s, (uint64_t)(module->func_count + 7));
         {
             Buf b; b_init(&b);
             emit_strlen(&b);
@@ -1285,13 +1307,13 @@ bool emit_wasm(const IrModule *module, uint8_t **out, size_t *out_len,
         }
         {
             Buf b; b_init(&b);
-            emit_print_str(&b, rc.iov, rc.nw);
+            emit_print_str(&b, rc.iov, rc.nw, rc.off_nl);
             w_uleb(&s, b.len); b_bytes(&s, b.d, b.len);
             b_free(&b);
         }
         {
             Buf b; b_init(&b);
-            emit_print_i64(&b, rc.buf, rc.iov, rc.nw);
+            emit_print_i64(&b, rc.buf, rc.iov, rc.nw, rc.off_nl);
             w_uleb(&s, b.len); b_bytes(&s, b.d, b.len);
             b_free(&b);
         }
@@ -1304,6 +1326,12 @@ bool emit_wasm(const IrModule *module, uint8_t **out, size_t *out_len,
         {
             Buf b; b_init(&b);
             emit_print_f64(&b, &rc);
+            w_uleb(&s, b.len); b_bytes(&s, b.d, b.len);
+            b_free(&b);
+        }
+        {
+            Buf b; b_init(&b);
+            emit_print_nl(&b, rc.iov, rc.nw);
             w_uleb(&s, b.len); b_bytes(&s, b.d, b.len);
             b_free(&b);
         }
