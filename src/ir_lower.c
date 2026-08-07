@@ -27,6 +27,7 @@ typedef struct {
     IrFunction *func;
     int current_block;
     DiagContext *diag;
+    const char *path;
     VarEntry vars[MAX_VARS];
     int var_count;
     int scope_level;
@@ -86,6 +87,14 @@ static IrType void_type(void) {
 
 static IrType bool_type(void) {
     return (IrType){IR_BOOL, NULL};
+}
+
+// M17.4: IR lowering cannot represent some valid Tiq constructs (structs,
+// stream generators, field access, matches, ...). These must fail closed with
+// a located diagnostic rather than silently emitting a garbage register.
+static int lower_unsupported(LowerCtx *ctx, AstNode *node, const char *what) {
+    diag_error(ctx->diag, ctx->path, node->token.line, ERR_UNSUPPORTED_STATEMENT, what);
+    return -1;
 }
 
 static IrType i64_type(void) {
@@ -202,22 +211,24 @@ static int lower_expr(LowerCtx *ctx, AstNode *node) {
         }
 
         case AST_CALL: {
-            if (node->as.call.callee->kind == AST_IDENTIFIER) {
-                const char *name = node->as.call.callee->as.identifier.name.start;
-                size_t name_len = node->as.call.callee->as.identifier.name.length;
-                if (name_len == 5 && memcmp(name, "print", 5) == 0 && node->as.call.arg_count == 1) {
-                    int arg = lower_expr(ctx, node->as.call.args[0]);
-                    IrOperand ops[] = {reg_op(arg)};
-                    ir_emit_into_block(ctx->func, ctx->current_block, IR_PRINT, -1, void_type(), ops, 1, node->token.line);
-                    return -1;
-                }
-                if (name_len == 3 && memcmp(name, "len", 3) == 0 && node->as.call.arg_count == 1) {
-                    int arg = lower_expr(ctx, node->as.call.args[0]);
-                    int dst = ir_new_reg(ctx->func);
-                    IrOperand ops[] = {reg_op(arg)};
-                    ir_emit_into_block(ctx->func, ctx->current_block, IR_LEN, dst, i64_type(), ops, 1, node->token.line);
-                    return dst;
-                }
+            if (node->as.call.callee->kind != AST_IDENTIFIER) {
+                return lower_unsupported(ctx, node,
+                    "calls with a non-identifier callee (e.g. indexing a call result) are not supported by IR lowering yet");
+            }
+            const char *name = node->as.call.callee->as.identifier.name.start;
+            size_t name_len = node->as.call.callee->as.identifier.name.length;
+            if (name_len == 5 && memcmp(name, "print", 5) == 0 && node->as.call.arg_count == 1) {
+                int arg = lower_expr(ctx, node->as.call.args[0]);
+                IrOperand ops[] = {reg_op(arg)};
+                ir_emit_into_block(ctx->func, ctx->current_block, IR_PRINT, -1, void_type(), ops, 1, node->token.line);
+                return -1;
+            }
+            if (name_len == 3 && memcmp(name, "len", 3) == 0 && node->as.call.arg_count == 1) {
+                int arg = lower_expr(ctx, node->as.call.args[0]);
+                int dst = ir_new_reg(ctx->func);
+                IrOperand ops[] = {reg_op(arg)};
+                ir_emit_into_block(ctx->func, ctx->current_block, IR_LEN, dst, i64_type(), ops, 1, node->token.line);
+                return dst;
             }
             // General function call
             int *arg_regs = malloc(node->as.call.arg_count * sizeof(int));
@@ -269,7 +280,7 @@ static int lower_expr(LowerCtx *ctx, AstNode *node) {
         }
 
         default:
-            return -1;
+            return lower_unsupported(ctx, node, "construct is not supported by IR lowering yet");
     }
 }
 
@@ -423,6 +434,8 @@ static void lower_stmt(LowerCtx *ctx, AstNode *node) {
         }
 
         default: {
+            // Expression statement (e.g. a bare `print(...)` call) or an
+            // unsupported construct; lower_expr fails closed on the latter.
             lower_expr(ctx, node);
             break;
         }
@@ -435,10 +448,13 @@ static void lower_block_stmts(LowerCtx *ctx, AstNode **stmts, int count) {
     }
 }
 
-bool ir_lower(AstNode **stmts, int count, IrModule *module, DiagContext *diag) {
+bool ir_lower(AstNode **stmts, int count, IrModule *module, DiagContext *diag, const char *path) {
     LowerCtx ctx;
     ctx.module = module;
+    ctx.func = NULL;
+    ctx.current_block = 0;
     ctx.diag = diag;
+    ctx.path = path;
     ctx.var_count = 0;
     ctx.scope_level = 0;
     ctx.loop_depth = 0;

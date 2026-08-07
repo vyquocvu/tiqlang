@@ -148,11 +148,38 @@ y = -7
 assert_ir_contains "str_lit" 'msg = "hello"
 ' "const_str"
 
-# Test 16: All examples should lower without error
-for ex in examples/*.tiq; do
-  name=$(basename "$ex" .tiq)
+# Test 16: Examples the IR supports lower cleanly; unsupported constructs
+# (structs, stream generators, field access) fail closed with a located
+# diagnostic rather than silently emitting garbage registers.
+supported_examples="examples/break_early.tiq
+examples/continue_skip.tiq
+examples/count.tiq
+examples/gcd.tiq
+examples/hello.tiq
+examples/max.tiq
+examples/option_result.tiq
+examples/primes.tiq"
+
+for ex in $supported_examples; do
   if ! $TIQ dump-ir "$ex" > /dev/null 2>&1; then
-    echo "example $name failed to lower" >&2
+    echo "example $ex failed to lower" >&2
+    exit 1
+  fi
+done
+
+unsupported_examples="examples/structs.tiq
+examples/arithmetic.tiq
+examples/evens.tiq
+examples/factorial.tiq"
+
+for ex in $unsupported_examples; do
+  if $TIQ dump-ir "$ex" > /dev/null 2>&1; then
+    echo "example $ex must fail closed (E07) but lowered" >&2
+    exit 1
+  fi
+  if ! $TIQ dump-ir "$ex" 2>&1 >/dev/null | grep -q ':[0-9][0-9]*: error\[E07\]'; then
+    echo "example $ex must emit located E07 diagnostic" >&2
+    $TIQ dump-ir "$ex" 2>&1 >/dev/null >&2
     exit 1
   fi
 done

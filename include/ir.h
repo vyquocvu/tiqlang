@@ -177,7 +177,7 @@ int ir_add_block(IrFunction *func, int label);
 int ir_new_reg(IrFunction *func);
 
 // API: lowering from typed AST to IR
-bool ir_lower(AstNode **stmts, int count, IrModule *module, DiagContext *diag);
+bool ir_lower(AstNode **stmts, int count, IrModule *module, DiagContext *diag, const char *path);
 
 // API: textual IR dumper
 void ir_dump(FILE *out, const IrModule *module);

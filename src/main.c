@@ -338,7 +338,7 @@ static int build_qbe(const char *input, const char *output, DiagContext *diag) {
     SemanticModule *root = &prog.sem[prog.count - 1];
     IrModule module;
     ir_module_init(&module);
-    ir_lower(root->stmts, root->count, &module, diag);
+    ir_lower(root->stmts, root->count, &module, diag, input);
     if (diag->has_error) {
         ir_module_free(&module); program_free(&prog); type_pool_free(&pool); return 1;
     }
@@ -719,7 +719,7 @@ static int build_wasm(const char *input, const char *output, DiagContext *diag) 
     SemanticModule *root = &prog.sem[prog.count - 1];
     IrModule module;
     ir_module_init(&module);
-    ir_lower(root->stmts, root->count, &module, diag);
+    ir_lower(root->stmts, root->count, &module, diag, input);
     if (diag->has_error) {
         ir_module_free(&module); program_free(&prog); type_pool_free(&pool); return 1;
     }
@@ -831,7 +831,7 @@ static int dump_ir(const char *input, DiagContext *diag) {
     SemanticModule *root = &prog.sem[prog.count - 1];
     IrModule module;
     ir_module_init(&module);
-    ir_lower(root->stmts, root->count, &module, diag);
+    ir_lower(root->stmts, root->count, &module, diag, input);
     if (!diag->has_error) ir_dump(stdout, &module);
     ir_module_free(&module);
     program_free(&prog);
@@ -1104,7 +1104,7 @@ int main(int argc, char **argv) {
         SemanticModule *root = &prog.sem[prog.count - 1];
         IrModule module;
         ir_module_init(&module);
-        ir_lower(root->stmts, root->count, &module, &diag);
+        ir_lower(root->stmts, root->count, &module, &diag, argv[2]);
         if (!diag.has_error) emit_qbe(stdout, &module);
         ir_module_free(&module);
         program_free(&prog);
