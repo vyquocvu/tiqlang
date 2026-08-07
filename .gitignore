@@ -54,3 +54,16 @@ dkms.conf
 # debug information files
 *.dwo
 build/
+
+# Vendored QBE build artifacts (third_party/qbe is committed as source only)
+third_party/qbe/qbe
+third_party/qbe/config.h
+third_party/qbe/minic/mcc
+third_party/qbe/minic/yacc.c
+third_party/qbe/minic/yacc.h
+third_party/qbe/**/*.o
+third_party/qbe/**/*.d
+
+# Local debug scaffolding
+test_algo
+test_algo.c

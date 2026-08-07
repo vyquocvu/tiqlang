@@ -1,0 +1,23 @@
+export function w $main() {
+@start
+	%thread =l alloc8 8
+	%retval =l alloc8 8
+
+	storew 1337, threadlocal $i
+	call $pthread_create(l %thread, l 0, l $thread, l 0)
+
+	%thread_id =l loadl %thread
+	call $pthread_join(l %thread_id, l %retval)
+
+	%ret =l loadl %retval
+	%res =l cnel %ret, 42
+	ret %res
+}
+
+function w $thread() {
+@start
+	%ret =l loadl threadlocal $i
+	ret %ret
+}
+
+threadlocal data $i = { w 42 }
