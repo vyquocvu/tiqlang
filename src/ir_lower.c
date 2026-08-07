@@ -8,6 +8,7 @@
 #define MAX_VARS 256
 #define MAX_SCOPES 32
 #define MAX_LOOPS 16
+#define MAX_STREAM_GENS 64
 
 typedef struct {
     const char *name;
@@ -23,6 +24,17 @@ typedef struct {
     int exit_block;
 } LoopEntry;
 
+// M17.4.3: top-level stream generators ([... a + b]) lower into ordinary
+// IR functions named by the user symbol, with signature (params..., n) -> i64
+// mirroring the C backend's tiq_gen_<name> (emit_c.c emit_stream_gen_def).
+typedef struct {
+    char *name;            // malloc'd, null-terminated
+    size_t name_len;
+    AstNode *gen;          // AST_STREAM_GEN node
+    Token *params;         // user params (NULL for bindings)
+    int param_count;
+} StreamGenEntry;
+
 typedef struct {
     IrModule *module;
     IrFunction *func;
@@ -34,6 +46,8 @@ typedef struct {
     int scope_level;
     LoopEntry loop_stack[MAX_LOOPS];
     int loop_depth;
+    StreamGenEntry stream_gens[MAX_STREAM_GENS];
+    int stream_gen_count;
 } LowerCtx;
 
 static int find_var(LowerCtx *ctx, const char *name, size_t len) {
@@ -106,6 +120,24 @@ static IrType i64_type(void) {
 static int lower_expr(LowerCtx *ctx, AstNode *node);
 static void lower_stmt(LowerCtx *ctx, AstNode *node);
 static void lower_block_stmts(LowerCtx *ctx, AstNode **stmts, int count);
+static void lower_stream_gen(LowerCtx *ctx, StreamGenEntry *gen);
+
+static StreamGenEntry *find_stream_gen(LowerCtx *ctx, const char *name, size_t len) {
+    for (int i = 0; i < ctx->stream_gen_count; i++) {
+        if (ctx->stream_gens[i].name_len == len &&
+            memcmp(ctx->stream_gens[i].name, name, len) == 0) {
+            return &ctx->stream_gens[i];
+        }
+    }
+    return NULL;
+}
+
+static int emit_const_i64(LowerCtx *ctx, int block, long long val, int line) {
+    int dst = ir_new_reg(ctx->func);
+    IrOperand ops[] = {(IrOperand){IR_OP_IMM, .imm = val}};
+    ir_emit_into_block(ctx->func, block, IR_CONST_INT, dst, i64_type(), ops, 1, line);
+    return dst;
+}
 
 static int lower_expr(LowerCtx *ctx, AstNode *node) {
     if (!node) return -1;
@@ -212,6 +244,40 @@ static int lower_expr(LowerCtx *ctx, AstNode *node) {
         }
 
         case AST_CALL: {
+            // M17.4.3: flatten parameterized stream bracket calls such as
+            // `evens(10)[5]` (outer bracket call over an inner call whose
+            // callee is a stream generator) into a single IR_CALL with the
+            // inner args followed by the index args.
+            if (node->as.call.is_bracket_call && node->as.call.callee &&
+                node->as.call.callee->kind == AST_CALL &&
+                node->as.call.callee->as.call.callee &&
+                node->as.call.callee->as.call.callee->kind == AST_IDENTIFIER) {
+                AstNode *inner = node->as.call.callee;
+                AstNode *inner_callee = inner->as.call.callee;
+                if (find_stream_gen(ctx, inner_callee->as.identifier.name.start,
+                                    inner_callee->as.identifier.name.length)) {
+                    int total = inner->as.call.arg_count + node->as.call.arg_count;
+                    int *arg_regs = malloc(total * sizeof(int));
+                    for (int i = 0; i < inner->as.call.arg_count; i++) {
+                        arg_regs[i] = lower_expr(ctx, inner->as.call.args[i]);
+                    }
+                    for (int i = 0; i < node->as.call.arg_count; i++) {
+                        arg_regs[inner->as.call.arg_count + i] = lower_expr(ctx, node->as.call.args[i]);
+                    }
+                    int dst = -1;
+                    IrType type = node->semantic_type ? ir_type_from_semantic(node->semantic_type) : i64_type();
+                    if (type.kind != IR_VOID) dst = ir_new_reg(ctx->func);
+                    IrOperand *ops = malloc((1 + total) * sizeof(IrOperand));
+                    ops[0] = str_op(inner_callee->as.identifier.name.start, inner_callee->as.identifier.name.length);
+                    for (int i = 0; i < total; i++) {
+                        ops[i + 1] = reg_op(arg_regs[i]);
+                    }
+                    ir_emit_into_block(ctx->func, ctx->current_block, IR_CALL, dst, type, ops, 1 + total, node->token.line);
+                    free(arg_regs);
+                    free(ops);
+                    return dst;
+                }
+            }
             if (node->as.call.callee->kind != AST_IDENTIFIER) {
                 return lower_unsupported(ctx, node,
                     "calls with a non-identifier callee (e.g. indexing a call result) are not supported by IR lowering yet");
@@ -466,6 +532,201 @@ static void lower_block_stmts(LowerCtx *ctx, AstNode **stmts, int count) {
     }
 }
 
+// M17.4.3: lower a top-level stream generator into an IR function whose
+// signature is (user params..., index n) -> i64, mirroring the C backend's
+// tiq_gen_<name> (emit_c.c emit_stream_gen_def). The generator runs a
+// header/body/inc loop: the accumulator (x, or the window a/b) is a header
+// phi whose back-edge value is materialized in the inc block via IR_COPY so
+// both the wasm phi-move emission and QBE's SSA rules see a value defined in
+// the predecessor block.
+static void lower_stream_gen(LowerCtx *ctx, StreamGenEntry *gen) {
+    AstNode *node = gen->gen;
+    int sc = node->as.stream_gen.seed_count;
+    int line = node->token.line;
+    IrFunction *fn;
+    IrModule *m = ctx->module;
+
+    if (sc < 1) {
+        lower_unsupported(ctx, node, "stream generators without seeds are not supported by IR lowering yet");
+        return;
+    }
+
+    m->funcs = realloc(m->funcs, (m->func_count + 1) * sizeof(IrFunction));
+    fn = &m->funcs[m->func_count++];
+    ir_func_init(fn, gen->name, gen->name_len);
+    fn->owns_name = true;
+    fn->param_count = gen->param_count + 1;
+    fn->param_types = malloc(fn->param_count * sizeof(IrType));
+    for (int i = 0; i < fn->param_count; i++) fn->param_types[i] = i64_type();
+    fn->return_type = i64_type();
+    ctx->func = fn;
+
+    int entry = ir_add_block(fn, 0);
+    ctx->current_block = entry;
+    enter_scope(ctx);
+
+    for (int p = 0; p < gen->param_count; p++) {
+        int r = ir_new_reg(fn);
+        set_var(ctx, gen->params[p].start, gen->params[p].length, r, i64_type());
+    }
+    int n_reg = ir_new_reg(fn);
+
+    // if (n < 0) return 0;
+    int zero_reg = emit_const_i64(ctx, entry, 0, line);
+    int neg = ir_new_reg(fn);
+    IrOperand neg_ops[] = {reg_op(n_reg), reg_op(zero_reg)};
+    ir_emit_into_block(fn, entry, IR_CMP_LT, neg, bool_type(), neg_ops, 2, line);
+    int ret0_blk = ir_add_block(fn, fn->block_count);
+    int guard_blk = ir_add_block(fn, fn->block_count);
+    IrOperand cbr0[] = {reg_op(neg), block_op(ret0_blk), block_op(guard_blk)};
+    ir_emit_into_block(fn, entry, IR_CBR, -1, void_type(), cbr0, 3, line);
+    IrOperand ret0[] = {reg_op(zero_reg)};
+    ir_emit_into_block(fn, ret0_blk, IR_RET, -1, void_type(), ret0, 1, line);
+
+    int one_reg = emit_const_i64(ctx, guard_blk, 1, line);
+    ctx->current_block = guard_blk;
+
+    if (sc == 1) {
+        // if (n == 0) return x; x = seed
+        int x_seed = lower_expr(ctx, node->as.stream_gen.seeds[0]);
+        int eq = ir_new_reg(fn);
+        IrOperand eq_ops[] = {reg_op(n_reg), reg_op(zero_reg)};
+        ir_emit_into_block(fn, guard_blk, IR_CMP_EQ, eq, bool_type(), eq_ops, 2, line);
+        int retx_blk = ir_add_block(fn, fn->block_count);
+        int header = ir_add_block(fn, fn->block_count);
+        IrOperand cbr_eq[] = {reg_op(eq), block_op(retx_blk), block_op(header)};
+        ir_emit_into_block(fn, guard_blk, IR_CBR, -1, void_type(), cbr_eq, 3, line);
+        IrOperand retx[] = {reg_op(x_seed)};
+        ir_emit_into_block(fn, retx_blk, IR_RET, -1, void_type(), retx, 1, line);
+
+        int i_phi = ir_new_reg(fn);
+        int x_phi = ir_new_reg(fn);
+        set_var(ctx, "x", 1, x_phi, i64_type());
+        set_var(ctx, "i", 1, i_phi, i64_type());
+        int body = ir_add_block(fn, fn->block_count);
+        int inc = ir_add_block(fn, fn->block_count);
+        int exit_blk = ir_add_block(fn, fn->block_count);
+        ctx->current_block = header;
+        int le = ir_new_reg(fn);
+        IrOperand le_ops[] = {reg_op(i_phi), reg_op(n_reg)};
+        ir_emit_into_block(fn, header, IR_CMP_LE, le, bool_type(), le_ops, 2, line);
+        IrOperand cbr_le[] = {reg_op(le), block_op(body), block_op(exit_blk)};
+        ir_emit_into_block(fn, header, IR_CBR, -1, void_type(), cbr_le, 3, line);
+
+        ctx->current_block = body;
+        int next_x = lower_expr(ctx, node->as.stream_gen.gen_expr);
+        IrOperand br_inc[] = {block_op(inc)};
+        ir_emit_into_block(fn, body, IR_BR, -1, void_type(), br_inc, 1, line);
+
+        ctx->current_block = inc;
+        int inc_x = ir_new_reg(fn);
+        IrOperand cpy[] = {reg_op(next_x)};
+        ir_emit_into_block(fn, inc, IR_COPY, inc_x, i64_type(), cpy, 1, line);
+        int next_i = ir_new_reg(fn);
+        IrOperand add_ops[] = {reg_op(i_phi), reg_op(one_reg)};
+        ir_emit_into_block(fn, inc, IR_ADD, next_i, i64_type(), add_ops, 2, line);
+        IrOperand br_hdr[] = {block_op(header)};
+        ir_emit_into_block(fn, inc, IR_BR, -1, void_type(), br_hdr, 1, line);
+
+        ctx->current_block = exit_blk;
+        IrOperand ret_x[] = {reg_op(x_phi)};
+        ir_emit_into_block(fn, exit_blk, IR_RET, -1, void_type(), ret_x, 1, line);
+
+        IrOperand i_args[] = {reg_op(one_reg), block_op(guard_blk), reg_op(next_i), block_op(inc)};
+        ir_emit_phi(fn, header, i_phi, i64_type(), i_args, 4);
+        IrOperand x_args[] = {reg_op(x_seed), block_op(guard_blk), reg_op(inc_x), block_op(inc)};
+        ir_emit_phi(fn, header, x_phi, i64_type(), x_args, 4);
+    } else {
+        // if (n == 0) return seed0; if (n == 1) return seed1;
+        int eq0 = ir_new_reg(fn);
+        IrOperand eq0_ops[] = {reg_op(n_reg), reg_op(zero_reg)};
+        ir_emit_into_block(fn, guard_blk, IR_CMP_EQ, eq0, bool_type(), eq0_ops, 2, line);
+        int ret0_blk2 = ir_add_block(fn, fn->block_count);
+        int guard1 = ir_add_block(fn, fn->block_count);
+        IrOperand cbr0b[] = {reg_op(eq0), block_op(ret0_blk2), block_op(guard1)};
+        ir_emit_into_block(fn, guard_blk, IR_CBR, -1, void_type(), cbr0b, 3, line);
+        ctx->current_block = ret0_blk2;
+        int seed0r = lower_expr(ctx, node->as.stream_gen.seeds[0]);
+        IrOperand r0[] = {reg_op(seed0r)};
+        ir_emit_into_block(fn, ret0_blk2, IR_RET, -1, void_type(), r0, 1, line);
+
+        int eq1 = ir_new_reg(fn);
+        IrOperand eq1_ops[] = {reg_op(n_reg), reg_op(one_reg)};
+        ir_emit_into_block(fn, guard1, IR_CMP_EQ, eq1, bool_type(), eq1_ops, 2, line);
+        int ret1_blk = ir_add_block(fn, fn->block_count);
+        int seed_def = ir_add_block(fn, fn->block_count);
+        IrOperand cbr1[] = {reg_op(eq1), block_op(ret1_blk), block_op(seed_def)};
+        ir_emit_into_block(fn, guard1, IR_CBR, -1, void_type(), cbr1, 3, line);
+        ctx->current_block = ret1_blk;
+        int seed1r = lower_expr(ctx, node->as.stream_gen.seeds[1]);
+        IrOperand r1[] = {reg_op(seed1r)};
+        ir_emit_into_block(fn, ret1_blk, IR_RET, -1, void_type(), r1, 1, line);
+
+        // a = seed1; b = seed0; then loop from i = 2.
+        ctx->current_block = seed_def;
+        int a_seed = lower_expr(ctx, node->as.stream_gen.seeds[1]);
+        int b_seed = lower_expr(ctx, node->as.stream_gen.seeds[0]);
+        int two_reg = emit_const_i64(ctx, seed_def, 2, line);
+        int header = ir_add_block(fn, fn->block_count);
+        IrOperand br_hdr2[] = {block_op(header)};
+        ir_emit_into_block(fn, seed_def, IR_BR, -1, void_type(), br_hdr2, 1, line);
+
+        int i_phi = ir_new_reg(fn);
+        int a_phi = ir_new_reg(fn);
+        int b_phi = ir_new_reg(fn);
+        set_var(ctx, "a", 1, a_phi, i64_type());
+        set_var(ctx, "b", 1, b_phi, i64_type());
+        set_var(ctx, "i", 1, i_phi, i64_type());
+        int body = ir_add_block(fn, fn->block_count);
+        int inc = ir_add_block(fn, fn->block_count);
+        int exit_blk = ir_add_block(fn, fn->block_count);
+        ctx->current_block = header;
+        int le = ir_new_reg(fn);
+        IrOperand le_ops[] = {reg_op(i_phi), reg_op(n_reg)};
+        ir_emit_into_block(fn, header, IR_CMP_LE, le, bool_type(), le_ops, 2, line);
+        IrOperand cbr_le[] = {reg_op(le), block_op(body), block_op(exit_blk)};
+        ir_emit_into_block(fn, header, IR_CBR, -1, void_type(), cbr_le, 3, line);
+
+        ctx->current_block = body;
+        int t_reg = lower_expr(ctx, node->as.stream_gen.gen_expr);
+        int b_next = ir_new_reg(fn);
+        IrOperand cpy_b[] = {reg_op(a_phi)};
+        ir_emit_into_block(fn, body, IR_COPY, b_next, i64_type(), cpy_b, 1, line);
+        int a_next = ir_new_reg(fn);
+        IrOperand cpy_a[] = {reg_op(t_reg)};
+        ir_emit_into_block(fn, body, IR_COPY, a_next, i64_type(), cpy_a, 1, line);
+        IrOperand br_inc[] = {block_op(inc)};
+        ir_emit_into_block(fn, body, IR_BR, -1, void_type(), br_inc, 1, line);
+
+        ctx->current_block = inc;
+        int a_inc = ir_new_reg(fn);
+        IrOperand cpy_ai[] = {reg_op(a_next)};
+        ir_emit_into_block(fn, inc, IR_COPY, a_inc, i64_type(), cpy_ai, 1, line);
+        int b_inc = ir_new_reg(fn);
+        IrOperand cpy_bi[] = {reg_op(b_next)};
+        ir_emit_into_block(fn, inc, IR_COPY, b_inc, i64_type(), cpy_bi, 1, line);
+        int next_i = ir_new_reg(fn);
+        IrOperand add_ops[] = {reg_op(i_phi), reg_op(one_reg)};
+        ir_emit_into_block(fn, inc, IR_ADD, next_i, i64_type(), add_ops, 2, line);
+        IrOperand br_hdr3[] = {block_op(header)};
+        ir_emit_into_block(fn, inc, IR_BR, -1, void_type(), br_hdr3, 1, line);
+
+        ctx->current_block = exit_blk;
+        IrOperand ret_a[] = {reg_op(a_phi)};
+        ir_emit_into_block(fn, exit_blk, IR_RET, -1, void_type(), ret_a, 1, line);
+
+        IrOperand i_args[] = {reg_op(two_reg), block_op(seed_def), reg_op(next_i), block_op(inc)};
+        ir_emit_phi(fn, header, i_phi, i64_type(), i_args, 4);
+        IrOperand a_args[] = {reg_op(a_seed), block_op(seed_def), reg_op(a_inc), block_op(inc)};
+        ir_emit_phi(fn, header, a_phi, i64_type(), a_args, 4);
+        IrOperand b_args[] = {reg_op(b_seed), block_op(seed_def), reg_op(b_inc), block_op(inc)};
+        ir_emit_phi(fn, header, b_phi, i64_type(), b_args, 4);
+    }
+
+    exit_scope(ctx);
+    ctx->func = &ctx->module->funcs[0];
+}
+
 bool ir_lower(AstNode **stmts, int count, IrModule *module, DiagContext *diag, const char *path) {
     LowerCtx ctx;
     ctx.module = module;
@@ -476,6 +737,31 @@ bool ir_lower(AstNode **stmts, int count, IrModule *module, DiagContext *diag, c
     ctx.var_count = 0;
     ctx.scope_level = 0;
     ctx.loop_depth = 0;
+    ctx.stream_gen_count = 0;
+
+    // M17.4.3: discovery pass for top-level stream generators. Both shapes are
+    // collected before lowering so bracket call sites can resolve them.
+    for (int i = 0; i < count && ctx.stream_gen_count < MAX_STREAM_GENS; i++) {
+        AstNode *st = stmts[i];
+        if (st && st->kind == AST_BINDING &&
+            st->as.binding.expr && st->as.binding.expr->kind == AST_STREAM_GEN) {
+            Token n = st->as.binding.name;
+            char *sname = malloc(n.length + 1);
+            memcpy(sname, n.start, n.length);
+            sname[n.length] = '\0';
+            ctx.stream_gens[ctx.stream_gen_count] = (StreamGenEntry){sname, n.length, st->as.binding.expr, NULL, 0};
+            ctx.stream_gen_count++;
+        } else if (st && st->kind == AST_FUNCTION &&
+                   st->as.function.body && st->as.function.body->kind == AST_STREAM_GEN) {
+            Token n = st->as.function.name;
+            char *sname = malloc(n.length + 1);
+            memcpy(sname, n.start, n.length);
+            sname[n.length] = '\0';
+            ctx.stream_gens[ctx.stream_gen_count] = (StreamGenEntry){sname, n.length, st->as.function.body,
+                                                                     st->as.function.params, st->as.function.param_count};
+            ctx.stream_gen_count++;
+        }
+    }
 
     module->funcs = realloc(module->funcs, sizeof(IrFunction));
     module->func_count = 1;
@@ -488,13 +774,16 @@ bool ir_lower(AstNode **stmts, int count, IrModule *module, DiagContext *diag, c
     ctx.current_block = entry_block;
 
     for (int i = 0; i < count; i++) {
-        if (stmts[i]->kind == AST_FUNCTION) {
+        if (stmts[i]->kind == AST_FUNCTION &&
+            !(stmts[i]->as.function.body && stmts[i]->as.function.body->kind == AST_STREAM_GEN)) {
             lower_stmt(&ctx, stmts[i]);
         }
     }
 
     for (int i = 0; i < count; i++) {
-        if (stmts[i]->kind != AST_FUNCTION) {
+        if (stmts[i]->kind != AST_FUNCTION &&
+            !(stmts[i]->kind == AST_BINDING &&
+              stmts[i]->as.binding.expr && stmts[i]->as.binding.expr->kind == AST_STREAM_GEN)) {
             lower_stmt(&ctx, stmts[i]);
         }
     }
@@ -504,6 +793,12 @@ bool ir_lower(AstNode **stmts, int count, IrModule *module, DiagContext *diag, c
     ir_emit_into_block(ctx.func, ctx.current_block, IR_CONST_INT, zero_reg, i64_type(), ret_zero, 1, 0);
     IrOperand ret_ops[] = {reg_op(zero_reg)};
     ir_emit_into_block(ctx.func, ctx.current_block, IR_RET, -1, void_type(), ret_ops, 1, 0);
+
+    // Lower the stream generators after main and the regular functions so the
+    // wasm start section keeps calling the main slot (FUNC_USER_BASE + 0).
+    for (int g = 0; g < ctx.stream_gen_count; g++) {
+        lower_stream_gen(&ctx, &ctx.stream_gens[g]);
+    }
 
     return !diag->has_error;
 }

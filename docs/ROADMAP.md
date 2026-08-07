@@ -279,7 +279,7 @@ Status audit 2026-07-25: previously marked done; corrected after source review. 
 - [x] Implicit array/string decay to non-owning slice parameters (`TiqSlice`)
 - [x] Block body return value emission for non-stream functions
 - [ ] Structured concurrency primitives (`chan`, `spawn`) — parsed only; semantic analysis rejects them fail-closed ("spawn/chan is not supported yet", tested in `tests/semantic.sh`) until a thread/channel runtime exists. The former placeholder emission (`/* spawn thread */ 0`) was removed 2026-07-27.
-- [x] WebAssembly / WASI compilation target support (`tiq build --target wasm32-wasi`) — closed 2026-08-07 (M17.4.2). Backend emits WebAssembly MVP from SSA IR with in-module `print` helpers; golden-equivalent with the C backend for IR-supported programs. Known limits: structs and stream generators fail closed with a located diagnostic; see `docs/POST_BOOTSTRAP_ROADMAP.md` M17.4.2.
+- [x] WebAssembly / WASI compilation target support (`tiq build --target wasm32-wasi`) — closed 2026-08-07 (M17.4.2). Backend emits WebAssembly MVP from SSA IR with in-module `print` helpers; golden-equivalent with the C backend for IR-supported programs. Stream generators lower via M17.4.3 (2026-08-07); structs and field access fail closed with a located diagnostic; see `docs/POST_BOOTSTRAP_ROADMAP.md` M17.4.2/M17.4.3.
 - [ ] WebAssembly JS host bindings generator (`--target wasm32-unknown-unknown`) — not implemented
 - [ ] Cross-compilation matrix — not implemented
 

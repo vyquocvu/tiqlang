@@ -149,11 +149,15 @@ assert_ir_contains "str_lit" 'msg = "hello"
 ' "const_str"
 
 # Test 16: Examples the IR supports lower cleanly; unsupported constructs
-# (structs, stream generators, field access) fail closed with a located
-# diagnostic rather than silently emitting garbage registers.
-supported_examples="examples/break_early.tiq
+# (structs, field access) fail closed with a located diagnostic rather than
+# silently emitting garbage registers.
+supported_examples="examples/arithmetic.tiq
+examples/break_early.tiq
 examples/continue_skip.tiq
 examples/count.tiq
+examples/evens.tiq
+examples/factorial.tiq
+examples/fib.tiq
 examples/gcd.tiq
 examples/hello.tiq
 examples/max.tiq
@@ -167,10 +171,7 @@ for ex in $supported_examples; do
   fi
 done
 
-unsupported_examples="examples/structs.tiq
-examples/arithmetic.tiq
-examples/evens.tiq
-examples/factorial.tiq"
+unsupported_examples="examples/structs.tiq"
 
 for ex in $unsupported_examples; do
   if $TIQ dump-ir "$ex" > /dev/null 2>&1; then

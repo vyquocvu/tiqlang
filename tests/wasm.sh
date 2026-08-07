@@ -42,7 +42,9 @@ examples/max.tiq
 examples/count.tiq
 examples/gcd.tiq
 examples/primes.tiq
-examples/continue_skip.tiq"
+examples/continue_skip.tiq
+examples/fib.tiq
+examples/arithmetic.tiq"
 
 for src in $golden_files; do
   name=$(basename "$src" .tiq)
@@ -91,9 +93,7 @@ done
 # Structs: IR lowering does not support field access / record literals.
 # These must be a clean compile error with a source location, not a garbage
 # module or a silent miscompile.
-fail_closed_files="examples/structs.tiq
-examples/arithmetic.tiq
-examples/evens.tiq"
+fail_closed_files="examples/structs.tiq"
 
 for src in $fail_closed_files; do
   name=$(basename "$src" .tiq)
