@@ -135,6 +135,22 @@ corpus "e11_plus_eq" 'x = 1
 x += 2'
 corpus "e11_index_assign" 'a = [1, 2]
 a[0] <- 5'
+# Issue #6: `<-` never shadows an existing binding, and `=` never redefines
+# one (LANGUAGE_SPEC §6). Same-scope, outer-scope, and top-level forms all
+# fail closed.
+corpus "e11_arrow_immutable_same_scope" 'x = 1
+x <- 2'
+corpus "e11_arrow_immutable_outer_scope" 'x = 1
+{
+    x <- 2
+}'
+corpus "e11_redefine_immutable" 'x = 1
+x = 2'
+corpus "e11_redefine_mutable" 'x <- 1
+x = 2'
+corpus "e11_redefine_block_shadow" 'x = 1
+y = { x = 2; x }
+z = x'
 corpus "e17_move_immutable" 'x = 1
 y = move x'
 corpus "e18_use_after_move" 'x <- 1
@@ -384,12 +400,6 @@ x = add(1, 2)'
 construct "recursion" 'fib n:i64 -> i64 -> n < 2 ? n : fib(n - 1) + fib(n - 2)
 x = fib(10)'
 construct "block_expr" 'x = { a = 1; b = 2; a + b }'
-construct "block_shadow" 'x = 1
-y = { x = 2; x }
-z = x'
-construct "dup_binding_silent" 'x = 1
-x = 2
-y = x'
 construct "rebind_rewrite" 'x <- 1
 x <- 2'
 construct "compound_assign" 'x <- 1

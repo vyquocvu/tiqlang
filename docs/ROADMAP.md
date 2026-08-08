@@ -49,6 +49,7 @@ Status: done
 - [x] local inference (ad hoc, per-site; unification moves to M12);
 - [x] explicit conversions (fail-closed rejection only; real checked conversions move to M12);
 - [x] mutability checks;
+- [x] binding resolution never shadows — `<- expr` reassigns the nearest mutable binding, rejects a collision with a declared binding (immutable or mutable) with E11, and declares a fresh mutable binding only when no binding exists anywhere in scope; `= expr` never redefines a name across an enclosing scope (E11) — closed 2026-08-08 (issue #6, LANGUAGE_SPEC §6);
 - [x] function type checking (arity only; signature checking moves to M12);
 - [x] deterministic typed IR.
 

@@ -56,6 +56,27 @@ assert_semantic "immutable_assignment" 'x = 1
 x += 1
 ' "$TMP_DIR/immutable_assignment.tiq:2: error[E11]: cannot assign to immutable binding"
 
+# Issue #6: `<-` never shadows an existing binding. `x <- v` where the name
+# already exists as an immutable binding is a compile-time error at any
+# scope (LANGUAGE_SPEC §6); `=` redefinition is likewise rejected.
+assert_semantic "arrow_immutable_same_scope" 'x = 1
+x <- 2
+' "$TMP_DIR/arrow_immutable_same_scope.tiq:2: error[E11]: cannot mutate immutable binding 'x'"
+
+assert_semantic "arrow_immutable_outer_scope" 'x = 1
+{
+    x <- 2
+}
+' "$TMP_DIR/arrow_immutable_outer_scope.tiq:3: error[E11]: cannot assign to immutable binding"
+
+assert_semantic "redefine_immutable_same_scope" 'x = 1
+x = 2
+' "$TMP_DIR/redefine_immutable_same_scope.tiq:2: error[E11]: cannot redefine binding 'x'"
+
+assert_semantic "redefine_mutable_same_scope" 'x <- 1
+x = 2
+' "$TMP_DIR/redefine_mutable_same_scope.tiq:2: error[E11]: cannot redefine binding 'x'"
+
 assert_semantic "function_arity_mismatch" 'f a -> a
 x = f(1, 2)
 ' "$TMP_DIR/function_arity_mismatch.tiq:2: error[E12]: arity mismatch"

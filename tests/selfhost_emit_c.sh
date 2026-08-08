@@ -69,6 +69,31 @@ print(x > 4 ? 11 : 22)'
 case_run "single_branch_conditional" 'x <- 0
 ?[3 < 5] { x <- 42 }
 print(x)'
+# Issue #6: `<-` declares when absent and reassigns when a mutable binding
+# exists — including across nested scopes (never a shadow).
+case_run "arrow_decl_reassign" 'x <- 1
+x <- 2
+print(x)'
+case_run "arrow_nested_reassign" 'x <- 1
+{
+    x <- 2
+}
+print(x)'
+case_run "arrow_deep_reassign" 'x <- 1
+{
+    {
+        x <- 3
+    }
+}
+print(x)'
+case_run "arrow_fn_nested_reassign" 'f a -> {
+    x <- 1
+    {
+        x <- 2
+    }
+    x
+}
+print(f(0))'
 case_run "bool" 'print(3 < 5 && true)'
 case_run "range_loop" 'sum <- 0
 [j <- 0..6] { sum += j }

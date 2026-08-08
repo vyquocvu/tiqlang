@@ -56,7 +56,7 @@ x <- 1      // mutable declaration
 x <- x + 1  // reassignment
 ```
 
-Mutation must be visible at both declaration and update sites.
+Mutation must be visible at both declaration and update sites. Bindings never shadow: once a name has a binding, every later `<-` targets that same binding (a mutable one reassigns it, an immutable one is a compile-time error E11), and `=` never redefines a name across an enclosing scope (LANGUAGE_SPEC §6).
 
 ## Fail closed
 

@@ -1423,12 +1423,34 @@ static void check_node(SemanticContext *ctx, AstNode *node) {
                          (int)node->as.binding.name.length, node->as.binding.name.start);
                 diag_error(ctx->diag, ctx->path, node->token.line, ERR_DUPLICATE_ENUM, msg);
             }
-            // M9.2-D: `name <- expr` where name already names a mutable
-            // binding is a reassignment, not a redefinition; rewrite it so
-            // the emitter does not declare the name twice.
+            // Issue #6: `name <- expr` (or `name = expr`) never shadows an
+            // existing binding. Resolve outward via lexical lookup, then:
+            //   <-  and nearest binding mutable   => reassign (rewrite to
+            //                                       AST_ASSIGN so the emitter
+            //                                       does not redeclare the name)
+            //   <-  and nearest binding immutable => E11 (no shadow fallback)
+            //   =   and a binding exists          => E11 (redefinition)
+            //   no binding anywhere               => declare in current scope
             {
                 Symbol *prev = env_lookup(ctx->current_env, node->as.binding.name);
-                if (node->as.binding.is_mutable && prev && prev->is_mutable) {
+                char msg[128];
+                if (prev) {
+                    if (!node->as.binding.is_mutable) {
+                        snprintf(msg, sizeof msg, "cannot redefine binding '%.*s'",
+                                 (int)node->as.binding.name.length, node->as.binding.name.start);
+                        diag_error(ctx->diag, ctx->path, node->token.line,
+                                   ERR_IMMUTABLE_ASSIGNMENT, msg);
+                        node->semantic_type = ty(ctx, TYPE_UNKNOWN);
+                        break;
+                    }
+                    if (!prev->is_mutable) {
+                        snprintf(msg, sizeof msg, "cannot mutate immutable binding '%.*s'",
+                                 (int)node->as.binding.name.length, node->as.binding.name.start);
+                        diag_error(ctx->diag, ctx->path, node->token.line,
+                                   ERR_IMMUTABLE_ASSIGNMENT, msg);
+                        node->semantic_type = ty(ctx, TYPE_UNKNOWN);
+                        break;
+                    }
                     Token bname = node->as.binding.name;
                     AstNode *bexpr = node->as.binding.expr;
                     node->kind = AST_ASSIGN;

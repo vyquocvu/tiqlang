@@ -53,6 +53,45 @@ else
     exit 1
 fi
 
+# Issue #6: `<-` declares when absent and reassigns an existing mutable
+# binding through nested scopes (never a shadow). Same scope:
+cat > "$TMP/arrow_reassign.tiq" <<'EOF'
+x <- 1
+x <- 2
+print(x)
+EOF
+OUTPUT=$($TIQ run "$TMP/arrow_reassign.tiq")
+EXPECTED="2"
+if [ "$OUTPUT" = "$EXPECTED" ]; then
+    echo "run arrow reassign: passed"
+else
+    echo "run arrow reassign failed"
+    echo "expected: $EXPECTED"
+    echo "got: $OUTPUT"
+    exit 1
+fi
+
+# Deep-nested reassignment mutates the single outer binding:
+cat > "$TMP/arrow_deep_reassign.tiq" <<'EOF'
+x <- 1
+{
+    {
+        x <- 3
+    }
+}
+print(x)
+EOF
+OUTPUT=$($TIQ run "$TMP/arrow_deep_reassign.tiq")
+EXPECTED="3"
+if [ "$OUTPUT" = "$EXPECTED" ]; then
+    echo "run arrow deep reassign: passed"
+else
+    echo "run arrow deep reassign failed"
+    echo "expected: $EXPECTED"
+    echo "got: $OUTPUT"
+    exit 1
+fi
+
 # Test run with loops
 cat > "$TMP/loop.tiq" << 'EOF'
 x <- 0

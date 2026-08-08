@@ -123,6 +123,50 @@ count += 1
 
 Reading an uninitialized binding, redefining a name in the same scope, or assigning to an immutable binding is a compile-time error.
 
+**`<-` never shadows an existing binding.** For `name <- expr`, the compiler
+resolves `name` from the nearest lexical scope outward and then applies
+exactly one outcome:
+
+```text
+nearest binding is mutable   => reassign that binding
+nearest binding is immutable => compile-time error
+no binding anywhere          => declare a new mutable binding in the current scope
+```
+
+There is no fallback from an immutable collision to a new mutable
+declaration, and nested scopes never create a hidden local `x`: every
+`<-` below refers to the same outer mutable binding.
+
+```tiq
+x <- 1
+
+{
+    x <- 2
+
+    {
+        x <- 3
+    }
+}
+
+print(x)   // 3
+```
+
+Reassigning an immutable binding through `<-` (whether declared in the
+same scope or an outer scope) is rejected with `error[E11]: cannot mutate
+immutable binding '<name>'`. The compiler never reinterprets such a
+statement as a new mutable declaration.
+
+An immutable `=` definition may not redefine a name that already exists
+in any enclosing lexical scope; `x = 1` then `x = 2` (or `x <- 1` then
+`x = 2`) fails closed with `error[E11]: cannot redefine binding '<name>'`.
+
+Functions do not close over module-level bindings. The v0.1 emitter
+representss module-level bindings as locals of `main`, so a function
+body may not read or reassign a top-level binding: reading one fails
+closed at the host C compiler stage, and the result is left unspecified
+for this slice. Reassignment of a module-level mutable binding from
+inside a function therefore has no supported meaning.
+
 ## 7. Functions
 
 Single-expression function:
