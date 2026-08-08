@@ -615,9 +615,9 @@ check_node src:str path:str toks:vec[Token] nodes:vec[int] kids:vec[int] types:v
                     src_k <- st2 != 0 - 1 ? vec_get(tp, st2 * 8 + TF.Kind) : TY.Unknown
                     src_num <- src_k == TY.Int || src_k == TY.Float || src_k == TY.I8 || src_k == TY.I16 || src_k == TY.I32 || src_k == TY.U8 || src_k == TY.U16 || src_k == TY.U32 || src_k == TY.U64 || src_k == TY.F32 ? 1 : 0
                     tgt_num <- tgt == TY.Int || tgt == TY.Float || tgt == TY.I8 || tgt == TY.I16 || tgt == TY.I32 || tgt == TY.U8 || tgt == TY.U16 || tgt == TY.U32 || tgt == TY.U64 || tgt == TY.F32 ? 1 : 0
-                    ok <- src_k == TY.Unknown ? 1 : (src_num == 1 && tgt_num == 1) ? 1 : src_k == tgt ? 1 : 0
-                    ?[ok == 0] { td <- tgt == TY.Int ? "i64" : tgt == TY.Float ? "f64" : kind_disp(tgt); s_diag(ctx, path, ln, 10, str_cat(str_cat("cannot convert ", disp(tp, tpn, st2)), str_cat(" to ", td))); vec_set(types, ni, ty_get(tp, tpn, TY.Unknown)); handled <- 1 }
-                    ?[ok != 0] { vec_set(types, ni, ty_get(tp, tpn, tgt)); handled <- 1 }
+                    conv_ok <- src_k == TY.Unknown ? 1 : (src_num == 1 && tgt_num == 1) ? 1 : src_k == tgt ? 1 : 0
+                    ?[conv_ok == 0] { td <- tgt == TY.Int ? "i64" : tgt == TY.Float ? "f64" : kind_disp(tgt); s_diag(ctx, path, ln, 10, str_cat(str_cat("cannot convert ", disp(tp, tpn, st2)), str_cat(" to ", td))); vec_set(types, ni, ty_get(tp, tpn, TY.Unknown)); handled <- 1 }
+                    ?[conv_ok != 0] { vec_set(types, ni, ty_get(tp, tpn, tgt)); handled <- 1 }
                 }
             }
         }
@@ -1064,7 +1064,7 @@ check_node src:str path:str toks:vec[Token] nodes:vec[int] kids:vec[int] types:v
             bn <- tk_lex(src, toks, nd_get(nodes, ni, NF.Name))
             env_define(en, ed, sc, bn, 0, ty_get(tp, tpn, TY.Int), ln)
         }
-        ?[has_binder == 0 && is_range == 1] { env_define(en, ed, sc, "i", 0, ty_get(tp, tpn, TY.Int), ln) }
+        ?[has_binder == 0 && is_range == 1] { env_define(en, ed, sc, "_tiq_i", 0, ty_get(tp, tpn, TY.Int), ln) }
         s1 <- nd_get(nodes, ni, NF.L1s); c1 <- nd_get(nodes, ni, NF.L1n)
         j <- 0; [j < c1] { si <- vec_get(kids, s1 + j); check_node(src, path, toks, nodes, kids, types, en, ed, sc, st_reg, st_data, st_names, st_meta, en_reg, en_data, fn_reg, fn_data, fpts, frks, tp, tpn, ctx, si); j <- j + 1 }
         bf <- nd_get(nodes, ni, NF.B)
@@ -1097,13 +1097,25 @@ check_node src:str path:str toks:vec[Token] nodes:vec[int] kids:vec[int] types:v
             j <- 0; [j < c1] { si <- vec_get(kids, s1 + j); check_node(src, path, toks, nodes, kids, types, en, ed, sc, st_reg, st_data, st_names, st_meta, en_reg, en_data, fn_reg, fn_data, fpts, frks, tp, tpn, ctx, si); j <- j + 1 }
             gi <- nd_get(nodes, ni, NF.A)
             ?[gi != -1] {
-                env_push_scope(sc, en)
-                ?[c1 == 1] { env_define(en, ed, sc, "x", 0, ty_get(tp, tpn, TY.Int), ln) }
-                ?[c1 == 2] { env_define(en, ed, sc, "a", 0, ty_get(tp, tpn, TY.Int), ln); env_define(en, ed, sc, "b", 0, ty_get(tp, tpn, TY.Int), ln) }
-                env_define(en, ed, sc, "i", 0, ty_get(tp, tpn, TY.Int), ln)
-                check_node(src, path, toks, nodes, kids, types, en, ed, sc, st_reg, st_data, st_names, st_meta, en_reg, en_data, fn_reg, fn_data, fpts, frks, tp, tpn, ctx, gi)
-                env_pop_scope(sc, en, ed)
-                vec_set(types, ni, ty_get(tp, tpn, TY.Stream))
+                bc = nd_get(nodes, ni, NF.F1)
+                ?[bc == 0] {
+                    s_diag(ctx, path, ln, 7, "stream generators require explicit binders: use (name) -> expr")
+                    vec_set(types, ni, ty_get(tp, tpn, TY.Unknown))
+                    done <- 1
+                }
+                ?[done == 0] {
+                    env_push_scope(sc, en)
+                    r1 = nd_get(nodes, ni, NF.R1)
+                    r2 = nd_get(nodes, ni, NF.R2)
+                    ci2 = nd_get(nodes, ni, NF.C)
+                    hi = nd_get(nodes, ni, NF.F2)
+                    ?[bc == 1] { env_define(en, ed, sc, tk_lex(src, toks, r1), 0, ty_get(tp, tpn, TY.Int), ln) }
+                    ?[bc == 2] { env_define(en, ed, sc, tk_lex(src, toks, r1), 0, ty_get(tp, tpn, TY.Int), ln); env_define(en, ed, sc, tk_lex(src, toks, r2), 0, ty_get(tp, tpn, TY.Int), ln) }
+                    ?[hi == 1] { env_define(en, ed, sc, tk_lex(src, toks, ci2), 0, ty_get(tp, tpn, TY.Int), ln) }
+                    check_node(src, path, toks, nodes, kids, types, en, ed, sc, st_reg, st_data, st_names, st_meta, en_reg, en_data, fn_reg, fn_data, fpts, frks, tp, tpn, ctx, gi)
+                    env_pop_scope(sc, en, ed)
+                    vec_set(types, ni, ty_get(tp, tpn, TY.Stream))
+                }
             }
             ?[gi == -1] { vec_set(types, ni, ty_get(tp, tpn, TY.Unknown)) }
             bi2 <- nd_get(nodes, ni, NF.B)
@@ -1467,7 +1479,31 @@ typed_ast_show src:str toks:vec[Token] nodes:vec[int] kids:vec[int] types:vec[in
         ?[d2 == 0 && k == AstKind.Skip] { print(str_cat(pd, str_cat("SKIP", ts))); d2 <- 1 }
         // --- STREAM_GEN ---
         ?[d2 == 0 && k == AstKind.StreamGen] {
-            print(str_cat(pd, str_cat("STREAM_GEN", ts)))
+            bc = nd_get(nodes, ni, NF.F1)
+            hi = nd_get(nodes, ni, NF.F2)
+            has_binders <- 0
+            ?[bc > 0] { has_binders <- 1 }
+            ?[hi == 1] { has_binders <- 1 }
+            ?[has_binders == 1] {
+                lbl <- "STREAM_GEN("
+                r1 = nd_get(nodes, ni, NF.R1)
+                r2 = nd_get(nodes, ni, NF.R2)
+                ci2 = nd_get(nodes, ni, NF.C)
+                ?[bc > 0] {
+                    lbl <- str_cat(lbl, tk_lex(src, toks, r1))
+                }
+                ?[bc > 1] {
+                    lbl <- str_cat(str_cat(lbl, ", "), tk_lex(src, toks, r2))
+                }
+                ?[hi == 1] {
+                    lbl <- str_cat(str_cat(lbl, "; "), tk_lex(src, toks, ci2))
+                }
+                lbl <- str_cat(lbl, ")")
+                print(str_cat(pd, str_cat(lbl, ts)))
+            }
+            ?[has_binders == 0] {
+                print(str_cat(pd, str_cat("STREAM_GEN", ts)))
+            }
             s1 <- nd_get(nodes, ni, NF.L1s); c1 <- nd_get(nodes, ni, NF.L1n)
             j <- 0; [j < c1] { typed_ast_show(src, toks, nodes, kids, types, tp, tpn, vec_get(kids, s1 + j), indent + 1); j <- j + 1 }
             typed_ast_show(src, toks, nodes, kids, types, tp, tpn, nd_get(nodes, ni, NF.A), indent + 1)

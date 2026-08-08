@@ -100,6 +100,44 @@ static AstNode *block(Parser *parser) {
     return node;
 }
 
+// M22: token-level lookahead to detect explicit stream binder syntax:
+//   '(' IDENT {',' IDENT} [';' IDENT] ')' '->'
+// The parser's current token is '(' (already consumed by the lexer), so
+// the lookahead starts reading from the token AFTER '('.
+// Returns false for anything else (grouped expression, etc.).
+static bool peek_is_stream_binder(Parser *parser) {
+    if (!check(parser, TOK_LPAREN)) return false;
+    // parser->lexer is positioned AFTER '('; copy it to scan ahead.
+    Lexer lk = parser->lexer;
+    Token t = lexer_next(&lk);
+    while (t.kind == TOK_NEWLINE) t = lexer_next(&lk);
+    // First token after '(' must be an identifier
+    if (t.kind != TOK_IDENT) return false;
+    // Scan: {',' IDENT} [';' IDENT] ')' '->'
+    for (;;) {
+        t = lexer_next(&lk);
+        while (t.kind == TOK_NEWLINE) t = lexer_next(&lk);
+        if (t.kind == TOK_COMMA) {
+            t = lexer_next(&lk);
+            while (t.kind == TOK_NEWLINE) t = lexer_next(&lk);
+            if (t.kind != TOK_IDENT) return false;
+            continue;
+        }
+        if (t.kind == TOK_SEMICOLON) {
+            t = lexer_next(&lk);
+            while (t.kind == TOK_NEWLINE) t = lexer_next(&lk);
+            if (t.kind != TOK_IDENT) return false;
+            t = lexer_next(&lk);
+            while (t.kind == TOK_NEWLINE) t = lexer_next(&lk);
+        }
+        // Now must be ')'
+        if (t.kind != TOK_RPAREN) return false;
+        t = lexer_next(&lk);
+        while (t.kind == TOK_NEWLINE) t = lexer_next(&lk);
+        return t.kind == TOK_RARROW;
+    }
+}
+
 static AstNode *stream_gen(Parser *parser) {
     AstNode *node = allocate_node(parser, AST_STREAM_GEN);
     int cap = 0;
@@ -128,7 +166,42 @@ static AstNode *stream_gen(Parser *parser) {
         }
     }
     if (match(parser, TOK_DOT_DOT_DOT)) {
-        node->as.stream_gen.gen_expr = expression(parser);
+        // M22: explicit binder syntax  (w1 [, w2] [; idx]) -> expr
+        if (peek_is_stream_binder(parser)) {
+            advance(parser); // consume '('
+            int bcap = 0;
+            while (check(parser, TOK_IDENT)) {
+                if (node->as.stream_gen.binder_count + 1 > bcap) {
+                    int new_cap = bcap < 4 ? 4 : bcap * 2;
+                    node->as.stream_gen.binders = arena_realloc(&parser->arena,
+                        node->as.stream_gen.binders,
+                        sizeof(Token) * bcap, sizeof(Token) * new_cap);
+                    bcap = new_cap;
+                }
+                node->as.stream_gen.binders[node->as.stream_gen.binder_count++] = parser->current;
+                advance(parser);
+                if (check(parser, TOK_SEMICOLON)) {
+                    // Index binder
+                    advance(parser);
+                    consume(parser, TOK_IDENT, ERR_UNEXPECTED_TOKEN,
+                            "expected index binder name after ';'");
+                    node->as.stream_gen.index_binder = parser->previous;
+                    node->as.stream_gen.has_index_binder = true;
+                    break;
+                }
+                if (!check(parser, TOK_RPAREN)) {
+                    consume(parser, TOK_COMMA, ERR_UNEXPECTED_TOKEN,
+                            "expected ',' or ')' in stream binder list");
+                }
+            }
+            consume(parser, TOK_RPAREN, ERR_UNEXPECTED_TOKEN,
+                    "expected ')' after stream binders");
+            consume(parser, TOK_RARROW, ERR_UNEXPECTED_TOKEN,
+                    "expected '->' after stream binders");
+            node->as.stream_gen.gen_expr = expression(parser);
+        } else {
+            node->as.stream_gen.gen_expr = expression(parser);
+        }
     }
     if (check(parser, TOK_WHILE) || check(parser, TOK_UNTIL)) {
         advance(parser);
@@ -1200,7 +1273,21 @@ void ast_print(AstNode *node, int indent) {
             printf("SKIP%s\n", t_str);
             break;
         case AST_STREAM_GEN:
-            printf("STREAM_GEN%s\n", t_str);
+            if (node->as.stream_gen.binder_count > 0 || node->as.stream_gen.has_index_binder) {
+                printf("STREAM_GEN(");
+                for (int i = 0; i < node->as.stream_gen.binder_count; i++) {
+                    if (i > 0) printf(", ");
+                    printf("%.*s", (int)node->as.stream_gen.binders[i].length,
+                           node->as.stream_gen.binders[i].start);
+                }
+                if (node->as.stream_gen.has_index_binder) {
+                    printf("; %.*s", (int)node->as.stream_gen.index_binder.length,
+                           node->as.stream_gen.index_binder.start);
+                }
+                printf(")%s\n", t_str);
+            } else {
+                printf("STREAM_GEN%s\n", t_str);
+            }
             for (int i = 0; i < node->as.stream_gen.seed_count; i++) {
                 ast_print(node->as.stream_gen.seeds[i], indent + 1);
             }

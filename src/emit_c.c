@@ -1309,8 +1309,15 @@ static void emit_expr(AstNode *node, EmitContext *ctx) {
             break;
         }
         case AST_BLOCK:
-            diag_error(ctx->diag, ctx->path, node->token.line, ERR_UNSUPPORTED_STATEMENT,
-                       "block expression not supported outside function body");
+            // M22: a single-expression block (no statements, just final_expr)
+            // can appear in expression position, e.g. conditional branches
+            // from ?[cond] { expr } { expr }.
+            if (node->as.block.stmt_count == 0 && node->as.block.final_expr) {
+                emit_expr(node->as.block.final_expr, ctx);
+            } else {
+                diag_error(ctx->diag, ctx->path, node->token.line, ERR_UNSUPPORTED_STATEMENT,
+                           "block expression not supported outside function body");
+            }
             break;
         case AST_DEFER:
             if (node->as.defer.expr)
@@ -1546,10 +1553,12 @@ static void emit_stmt(AstNode *node, EmitContext *ctx, int indent) {
             AstNode *domain = node->as.bracket_loop.domain;
             bool is_range = domain && domain->kind == AST_BINARY && domain->as.binary.op == TOK_DOT_DOT;
             if (is_range) {
+                // M22: bare range loops use a mangled internal variable
+                // since there is no implicit 'i' visible to the user.
                 const char *var = node->as.bracket_loop.has_binder ?
-                    node->as.bracket_loop.binder.start : "i";
+                    node->as.bracket_loop.binder.start : "_tiq_i";
                 int var_len = node->as.bracket_loop.has_binder ?
-                    (int)node->as.bracket_loop.binder.length : 1;
+                    (int)node->as.bracket_loop.binder.length : 7;
                 fprintf(ctx->out, "for (int64_t %.*s = ", var_len, var);
                 emit_expr(domain->as.binary.left, ctx);
                 fprintf(ctx->out, "; %.*s < ", var_len, var);
@@ -1728,6 +1737,15 @@ static void emit_check_node(AstNode *node, EmitContext *ctx) {
 
 static void emit_stream_gen_def(const char *name, AstNode *node, Token *params, int param_count, EmitContext *ctx) {
     int sc = node->as.stream_gen.seed_count;
+    // M22: use explicit binder names from the AST instead of hardcoded x/a/b.
+    const char *b0 = (node->as.stream_gen.binder_count > 0) ?
+        node->as.stream_gen.binders[0].start : "x";
+    int b0_len = (node->as.stream_gen.binder_count > 0) ?
+        (int)node->as.stream_gen.binders[0].length : 1;
+    const char *b1 = (node->as.stream_gen.binder_count > 1) ?
+        node->as.stream_gen.binders[1].start : "a";
+    int b1_len = (node->as.stream_gen.binder_count > 1) ?
+        (int)node->as.stream_gen.binders[1].length : 1;
     if (sc == 1) {
         fprintf(ctx->out, "int64_t tiq_gen_%s(", name);
         for (int p = 0; p < param_count; p++) {
@@ -1737,16 +1755,16 @@ static void emit_stream_gen_def(const char *name, AstNode *node, Token *params, 
         if (param_count > 0) fputs(", ", ctx->out);
         fputs("int64_t n) {\n", ctx->out);
         fputs("    if (n < 0) return 0;\n", ctx->out);
-        fputs("    int64_t x = ", ctx->out);
+        fprintf(ctx->out, "    int64_t %.*s = ", b0_len, b0);
         emit_expr(node->as.stream_gen.seeds[0], ctx);
         fputs(";\n", ctx->out);
-        fputs("    if (n == 0) return x;\n", ctx->out);
+        fprintf(ctx->out, "    if (n == 0) return %.*s;\n", b0_len, b0);
         fputs("    for (int64_t i = 1; i <= n; i++) {\n", ctx->out);
-        fputs("        x = (", ctx->out);
+        fprintf(ctx->out, "        %.*s = (", b0_len, b0);
         emit_expr(node->as.stream_gen.gen_expr, ctx);
         fputs(");\n", ctx->out);
         fputs("    }\n", ctx->out);
-        fputs("    return x;\n", ctx->out);
+        fprintf(ctx->out, "    return %.*s;\n", b0_len, b0);
         fputs("}\n\n", ctx->out);
     } else if (sc >= 2) {
         fprintf(ctx->out, "int64_t tiq_gen_%s(", name);
@@ -1763,19 +1781,19 @@ static void emit_stream_gen_def(const char *name, AstNode *node, Token *params, 
         fputs("    if (n == 1) return ", ctx->out);
         emit_expr(node->as.stream_gen.seeds[1], ctx);
         fputs(";\n", ctx->out);
-        fputs("    int64_t a = ", ctx->out);
+        fprintf(ctx->out, "    int64_t %.*s = ", b0_len, b0);
         emit_expr(node->as.stream_gen.seeds[1], ctx);
-        fputs(";\n    int64_t b = ", ctx->out);
+        fprintf(ctx->out, ";\n    int64_t %.*s = ", b1_len, b1);
         emit_expr(node->as.stream_gen.seeds[0], ctx);
         fputs(";\n", ctx->out);
         fputs("    for (int64_t i = 2; i <= n; i++) {\n", ctx->out);
         fputs("        int64_t t = (", ctx->out);
         emit_expr(node->as.stream_gen.gen_expr, ctx);
         fputs(");\n", ctx->out);
-        fputs("        b = a;\n", ctx->out);
-        fputs("        a = t;\n", ctx->out);
+        fprintf(ctx->out, "        %.*s = %.*s;\n", b1_len, b1, b0_len, b0);
+        fprintf(ctx->out, "        %.*s = t;\n", b0_len, b0);
         fputs("    }\n", ctx->out);
-        fputs("    return a;\n", ctx->out);
+        fprintf(ctx->out, "    return %.*s;\n", b0_len, b0);
         fputs("}\n\n", ctx->out);
     }
 }

@@ -6,7 +6,7 @@ two_sum nums target -> {
     idx1 <- -1
     idx2 <- -1
     j <- 0
-    [0..len(nums)] {
+    [i <- 0..len(nums)] {
         j <- i + 1
         [j < len(nums)] {
             ?[nums[i] + nums[j] == target] {

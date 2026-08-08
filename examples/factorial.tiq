@@ -1,6 +1,6 @@
 // Factorial using single-seed stream generator
 // fact[n] = n! (0-indexed, so fact[5] = 120)
-fact = [1, ... i * x]
+fact = [1, ... (x; i) -> i * x]
 
 // Test
 print(fact[0]) // 1 (0!)

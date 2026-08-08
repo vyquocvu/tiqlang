@@ -138,7 +138,7 @@ a = json_get("{\"x\":\"one\"}", "x")
   b = json_encode_str("two")
   defer print(b)
 }
-[0..2] {
+[i <- 0..2] {
   c = str_cat("c", "d")
   print(c)
 }
@@ -157,7 +157,7 @@ if "$CC_BIN" -std=c11 -g -fsanitize=address,undefined "$TMP_DIR/owned_scopes.1.c
   }
 fi
 case_run "owned_early_exit" 'import "std/json.tiq"
-[0..2] {
+[i <- 0..2] {
   a = json_get("{\"a\":1}", "a")
   [(i < 1)] {
     b = json_get("{\"b\":2}", "b")
@@ -168,7 +168,7 @@ case_run "owned_early_exit" 'import "std/json.tiq"
   break
   d = json_get("{\"d\":3}", "d")
 }
-[0..2] {
+[i <- 0..2] {
   f = json_get("{\"f\":4}", "f")
   print(f)
   skip
@@ -185,7 +185,7 @@ s <- json_get("{\"a\":\"one\"}", "a")
 print(s)
 s <- json_get("{\"b\":\"two\"}", "b")
 print(s)
-[0..2] {
+[i <- 0..2] {
   s <- json_get("{\"c\":\"three\"}", "c")
   print(s)
 }
@@ -202,7 +202,7 @@ fi
 case_run "owned_proc_exit" 'import "std/json.tiq"
 a = json_get("{\"a\":\"one\"}", "a")
 print(a)
-[0..3] {
+[i <- 0..3] {
   b = json_get("{\"b\":\"two\"}", "b")
   print(b)
   ?[i < 3] { proc_exit(7) }
@@ -263,13 +263,13 @@ tail = msg[1..]
 print(tail[1])'
 case_run "string_index_oob" 'msg = "hi"
 print(msg[2])'
-case_run "stream_fib" 'fib = [0, 1, ... a + b]
+case_run "stream_fib" 'fib = [0, 1, ... (a, b) -> a + b]
 print(fib[0])
 print(fib[10])'
-case_run "stream_single" 'powers = [1, ... x * 2]
+case_run "stream_single" 'powers = [1, ... (x) -> x * 2]
 print(powers[0])
 print(powers[5])'
-case_run "stream_function" 'pow b -> [1, ... x * b]
+case_run "stream_function" 'pow b -> [1, ... (x) -> x * b]
 print(pow(2)[0])
 print(pow(2)[10])
 print(pow(3)[3])'

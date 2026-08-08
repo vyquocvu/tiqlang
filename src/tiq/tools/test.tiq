@@ -87,7 +87,7 @@ run_test path:str tiq:str verbose:i64 list_mode:i64 state:vec[int] -> i64 -> {
         exp <- extract_expected(src)
         bin <- str_cat(path, ".testexe")
         out <- str_cat(path, ".testout")
-        err <- str_cat(path, ".testerr")
+        errf <- str_cat(path, ".testerr")
         cb <- str_buf_new()
         str_buf_append(cb, tiq)
         str_buf_append(cb, " build ")
@@ -95,12 +95,12 @@ run_test path:str tiq:str verbose:i64 list_mode:i64 state:vec[int] -> i64 -> {
         str_buf_append(cb, " -o ")
         str_buf_append(cb, bin)
         str_buf_append(cb, " > ")
-        str_buf_append(cb, err)
+        str_buf_append(cb, errf)
         str_buf_append(cb, " 2>&1")
         rc <- proc_exec(str_buf_to_str(cb))
         ?[rc != 0] {
             eprint(str_cat("FAIL: ", path))
-            cerr <- fs_read(err)
+            cerr <- fs_read(errf)
             ?[!str_eq(cerr, "")] { eprint(cerr) }
             vec_set(state, 1, vec_get(state, 1) + 1)
         }
@@ -112,9 +112,9 @@ run_test path:str tiq:str verbose:i64 list_mode:i64 state:vec[int] -> i64 -> {
             str_buf_append(rb, " 2>&1")
             rrc <- proc_exec(str_buf_to_str(rb))
             got <- trim_end(fs_read(out))
-            ok <- 0
-            ?[rrc == 0 && str_eq(got, exp)] { ok <- 1 }
-            ?[ok == 1] {
+            passed <- 0
+            ?[rrc == 0 && str_eq(got, exp)] { passed <- 1 }
+            ?[passed == 1] {
                 ?[verbose == 1] {
                     pl <- str_buf_new()
                     str_buf_append(pl, "PASS: ")
@@ -126,7 +126,7 @@ run_test path:str tiq:str verbose:i64 list_mode:i64 state:vec[int] -> i64 -> {
                 }
                 vec_set(state, 0, vec_get(state, 0) + 1)
             }
-            ?[ok == 0] {
+            ?[passed == 0] {
                 eprint(str_cat("FAIL: ", path))
                 eprint(str_cat("expected: ", exp))
                 eprint(str_cat("got: ", got))
@@ -134,7 +134,7 @@ run_test path:str tiq:str verbose:i64 list_mode:i64 state:vec[int] -> i64 -> {
                 vec_set(state, 1, vec_get(state, 1) + 1)
             }
         }
-        proc_exec(str_cat("rm -f ", str_cat(str_cat(bin, " "), str_cat(out, str_cat(" ", err)))))
+        proc_exec(str_cat("rm -f ", str_cat(str_cat(bin, " "), str_cat(out, str_cat(" ", errf)))))
     }
     0
 }

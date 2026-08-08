@@ -110,6 +110,58 @@ p_peek toks:vec[Token] i:i64 -> i64 -> {
     j
 }
 
+// M22: lookahead to detect explicit stream binder syntax:
+//   '(' IDENT {',' IDENT} [';' IDENT] ')' '->'
+// Current token must be '('. Returns 1 if binder syntax, 0 otherwise.
+// Uses only ?[cond] { } (no else) since ?[]{}{} is not a statement form.
+p_is_binder toks:vec[Token] st:vec[int] -> i64 -> {
+    res <- 0
+    ?[tk_kind(toks, vec_get(st, PS.Cur)) == TokenKind.Lparen] {
+        j <- p_peek(toks, vec_get(st, PS.Cur) + 1)
+        ?[tk_kind(toks, j) == TokenKind.Ident] {
+            // k tracks the token AFTER the last consumed ident
+            k <- p_peek(toks, j + 1)
+            scanning <- 1
+            [scanning == 1] {
+                ?[tk_kind(toks, k) == TokenKind.Comma] {
+                    k <- p_peek(toks, k + 1)
+                    got <- 0
+                    ?[tk_kind(toks, k) == TokenKind.Ident] {
+                        k <- p_peek(toks, k + 1)
+                        got <- 1
+                    }
+                    ?[got == 0] {
+                        k <- -1
+                        scanning <- 0
+                    }
+                }
+                ?[tk_kind(toks, k) == TokenKind.Semicolon && scanning == 1] {
+                    k <- p_peek(toks, k + 1)
+                    got2 <- 0
+                    ?[tk_kind(toks, k) == TokenKind.Ident] {
+                        k <- p_peek(toks, k + 1)
+                        got2 <- 1
+                    }
+                    ?[got2 == 0] { k <- -1 }
+                    scanning <- 0
+                }
+                ?[scanning == 1] {
+                    ?[tk_kind(toks, k) != TokenKind.Comma && tk_kind(toks, k) != TokenKind.Semicolon] {
+                        scanning <- 0
+                    }
+                }
+            }
+            ?[k >= 0] {
+                ?[tk_kind(toks, k) == TokenKind.Rparen] {
+                    k2 <- p_peek(toks, k + 1)
+                    ?[tk_kind(toks, k2) == TokenKind.Rarrow] { res <- 1 }
+                }
+            }
+        }
+    }
+    res
+}
+
 // parser->current.kind / the two token indices.
 p_ck toks:vec[Token] st:vec[int] -> i64 -> tk_kind(toks, vec_get(st, PS.Cur))
 p_ci st:vec[int] -> i64 -> vec_get(st, PS.Cur)
@@ -159,12 +211,12 @@ p_errcur toks:vec[Token] st:vec[int] path:str code:i64 msg:str -> i64 -> {
 
 // consume(): expect and eat `k`, else error_at_current.
 p_expect toks:vec[Token] st:vec[int] path:str k:i64 code:i64 msg:str -> i64 -> {
-    ok <- 0
+    found <- 0
     ?[tk_kind(toks, vec_get(st, PS.Cur)) == k] {
         p_advance(toks, st)
-        ok <- 1
+        found <- 1
     }
-    ?[ok == 0] {
+    ?[found == 0] {
         p_errcur(toks, st, path, code, msg)
     }
     0
@@ -642,7 +694,44 @@ pnode mode:i64 src:str path:str toks:vec[Token] st:vec[int] nodes:vec[int] kids:
         ?[fill == 0] {
             nd_set(nodes, n, NF.L1n, cnt)
             ?[p_matchk(toks, st, TokenKind.DotDotDot) == 1] {
-                nd_set(nodes, n, NF.A, pnode(PM.Cond, src, path, toks, st, nodes, kids, sk, sk2))
+                // M22: explicit binder syntax (w1 [, w2] [; idx]) -> expr
+                // Uses two guarded ?[] blocks since ?[]{}{} is not if-else.
+                is_b <- p_is_binder(toks, st)
+                ?[is_b == 1] {
+                    p_advance(toks, st) // consume '('
+                    bcount <- 0
+                    b1 <- -1
+                    b2 <- -1
+                    idx_tok <- -1
+                    has_idx <- 0
+                    [p_ck(toks, st) == TokenKind.Ident] {
+                        ?[bcount == 0] { b1 <- p_ci(st) }
+                        ?[bcount == 1] { b2 <- p_ci(st) }
+                        bcount <- bcount + 1
+                        p_advance(toks, st)
+                        ?[p_ck(toks, st) == TokenKind.Semicolon] {
+                            p_advance(toks, st)
+                            idx_tok <- p_ci(st)
+                            has_idx <- 1
+                            p_expect(toks, st, path, TokenKind.Ident, 4, "expected index binder name after ';'")
+                            break
+                        }
+                        ?[p_ck(toks, st) != TokenKind.Rparen] {
+                            p_expect(toks, st, path, TokenKind.Comma, 4, "expected ',' or ')' in stream binder list")
+                        }
+                    }
+                    p_expect(toks, st, path, TokenKind.Rparen, 4, "expected ')' after stream binders")
+                    p_expect(toks, st, path, TokenKind.Rarrow, 4, "expected '->' after stream binders")
+                    nd_set(nodes, n, NF.A, pnode(PM.Cond, src, path, toks, st, nodes, kids, sk, sk2))
+                    nd_set(nodes, n, NF.F1, bcount)
+                    nd_set(nodes, n, NF.F2, has_idx)
+                    nd_set(nodes, n, NF.R1, b1)
+                    nd_set(nodes, n, NF.R2, b2)
+                    nd_set(nodes, n, NF.C, idx_tok)
+                }
+                ?[is_b == 0] {
+                    nd_set(nodes, n, NF.A, pnode(PM.Cond, src, path, toks, st, nodes, kids, sk, sk2))
+                }
             }
             ?[p_ck(toks, st) == TokenKind.While || p_ck(toks, st) == TokenKind.Until] {
                 p_advance(toks, st)
@@ -672,14 +761,14 @@ pnode mode:i64 src:str path:str toks:vec[Token] st:vec[int] nodes:vec[int] kids:
         stop <- 0
         [stop == 0 && nd_get(nodes, inner, NF.F1) == 1 && p_ck(toks, st) == TokenKind.Comma] {
             p_advance(toks, st)
-            ok <- 0
+            found2 <- 0
             ?[p_ck(toks, st) == TokenKind.Ident] {
                 nx2 = p_peek(toks, p_ci(st) + 1)
                 ?[tk_kind(toks, nx2) == TokenKind.Larrow] {
-                    ok <- 1
+                    found2 <- 1
                 }
             }
-            ?[ok == 0] {
+            ?[found2 == 0] {
                 p_errcur(toks, st, path, 4, "expected loop binder after ','")
                 stop <- 1
             }
@@ -1330,7 +1419,31 @@ ast_show src:str toks:vec[Token] nodes:vec[int] kids:vec[int] i:i64 ind:i64 -> i
             print(str_cat(pd, "SKIP"))
         }
         ?[k == AstKind.StreamGen] {
-            print(str_cat(pd, "STREAM_GEN"))
+            bc = nd_get(nodes, i, NF.F1)
+            hi = nd_get(nodes, i, NF.F2)
+            has_binders <- 0
+            ?[bc > 0] { has_binders <- 1 }
+            ?[hi == 1] { has_binders <- 1 }
+            ?[has_binders == 1] {
+                lbl <- "STREAM_GEN("
+                r1 = nd_get(nodes, i, NF.R1)
+                r2 = nd_get(nodes, i, NF.R2)
+                ci2 = nd_get(nodes, i, NF.C)
+                ?[bc > 0] {
+                    lbl <- str_cat(lbl, tk_lex(src, toks, r1))
+                }
+                ?[bc > 1] {
+                    lbl <- str_cat(str_cat(lbl, ", "), tk_lex(src, toks, r2))
+                }
+                ?[hi == 1] {
+                    lbl <- str_cat(str_cat(lbl, "; "), tk_lex(src, toks, ci2))
+                }
+                lbl <- str_cat(lbl, ")")
+                print(str_cat(pd, lbl))
+            }
+            ?[has_binders == 0] {
+                print(str_cat(pd, "STREAM_GEN"))
+            }
             s1 = nd_get(nodes, i, NF.L1s)
             c1 = nd_get(nodes, i, NF.L1n)
             [j <- 0..c1] { ast_show(src, toks, nodes, kids, vec_get(kids, s1 + j), ind + 1) }

@@ -66,14 +66,14 @@ parse_api_path path:str -> i64 -> {
     pn <- len(prefix)
     pathn <- len(path)
     // Check prefix match
-    ok <- 1
+    flag <- 1
     j <- 0
     [j < pn && j < pathn] {
-        ?[str_sub_code(path, j) != str_sub_code(prefix, j)] { ok <- 0 }
+        ?[str_sub_code(path, j) != str_sub_code(prefix, j)] { flag <- 0 }
         j <- j + 1
     }
-    ?[ok == 1 && pathn == pn] { r <- 1 }
-    ?[ok == 1 && pathn > pn && str_sub_code(path, pn) == 47] {
+    ?[flag == 1 && pathn == pn] { r <- 1 }
+    ?[flag == 1 && pathn > pn && str_sub_code(path, pn) == 47] {
         // Has / after prefix — extract name
         rest <- str_sub(path, pn + 1, pathn)
         // Find next / for version

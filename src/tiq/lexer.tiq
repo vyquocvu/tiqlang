@@ -214,8 +214,8 @@ lex_scan source:str path:str toks:vec[Token] -> i64 -> {
                         ?[str_eq(sc, "\\") && pos + 1 < n] {
                             pos += 1
                             ec = str_sub(source, pos, pos + 1)
-                            ok = str_eq(ec, "\\") || str_eq(ec, "\"") || str_eq(ec, "n") || str_eq(ec, "r") || str_eq(ec, "t") || str_eq(ec, "0")
-                            ?[!ok] {
+                            valid_esc = str_eq(ec, "\\") || str_eq(ec, "\"") || str_eq(ec, "n") || str_eq(ec, "r") || str_eq(ec, "t") || str_eq(ec, "0")
+                            ?[!valid_esc] {
                                 has_err <- 1
                                 eprint(diag_line(path, line, 1, str_cat(str_cat("unsupported escape sequence '\\", ec), "'")))
                             }

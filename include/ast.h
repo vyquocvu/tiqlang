@@ -127,17 +127,25 @@ struct AstNode {
         struct {
             AstNode *domain;
             Token binder;      // optional loop variable name: [j <- 0..10] { ... }
-            bool has_binder;   // false = implicit index 'i' for range domains
+            bool has_binder;   // false = no index variable (M22: no implicit 'i')
             AstNode **body_stmts;
             int body_count;
             AstNode *body_final;
         } bracket_loop;
 
+        // M22: stream generators require explicit binders for the generator
+        // expression.  Syntax: [seeds, ... (w1, w2; idx) -> expr]
+        // Window binders (w1[, w2]) name the recurrence window values.
+        // Optional index binder after ';' names the step counter.
         struct {
             AstNode **seeds;
             int seed_count;
             AstNode *gen_expr;
             AstNode *bound;
+            Token *binders;          // window binder name tokens (1 or 2)
+            int binder_count;        // number of window binders
+            Token index_binder;      // optional index binder (kind==TOK_EOF if absent)
+            bool has_index_binder;   // true when index_binder is present
         } stream_gen;
 
         struct {

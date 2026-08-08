@@ -88,7 +88,7 @@ y = x > 5 ? 1 : 0
 ' "cbr"
 
 # Test 4: Range loop
-assert_ir_contains "range_loop" '[0..5] {
+assert_ir_contains "range_loop" '[i <- 0..5] {
   print(i)
 }
 ' "cmp_lt"

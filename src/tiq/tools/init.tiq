@@ -49,8 +49,8 @@ i <- 0
     vec_push(sv, 0)
     vec_push(sv, 0)
     vec_push(sv, 0)
-    err <- mf_check(src, pname, sv)
-    ?[err != 0] {
+    rc <- mf_check(src, pname, sv)
+    ?[rc != 0] {
         proc_exit(1)
     }
     proc_exit(0)

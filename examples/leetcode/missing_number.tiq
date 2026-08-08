@@ -6,7 +6,7 @@ missing_number nums -> {
     n = len(nums)
     expected = n * (n + 1) / 2
     actual <- 0
-    [0..n] {
+    [i <- 0..n] {
         actual += nums[i]
     }
     expected - actual

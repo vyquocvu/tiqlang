@@ -389,10 +389,11 @@ static void lower_stmt(LowerCtx *ctx, AstNode *node) {
                 IrOperand phi_args[] = {reg_op(start_reg), block_op(ctx->current_block - 1), reg_op(-1), block_op(inc_block)};
                 ir_emit_phi(ctx->func, header_block, i_reg, i64_type(), phi_args, 4);
 
+                // M22: bare range loops use a mangled internal variable name.
                 const char *var_name = node->as.bracket_loop.has_binder ?
-                    node->as.bracket_loop.binder.start : "i";
+                    node->as.bracket_loop.binder.start : "_tiq_i";
                 size_t var_len = node->as.bracket_loop.has_binder ?
-                    node->as.bracket_loop.binder.length : 1;
+                    node->as.bracket_loop.binder.length : 7;
                 enter_scope(ctx);
                 set_var(ctx, var_name, var_len, i_reg, i64_type());
 
@@ -601,7 +602,12 @@ static void lower_stream_gen(LowerCtx *ctx, StreamGenEntry *gen) {
 
         int i_phi = ir_new_reg(fn);
         int x_phi = ir_new_reg(fn);
-        set_var(ctx, "x", 1, x_phi, i64_type());
+        // M22: use explicit binder name instead of hardcoded "x".
+        const char *xn = (node->as.stream_gen.binder_count > 0) ?
+            node->as.stream_gen.binders[0].start : "x";
+        int xn_len = (node->as.stream_gen.binder_count > 0) ?
+            (int)node->as.stream_gen.binders[0].length : 1;
+        set_var(ctx, xn, xn_len, x_phi, i64_type());
         set_var(ctx, "i", 1, i_phi, i64_type());
         int body = ir_add_block(fn, fn->block_count);
         int inc = ir_add_block(fn, fn->block_count);
@@ -674,8 +680,17 @@ static void lower_stream_gen(LowerCtx *ctx, StreamGenEntry *gen) {
         int i_phi = ir_new_reg(fn);
         int a_phi = ir_new_reg(fn);
         int b_phi = ir_new_reg(fn);
-        set_var(ctx, "a", 1, a_phi, i64_type());
-        set_var(ctx, "b", 1, b_phi, i64_type());
+        // M22: use explicit binder names instead of hardcoded "a"/"b".
+        const char *an = (node->as.stream_gen.binder_count > 0) ?
+            node->as.stream_gen.binders[0].start : "a";
+        int an_len = (node->as.stream_gen.binder_count > 0) ?
+            (int)node->as.stream_gen.binders[0].length : 1;
+        const char *bn = (node->as.stream_gen.binder_count > 1) ?
+            node->as.stream_gen.binders[1].start : "b";
+        int bn_len = (node->as.stream_gen.binder_count > 1) ?
+            (int)node->as.stream_gen.binders[1].length : 1;
+        set_var(ctx, an, an_len, a_phi, i64_type());
+        set_var(ctx, bn, bn_len, b_phi, i64_type());
         set_var(ctx, "i", 1, i_phi, i64_type());
         int body = ir_add_block(fn, fn->block_count);
         int inc = ir_add_block(fn, fn->block_count);

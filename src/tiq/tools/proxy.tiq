@@ -25,17 +25,17 @@ import "std/json.tiq"
 // Parse a decimal port; 0 for empty, non-numeric, or out-of-range input.
 parse_port s:str -> i64 -> {
     p <- 0
-    ok <- 1
+    flag <- 1
     n <- len(s)
-    ?[n == 0] { ok <- 0 }
+    ?[n == 0] { flag <- 0 }
     i <- 0
     [i < n] {
         c <- str_sub_code(s, i)
         ?[c >= 48 && c <= 57] { p <- p * 10 + (c - 48) }
-        ?[c < 48 || c > 57] { ok <- 0 }
+        ?[c < 48 || c > 57] { flag <- 0 }
         i <- i + 1
     }
-    ?[ok == 0 || p > 65535] { p <- 0 }
+    ?[flag == 0 || p > 65535] { p <- 0 }
     p
 }
 
@@ -102,30 +102,30 @@ serve_one conn:i64 upstream:i64 -> i64 -> {
     }
     req <- str_buf_to_str(buf)
 
-    ok <- 1
+    flag <- 1
     ?[hdr_end < 0] {
-        ok <- 0
+        flag <- 0
         ?[total > 0] { net_send(conn, err_resp(400)) }
     }
     // Headers arrived but the declared body exceeds the cap (or the client
     // hung up before sending all of it).
-    ?[ok == 1 && total < need] {
-        ok <- 0
+    ?[flag == 1 && total < need] {
+        flag <- 0
         net_send(conn, err_resp(413))
     }
 
     // 2. Forward the request verbatim to the upstream.
     up <- 0 - 1
-    ?[ok == 1] { up <- net_connect(upstream) }
-    ?[ok == 1 && up < 0] {
-        ok <- 0
+    ?[flag == 1] { up <- net_connect(upstream) }
+    ?[flag == 1 && up < 0] {
+        flag <- 0
         net_send(conn, err_resp(502))
     }
-    ?[ok == 1] { net_send(up, req) }
+    ?[flag == 1] { net_send(up, req) }
 
     // 3. Stream the upstream response back to the client. Stop after the
     // declared Content-Length when present; otherwise read until close.
-    ?[ok == 1] {
+    ?[flag == 1] {
         hbuf <- str_buf_new()
         rtotal <- 0
         rhdr <- 0 - 1

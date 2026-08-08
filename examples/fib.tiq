@@ -1,7 +1,7 @@
 // Fibonacci sequence: F[n] = F[n-1] + F[n-2]
-fib = [0, 1, ... a + b]
+fib = [0, 1, ... (a, b) -> a + b]
 
 // Print first 11 Fibonacci numbers
-[0..11] {
+[i <- 0..11] {
     print(fib[i])
 }

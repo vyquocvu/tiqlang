@@ -40,7 +40,7 @@ sk = vec_new()
 sk2 = vec_new()
 tops = vec_new()
 
-err = p_parse(source, path, toks, st, nodes, kids, sk, sk2, tops)
+rc = p_parse(source, path, toks, st, nodes, kids, sk, sk2, tops)
 top_count = vec_len(tops)
 [j <- 0..top_count] { ast_show(source, toks, nodes, kids, vec_get(tops, j), 0) }
-proc_exit(err)
+proc_exit(rc)

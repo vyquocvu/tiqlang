@@ -376,9 +376,9 @@ construct "str_view" 's = "abc"
 v = s[1..]
 c = s[0]
 n = len(v)'
-construct "stream" 'g = [1, 2 ... a + b]
+construct "stream" 'g = [1, 2 ... (a, b) -> a + b]
 x = g[0]'
-construct "stream_one_seed" 'g = [1 ... x + 1]'
+construct "stream_one_seed" 'g = [1 ... (x) -> x + 1]'
 construct "function_call" 'add a:i64 b:i64 -> i64 -> a + b
 x = add(1, 2)'
 construct "recursion" 'fib n:i64 -> i64 -> n < 2 ? n : fib(n - 1) + fib(n - 2)
@@ -400,7 +400,7 @@ construct "defer_block" 'f d:i64 -> i64 -> { defer print(1) 2 }'
 construct "loop_binder" '[j <- 0..3] { print(int_str(j)) }'
 construct "loop_cond" 'i <- 0
 [i < 3] { i += 1 }'
-construct "loop_break_skip" '[0..3] { skip break }'
+construct "loop_break_skip" '[i <- 0..3] { skip break }'
 construct "move_ok" 'x <- 1
 y = move x'
 construct "borrow_shared" 'f p:&i64 -> i64 -> 1

@@ -1,5 +1,5 @@
 // Odd numbers using parameterized stream generator
-odds limit -> [1, ... x + 2]
+odds limit -> [1, ... (x) -> x + 2]
 
 // Test
 print(odds(10)[0]) // 1

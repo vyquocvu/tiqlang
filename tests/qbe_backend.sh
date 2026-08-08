@@ -103,7 +103,7 @@ fi
 
 # --- Test 5: Range loop (count) --------------------------------------------
 
-printf '[0..5] {\n  print(i)\n}\n' > "$TMP_DIR/count.tiq"
+printf '[i <- 0..5] {\n  print(i)\n}\n' > "$TMP_DIR/count.tiq"
 assert_equiv "count" "$TMP_DIR/count.tiq"
 
 # --- Test 6: Function definition and call ----------------------------------

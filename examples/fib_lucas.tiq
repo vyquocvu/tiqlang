@@ -1,11 +1,11 @@
 // Fibonacci and Lucas numbers side by side
-fib = [0, 1, ... a + b]
-lucas = [2, 1, ... a + b]
+fib = [0, 1, ... (a, b) -> a + b]
+lucas = [2, 1, ... (a, b) -> a + b]
 
 // Print comparison
-[0..10] {
+[i <- 0..10] {
     print(fib[i])
 }
-[0..10] {
+[i <- 0..10] {
     print(lucas[i])
 }

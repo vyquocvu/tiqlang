@@ -1,5 +1,5 @@
 // Even numbers using parameterized stream generator
-evens limit -> [0, ... x + 2]
+evens limit -> [0, ... (x) -> x + 2]
 
 // Test
 print(evens(10)[0]) // 0

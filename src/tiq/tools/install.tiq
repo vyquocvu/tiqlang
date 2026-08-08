@@ -59,8 +59,8 @@ vec_push(sv, 0)  // error flag
 vec_push(sv, 0)  // version seen
 vec_push(sv, 0)  // package seen
 
-err <- mf_check(src, manifest_path, sv)
-?[err != 0] {
+rc2 <- mf_check(src, manifest_path, sv)
+?[rc2 != 0] {
     proc_exit(1)
 }
 
@@ -202,11 +202,11 @@ i <- 0
         vi <- 0
         [vi < n_vers] {
             v <- json_arr_get(vers_str, vi)
-            ok <- 1
+            flag <- 1
             ?[len(constraint) > 0] {
-                ok <- mf_ver_satisfies(v, constraint)
+                flag <- mf_ver_satisfies(v, constraint)
             }
-            ?[ok == 1] {
+            ?[flag == 1] {
                 vnum <- mf_semver(v)
                 ?[vnum > best_num] {
                     best_num <- vnum

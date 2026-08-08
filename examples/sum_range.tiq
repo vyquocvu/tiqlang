@@ -7,7 +7,7 @@ sum_rec n -> n <= 0 ? 0 : n + sum_rec(n - 1)
 sum_formula n -> n <= 0 ? 0 : n * (n + 1) / 2
 
 // 3. Stream generator approach: sum_seq[n] computes sum of 0..n
-sum_seq = [0, ... x + i]
+sum_seq = [0, ... (x; i) -> x + i]
 
 // --- Tests ---
 print(sum_rec(10)) // 55

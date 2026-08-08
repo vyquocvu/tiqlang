@@ -155,9 +155,9 @@ BINDING y <TYPE_SLICE:TYPE_INT>
     INT 3 <TYPE_INT>'
 
 assert_semantic_ast "typed_bracket_loop" 'x <- 0
-[0..3] { x += i }' 'MUT_BINDING x <TYPE_INT>
+[i <- 0..3] { x += i }' 'MUT_BINDING x <TYPE_INT>
   INT 0 <TYPE_INT>
-BRACKET_LOOP <TYPE_UNKNOWN>
+BRACKET_LOOP i <TYPE_UNKNOWN>
   BINARY DOT_DOT <TYPE_INT>
     INT 0 <TYPE_INT>
     INT 3 <TYPE_INT>
@@ -177,13 +177,13 @@ assert_semantic_ast "typed_unary_not" 'x = !false' 'BINDING x <TYPE_BOOL>
 assert_semantic "bang_requires_bool" 'x = !5
 ' "$TMP_DIR/bang_requires_bool.tiq:1: error[E09]: operand of '!' must be bool, found int"
 
-assert_semantic_ast "typed_break_bracket" '[0..3] { break }' 'BRACKET_LOOP <TYPE_UNKNOWN>
+assert_semantic_ast "typed_break_bracket" '[i <- 0..3] { break }' 'BRACKET_LOOP i <TYPE_UNKNOWN>
   BINARY DOT_DOT <TYPE_INT>
     INT 0 <TYPE_INT>
     INT 3 <TYPE_INT>
   BREAK <TYPE_UNKNOWN>'
 
-assert_semantic_ast "typed_skip_bracket" '[0..3] { skip }' 'BRACKET_LOOP <TYPE_UNKNOWN>
+assert_semantic_ast "typed_skip_bracket" '[i <- 0..3] { skip }' 'BRACKET_LOOP i <TYPE_UNKNOWN>
   BINARY DOT_DOT <TYPE_INT>
     INT 0 <TYPE_INT>
     INT 3 <TYPE_INT>
@@ -199,10 +199,10 @@ assert_semantic "loop_cond_type" 'x <- 0
 [1] { x += 1 }
 ' "$TMP_DIR/loop_cond_type.tiq:2: error[E14]: loop condition must be bool"
 
-assert_semantic "loop_range_type" '["a".."b"] { 0 }
+assert_semantic "loop_range_type" '[i <- "a".."b"] { 0 }
 ' "$TMP_DIR/loop_range_type.tiq:1: error[E09]: range bounds must be int"
 
-assert_semantic "loop_range_mixed_type" '[0.."b"] { 0 }
+assert_semantic "loop_range_mixed_type" '[i <- 0.."b"] { 0 }
 ' "$TMP_DIR/loop_range_mixed_type.tiq:1: error[E09]: type mismatch: expected int, found str
 $TMP_DIR/loop_range_mixed_type.tiq:1: error[E09]: range bounds must be int"
 
@@ -223,14 +223,16 @@ assert_semantic "loop_binder_non_range" 'x <- 0
 [j <- x < 3] { x += 1 }
 ' "$TMP_DIR/loop_binder_non_range.tiq:2: error[E15]: loop binder requires a range domain"
 
-assert_semantic "loop_index_immutable" '[0..3] { i <- 1 }
+# M22: no implicit 'i'; explicit binders are immutable.
+assert_semantic "loop_index_immutable" '[i <- 0..3] { i <- 1 }
 ' "$TMP_DIR/loop_index_immutable.tiq:1: error[E11]: cannot assign to immutable binding"
 
 assert_semantic "loop_binder_immutable" '[j <- 0..3] { j += 1 }
 ' "$TMP_DIR/loop_binder_immutable.tiq:1: error[E11]: cannot assign to immutable binding"
 
-assert_semantic "loop_binder_hides_default_index" '[j <- 0..3] { print(i) }
-' "$TMP_DIR/loop_binder_hides_default_index.tiq:1: error[E08]: undefined symbol 'i'"
+# M22: no implicit 'i' at all; referencing 'i' without a binder is undefined.
+assert_semantic "loop_no_implicit_i" '[j <- 0..3] { print(i) }
+' "$TMP_DIR/loop_no_implicit_i.tiq:1: error[E08]: undefined symbol 'i'"
 
 assert_semantic "array_mixed_types" 'x = [1, "foo"]
 ' "$TMP_DIR/array_mixed_types.tiq:1: error[E09]: array elements must have the same type: expected int, found str"
@@ -281,27 +283,26 @@ assert_semantic "slice_non_array" 'x = 42
 y = x[1..2]
 ' "$TMP_DIR/slice_non_array.tiq:2: error[E09]: cannot slice non-array"
 
-assert_semantic "stream_range_slice" 'fib = [0, 1, ... a + b]
+assert_semantic "stream_range_slice" 'fib = [0, 1, ... (a, b) -> a + b]
 x = fib[0..5]
 ' "$TMP_DIR/stream_range_slice.tiq:2: error[E09]: cannot range-slice a stream generator"
 
-assert_semantic "stream_index_non_int" 'fib = [0, 1, ... a + b]
+assert_semantic "stream_index_non_int" 'fib = [0, 1, ... (a, b) -> a + b]
 x = fib["bad"]
 ' "$TMP_DIR/stream_index_non_int.tiq:2: error[E09]: stream index must be int"
 
-# Stream generator context binds a/b (two seeds), x (one seed), and i only;
-# the undocumented 's' name is not part of the language (DOC_REVIEW E).
-assert_semantic "stream_state_undefined" 'fib = [0, 1, ... a + s]
+# M22: stream generators use explicit binders; 's' is not bound.
+assert_semantic "stream_state_undefined" 'fib = [0, 1, ... (a, b) -> a + s]
 ' "$TMP_DIR/stream_state_undefined.tiq:1: error[E08]: undefined symbol 's'"
 
 # M12.7.1: stream generators support at most 2 seeds (v0.1 window size)
-assert_semantic "stream_too_many_seeds" 'fib = [0, 1, 2, ... a + b + c]
+assert_semantic "stream_too_many_seeds" 'fib = [0, 1, 2, ... (a, b, c) -> a + b + c]
 ' "$TMP_DIR/stream_too_many_seeds.tiq:1: error[E07]: stream generators support at most 2 seeds"
 
 # M12.7.1: bounded stream generators (while/until) are not yet implemented
-assert_semantic "stream_bounded_while" 'fib = [0, 1, ... a + b while x < 100]
+assert_semantic "stream_bounded_while" 'fib = [0, 1, ... (a, b) -> a + b while x < 100]
 ' "$TMP_DIR/stream_bounded_while.tiq:1: error[E07]: bounded stream generators are not yet supported"
-assert_semantic "stream_bounded_until" 'fib = [0, 1, ... a + b until x > 100]
+assert_semantic "stream_bounded_until" 'fib = [0, 1, ... (a, b) -> a + b until x > 100]
 ' "$TMP_DIR/stream_bounded_until.tiq:1: error[E07]: bounded stream generators are not yet supported"
 
 # M12.7.2: match expressions must have a wildcard arm
@@ -313,9 +314,10 @@ res = match x { 10 => 100 }
 assert_semantic "range_outside_context" 'x = 0..10
 ' "$TMP_DIR/range_outside_context.tiq:1: error[E07]: range expressions 'a..b' are only valid inside loop or slice contexts"
 
-# M12.7.1: block expressions are only supported in function bodies
+# M12.7.1: multi-statement block expressions are only supported in function bodies
 # Outside function bodies, they produce a fatal emitter error
-assert_semantic "block_outside_function" 'x = { 1 }
+assert_semantic "block_outside_function" 'x = { y <- 1
+y + 1 }
 ' "$TMP_DIR/block_outside_function.tiq:1: error[E07]: block expression not supported outside function body"
 
 assert_semantic "move_immutable" 'x = [1, 2, 3]

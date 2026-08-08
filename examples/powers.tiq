@@ -1,14 +1,14 @@
 // Powers of 2: 2^n
-pow2 = [1, ... x * 2]
+pow2 = [1, ... (x) -> x * 2]
 
 // Powers of 3: 3^n
-pow3 = [1, ... x * 3]
+pow3 = [1, ... (x) -> x * 3]
 
 // Print powers of 2
-[0..10] {
+[i <- 0..10] {
     print(pow2[i])
 }
 // Print powers of 3
-[0..5] {
+[i <- 0..5] {
     print(pow3[i])
 }

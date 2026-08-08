@@ -435,7 +435,7 @@ static void test_emit_c_is_reentrant(void) {
     // Two consecutive compilations must not leak state (stream gen table
     // used to be a mutable file-static global).
     int err1 = 1, err2 = 1;
-    char *first = emit_c_capture("fib = [0, 1, ... a + b]\nprint(fib[5])\n", &err1);
+    char *first = emit_c_capture("fib = [0, 1, ... (a, b) -> a + b]\nprint(fib[5])\n", &err1);
     ASSERT(first != NULL);
     ASSERT(!err1);
     ASSERT(strstr(first, "tiq_gen_fib") != NULL);

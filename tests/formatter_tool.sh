@@ -47,8 +47,8 @@ expect_exit() {
 }
 
 # 1. A one-line loop body opens onto its own lines; `;` and keywords space out.
-printf '[0..5]{print(i);break}\n' >"$TMP_DIR/g1.tiq"
-printf '[0..5] {\n    print(i); break\n}\n' >"$TMP_DIR/g1.golden"
+printf '[i <- 0..5]{print(i);break}\n' >"$TMP_DIR/g1.tiq"
+printf '[i <- 0..5] {\n    print(i); break\n}\n' >"$TMP_DIR/g1.golden"
 expect_fmt g1 "$TMP_DIR/g1.tiq" "$TMP_DIR/g1.golden"
 
 # 2. Operators, the ternary, and call/index spacing.
@@ -57,13 +57,13 @@ printf 'gcd a b -> b == 0 ? a : gcd(b, a %% b)\n' >"$TMP_DIR/g2.golden"
 expect_fmt g2 "$TMP_DIR/g2.tiq" "$TMP_DIR/g2.golden"
 
 # 3. Stream generators and ranges stay tight.
-printf 'fib = [0,1,...a+b]\n' >"$TMP_DIR/g3.tiq"
-printf 'fib = [0, 1, ... a + b]\n' >"$TMP_DIR/g3.golden"
+printf 'fib = [0,1,...(a,b)->a+b]\n' >"$TMP_DIR/g3.tiq"
+printf 'fib = [0, 1, ... (a, b) -> a + b]\n' >"$TMP_DIR/g3.golden"
 expect_fmt g3 "$TMP_DIR/g3.tiq" "$TMP_DIR/g3.golden"
 
 # 4. Comments survive verbatim and keep their positions.
-printf '// leading comment\nx = 1 // trailing comment\n[0..10] {\n    // inside block\n    x += i\n}\n' >"$TMP_DIR/g4.tiq"
-printf '// leading comment\nx = 1 // trailing comment\n[0..10] {\n    // inside block\n    x += i\n}\n' >"$TMP_DIR/g4.golden"
+printf '// leading comment\nx = 1 // trailing comment\n[i <- 0..10] {\n    // inside block\n    x += i\n}\n' >"$TMP_DIR/g4.tiq"
+printf '// leading comment\nx = 1 // trailing comment\n[i <- 0..10] {\n    // inside block\n    x += i\n}\n' >"$TMP_DIR/g4.golden"
 expect_fmt g4 "$TMP_DIR/g4.tiq" "$TMP_DIR/g4.golden"
 
 # 5. Struct bodies are blocks; record literals stay inline; guards glue `{`.
@@ -72,12 +72,12 @@ printf 'struct Point {\n    x: i64,\n    y: i64\n}\np = Point { x: 3, y: 4 }\n?[
 expect_fmt g5 "$TMP_DIR/g5.tiq" "$TMP_DIR/g5.golden"
 
 # 6. Unary minus in generators and literals stays tight.
-printf 'alt = [1, ... -x]\n[0..10] { print(alt[i]) }\nprint(-42)\n' >"$TMP_DIR/g6.tiq"
-printf 'alt = [1, ... -x]\n[0..10] {\n    print(alt[i])\n}\nprint(-42)\n' >"$TMP_DIR/g6.golden"
+printf 'alt = [1, ... (x) -> -x]\n[i <- 0..10] { print(alt[i]) }\nprint(-42)\n' >"$TMP_DIR/g6.tiq"
+printf 'alt = [1, ... (x) -> -x]\n[i <- 0..10] {\n    print(alt[i])\n}\nprint(-42)\n' >"$TMP_DIR/g6.golden"
 expect_fmt g6 "$TMP_DIR/g6.tiq" "$TMP_DIR/g6.golden"
 
 # 7. A file path and stdin of the same source produce identical bytes.
-printf 'x = 1 + 2 * 3\n[0..4] { print(x + i) }\n' >"$TMP_DIR/eq.tiq"
+printf 'x = 1 + 2 * 3\n[i <- 0..4] { print(x + i) }\n' >"$TMP_DIR/eq.tiq"
 "$FMT" "$TMP_DIR/eq.tiq" >"$TMP_DIR/eq.file" 2>/dev/null
 "$FMT" < "$TMP_DIR/eq.tiq" >"$TMP_DIR/eq.stdin" 2>/dev/null
 if ! cmp -s "$TMP_DIR/eq.file" "$TMP_DIR/eq.stdin"; then

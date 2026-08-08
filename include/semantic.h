@@ -65,6 +65,7 @@ typedef struct Symbol {
     Token name;
     bool is_mutable;
     bool is_moved;
+    bool is_reserved;  // M22: prelude builtin — user cannot redefine
     SemanticType *type;
 } Symbol;
 

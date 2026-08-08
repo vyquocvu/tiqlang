@@ -26,7 +26,7 @@ print("hello")        //! expected: hello
 For output spanning multiple lines, consecutive marker lines join with newlines; every continuation line must also begin with `//! expected:`:
 
 ```tiq
-[0..3] { print(i) }   //! expected: 0
+[i <- 0..3] { print(i) }   //! expected: 0
 //! expected: 1
 //! expected: 2
 ```
@@ -266,17 +266,13 @@ A block evaluates to its final expression. Statements before the final expressio
 
 Tiq uses unified **Bracket Loops (`[domain] { body }`)** for iteration; there are no `for` or `while` statement forms. The loop header in `[ ]` takes a full expression; the body is a `{ }` block whose statements are separated by newlines or `;`.
 
-Range iteration:
+Range iteration requires an explicit binder that names the loop variable:
 
 ```tiq
-[0..10] { print(i) }
+[i <- 0..10] { print(i) }
 ```
 
-Range loops bind an implicit index `i`. An optional binder names the loop variable instead (the binder replaces `i`):
-
-```tiq
-[j <- 0..10] { print(j) }
-```
+A bare range domain without a binder (`[0..10] { ... }`) is rejected at compile time (E15: "range loop requires an explicit binder: use [name <- domain]"). Every loop variable must have a visible binding site.
 
 Loop variables are immutable inside the body; assigning to them is an error (E11). Binders are only valid for range domains; `[j <- condition]` is rejected with `loop binder requires a range domain` (E15).
 
@@ -293,8 +289,8 @@ Conditional iteration:
 ```
 
 Loop control statements:
-- `break`: Terminate loop execution immediately (`[0..10] { print(i); break }`).
-- `skip`: Skip the remainder of the current iteration (`[1..4] { print(x); skip; x += 100 }`).
+- `break`: Terminate loop execution immediately (`[i <- 0..10] { print(i); break }`).
+- `skip`: Skip the remainder of the current iteration (`[x <- 1..4] { print(x); skip; x += 100 }`).
 
 Inline guards (`break if condition`, `skip if condition`) are planned but not implemented; the bootstrap compiler rejects them (fail closed).
 
@@ -400,29 +396,23 @@ print(len(xs[1..3])) // prints 2
 
 ## 14. Stream Generators
 
-Stream generators define infinite or lazy recursive sequences via initial seed values followed by `...` and a windowed combination expression:
+Stream generators define infinite or lazy recursive sequences via initial seed values followed by `...` and a windowed combination expression with explicit binders:
 
 ```tiq
-fib = [0, 1, ... a + b]
+fib = [0, 1, ... (a, b) -> a + b]
 first = fib[0]   // 0
 tenth = fib[10]  // 55
 
 // Bounded stream generator
-powers = [1, ... x * 2 while x < 100]
+powers = [1, ... (x) -> x * 2 while x < 100]
 
 // Predicate slicing
 print(fib[while x < 100])
 ```
 
-The number of seed elements determines the window size bound to preceding terms in the generator expression (e.g. `a + b` binds the previous two terms). Generators can specify inline termination bounds (`while condition` or `until condition`). Indexing or predicate slicing evaluates or retrieves terms in $O(k)$ time using $O(1)$ state.
+The generator expression is preceded by an explicit binder list `(w1, w2) ->` (one or two window binders) that names the preceding terms bound in the expression. An optional index binder may follow after a semicolon: `(w1, w2; idx) ->`. The number of seed elements determines the window size. Generators can specify inline termination bounds (`while condition` or `until condition`). Indexing or predicate slicing evaluates or retrieves terms in $O(k)$ time using $O(1)$ state.
 
-The generator expression evaluates in a context that binds exactly these names:
-
-- `a` — the previous term, and `b` — the term before it (generators with two or more seeds);
-- `x` — the previous term (single-seed generators);
-- `i` — the zero-based index of the term being computed (always available).
-
-No other context names exist. v0.1 windows are limited to the two preceding terms even when more than two seeds are given.
+Every binder in a stream generator must be explicitly named; the compiler does not inject any implicit names. A stream generator without explicit binders is rejected at compile time (E23: "stream generators require explicit binders: use (name) -> expr").
 
 ## 15. Errors
 
@@ -590,7 +580,7 @@ This section is normative for the bootstrap compiler's observable boundary. Ever
 
 | Tier | Meaning | Example |
 |------|---------|---------|
-| **Implemented** | Fully specified, compiled, and tested | `[0..10] { print(i) }`, `move x`, `defer`, `struct`, `enum`, `f(&mut x)`, `extern "C" llabs x:i64 -> i64` |
+| **Implemented** | Fully specified, compiled, and tested | `[i <- 0..10] { print(i) }`, `move x`, `defer`, `struct`, `enum`, `f(&mut x)`, `extern "C" llabs x:i64 -> i64` |
 | **Provisional** | Parsed and partially checked; semantics may change | `match` |
 | **Fail-closed** | Parsed but rejected at semantic analysis; no code produced | `spawn`, `chan`, `b = &x` |
 | **Reserved** | Keyword exists in lexer; no parse path exists yet | `mut` (standalone) |
@@ -685,6 +675,7 @@ enum Color { Red, Green, Blue }
 Rules (all violations are compile-time errors with source location):
 - Enum names must be unique within a module (E24: "duplicate enum definition").
 - An enum name must not collide with a struct name, in either declaration order (E24: "enum '…' conflicts with struct '…'" / "struct '…' conflicts with enum '…'").
+- An enum name must not collide with a value binding (function, binding, or parameter) in the same scope (E24: "'Name' is already defined as a value" / "'Name' is already defined as an enum"). This prevents the same identifier from denoting both a type-level enum and a value-level binding.
 - Variant names must be unique within an enum (E25: "duplicate variant").
 - Referencing a variant that does not exist (`Name.X`) is rejected (E26: "unknown variant").
 - Using a bare enum name as a value (for example `x = Color`) is rejected (E09: "enum 'Color' is not a value; use Color.<variant>").
@@ -753,6 +744,17 @@ signatures. The complete normative text is §7.1.
 Status: implemented — lexer keyword, grammar production, E29 semantic
 checks, deterministic prototype pass (both compilers), and `-l`/`-L` link
 options are specified, compiled, and tested (M16.1/M16.2).
+
+### 17.9 Reserved builtin names (visible binding principle)
+
+The following names are reserved by the compiler and cannot be redefined by user code as bindings, function names, or parameters:
+
+- Core builtins: `print`, `eprint`, `len`, `str_cat`, `int_str`, `str_sub`, `str_sub_code`, `str_eq`, `fs_read`, `fs_write`, `fs_exists`, `fs_list`, `proc_exec`, `proc_exit`, `cli_arg_count`, `cli_arg`, `clock_ms`.
+- Container families: `vec_new`, `vec_push`, `vec_get`, `vec_set`, `vec_len`, `vec_pop`, `str_buf_new`, `str_buf_append`, `str_buf_to_str`, `str_buf_len`, `map_new`, `map_set`, `map_get`, `map_has`, `map_len`, `map_key_at`, `map_val_at`.
+- Option/Result constructors: `some`, `ok`, `err`.
+- Reserved literals: `none`.
+
+A program that attempts to define a function or binding whose name matches a reserved builtin is rejected at compile time (E09: "'name' is a reserved builtin name"). This ensures every identifier reference resolves to a visible binding site — no user definition can silently shadow a builtin.
 
 ## 18. Program entry
 

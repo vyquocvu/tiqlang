@@ -85,29 +85,29 @@ ASSIGN val PLUS_EQ
   INT 3'
 
 assert_parser "bracket_loop" 'x <- 0
-[0..3] { x += i }' 'MUT_BINDING x
+[i <- 0..3] { x += i }' 'MUT_BINDING x
   INT 0
-BRACKET_LOOP
+BRACKET_LOOP i
   BINARY DOT_DOT
     INT 0
     INT 3
   ASSIGN x PLUS_EQ
     IDENT i'
 
-assert_parser "bracket_loop_print" '[0..3] { i }' 'BRACKET_LOOP
+assert_parser "bracket_loop_print" '[i <- 0..3] { i }' 'BRACKET_LOOP i
   BINARY DOT_DOT
     INT 0
     INT 3
   IDENT i'
 
-assert_parser "bracket_loop_break" '[0..3] { i; break }' 'BRACKET_LOOP
+assert_parser "bracket_loop_break" '[i <- 0..3] { i; break }' 'BRACKET_LOOP i
   BINARY DOT_DOT
     INT 0
     INT 3
   IDENT i
   BREAK'
 
-assert_parser "bracket_loop_skip" '[0..3] { i; skip }' 'BRACKET_LOOP
+assert_parser "bracket_loop_skip" '[i <- 0..3] { i; skip }' 'BRACKET_LOOP i
   BINARY DOT_DOT
     INT 0
     INT 3
@@ -186,17 +186,17 @@ assert_parser "slice_omitted_both" 'full = xs[..]' 'BINDING full
     OMITTED
     OMITTED'
 
-assert_parser "stream_gen" 'fib = [0, 1, ... a + b]' 'BINDING fib
-  STREAM_GEN
+assert_parser "stream_gen" 'fib = [0, 1, ... (a, b) -> a + b]' 'BINDING fib
+  STREAM_GEN(a, b)
     INT 0
     INT 1
     BINARY PLUS
       IDENT a
       IDENT b'
 
-assert_parser "stream_gen_single_seed" 'pow b -> [1, ... x * b]' 'FUNCTION pow
+assert_parser "stream_gen_single_seed" 'pow b -> [1, ... (x) -> x * b]' 'FUNCTION pow
   PARAM b
-  STREAM_GEN
+  STREAM_GEN(x)
     INT 1
     BINARY STAR
       IDENT x

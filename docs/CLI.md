@@ -126,7 +126,7 @@ The formatter re-emits the token stream with the repository's canonical layout, 
 - Unary `+`, `-`, `&`, and `!` stay tight against their operand (`-x`, `-121`, `&mut x`, `!flag`, `bool!str`), and `move` keeps a trailing space.
 - `?` takes a trailing space except when it opens a guard (`?[cond]`) or is the propagation operator (`a?`); a `{` following `]`, `->`, or an identifier is glued onto the line (`[0..11] {`, `?[cond] {`, `f x -> {`, `struct Point {`, `match x {`) and opens a new line with one more indent level.
 - Record literals written on one source line stay inline (`Point { x: 3, y: 4 }`); a record literal that spans lines formats as a block. Struct, enum, and match bodies always format as blocks.
-- Ranges are tight (`0..5`, `xs[1..3]`, `[1; 3]`); the stream operator `...` takes a trailing space (`[0, 1, ... a + b]`).
+- Ranges are tight (`0..5`, `xs[1..3]`, `[1; 3]`); the stream operator `...` takes a trailing binder arrow (`[0, 1, ... (a, b) -> a + b]`).
 - Calls, indexes, and field access stay tight (`print(f(x))`, `fib[i]`, `vec[Token]`, `pt.x`).
 - `,` and `;` take a trailing space (`print(i); break`, `[1; 3]`, `gcd(b, a % b)`).
 - Comments are trivia attached to tokens and are re-emitted verbatim in place: comment-only lines stay on their own line (indented inside blocks), trailing comments stay on the same line as their statement, and a final newline is inserted when the input lacks one. Blank lines are preserved.

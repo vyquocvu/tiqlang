@@ -41,9 +41,23 @@ bool env_define(Environment *env, Token name, bool is_mutable, SemanticType *typ
     env->symbols[env->count].name = name;
     env->symbols[env->count].is_mutable = is_mutable;
     env->symbols[env->count].is_moved = false;
+    env->symbols[env->count].is_reserved = false;
     env->symbols[env->count].type = type;
     env->count++;
     return true;
+}
+
+// M22: define a reserved prelude symbol that users cannot redefine.
+static bool env_define_reserved(Environment *env, Token name, SemanticType *type) {
+    if (!env_define(env, name, false, type)) return false;
+    env->symbols[env->count - 1].is_reserved = true;
+    return true;
+}
+
+// M22: check whether a name collides with a reserved prelude builtin.
+static bool is_reserved_name(Environment *env, Token name) {
+    Symbol *sym = env_lookup(env, name);
+    return sym && sym->is_reserved;
 }
 
 Symbol *env_lookup(Environment *env, Token name) {
@@ -1395,6 +1409,20 @@ static void check_node(SemanticContext *ctx, AstNode *node) {
             break;
         }
         case AST_BINDING:
+            // M22: reject reserved prelude names on LHS.
+            if (is_reserved_name(ctx->current_env, node->as.binding.name)) {
+                char msg[128];
+                snprintf(msg, sizeof msg, "'%.*s' is a reserved builtin name",
+                         (int)node->as.binding.name.length, node->as.binding.name.start);
+                diag_error(ctx->diag, ctx->path, node->token.line, ERR_TYPE_MISMATCH, msg);
+            }
+            // M22: reject enum/value namespace collision (Finding 5).
+            if (enum_lookup(ctx, node->as.binding.name)) {
+                char msg[128];
+                snprintf(msg, sizeof msg, "'%.*s' is already defined as an enum",
+                         (int)node->as.binding.name.length, node->as.binding.name.start);
+                diag_error(ctx->diag, ctx->path, node->token.line, ERR_DUPLICATE_ENUM, msg);
+            }
             // M9.2-D: `name <- expr` where name already names a mutable
             // binding is a reassignment, not a redefinition; rewrite it so
             // the emitter does not declare the name twice.
@@ -1424,6 +1452,13 @@ static void check_node(SemanticContext *ctx, AstNode *node) {
             }
             break;
         case AST_ASSIGN:
+            // M22: reject reserved prelude names on LHS of definitions.
+            if (node->as.assign.is_definition && is_reserved_name(ctx->current_env, node->as.assign.name)) {
+                char msg[128];
+                snprintf(msg, sizeof msg, "'%.*s' is a reserved builtin name",
+                         (int)node->as.assign.name.length, node->as.assign.name.start);
+                diag_error(ctx->diag, ctx->path, node->token.line, ERR_TYPE_MISMATCH, msg);
+            }
             check_node(ctx, node->as.assign.expr);
             {
                 Symbol *sym = env_lookup(ctx->current_env, node->as.assign.name);
@@ -1580,6 +1615,13 @@ static void check_node(SemanticContext *ctx, AstNode *node) {
             break;
         }
         case AST_FUNCTION: {
+            // M22: reject reserved prelude names as function names.
+            if (is_reserved_name(ctx->current_env, node->as.function.name)) {
+                char msg[128];
+                snprintf(msg, sizeof msg, "'%.*s' is a reserved builtin name",
+                         (int)node->as.function.name.length, node->as.function.name.start);
+                diag_error(ctx->diag, ctx->path, node->token.line, ERR_TYPE_MISMATCH, msg);
+            }
             // M13.4-S3: resolve the return annotation before checking the
             // body so recursive calls see the correct return type.
             PrimitiveType pre_ret = TYPE_UNKNOWN;
@@ -1773,6 +1815,11 @@ static void check_node(SemanticContext *ctx, AstNode *node) {
                 diag_error(ctx->diag, ctx->path, node->token.line, ERR_LOOP_VARIABLE,
                            "loop binder requires a range domain");
             }
+            // M22: bare range loops require an explicit binder.
+            if (is_range && !node->as.bracket_loop.has_binder) {
+                diag_error(ctx->diag, ctx->path, node->token.line, ERR_LOOP_VARIABLE,
+                           "range loop requires an explicit binder: use [name <- domain]");
+            }
             Environment loop_env;
             env_init(&loop_env, ctx->current_env);
             ctx->current_env = &loop_env;
@@ -1781,12 +1828,9 @@ static void check_node(SemanticContext *ctx, AstNode *node) {
                 // are immutable inside the body.
                 env_define(ctx->current_env, node->as.bracket_loop.binder, false,
                            ty(ctx, TYPE_INT));
-            } else if (is_range) {
-                Token itoken;
-                itoken.start = "i";
-                itoken.length = 1;
-                env_define(ctx->current_env, itoken, false, ty(ctx, TYPE_INT));
             }
+            // M22: bare range loops do NOT inject an implicit 'i'.
+            // Users must write [i <- 0..10] { ... } for an index variable.
             for (int i = 0; i < node->as.bracket_loop.body_count; i++) {
                 check_node(ctx, node->as.bracket_loop.body_stmts[i]);
             }
@@ -1829,24 +1873,49 @@ static void check_node(SemanticContext *ctx, AstNode *node) {
                 check_node(ctx, node->as.stream_gen.seeds[i]);
             }
             if (node->as.stream_gen.gen_expr) {
+                // M22: require explicit binders for generator expressions.
+                if (node->as.stream_gen.binder_count == 0) {
+                    diag_error(ctx->diag, ctx->path, node->token.line, ERR_UNSUPPORTED_STATEMENT,
+                               "stream generators require explicit binders: use (name) -> expr");
+                    node->semantic_type = ty(ctx, TYPE_UNKNOWN);
+                    break;
+                }
+                // Binder count must match seed count.
+                if (node->as.stream_gen.binder_count != node->as.stream_gen.seed_count) {
+                    diag_error(ctx->diag, ctx->path, node->token.line, ERR_TYPE_MISMATCH,
+                               "binder count must match seed count");
+                    node->semantic_type = ty(ctx, TYPE_UNKNOWN);
+                    break;
+                }
+                // Check for duplicate binder names.
+                for (int b = 0; b < node->as.stream_gen.binder_count; b++) {
+                    for (int b2 = b + 1; b2 < node->as.stream_gen.binder_count; b2++) {
+                        if (node->as.stream_gen.binders[b].length == node->as.stream_gen.binders[b2].length &&
+                            memcmp(node->as.stream_gen.binders[b].start, node->as.stream_gen.binders[b2].start,
+                                   node->as.stream_gen.binders[b].length) == 0) {
+                            diag_error(ctx->diag, ctx->path, node->token.line, ERR_LOOP_VARIABLE,
+                                       "duplicate stream binder name");
+                        }
+                    }
+                    if (node->as.stream_gen.has_index_binder &&
+                        node->as.stream_gen.binders[b].length == node->as.stream_gen.index_binder.length &&
+                        memcmp(node->as.stream_gen.binders[b].start, node->as.stream_gen.index_binder.start,
+                               node->as.stream_gen.binders[b].length) == 0) {
+                        diag_error(ctx->diag, ctx->path, node->token.line, ERR_LOOP_VARIABLE,
+                                   "duplicate stream binder name");
+                    }
+                }
                 Environment gen_env;
                 env_init(&gen_env, ctx->current_env);
                 ctx->current_env = &gen_env;
-                if (node->as.stream_gen.seed_count == 1) {
-                    Token xtoken;
-                    xtoken.start = "x"; xtoken.length = 1;
-                    env_define(ctx->current_env, xtoken, false, ty(ctx, TYPE_INT));
+                // Define explicit window binders.
+                for (int b = 0; b < node->as.stream_gen.binder_count; b++) {
+                    env_define(ctx->current_env, node->as.stream_gen.binders[b], false, ty(ctx, TYPE_INT));
                 }
-                if (node->as.stream_gen.seed_count == 2) {
-                    Token atoken, btoken;
-                    atoken.start = "a"; atoken.length = 1;
-                    btoken.start = "b"; btoken.length = 1;
-                    env_define(ctx->current_env, atoken, false, ty(ctx, TYPE_INT));
-                    env_define(ctx->current_env, btoken, false, ty(ctx, TYPE_INT));
+                // Define optional explicit index binder.
+                if (node->as.stream_gen.has_index_binder) {
+                    env_define(ctx->current_env, node->as.stream_gen.index_binder, false, ty(ctx, TYPE_INT));
                 }
-                Token itoken;
-                itoken.start = "i"; itoken.length = 1;
-                env_define(ctx->current_env, itoken, false, ty(ctx, TYPE_INT));
                 check_node(ctx, node->as.stream_gen.gen_expr);
                 ctx->current_env = gen_env.parent;
                 env_free(&gen_env);
@@ -2055,6 +2124,16 @@ static void check_node(SemanticContext *ctx, AstNode *node) {
                          (int)name.length, name.start, (int)name.length, name.start);
                 diag_error(ctx->diag, ctx->path, node->token.line, ERR_DUPLICATE_ENUM, msg);
             }
+            // M22: check if enum name collides with an existing value binding (Finding 5).
+            {
+                Symbol *vsym = env_lookup(ctx->current_env, name);
+                if (vsym && !vsym->is_reserved) {
+                    char msg[128];
+                    snprintf(msg, sizeof msg, "'%.*s' is already defined as a value",
+                             (int)name.length, name.start);
+                    diag_error(ctx->diag, ctx->path, node->token.line, ERR_DUPLICATE_ENUM, msg);
+                }
+            }
             for (int i = 0; i < node->as.enum_def.variant_count; i++) {
                 for (int j = 0; j < i; j++) {
                     Token a = node->as.enum_def.variants[i];
@@ -2066,6 +2145,18 @@ static void check_node(SemanticContext *ctx, AstNode *node) {
                         diag_error(ctx->diag, ctx->path, node->token.line, ERR_DUPLICATE_VARIANT, msg);
                         break;
                     }
+                }
+                // M22: check if variant name collides with a value binding
+                // already defined in the current scope (Finding 5).
+                Token v = node->as.enum_def.variants[i];
+                Symbol *vsym = env_lookup(ctx->current_env, v);
+                if (vsym && !vsym->is_reserved) {
+                    char msg[160];
+                    snprintf(msg, sizeof msg,
+                             "enum variant '%.*s' shadows existing binding",
+                             (int)v.length, v.start);
+                    diag_error(ctx->diag, ctx->path, node->token.line,
+                               ERR_DUPLICATE_VARIANT, msg);
                 }
             }
             enum_register(ctx, name, node->as.enum_def.variants, node->as.enum_def.variant_count);
@@ -2154,6 +2245,28 @@ void semantic_check_modules(SemanticModule *mods, int mod_count, DiagContext *di
     Environment global_env;
     env_init(&global_env, NULL);
     ctx.current_env = &global_env;
+    // M22: install reserved prelude builtins.  These names cannot be
+    // redefined by user code (reserved-prelude policy).
+    {
+        static const char *prelude_names[] = {
+            "print", "len", "some", "ok", "err",
+            "cli_arg_count", "cli_arg",
+            "vec_push", "vec_pop", "vec_len", "vec_get", "vec_set",
+            "map_get", "map_set", "map_has", "map_len", "map_remove",
+            "str_buf_push", "str_buf_len", "str_buf_get", "str_buf_clear",
+            NULL
+        };
+        for (int pi = 0; prelude_names[pi]; pi++) {
+            Token pt;
+            pt.start = prelude_names[pi];
+            pt.length = (int)strlen(prelude_names[pi]);
+            pt.line = 0;
+            pt.kind = TOK_IDENT;
+            pt.comment_start = NULL;
+            pt.comment_length = 0;
+            env_define_reserved(&global_env, pt, ty(&ctx, TYPE_INT));
+        }
+    }
     for (int m = 0; m < mod_count; m++) {
         ctx.path = mods[m].path;
         // M15: detect std/ library modules by path prefix.

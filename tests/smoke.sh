@@ -58,23 +58,23 @@ if [ -e "$TMP_DIR/no-compiler" ]; then
 fi
 grep 'cannot execute host C compiler' "$TMP_DIR/missing-cc.err" >/dev/null
 
-printf 'x <- 0\n[0..5] { x += 1 }\n' > "$TMP_DIR/bracket_loop_count.tiq"
+printf 'x <- 0\n[i <- 0..5] { x += 1 }\n' > "$TMP_DIR/bracket_loop_count.tiq"
 ./build/tiq build "$TMP_DIR/bracket_loop_count.tiq" -o "$TMP_DIR/bracket_loop_count" 2>"$TMP_DIR/bracket_loop_count.err"
 [ -x "$TMP_DIR/bracket_loop_count" ]
 
-printf 'total <- 0\n[0..5] { total += i }\n' > "$TMP_DIR/bracket_sum.tiq"
+printf 'total <- 0\n[i <- 0..5] { total += i }\n' > "$TMP_DIR/bracket_sum.tiq"
 ./build/tiq build "$TMP_DIR/bracket_sum.tiq" -o "$TMP_DIR/bracket_sum" 2>"$TMP_DIR/bracket_sum.err"
 [ -x "$TMP_DIR/bracket_sum" ]
 
-printf '[0..3] { i }\n' > "$TMP_DIR/bracket_loop.tiq"
+printf '[i <- 0..3] { i }\n' > "$TMP_DIR/bracket_loop.tiq"
 ./build/tiq build "$TMP_DIR/bracket_loop.tiq" -o "$TMP_DIR/bracket_loop" 2>"$TMP_DIR/bracket_loop.err"
 [ -x "$TMP_DIR/bracket_loop" ]
 
-printf '[0..3] { i; break }\n' > "$TMP_DIR/bracket_break.tiq"
+printf '[i <- 0..3] { i; break }\n' > "$TMP_DIR/bracket_break.tiq"
 ./build/tiq build "$TMP_DIR/bracket_break.tiq" -o "$TMP_DIR/bracket_break" 2>"$TMP_DIR/bracket_break.err"
 [ -x "$TMP_DIR/bracket_break" ]
 
-printf 'x <- 0\n[0..3] { x += 1; skip; x += 100 }\n' > "$TMP_DIR/bracket_skip.tiq"
+printf 'x <- 0\n[i <- 0..3] { x += 1; skip; x += 100 }\n' > "$TMP_DIR/bracket_skip.tiq"
 ./build/tiq build "$TMP_DIR/bracket_skip.tiq" -o "$TMP_DIR/bracket_skip" 2>"$TMP_DIR/bracket_skip.err"
 [ -x "$TMP_DIR/bracket_skip" ]
 
@@ -90,7 +90,7 @@ printf 'x <- 10\n?[x > 5] print("big")\n' > "$TMP_DIR/bracket_cond_oneline.tiq"
 ./build/tiq build "$TMP_DIR/bracket_cond_oneline.tiq" -o "$TMP_DIR/bracket_cond_oneline"
 [ "$("$TMP_DIR/bracket_cond_oneline")" = "big" ]
 
-printf '[0..10] { ?[i == 5] break; print(i) }\n' > "$TMP_DIR/bracket_cond_break.tiq"
+printf '[i <- 0..10] { ?[i == 5] break; print(i) }\n' > "$TMP_DIR/bracket_cond_break.tiq"
 ./build/tiq build "$TMP_DIR/bracket_cond_break.tiq" -o "$TMP_DIR/bracket_cond_break"
 [ "$("$TMP_DIR/bracket_cond_break")" = "0
 1
@@ -121,31 +121,31 @@ printf 's <- "Hello World"\nsub = s[0..5]\nlen(sub)\n' > "$TMP_DIR/str_slice.tiq
 ./build/tiq build "$TMP_DIR/str_slice.tiq" -o "$TMP_DIR/str_slice" 2>"$TMP_DIR/str_slice.err"
 [ -x "$TMP_DIR/str_slice" ]
 
-printf 'fib = [0, 1, ... a + b]\nfib[10]\n' > "$TMP_DIR/stream_index.tiq"
+printf 'fib = [0, 1, ... (a, b) -> a + b]\nfib[10]\n' > "$TMP_DIR/stream_index.tiq"
 ./build/tiq build "$TMP_DIR/stream_index.tiq" -o "$TMP_DIR/stream_index" 2>"$TMP_DIR/stream_index.err"
 [ -x "$TMP_DIR/stream_index" ]
 
-printf 'fact = [1, ... i * x]\nfact[5]\n' > "$TMP_DIR/stream_single_seed.tiq"
+printf 'fact = [1, ... (x; i) -> i * x]\nfact[5]\n' > "$TMP_DIR/stream_single_seed.tiq"
 ./build/tiq build "$TMP_DIR/stream_single_seed.tiq" -o "$TMP_DIR/stream_single_seed" 2>"$TMP_DIR/stream_single_seed.err"
 [ -x "$TMP_DIR/stream_single_seed" ]
 
-printf 'fib = [0, 1, ... a + b]\nfib[0]\nfib[1]\nfib[2]\nfib[3]\nfib[4]\nfib[5]\nfib[6]\nfib[7]\nfib[8]\nfib[9]\nfib[10]\n' > "$TMP_DIR/fib_step_by_step.tiq"
+printf 'fib = [0, 1, ... (a, b) -> a + b]\nfib[0]\nfib[1]\nfib[2]\nfib[3]\nfib[4]\nfib[5]\nfib[6]\nfib[7]\nfib[8]\nfib[9]\nfib[10]\n' > "$TMP_DIR/fib_step_by_step.tiq"
 ./build/tiq build "$TMP_DIR/fib_step_by_step.tiq" -o "$TMP_DIR/fib_step_by_step" 2>"$TMP_DIR/fib_step_by_step.err"
 [ -x "$TMP_DIR/fib_step_by_step" ]
 
-printf 'fib = [0, 1, ... a + b]\nfib[0]\nfib[1]\nfib[2]\nfib[3]\nfib[4]\nfib[5]\n' > "$TMP_DIR/fib_explain.tiq"
+printf 'fib = [0, 1, ... (a, b) -> a + b]\nfib[0]\nfib[1]\nfib[2]\nfib[3]\nfib[4]\nfib[5]\n' > "$TMP_DIR/fib_explain.tiq"
 ./build/tiq build "$TMP_DIR/fib_explain.tiq" -o "$TMP_DIR/fib_explain" 2>"$TMP_DIR/fib_explain.err"
 [ -x "$TMP_DIR/fib_explain" ]
 
-printf 'fib = [0, 1, ... a + b]\nfib[10]\n' > "$TMP_DIR/fib_verify.tiq"
+printf 'fib = [0, 1, ... (a, b) -> a + b]\nfib[10]\n' > "$TMP_DIR/fib_verify.tiq"
 ./build/tiq build "$TMP_DIR/fib_verify.tiq" -o "$TMP_DIR/fib_verify" 2>"$TMP_DIR/fib_verify.err"
 [ -x "$TMP_DIR/fib_verify" ]
 
-printf 'pow b -> [1, ... x * b]\npow(2)[0]\npow(2)[10]\npow(3)[3]\n' > "$TMP_DIR/stream_func.tiq"
+printf 'pow b -> [1, ... (x) -> x * b]\npow(2)[0]\npow(2)[10]\npow(3)[3]\n' > "$TMP_DIR/stream_func.tiq"
 ./build/tiq build "$TMP_DIR/stream_func.tiq" -o "$TMP_DIR/stream_func" 2>"$TMP_DIR/stream_func.err"
 [ -x "$TMP_DIR/stream_func" ]
 
-printf 'evens = [0, ... x + 2]\n[0..5] { evens[i] }\n' > "$TMP_DIR/stream_bracket_loop.tiq"
+printf 'evens = [0, ... (x) -> x + 2]\n[i <- 0..5] { evens[i] }\n' > "$TMP_DIR/stream_bracket_loop.tiq"
 ./build/tiq build "$TMP_DIR/stream_bracket_loop.tiq" -o "$TMP_DIR/stream_bracket_loop" 2>"$TMP_DIR/stream_bracket_loop.err"
 [ -x "$TMP_DIR/stream_bracket_loop" ]
 
@@ -628,7 +628,7 @@ print(d)
     defer print(e)
     print(1)
 }
-[0..2] {
+[i <- 0..2] {
     f = json_get("{\"n\": 7}", "n")
     print(f)
 }
@@ -647,7 +647,7 @@ cmp "$TMP_DIR/m92_scope.out" "$TMP_DIR/m92_scope.expected"
 # owners already bound at the jump point are freed (LANGUAGE_SPEC §16.4).
 cat > "$TMP_DIR/m92b_early.tiq" <<'EOF'
 import "std/json.tiq"
-[0..3] {
+[i <- 0..3] {
     a = json_get("{\"n\": 7}", "n")
     [(i == 0)] {
         b = json_get("{\"m\": 5}", "m")
@@ -658,13 +658,13 @@ import "std/json.tiq"
     break
     d = json_get("{\"q\": 0}", "q")
 }
-[0..2] {
+[i <- 0..2] {
     f = json_get("{\"k\": 3}", "k")
     print(f)
     skip
     print(999)
 }
-[0..2] {
+[i <- 0..2] {
     g = json_get("{\"g\": 1}", "g")
     {
         h = json_get("{\"h\": 2}", "h")
@@ -718,7 +718,7 @@ s <- json_get("{\"a\": \"one\"}", "a")
 print(s)
 s <- json_get("{\"b\": \"two\"}", "b")
 print(s)
-[0..2] {
+[i <- 0..2] {
     s <- json_get("{\"c\": \"three\"}", "c")
     print(s)
 }
@@ -742,7 +742,7 @@ cat > "$TMP_DIR/m92e_exit.tiq" <<'EOF'
 import "std/json.tiq"
 a = json_get("{\"a\": \"one\"}", "a")
 print(a)
-[0..3] {
+[i <- 0..3] {
     b = json_get("{\"b\": \"two\"}", "b")
     print(b)
     [(i == 2)] {
@@ -1280,7 +1280,7 @@ grep -q 'tiq_enum_Status_Err = 1' "$TMP_DIR/p2_enum.c"
 # push/get/set/len/pop (LANGUAGE_SPEC §19.7). Output pinned.
 cat > "$TMP_DIR/p3_vec_int.tiq" <<'EOF'
 v = vec_new()
-[0..12] { vec_push(v, i * 2) }
+[i <- 0..12] { vec_push(v, i * 2) }
 print(vec_len(v))
 print(vec_get(v, 0))
 print(vec_get(v, 11))
@@ -1392,7 +1392,7 @@ cmp "$TMP_DIR/p4_strbuf.out" "$TMP_DIR/p4_strbuf.expected"
 # relies on; an O(n²) concat regression would time this out (§19.8).
 cat > "$TMP_DIR/p4_strbuf_stress.tiq" <<'EOF'
 sb = str_buf_new()
-[0..1000] { str_buf_append(sb, "0123456789ABCDEF") }
+[i <- 0..1000] { str_buf_append(sb, "0123456789ABCDEF") }
 print(str_buf_len(sb))
 s = str_buf_to_str(sb)
 print(len(s))
@@ -1476,7 +1476,7 @@ map_set(m, "eleven", 11)
 map_set(m, "twelve", 12)
 n = map_len(m)
 print(n)
-[0..n] {
+[i <- 0..n] {
     print(map_key_at(m, i))
     print(map_val_at(m, i))
 }
@@ -1524,7 +1524,7 @@ cmp "$TMP_DIR/p5_map_oob_neg.err" "$TMP_DIR/p5_map_oob_neg.err.expected"
 cat > "$TMP_DIR/p8_str_index.tiq" <<'EOF'
 s = "abc"
 total <- 0
-[0..3] {
+[i <- 0..3] {
     total += s[i]
 }
 print(total)
@@ -1635,7 +1635,7 @@ f x:int -> int -> x + 1
 sum v:vec[int] -> int -> {
   total <- 0
   n = vec_len(v)
-  [0..n] { total += vec_get(v, i) }
+  [i <- 0..n] { total += vec_get(v, i) }
   total
 }
 v = vec_new()

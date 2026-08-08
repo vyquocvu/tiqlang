@@ -78,9 +78,9 @@ cache_has src:str -> i64 -> {
 cache_put src:str content:str -> i64 -> {
     cd <- "/tmp/.tiq-cache"
     r <- 0
-    ok <- proc_exec(str_cat("mkdir -p ", cd))
-    ?[ok != 0] { r <- -1 }
-    ?[ok == 0] {
+    flag <- proc_exec(str_cat("mkdir -p ", cd))
+    ?[flag != 0] { r <- -1 }
+    ?[flag == 0] {
         h <- fnv_hash(fs_read(src))
         hstr <- int_str(h)
         sb <- str_buf_new()

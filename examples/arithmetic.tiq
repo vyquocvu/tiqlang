@@ -1,24 +1,24 @@
 // Arithmetic progression with step k
 // step 1: 0, 1, 2, 3, 4...
-step1 = [0, ... x + 1]
+step1 = [0, ... (x) -> x + 1]
 
 // step 3: 0, 3, 6, 9, 12...
-step3 = [0, ... x + 3]
+step3 = [0, ... (x) -> x + 3]
 
 // step 5: 1, 6, 11, 16, 21...
-step5 = [1, ... x + 5]
+step5 = [1, ... (x) -> x + 5]
 
 // Arithmetic with parameter
-arith step -> [0, ... x + step]
+arith step -> [0, ... (x) -> x + step]
 
 // Print arithmetic progressions
-[0..6] {
+[i <- 0..6] {
     print(step1[i])
 }
-[0..6] {
+[i <- 0..6] {
     print(step3[i])
 }
-[0..6] {
+[i <- 0..6] {
     print(step5[i])
 }
 print(arith(7)[0])

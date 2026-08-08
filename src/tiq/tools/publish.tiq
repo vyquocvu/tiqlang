@@ -135,8 +135,8 @@ vec_push(sv, 0)  // error flag
 vec_push(sv, 0)  // version seen
 vec_push(sv, 0)  // package seen
 
-err <- mf_check(src, manifest_path, sv)
-?[err != 0] {
+rc2 <- mf_check(src, manifest_path, sv)
+?[rc2 != 0] {
     proc_exit(1)
 }
 

@@ -56,7 +56,7 @@ fi
 # Test run with loops
 cat > "$TMP/loop.tiq" << 'EOF'
 x <- 0
-[0..5] { x += i }
+[i <- 0..5] { x += i }
 print(x)
 EOF
 OUTPUT=$($TIQ run "$TMP/loop.tiq")
@@ -88,7 +88,7 @@ fi
 
 # Test run with stream generator
 cat > "$TMP/stream.tiq" << 'EOF'
-fib = [0, 1, ... a + b]
+fib = [0, 1, ... (a, b) -> a + b]
 print(fib[10])
 EOF
 OUTPUT=$($TIQ run "$TMP/stream.tiq")

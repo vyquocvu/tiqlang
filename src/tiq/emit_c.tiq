@@ -347,7 +347,7 @@ ec_mut_ok src:str toks:vec[Token] nodes:vec[int] kids:vec[int] fresh:vec[str] ni
         ?[k == AstKind.Function] { r <- ec_mut_ok(src, toks, nodes, kids, fresh, nd_get(nodes, ni, NF.A), name) }
         ?[k == AstKind.BracketLoop] {
             ?[nd_get(nodes, ni, NF.F1) == 1 && str_eq(tk_lex(src, toks, nd_get(nodes, ni, NF.Name)), name)] { r <- false }
-            ?[nd_get(nodes, ni, NF.F1) == 0 && str_eq(name, "i")] { r <- false }
+            ?[nd_get(nodes, ni, NF.F1) == 0 && str_eq(name, "_tiq_i")] { r <- false }
             ?[r] { r <- ec_mut_ok(src, toks, nodes, kids, fresh, nd_get(nodes, ni, NF.A), name) }
             s = nd_get(nodes, ni, NF.L1s); n = nd_get(nodes, ni, NF.L1n); j <- 0
             [j < n && r] { r <- ec_mut_ok(src, toks, nodes, kids, fresh, vec_get(kids, s + j), name); j <- j + 1 }
@@ -954,7 +954,7 @@ ec_stmt src:str toks:vec[Token] nodes:vec[int] kids:vec[int] fresh:vec[str] hs:v
         dk = nd_get(nodes, dom, NF.Kind)
         is_range = dk == AstKind.Binary && nd_get(nodes, dom, NF.Op) == TokenKind.DotDot
         ?[is_range] {
-            vn <- "i"
+            vn <- "_tiq_i"
             ?[nd_get(nodes, ni, NF.F1) == 1] { vn <- tk_lex(src, toks, nd_get(nodes, ni, NF.Name)) }
             ec_put(b, "for (int64_t "); ec_put(b, vn); ec_put(b, " = ")
             ec_expr(src, toks, nodes, kids, hs, his, hem, types, tp, tpn, b, nd_get(nodes, dom, NF.A))
@@ -1132,9 +1132,9 @@ ec_header_guard base:str -> str -> {
             m <- m + 1
         }
         ?[done == 0] {
-            ok = (cc >= 65 && cc <= 90) || (cc >= 48 && cc <= 57)
-            ?[ok] { str_buf_append(gb, ch) }
-            ?[ok == false] { str_buf_append(gb, "_") }
+            is_ok = (cc >= 65 && cc <= 90) || (cc >= 48 && cc <= 57)
+            ?[is_ok] { str_buf_append(gb, ch) }
+            ?[is_ok == false] { str_buf_append(gb, "_") }
         }
         j <- j + 1
     }
@@ -1164,26 +1164,26 @@ ec_ffi_safe_annot src:str toks:vec[Token] nodes:vec[int] tops:vec[int] ti:i64 ->
 // the function callable from Tiq but out of the header. Unannotated
 // parameters stay int64_t per the emitted-C convention.
 ec_exportable src:str toks:vec[Token] nodes:vec[int] kids:vec[int] tops:vec[int] types:vec[int] tp:vec[int] tpn:vec[str] ni:i64 -> bool -> {
-    ok <- true
-    ?[nd_get(nodes, ni, NF.Kind) != AstKind.Function] { ok <- false }
-    ?[ok && nd_get(nodes, nd_get(nodes, ni, NF.A), NF.Kind) == AstKind.StreamGen] { ok <- false }
-    ?[ok] {
+    valid <- true
+    ?[nd_get(nodes, ni, NF.Kind) != AstKind.Function] { valid <- false }
+    ?[valid && nd_get(nodes, nd_get(nodes, ni, NF.A), NF.Kind) == AstKind.StreamGen] { valid <- false }
+    ?[valid] {
         s2 = nd_get(nodes, ni, NF.L2s); pc = nd_get(nodes, ni, NF.L1n); j <- 0
-        [j < pc && ok] {
+        [j < pc && valid] {
             ann = vec_get(kids, s2 + j * 3); rk = vec_get(kids, s2 + j * 3 + 2)
-            ?[rk != 0] { ok <- false }
-            ?[ok && ann != 0 - 1 && ec_ffi_safe_annot(src, toks, nodes, tops, ann) == false] { ok <- false }
+            ?[rk != 0] { valid <- false }
+            ?[valid && ann != 0 - 1 && ec_ffi_safe_annot(src, toks, nodes, tops, ann) == false] { valid <- false }
             j <- j + 1
         }
     }
-    ?[ok] {
+    ?[valid] {
         rk = ec_kind(types, tp, ni)
-        ok <- rk == TY.Unknown || rk == TY.Int || rk == TY.Float || rk == TY.Str || rk == TY.Bool ||
+        valid <- rk == TY.Unknown || rk == TY.Int || rk == TY.Float || rk == TY.Str || rk == TY.Bool ||
               rk == TY.I8 || rk == TY.I16 || rk == TY.I32 || rk == TY.U8 || rk == TY.U16 ||
               rk == TY.U32 || rk == TY.U64 || rk == TY.F32 ||
               (rk == TY.Struct && str_eq(vec_get(tpn, vec_get(types, ni)), "") == false)
     }
-    ok
+    valid
 }
 
 // M16.3: deterministic C header for a definitions-only library. Struct

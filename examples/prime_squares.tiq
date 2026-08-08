@@ -1,8 +1,8 @@
 // Pentagonal numbers: P[n] = n(3n-1)/2
 // Sequence: 0, 1, 5, 12, 22, 35, 51, 70, 92, 117...
-penta = [0, ... x + i * 3 - 2]
+penta = [0, ... (x; i) -> x + i * 3 - 2]
 
 // Print first 11 pentagonal numbers
-[0..11] {
+[i <- 0..11] {
     print(penta[i])
 }
