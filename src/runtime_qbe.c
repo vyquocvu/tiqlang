@@ -121,5 +121,5 @@ extern void tiq_user_main(void);
 int main(int argc, char **argv) {
     tiq_set_args((int64_t)argc, argv);
     tiq_user_main();
-    return 0;
+    exit(0);
 }

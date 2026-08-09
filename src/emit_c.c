@@ -1807,7 +1807,7 @@ static void emit_stream_gen_def(const char *name, AstNode *node, Token *params, 
 static bool ffi_shadows_preamble_header(Token name) {
     static const char *conflicts[] = {
         "clock", "close", "exit", "fork", "getpid", "getppid",
-        "memcmp", "rand", "read", "sleep", "strcmp", "strlen",
+        "llabs", "memcmp", "rand", "read", "sleep", "strcmp", "strlen",
         "time", "write",
     };
     for (size_t i = 0; i < sizeof conflicts / sizeof conflicts[0]; i++) {
@@ -2062,6 +2062,7 @@ void compile_modules_to_c(SemanticModule *mods, int mod_count, const char *root_
     fputs(TIQ_RUNTIME_PRELUDE_AUX3, ctx->out);
     fputs(TIQ_RUNTIME_PRELUDE_AUX4, ctx->out);
     fputs(TIQ_RUNTIME_PRELUDE_AUX5, ctx->out);
+    fputs(TIQ_RUNTIME_PRELUDE_AUX5B, ctx->out);
     fputs(TIQ_RUNTIME_PRELUDE_AUX6, ctx->out);
     fputs(TIQ_RUNTIME_PRELUDE_AUX7, ctx->out);
     fputs(TIQ_RUNTIME_PRELUDE_AUX8, ctx->out);

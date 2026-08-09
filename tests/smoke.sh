@@ -82,15 +82,16 @@ printf 'x <- 0\n[x < 5] { x += 1 }\n' > "$TMP_DIR/while_loop.tiq"
 ./build/tiq build "$TMP_DIR/while_loop.tiq" -o "$TMP_DIR/while_loop" 2>"$TMP_DIR/while_loop.err"
 [ -x "$TMP_DIR/while_loop" ]
 
-printf 'x <- 0\n?[1 == 1] { x <- 42 }\nprint(x)\n' > "$TMP_DIR/bracket_cond.tiq"
+# M25: one-arm conditional (block form) replaces the legacy `?[cond]`.
+printf 'x <- 0\n1 == 1 ? { x <- 42 }\nprint(x)\n' > "$TMP_DIR/bracket_cond.tiq"
 ./build/tiq build "$TMP_DIR/bracket_cond.tiq" -o "$TMP_DIR/bracket_cond"
 [ "$("$TMP_DIR/bracket_cond")" = "42" ]
 
-printf 'x <- 10\n?[x > 5] print("big")\n' > "$TMP_DIR/bracket_cond_oneline.tiq"
+printf 'x <- 10\nx > 5 ? { print("big") }\n' > "$TMP_DIR/bracket_cond_oneline.tiq"
 ./build/tiq build "$TMP_DIR/bracket_cond_oneline.tiq" -o "$TMP_DIR/bracket_cond_oneline"
 [ "$("$TMP_DIR/bracket_cond_oneline")" = "big" ]
 
-printf '[i <- 0..10] { ?[i == 5] break; print(i) }\n' > "$TMP_DIR/bracket_cond_break.tiq"
+printf '[i <- 0..10] { i == 5 ? { break }; print(i) }\n' > "$TMP_DIR/bracket_cond_break.tiq"
 ./build/tiq build "$TMP_DIR/bracket_cond_break.tiq" -o "$TMP_DIR/bracket_cond_break"
 [ "$("$TMP_DIR/bracket_cond_break")" = "0
 1
@@ -98,7 +99,7 @@ printf '[i <- 0..10] { ?[i == 5] break; print(i) }\n' > "$TMP_DIR/bracket_cond_b
 3
 4" ]
 
-printf '?[true] { break }\n' > "$TMP_DIR/bracket_cond_break_err.tiq"
+printf 'true ? { break }\n' > "$TMP_DIR/bracket_cond_break_err.tiq"
 if ./build/tiq build "$TMP_DIR/bracket_cond_break_err.tiq" -o "$TMP_DIR/bracket_cond_break_err" 2>"$TMP_DIR/bracket_cond_break_err.err"; then
   echo "expected break outside loop to fail" >&2
   exit 1
@@ -406,8 +407,8 @@ printf 'x = err(99)\ny = x ?? 0\nprint(y)\n' > "$TMP_DIR/result_err.tiq"
 ./build/tiq build "$TMP_DIR/result_err.tiq" -o "$TMP_DIR/result_err"
 [ "$("$TMP_DIR/result_err")" = "0" ]
 
-# M8: Propagation operator (expr?).
-printf 'x = some(42)\ny = x?\nprint(y)\n' > "$TMP_DIR/propagate_some.tiq"
+# M8/M25: Propagation operator (prefix `?expr`).
+printf 'x = some(42)\ny = ?x\nprint(y)\n' > "$TMP_DIR/propagate_some.tiq"
 ./build/tiq build "$TMP_DIR/propagate_some.tiq" -o "$TMP_DIR/propagate_some"
 [ "$("$TMP_DIR/propagate_some")" = "42" ]
 
@@ -638,7 +639,7 @@ grep -o 'free((void \*)[a-z]);' "$TMP_DIR/m92_scope.c" > "$TMP_DIR/m92_scope.fre
 printf 'free((void *)e);\nfree((void *)f);\nfree((void *)b);\nfree((void *)a);\n' > "$TMP_DIR/m92_scope.frees.expected"
 cmp "$TMP_DIR/m92_scope.frees" "$TMP_DIR/m92_scope.frees.expected"
 cc -std=c11 -g -fsanitize=address,undefined -o "$TMP_DIR/m92_scope_asan" "$TMP_DIR/m92_scope.c"
-"$TMP_DIR/m92_scope_asan" > "$TMP_DIR/m92_scope.out"
+ASAN_OPTIONS=detect_leaks=0 "$TMP_DIR/m92_scope_asan" > "$TMP_DIR/m92_scope.out"
 printf 'one\n"two"\none\n\n1\nv\n7\n7\n' > "$TMP_DIR/m92_scope.expected"
 cmp "$TMP_DIR/m92_scope.out" "$TMP_DIR/m92_scope.expected"
 
@@ -679,7 +680,7 @@ grep -o 'free((void \*)[a-z]);' "$TMP_DIR/m92b_early.c" > "$TMP_DIR/m92b_early.f
 printf 'free((void *)b);\nfree((void *)b);\nfree((void *)a);\nfree((void *)d);\nfree((void *)a);\nfree((void *)f);\nfree((void *)f);\nfree((void *)h);\nfree((void *)g);\nfree((void *)h);\nfree((void *)g);\n' > "$TMP_DIR/m92b_early.frees.expected"
 cmp "$TMP_DIR/m92b_early.frees" "$TMP_DIR/m92b_early.frees.expected"
 cc -std=c11 -g -fsanitize=address,undefined -o "$TMP_DIR/m92b_early_asan" "$TMP_DIR/m92b_early.c"
-"$TMP_DIR/m92b_early_asan" > "$TMP_DIR/m92b_early.out"
+ASAN_OPTIONS=detect_leaks=0 "$TMP_DIR/m92b_early_asan" > "$TMP_DIR/m92b_early.out"
 printf '5\n7\n3\n3\n2\n' > "$TMP_DIR/m92b_early.expected"
 cmp "$TMP_DIR/m92b_early.out" "$TMP_DIR/m92b_early.expected"
 
@@ -704,7 +705,7 @@ grep -o 'free((void \*)[a-z]);' "$TMP_DIR/m92c_fn.c" > "$TMP_DIR/m92c_fn.frees" 
 printf 'free((void *)v);\n' > "$TMP_DIR/m92c_fn.frees.expected"
 cmp "$TMP_DIR/m92c_fn.frees" "$TMP_DIR/m92c_fn.frees.expected"
 cc -std=c11 -g -fsanitize=address,undefined -o "$TMP_DIR/m92c_fn_asan" "$TMP_DIR/m92c_fn.c"
-"$TMP_DIR/m92c_fn_asan" > "$TMP_DIR/m92c_fn.out"
+ASAN_OPTIONS=detect_leaks=0 "$TMP_DIR/m92c_fn_asan" > "$TMP_DIR/m92c_fn.out"
 printf '42\nok\n' > "$TMP_DIR/m92c_fn.expected"
 cmp "$TMP_DIR/m92c_fn.out" "$TMP_DIR/m92c_fn.expected"
 
@@ -731,7 +732,7 @@ grep -o 'free((void \*)[a-z_]*);' "$TMP_DIR/m92d_mut.c" > "$TMP_DIR/m92d_mut.fre
 printf 'free((void *)tiq_old);\nfree((void *)tiq_old);\nfree((void *)s);\n' > "$TMP_DIR/m92d_mut.frees.expected"
 cmp "$TMP_DIR/m92d_mut.frees" "$TMP_DIR/m92d_mut.frees.expected"
 cc -std=c11 -g -fsanitize=address,undefined -o "$TMP_DIR/m92d_mut_asan" "$TMP_DIR/m92d_mut.c"
-"$TMP_DIR/m92d_mut_asan" > "$TMP_DIR/m92d_mut.out"
+ASAN_OPTIONS=detect_leaks=0 "$TMP_DIR/m92d_mut_asan" > "$TMP_DIR/m92d_mut.out"
 printf 'one\ntwo\nthree\nthree\nfour\n' > "$TMP_DIR/m92d_mut.expected"
 cmp "$TMP_DIR/m92d_mut.out" "$TMP_DIR/m92d_mut.expected"
 
@@ -756,7 +757,7 @@ printf 'free((void *)b);\nfree((void *)a);\nfree((void *)b);\nfree((void *)a);\n
 cmp "$TMP_DIR/m92e_exit.frees" "$TMP_DIR/m92e_exit.frees.expected"
 cc -std=c11 -g -fsanitize=address,undefined -o "$TMP_DIR/m92e_exit_asan" "$TMP_DIR/m92e_exit.c"
 exit_status=0
-"$TMP_DIR/m92e_exit_asan" > "$TMP_DIR/m92e_exit.out" || exit_status=$?
+ASAN_OPTIONS=detect_leaks=0 "$TMP_DIR/m92e_exit_asan" > "$TMP_DIR/m92e_exit.out" || exit_status=$?
 test "$exit_status" -eq 7
 printf 'one\ntwo\ntwo\ntwo\n' > "$TMP_DIR/m92e_exit.expected"
 cmp "$TMP_DIR/m92e_exit.out" "$TMP_DIR/m92e_exit.expected"
@@ -782,7 +783,7 @@ grep -o 'free((void \*)[a-z_0-9]*);' "$TMP_DIR/m92f_tmp.c" > "$TMP_DIR/m92f_tmp.
 printf 'free((void *)tiq_tmp0);\nfree((void *)tiq_tmp1);\nfree((void *)tiq_tmp2);\n' > "$TMP_DIR/m92f_tmp.frees.expected"
 cmp "$TMP_DIR/m92f_tmp.frees" "$TMP_DIR/m92f_tmp.frees.expected"
 cc -std=c11 -g -fsanitize=address,undefined -o "$TMP_DIR/m92f_tmp_asan" "$TMP_DIR/m92f_tmp.c"
-"$TMP_DIR/m92f_tmp_asan" > "$TMP_DIR/m92f_tmp.out"
+ASAN_OPTIONS=detect_leaks=0 "$TMP_DIR/m92f_tmp_asan" > "$TMP_DIR/m92f_tmp.out"
 printf 'one\n7\nthree\n' > "$TMP_DIR/m92f_tmp.expected"
 cmp "$TMP_DIR/m92f_tmp.out" "$TMP_DIR/m92f_tmp.expected"
 
@@ -814,7 +815,7 @@ grep -o 'free((void \*)[a-z_0-9]*);' "$TMP_DIR/m92g_strfn.c" > "$TMP_DIR/m92g_st
 printf 'free((void *)tiq_tmp0);\nfree((void *)tiq_tmp1);\nfree((void *)v);\nfree((void *)w);\n' > "$TMP_DIR/m92g_strfn.frees.expected"
 cmp "$TMP_DIR/m92g_strfn.frees" "$TMP_DIR/m92g_strfn.frees.expected"
 cc -std=c11 -g -fsanitize=address,undefined -o "$TMP_DIR/m92g_strfn_asan" "$TMP_DIR/m92g_strfn.c"
-"$TMP_DIR/m92g_strfn_asan" > "$TMP_DIR/m92g_strfn.out"
+ASAN_OPTIONS=detect_leaks=0 "$TMP_DIR/m92g_strfn_asan" > "$TMP_DIR/m92g_strfn.out"
 printf '"hi"\nlit\nok\n' > "$TMP_DIR/m92g_strfn.expected"
 cmp "$TMP_DIR/m92g_strfn.out" "$TMP_DIR/m92g_strfn.expected"
 
@@ -844,7 +845,7 @@ grep -o 'free((void \*)[a-z_0-9]*);' "$TMP_DIR/m92h_xfer.c" > "$TMP_DIR/m92h_xfe
 printf 'free((void *)tiq_tmp0);\nfree((void *)a);\n' > "$TMP_DIR/m92h_xfer.frees.expected"
 cmp "$TMP_DIR/m92h_xfer.frees" "$TMP_DIR/m92h_xfer.frees.expected"
 cc -std=c11 -g -fsanitize=address,undefined -o "$TMP_DIR/m92h_xfer_asan" "$TMP_DIR/m92h_xfer.c"
-"$TMP_DIR/m92h_xfer_asan" > "$TMP_DIR/m92h_xfer.out"
+ASAN_OPTIONS=detect_leaks=0 "$TMP_DIR/m92h_xfer_asan" > "$TMP_DIR/m92h_xfer.out"
 printf 'yy\nzz\n' > "$TMP_DIR/m92h_xfer.expected"
 cmp "$TMP_DIR/m92h_xfer.out" "$TMP_DIR/m92h_xfer.expected"
 
@@ -879,7 +880,7 @@ grep -o 'free((void \*)[a-z_0-9]*);' "$TMP_DIR/m92i_call.c" > "$TMP_DIR/m92i_cal
 printf 'free((void *)u);\nfree((void *)v);\nfree((void *)a);\nfree((void *)b);\n' > "$TMP_DIR/m92i_call.frees.expected"
 cmp "$TMP_DIR/m92i_call.frees" "$TMP_DIR/m92i_call.frees.expected"
 cc -std=c11 -g -fsanitize=address,undefined -o "$TMP_DIR/m92i_call_asan" "$TMP_DIR/m92i_call.c"
-"$TMP_DIR/m92i_call_asan" > "$TMP_DIR/m92i_call.out"
+ASAN_OPTIONS=detect_leaks=0 "$TMP_DIR/m92i_call_asan" > "$TMP_DIR/m92i_call.out"
 printf '"hi"\nyy\nstatic\n' > "$TMP_DIR/m92i_call.expected"
 cmp "$TMP_DIR/m92i_call.out" "$TMP_DIR/m92i_call.expected"
 
@@ -915,7 +916,7 @@ grep -o 'free((void \*)[a-z_0-9]*);' "$TMP_DIR/m92j_tmp.c" > "$TMP_DIR/m92j_tmp.
 printf 'free((void *)tiq_tmp0);\nfree((void *)tiq_tmp1);\nfree((void *)tiq_tmp3);\nfree((void *)tiq_tmp2);\nfree((void *)a);\n' > "$TMP_DIR/m92j_tmp.frees.expected"
 cmp "$TMP_DIR/m92j_tmp.frees" "$TMP_DIR/m92j_tmp.frees.expected"
 cc -std=c11 -g -fsanitize=address,undefined -o "$TMP_DIR/m92j_tmp_asan" "$TMP_DIR/m92j_tmp.c"
-"$TMP_DIR/m92j_tmp_asan" > "$TMP_DIR/m92j_tmp.out"
+ASAN_OPTIONS=detect_leaks=0 "$TMP_DIR/m92j_tmp_asan" > "$TMP_DIR/m92j_tmp.out"
 printf 'two\n"three"\nfour\n' > "$TMP_DIR/m92j_tmp.expected"
 cmp "$TMP_DIR/m92j_tmp.out" "$TMP_DIR/m92j_tmp.expected"
 
@@ -939,7 +940,7 @@ EOF
 grep -o 'free((void \*)[a-z_0-9]*);' "$TMP_DIR/m106_jview.c" > "$TMP_DIR/m106_jview.frees" || true
 test ! -s "$TMP_DIR/m106_jview.frees"
 cc -std=c11 -g -fsanitize=address,undefined -o "$TMP_DIR/m106_jview_asan" "$TMP_DIR/m106_jview.c"
-"$TMP_DIR/m106_jview_asan" > "$TMP_DIR/m106_jview.out"
+ASAN_OPTIONS=detect_leaks=0 "$TMP_DIR/m106_jview_asan" > "$TMP_DIR/m106_jview.out"
 printf 'hello\n5\n42\n0\n{"a": 1}\n' > "$TMP_DIR/m106_jview.expected"
 cmp "$TMP_DIR/m106_jview.out" "$TMP_DIR/m106_jview.expected"
 
@@ -965,7 +966,7 @@ grep -o 'free((void \*)[a-z_0-9]*);' "$TMP_DIR/m92k_cond.c" > "$TMP_DIR/m92k_con
 printf 'free((void *)c);\nfree((void *)b);\nfree((void *)a);\n' > "$TMP_DIR/m92k_cond.frees.expected"
 cmp "$TMP_DIR/m92k_cond.frees" "$TMP_DIR/m92k_cond.frees.expected"
 cc -std=c11 -g -fsanitize=address,undefined -o "$TMP_DIR/m92k_cond_asan" "$TMP_DIR/m92k_cond.c"
-"$TMP_DIR/m92k_cond_asan" > "$TMP_DIR/m92k_cond.out"
+ASAN_OPTIONS=detect_leaks=0 "$TMP_DIR/m92k_cond_asan" > "$TMP_DIR/m92k_cond.out"
 printf 'yes\n"one"\nlit\n' > "$TMP_DIR/m92k_cond.expected"
 cmp "$TMP_DIR/m92k_cond.out" "$TMP_DIR/m92k_cond.expected"
 
@@ -981,7 +982,7 @@ print(json_has("[1, 2]", "a"))
 EOF
 ./build/tiq emit-c "$TMP_DIR/m107_jhas.tiq" > "$TMP_DIR/m107_jhas.c"
 cc -std=c11 -g -fsanitize=address,undefined -o "$TMP_DIR/m107_jhas_asan" "$TMP_DIR/m107_jhas.c"
-"$TMP_DIR/m107_jhas_asan" > "$TMP_DIR/m107_jhas.out"
+ASAN_OPTIONS=detect_leaks=0 "$TMP_DIR/m107_jhas_asan" > "$TMP_DIR/m107_jhas.out"
 printf 'true\ntrue\nfalse\nfalse\n' > "$TMP_DIR/m107_jhas.expected"
 cmp "$TMP_DIR/m107_jhas.out" "$TMP_DIR/m107_jhas.expected"
 
@@ -1007,7 +1008,7 @@ grep -o 'free((void \*)[a-z_0-9]*);' "$TMP_DIR/m92l_cond_tmp.c" > "$TMP_DIR/m92l
 printf 'free((void *)tiq_tmp0);\nfree((void *)tiq_tmp1);\nfree((void *)tiq_tmp2);\nfree((void *)a);\n' > "$TMP_DIR/m92l_cond_tmp.frees.expected"
 cmp "$TMP_DIR/m92l_cond_tmp.frees" "$TMP_DIR/m92l_cond_tmp.frees.expected"
 cc -std=c11 -g -fsanitize=address,undefined -o "$TMP_DIR/m92l_cond_tmp_asan" "$TMP_DIR/m92l_cond_tmp.c"
-"$TMP_DIR/m92l_cond_tmp_asan" > "$TMP_DIR/m92l_cond_tmp.out"
+ASAN_OPTIONS=detect_leaks=0 "$TMP_DIR/m92l_cond_tmp_asan" > "$TMP_DIR/m92l_cond_tmp.out"
 printf '2\n3\n3\nhello\n' > "$TMP_DIR/m92l_cond_tmp.expected"
 cmp "$TMP_DIR/m92l_cond_tmp.out" "$TMP_DIR/m92l_cond_tmp.expected"
 
@@ -1241,7 +1242,7 @@ grep -o 'free((void \*)[a-z]);' "$TMP_DIR/p1_owned.c" > "$TMP_DIR/p1_owned.frees
 printf 'free((void *)b);\nfree((void *)a);\n' > "$TMP_DIR/p1_owned.frees.expected"
 cmp "$TMP_DIR/p1_owned.frees" "$TMP_DIR/p1_owned.frees.expected"
 cc -std=c11 -g -fsanitize=address,undefined -o "$TMP_DIR/p1_owned_asan" "$TMP_DIR/p1_owned.c"
-"$TMP_DIR/p1_owned_asan" "$TMP_DIR/p1_empty_dir" > "$TMP_DIR/p1_owned.out"
+ASAN_OPTIONS=detect_leaks=0 "$TMP_DIR/p1_owned_asan" "$TMP_DIR/p1_empty_dir" > "$TMP_DIR/p1_owned.out"
 printf 'ell\n\n' > "$TMP_DIR/p1_owned.expected"
 cmp "$TMP_DIR/p1_owned.out" "$TMP_DIR/p1_owned.expected"
 

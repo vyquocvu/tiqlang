@@ -73,6 +73,7 @@ enum {
     R_X86_64_PC32      = 2,
     R_X86_64_PLT32     = 4,
     R_X86_64_GOTPCRELX = 42,
+    R_X86_64_JUMP_SLOT = 7,
 };
 
 // riscv64 relocation types (M17.4.1).
@@ -110,10 +111,10 @@ enum {
 #define DT_STRTAB 5
 #define DT_SYMTAB 6
 #define DT_RELA 7
-#define DT_RELASZ 10
-#define DT_RELAENT 12
-#define DT_STRSZ 11
-#define DT_SYMENT 13
+#define DT_RELASZ 8
+#define DT_RELAENT 9
+#define DT_STRSZ 10
+#define DT_SYMENT 11
 #define DT_JMPREL 23
 #define DT_PLTRELSZ 2
 #define DT_PLTREL 20

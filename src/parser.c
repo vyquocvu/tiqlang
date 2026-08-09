@@ -486,34 +486,21 @@ static AstNode *call_or_index(Parser *parser) {
             consume(parser, TOK_RBRACKET, ERR_UNEXPECTED_TOKEN, "expected ']' after index");
             expr = node;
         } else if (check(parser, TOK_QUESTION)) {
-            // M8: Propagation operator (postfix ?) vs ternary conditional (? :).
-            // Peek ahead to see if there's a ':' at the same nesting level
-            // before a newline/EOF. If yes, it's ternary (leave for conditional()).
-            // If no, it's propagation.
+            // M25: postfix propagation `expr?` is removed. A '?' after an
+            // operand now begins a conditional (two-arm `cond ? a : b` or
+            // one-arm `cond ? a`), so it is left in the stream for
+            // conditional() below. The only fail-closed case is a trailing '?'
+            // with nothing following on the line, which was the old postfix
+            // propagation syntax.
             Lexer peek_lexer = parser->lexer;
-            Token peek_tok = lexer_next(&peek_lexer); // skip '?'
-            int depth = 0;
-            bool found_colon = false;
-            while (peek_tok.kind != TOK_EOF && peek_tok.kind != TOK_NEWLINE) {
-                if (peek_tok.kind == TOK_LPAREN || peek_tok.kind == TOK_LBRACKET || peek_tok.kind == TOK_LBRACE) depth++;
-                else if (peek_tok.kind == TOK_RPAREN || peek_tok.kind == TOK_RBRACKET || peek_tok.kind == TOK_RBRACE) {
-                    if (depth == 0) break;
-                    depth--;
-                } else if (peek_tok.kind == TOK_COLON && depth == 0) {
-                    found_colon = true;
-                    break;
-                }
-                peek_tok = lexer_next(&peek_lexer);
+            Token after = lexer_next(&peek_lexer); // skip '?'
+            while (after.kind == TOK_NEWLINE) after = lexer_next(&peek_lexer);
+            if (after.kind == TOK_EOF || after.kind == TOK_NEWLINE) {
+                error_at_current(parser, ERR_LEGACY_SYNTAX,
+                                 "postfix propagation `expr?` is no longer supported\n"
+                                 "  note: write `?expr` instead");
             }
-            if (found_colon) {
-                break; // It's ternary conditional, let conditional() handle it
-            }
-            // It's propagation
-            advance(parser); // consume '?'
-            AstNode *node = allocate_node(parser, AST_UNARY);
-            node->as.unary.op = TOK_QUESTION;
-            node->as.unary.right = expr;
-            expr = node;
+            break; // leave '?' for conditional(): ternary or one-arm conditional
         } else {
             break;
         }
@@ -525,6 +512,19 @@ static AstNode *unary(Parser *parser) {
     if (match(parser, TOK_BANG) || match(parser, TOK_PLUS) || match(parser, TOK_MINUS) || match(parser, TOK_MOVE)) {
         AstNode *node = allocate_node(parser, AST_UNARY);
         node->as.unary.op = parser->previous.kind;
+        node->as.unary.right = unary(parser);
+        return node;
+    }
+    if (match(parser, TOK_QUESTION)) {
+        // M25: propagation is now prefix-only (`?expr`). The legacy
+        // `?[cond]` conditional-statement syntax fails closed here.
+        if (check(parser, TOK_LBRACKET)) {
+            error_at_current(parser, ERR_LEGACY_SYNTAX,
+                             "legacy conditional syntax `?[cond]` is no longer supported\n"
+                             "  note: write `cond ? { ... }` instead");
+        }
+        AstNode *node = allocate_node(parser, AST_UNARY);
+        node->as.unary.op = TOK_QUESTION;
         node->as.unary.right = unary(parser);
         return node;
     }
@@ -690,9 +690,16 @@ static AstNode *conditional(Parser *parser) {
     if (!parser->crossed_newline && match(parser, TOK_QUESTION)) {
         AstNode *node = allocate_node(parser, AST_CONDITIONAL);
         node->as.conditional.cond = expr;
+        // M25: the then-branch is a full expression (right-associative, so
+        // nested conditionals bind to it). A following ':' makes this a
+        // two-arm conditional; otherwise it is a one-arm conditional with
+        // else_branch NULL (type unit, value discarded).
         node->as.conditional.then_branch = expression(parser);
-        consume(parser, TOK_COLON, ERR_UNEXPECTED_TOKEN, "expected ':' in conditional expression");
-        node->as.conditional.else_branch = expression(parser);
+        if (match(parser, TOK_COLON)) {
+            node->as.conditional.else_branch = expression(parser);
+        } else {
+            node->as.conditional.else_branch = NULL;
+        }
         return node;
     }
     return expr;
@@ -728,26 +735,6 @@ static AstNode *statement(Parser *parser) {
         AstNode *node = allocate_node(parser, AST_DEFER);
         node->as.defer.expr = statement(parser);
         return node;
-    }
-
-    if (check(parser, TOK_QUESTION)) {
-        Lexer peek_lexer = parser->lexer;
-        Token next = lexer_next(&peek_lexer);
-        while (next.kind == TOK_NEWLINE) next = lexer_next(&peek_lexer);
-        if (next.kind == TOK_LBRACKET) {
-            advance(parser); // consume '?'
-            advance(parser); // consume '['
-            AstNode *node = allocate_node(parser, AST_CONDITIONAL);
-            node->as.conditional.cond = expression(parser);
-            consume(parser, TOK_RBRACKET, ERR_UNEXPECTED_TOKEN, "expected ']' after condition");
-            if (match(parser, TOK_LBRACE)) {
-                node->as.conditional.then_branch = block(parser);
-            } else {
-                node->as.conditional.then_branch = statement(parser);
-            }
-            node->as.conditional.else_branch = NULL;
-            return node;
-        }
     }
 
     if (match(parser, TOK_LBRACKET)) {

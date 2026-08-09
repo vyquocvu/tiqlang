@@ -145,8 +145,9 @@ static char *find_runtime_dir(void) {
     size_t dir_len;
     if (last_slash) dir_len = (size_t)(last_slash - resolved);
     else dir_len = strlen(resolved);
-    // Check if qbe lives next to the tiq binary
-    char check[4096];
+    // Check if qbe lives next to the tiq binary. 8192 bytes bounds both
+    // `%.*s/qbe` (dir_len <= 4095 + 4) and `%s/build/qbe` (cwd <= 4095 + 10).
+    char check[8192];
     snprintf(check, sizeof(check), "%.*s/qbe", (int)dir_len, resolved);
     if (access(check, X_OK) == 0) {
         char *dir = malloc(dir_len + 1);
@@ -344,7 +345,7 @@ static int build_qbe(const char *input, const char *output, DiagContext *diag) {
     }
 
     // 3. Emit QBE IL to temp file
-    char *il_path = temporary_qbe_template("XXXXXX.il");
+    char *il_path = temporary_qbe_template("XXXXXX");
     int fd = mkstemp(il_path);
     if (fd < 0) {
         fprintf(stderr, "tiq: cannot create temp QBE IL file: %s\n", strerror(errno));
@@ -538,10 +539,10 @@ static int build_qbe(const char *input, const char *output, DiagContext *diag) {
             remove(asm_path); free(asm_path); free(obj_path);
             return 1;
         }
-        asm_unit_free(&unit);
-        free(asm_text);
+    asm_unit_free(&unit);
+    free(asm_text);
     }
-    remove(asm_path);
+    /* remove(asm_path); */
     free(asm_path);
 #elif defined(__linux__) && defined(__riscv) && __riscv_xlen == 64
     // M17.4.1: integrated ELF object writer for riscv64 — the QBE rv64

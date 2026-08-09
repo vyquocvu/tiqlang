@@ -33,11 +33,11 @@ tk_cl toks:vec[Token] i:i64 -> i64 -> vec_get(toks, i).comment_length
 // Question and Colon have their own ternary/annotation rules.
 space_op k:i64 -> i64 -> {
     r <- 0
-    ?[k == TokenKind.Star || k == TokenKind.Slash || k == TokenKind.Percent] { r <- 1 }
-    ?[k == TokenKind.EqEq || k == TokenKind.BangEq || k == TokenKind.Lt || k == TokenKind.Lte || k == TokenKind.Gt || k == TokenKind.Gte] { r <- 1 }
-    ?[k == TokenKind.AndAnd || k == TokenKind.OrOr || k == TokenKind.Pipe || k == TokenKind.Caret || k == TokenKind.Lshift || k == TokenKind.Rshift] { r <- 1 }
-    ?[k == TokenKind.Eq || k == TokenKind.PlusEq || k == TokenKind.MinusEq || k == TokenKind.StarEq || k == TokenKind.SlashEq || k == TokenKind.PercentEq || k == TokenKind.ColonEq] { r <- 1 }
-    ?[k == TokenKind.Larrow || k == TokenKind.Rarrow || k == TokenKind.FatArrow || k == TokenKind.QuestionQuestion] { r <- 1 }
+    k == TokenKind.Star || k == TokenKind.Slash || k == TokenKind.Percent ? { r <- 1 }
+    k == TokenKind.EqEq || k == TokenKind.BangEq || k == TokenKind.Lt || k == TokenKind.Lte || k == TokenKind.Gt || k == TokenKind.Gte ? { r <- 1 }
+    k == TokenKind.AndAnd || k == TokenKind.OrOr || k == TokenKind.Pipe || k == TokenKind.Caret || k == TokenKind.Lshift || k == TokenKind.Rshift ? { r <- 1 }
+    k == TokenKind.Eq || k == TokenKind.PlusEq || k == TokenKind.MinusEq || k == TokenKind.StarEq || k == TokenKind.SlashEq || k == TokenKind.PercentEq || k == TokenKind.ColonEq ? { r <- 1 }
+    k == TokenKind.Larrow || k == TokenKind.Rarrow || k == TokenKind.FatArrow || k == TokenKind.QuestionQuestion ? { r <- 1 }
     r
 }
 
@@ -45,21 +45,21 @@ space_op k:i64 -> i64 -> {
 // takes a trailing space unless it is followed by a tight-after token.
 operand_end k:i64 -> i64 -> {
     r <- 0
-    ?[k == TokenKind.Ident || k == TokenKind.Int || k == TokenKind.Float || k == TokenKind.String || k == TokenKind.Underscore || k == TokenKind.Rparen || k == TokenKind.Rbracket] { r <- 1 }
+    k == TokenKind.Ident || k == TokenKind.Int || k == TokenKind.Float || k == TokenKind.String || k == TokenKind.Underscore || k == TokenKind.Rparen || k == TokenKind.Rbracket ? { r <- 1 }
     r
 }
 
 // Keywords and keyword-like words: always take a trailing space.
 is_keyword k:i64 -> i64 -> {
     r <- 0
-    ?[k == TokenKind.While || k == TokenKind.Break || k == TokenKind.Skip || k == TokenKind.Move || k == TokenKind.Defer || k == TokenKind.Until || k == TokenKind.Spawn || k == TokenKind.Chan || k == TokenKind.Struct || k == TokenKind.Enum || k == TokenKind.Match || k == TokenKind.Mut || k == TokenKind.True || k == TokenKind.False || k == TokenKind.None || k == TokenKind.Import || k == TokenKind.Extern] { r <- 1 }
+    k == TokenKind.While || k == TokenKind.Break || k == TokenKind.Skip || k == TokenKind.Move || k == TokenKind.Defer || k == TokenKind.Until || k == TokenKind.Spawn || k == TokenKind.Chan || k == TokenKind.Struct || k == TokenKind.Enum || k == TokenKind.Match || k == TokenKind.Mut || k == TokenKind.True || k == TokenKind.False || k == TokenKind.None || k == TokenKind.Import || k == TokenKind.Extern ? { r <- 1 }
     r
 }
 
 // May the current token be followed by a space at all?
 space_ok k:i64 -> i64 -> {
     r <- 1
-    ?[k == TokenKind.Newline || k == TokenKind.Eof || k == TokenKind.Rbrace || k == TokenKind.Rbracket || k == TokenKind.Rparen || k == TokenKind.Comma || k == TokenKind.Semicolon] { r <- 0 }
+    k == TokenKind.Newline || k == TokenKind.Eof || k == TokenKind.Rbrace || k == TokenKind.Rbracket || k == TokenKind.Rparen || k == TokenKind.Comma || k == TokenKind.Semicolon ? { r <- 0 }
     r
 }
 
@@ -67,7 +67,7 @@ space_ok k:i64 -> i64 -> {
 // before these, and a block-closing `}` needs no following line break.
 is_closer k:i64 -> i64 -> {
     r <- 0
-    ?[k == TokenKind.Newline || k == TokenKind.Eof || k == TokenKind.Rbrace || k == TokenKind.Rbracket || k == TokenKind.Rparen || k == TokenKind.Comma || k == TokenKind.Semicolon] { r <- 1 }
+    k == TokenKind.Newline || k == TokenKind.Eof || k == TokenKind.Rbrace || k == TokenKind.Rbracket || k == TokenKind.Rparen || k == TokenKind.Comma || k == TokenKind.Semicolon ? { r <- 1 }
     r
 }
 
@@ -76,7 +76,7 @@ is_closer k:i64 -> i64 -> {
 // may need a space (ternary) or stay tight (guard/propagation, annotation).
 tight_after k:i64 -> i64 -> {
     r <- 0
-    ?[k == TokenKind.Newline || k == TokenKind.Eof || k == TokenKind.Rbrace || k == TokenKind.Rbracket || k == TokenKind.Rparen || k == TokenKind.Comma || k == TokenKind.Semicolon || k == TokenKind.Lparen || k == TokenKind.Lbracket || k == TokenKind.Dot || k == TokenKind.DotDot || k == TokenKind.DotDotDot || k == TokenKind.Bang] { r <- 1 }
+    k == TokenKind.Newline || k == TokenKind.Eof || k == TokenKind.Rbrace || k == TokenKind.Rbracket || k == TokenKind.Rparen || k == TokenKind.Comma || k == TokenKind.Semicolon || k == TokenKind.Lparen || k == TokenKind.Lbracket || k == TokenKind.Dot || k == TokenKind.DotDot || k == TokenKind.DotDotDot || k == TokenKind.Bang ? { r <- 1 }
     r
 }
 
@@ -90,12 +90,12 @@ tight_after k:i64 -> i64 -> {
 // Helpers append to the `b` strbuf, which is shared by value.
 
 em_space st:vec[int] b:strbuf -> i64 -> {
-    ?[vec_get(st, 0) == 0] { str_buf_append(b, " ") }
+    vec_get(st, 0) == 0 ? { str_buf_append(b, " ") }
     0
 }
 
 em_newline st:vec[int] b:strbuf -> i64 -> {
-    ?[vec_get(st, 0) == 0] {
+    vec_get(st, 0) == 0 ? {
         str_buf_append(b, "\n")
         vec_set(st, 0, 1)
     }
@@ -103,15 +103,15 @@ em_newline st:vec[int] b:strbuf -> i64 -> {
 }
 
 em_indent st:vec[int] b:strbuf -> i64 -> {
-    ?[vec_get(st, 0) == 1] {
+    vec_get(st, 0) == 1 ? {
         ind <- vec_get(st, 1)
         tabs <- vec_get(st, 3)
         w <- vec_get(st, 4)
-        ?[tabs == 1] {
+        tabs == 1 ? {
             j <- 0
             [j < ind] { str_buf_append(b, "\t"); j <- j + 1 }
         }
-        ?[tabs == 0] {
+        tabs == 0 ? {
             j <- 0
             [j < ind * w] { str_buf_append(b, " "); j <- j + 1 }
         }
@@ -122,11 +122,11 @@ em_indent st:vec[int] b:strbuf -> i64 -> {
 
 em_comment st:vec[int] b:strbuf src:str toks:vec[Token] i:i64 -> i64 -> {
     clen <- tk_cl(toks, i)
-    ?[clen > 0] {
+    clen > 0 ? {
         cstart <- tk_cs(toks, i)
         atls <- vec_get(st, 0)
-        ?[atls == 1] { em_indent(st, b) }
-        ?[atls == 0] { str_buf_append(b, " ") }
+        atls == 1 ? { em_indent(st, b) }
+        atls == 0 ? { str_buf_append(b, " ") }
         str_buf_append(b, str_sub(src, cstart, cstart + clen))
     }
     0
@@ -136,11 +136,11 @@ em_comment st:vec[int] b:strbuf src:str toks:vec[Token] i:i64 -> i64 -> {
 // token case) or the lexeme at the current position.
 em_token st:vec[int] b:strbuf src:str toks:vec[Token] i:i64 nl:i64 -> i64 -> {
     em_comment(st, b, src, toks, i)
-    ?[nl == 1] {
+    nl == 1 ? {
         str_buf_append(b, "\n")
         vec_set(st, 0, 1)
     }
-    ?[nl == 0] {
+    nl == 0 ? {
         s <- tk_start(toks, i)
         l <- tk_length(toks, i)
         em_indent(st, b)
@@ -164,81 +164,82 @@ fmt_run src:str toks:vec[Token] st:vec[int] b:strbuf -> i64 -> {
     [i < n && tk_kind(toks, i) != TokenKind.Eof] {
         k <- tk_kind(toks, i)
         pk <- TokenKind.Eof
-        ?[i + 1 < n] { pk <- tk_kind(toks, i + 1) }
+        i + 1 < n ? { pk <- tk_kind(toks, i + 1) }
         p2k <- TokenKind.Eof
-        ?[i + 2 < n] { p2k <- tk_kind(toks, i + 2) }
+        i + 2 < n ? { p2k <- tk_kind(toks, i + 2) }
         done <- 0
 
         // NEWLINE tokens carry trailing/comment-only-line comments.
-        ?[done == 0 && k == TokenKind.Newline] {
+        done == 0 && k == TokenKind.Newline ? {
             em_token(st, b, src, toks, i, 1)
             done <- 1
         }
 
         // Tight range operator.
-        ?[done == 0 && k == TokenKind.DotDot] {
+        done == 0 && k == TokenKind.DotDot ? {
             em_token(st, b, src, toks, i, 0)
             done <- 1
         }
 
         // Stream operator: takes a trailing space.
-        ?[done == 0 && k == TokenKind.DotDotDot] {
+        done == 0 && k == TokenKind.DotDotDot ? {
             em_token(st, b, src, toks, i, 0)
-            ?[space_ok(pk) == 1] { em_space(st, b) }
+            space_ok(pk) == 1 ? { em_space(st, b) }
             done <- 1
         }
 
         // Logical negation (and Result type postfix `T!E`): stays tight.
-        ?[done == 0 && k == TokenKind.Bang] {
+        done == 0 && k == TokenKind.Bang ? {
             em_token(st, b, src, toks, i, 0)
             done <- 1
         }
 
-        // '?' is a ternary (space after, and it needs a matching ':'), a
-        // guard opener '?[' (tight), or the propagation operator (tight).
-        ?[done == 0 && k == TokenKind.Question] {
+        // '?' is a ternary or one-arm conditional (space after, and a
+        // ternary tracks a matching ':') when it follows an operand end;
+        // otherwise it is the prefix propagation operator and stays tight.
+        done == 0 && k == TokenKind.Question ? {
             em_token(st, b, src, toks, i, 0)
             is_tern <- 0
-            ?[pk != TokenKind.Lbracket && space_ok(pk) == 1] { is_tern <- 1 }
-            ?[is_tern == 1] { em_space(st, b); tern <- tern + 1 }
+            operand_end(prev) == 1 && space_ok(pk) == 1 ? { is_tern <- 1 }
+            is_tern == 1 ? { em_space(st, b); tern <- tern + 1 }
             done <- 1
         }
 
         // Comma and semicolon: no space before, a trailing space.
-        ?[done == 0 && (k == TokenKind.Comma || k == TokenKind.Semicolon)] {
+        done == 0 && (k == TokenKind.Comma || k == TokenKind.Semicolon) ? {
             em_token(st, b, src, toks, i, 0)
-            ?[space_ok(pk) == 1] { em_space(st, b) }
+            space_ok(pk) == 1 ? { em_space(st, b) }
             done <- 1
         }
 
         // ':' is a ternary colon (matches a pending '?') or a type/field
         // annotation (tight before); it always takes a trailing space. A
         // record-literal field colon does not close an outer ternary.
-        ?[done == 0 && k == TokenKind.Colon] {
+        done == 0 && k == TokenKind.Colon ? {
             em_token(st, b, src, toks, i, 0)
-            ?[space_ok(pk) == 1] { em_space(st, b) }
+            space_ok(pk) == 1 ? { em_space(st, b) }
             is_fc <- 0
-            ?[prev2 == TokenKind.Lbrace || prev2 == TokenKind.Comma] { is_fc <- 1 }
-            ?[tern > 0 && is_fc == 0] { tern <- tern - 1 }
+            prev2 == TokenKind.Lbrace || prev2 == TokenKind.Comma ? { is_fc <- 1 }
+            tern > 0 && is_fc == 0 ? { tern <- tern - 1 }
             done <- 1
         }
 
         // + - & are unary (tight) unless the previous token ended an operand.
-        ?[done == 0 && (k == TokenKind.Plus || k == TokenKind.Minus || k == TokenKind.Amp)] {
+        done == 0 && (k == TokenKind.Plus || k == TokenKind.Minus || k == TokenKind.Amp) ? {
             em_token(st, b, src, toks, i, 0)
-            ?[operand_end(prev) == 1 && space_ok(pk) == 1] { em_space(st, b) }
+            operand_end(prev) == 1 && space_ok(pk) == 1 ? { em_space(st, b) }
             done <- 1
         }
 
         // Remaining spaced operators.
-        ?[done == 0 && space_op(k) == 1] {
+        done == 0 && space_op(k) == 1 ? {
             em_token(st, b, src, toks, i, 0)
-            ?[space_ok(pk) == 1] { em_space(st, b) }
+            space_ok(pk) == 1 ? { em_space(st, b) }
             done <- 1
         }
 
         // Openers stay tight on the left.
-        ?[done == 0 && (k == TokenKind.Lparen || k == TokenKind.Lbracket)] {
+        done == 0 && (k == TokenKind.Lparen || k == TokenKind.Lbracket) ? {
             em_token(st, b, src, toks, i, 0)
             done <- 1
         }
@@ -246,62 +247,62 @@ fmt_run src:str toks:vec[Token] st:vec[int] b:strbuf -> i64 -> {
         // '{': a block after ], ->, an identifier, or (for struct/enum/match)
         // their name; an inline record literal when it is `Name {` with
         // single-line content. Blocks open a line and add an indent level.
-        ?[done == 0 && k == TokenKind.Lbrace] {
+        done == 0 && k == TokenKind.Lbrace ? {
             gl <- 0
-            ?[prev == TokenKind.Rbracket || prev == TokenKind.Rarrow || prev == TokenKind.Ident] { gl <- 1 }
-            ?[gl == 0] { em_newline(st, b) }
+            prev == TokenKind.Rbracket || prev == TokenKind.Rarrow || prev == TokenKind.Ident || prev == TokenKind.Question ? { gl <- 1 }
+            gl == 0 ? { em_newline(st, b) }
             inl <- 0
-            ?[prev == TokenKind.Ident && prev2 != TokenKind.Struct && prev2 != TokenKind.Enum && prev2 != TokenKind.Match && pk != TokenKind.Newline] { inl <- 1 }
+            prev == TokenKind.Ident && prev2 != TokenKind.Struct && prev2 != TokenKind.Enum && prev2 != TokenKind.Match && pk != TokenKind.Newline ? { inl <- 1 }
             em_token(st, b, src, toks, i, 0)
-            ?[inl == 1] {
+            inl == 1 ? {
                 vec_set(st, 2, vec_get(st, 2) + 1)
-                ?[pk != TokenKind.Newline && pk != TokenKind.Eof] { em_space(st, b) }
+                pk != TokenKind.Newline && pk != TokenKind.Eof ? { em_space(st, b) }
             }
-            ?[inl == 0] {
+            inl == 0 ? {
                 vec_set(st, 1, vec_get(st, 1) + 1)
-                ?[pk != TokenKind.Newline && pk != TokenKind.Eof] { em_newline(st, b) }
+                pk != TokenKind.Newline && pk != TokenKind.Eof ? { em_newline(st, b) }
             }
             done <- 1
         }
 
         // '}': closes an inline record literal inline, or a block at the
         // parent indent on its own line.
-        ?[done == 0 && k == TokenKind.Rbrace] {
+        done == 0 && k == TokenKind.Rbrace ? {
             d <- vec_get(st, 2)
-            ?[d > 0] {
+            d > 0 ? {
                 vec_set(st, 2, d - 1)
                 em_space(st, b)
                 em_token(st, b, src, toks, i, 0)
-                ?[space_op(pk) == 1 || pk == TokenKind.Question || pk == TokenKind.Colon] { em_space(st, b) }
+                space_op(pk) == 1 || pk == TokenKind.Question || pk == TokenKind.Colon ? { em_space(st, b) }
             }
-            ?[d == 0] {
+            d == 0 ? {
                 em_newline(st, b)
                 vec_set(st, 1, vec_get(st, 1) - 1)
                 em_token(st, b, src, toks, i, 0)
                 close <- 0
-                ?[is_closer(pk) == 1] { close <- 1 }
-                ?[close == 0 && (space_op(pk) == 1 || pk == TokenKind.Question || pk == TokenKind.Colon)] { em_space(st, b) }
-                ?[close == 0 && space_op(pk) == 0 && pk != TokenKind.Question && pk != TokenKind.Colon] { em_newline(st, b) }
+                is_closer(pk) == 1 ? { close <- 1 }
+                close == 0 && (space_op(pk) == 1 || pk == TokenKind.Question || pk == TokenKind.Colon) ? { em_space(st, b) }
+                close == 0 && space_op(pk) == 0 && pk != TokenKind.Question && pk != TokenKind.Colon ? { em_newline(st, b) }
             }
             done <- 1
         }
 
         // Default: keywords and operand-enders take a trailing space.
-        ?[done == 0] {
+        done == 0 ? {
             em_token(st, b, src, toks, i, 0)
-            ?[is_keyword(k) == 1] {
-                ?[space_ok(pk) == 1] { em_space(st, b) }
+            is_keyword(k) == 1 ? {
+                space_ok(pk) == 1 ? { em_space(st, b) }
             }
-            ?[is_keyword(k) == 0 && operand_end(k) == 1] {
+            is_keyword(k) == 0 && operand_end(k) == 1 ? {
                 sp <- 1
-                ?[tight_after(pk) == 1] { sp <- 0 }
-                ?[pk == TokenKind.Question && is_closer(p2k) == 1] { sp <- 0 }
-                ?[pk == TokenKind.Colon] {
+                tight_after(pk) == 1 ? { sp <- 0 }
+                pk == TokenKind.Question && is_closer(p2k) == 1 ? { sp <- 0 }
+                pk == TokenKind.Colon ? {
                     is_f <- 0
-                    ?[prev == TokenKind.Lbrace || prev == TokenKind.Comma] { is_f <- 1 }
-                    ?[tern == 0 || is_f == 1] { sp <- 0 }
+                    prev == TokenKind.Lbrace || prev == TokenKind.Comma ? { is_f <- 1 }
+                    tern == 0 || is_f == 1 ? { sp <- 0 }
                 }
-                ?[sp == 1] { em_space(st, b) }
+                sp == 1 ? { em_space(st, b) }
             }
             done <- 1
         }
@@ -311,9 +312,9 @@ fmt_run src:str toks:vec[Token] st:vec[int] b:strbuf -> i64 -> {
         i <- i + 1
     }
     // A comment before EOF (no trailing newline) attaches to the EOF token.
-    ?[n > 0] { em_comment(st, b, src, toks, n - 1) }
+    n > 0 ? { em_comment(st, b, src, toks, n - 1) }
     // Insert the final newline when the input lacked one.
-    ?[vec_get(st, 0) == 0] { str_buf_append(b, "\n") }
+    vec_get(st, 0) == 0 ? { str_buf_append(b, "\n") }
     0
 }
 
@@ -330,35 +331,35 @@ i <- 0
 [i < nargs] {
     a <- cli_arg(i)
     used <- 0
-    ?[str_eq(a, "--check")] { check_flag <- 1; used <- 1 }
-    ?[str_eq(a, "--use-tabs")] { use_tabs <- 1; used <- 1 }
-    ?[str_eq(a, "--output") && i + 1 < nargs] { i <- i + 1; output <- cli_arg(i); used <- 1 }
-    ?[str_eq(a, "--indent-width") && i + 1 < nargs] {
+    str_eq(a, "--check") ? { check_flag <- 1; used <- 1 }
+    str_eq(a, "--use-tabs") ? { use_tabs <- 1; used <- 1 }
+    str_eq(a, "--output") && i + 1 < nargs ? { i <- i + 1; output <- cli_arg(i); used <- 1 }
+    str_eq(a, "--indent-width") && i + 1 < nargs ? {
         i <- i + 1
         w <- json_parse_int(cli_arg(i))
-        ?[w < 1] { eprint("tiq fmt: --indent-width must be >= 1"); proc_exit(2) }
+        w < 1 ? { eprint("tiq fmt: --indent-width must be >= 1"); proc_exit(2) }
         width <- w
         used <- 1
     }
-    ?[used == 0 && str_sub_code(a, 0) != 45] {
-        ?[!str_eq(file, "")] { eprint("tiq fmt: too many input files"); proc_exit(2) }
+    used == 0 && str_sub_code(a, 0) != 45 ? {
+        !str_eq(file, "") ? { eprint("tiq fmt: too many input files"); proc_exit(2) }
         file <- a
         used <- 1
     }
-    ?[used == 0] { eprint(str_cat("tiq fmt: unknown option: ", a)); proc_exit(2) }
+    used == 0 ? { eprint(str_cat("tiq fmt: unknown option: ", a)); proc_exit(2) }
     i <- i + 1
 }
-?[check_flag == 1 && !str_eq(output, "")] { eprint("tiq fmt: --check and --output cannot be combined"); proc_exit(2) }
-?[check_flag == 1 && str_eq(file, "")] { eprint("tiq fmt: --check requires a file argument"); proc_exit(2) }
+check_flag == 1 && !str_eq(output, "") ? { eprint("tiq fmt: --check and --output cannot be combined"); proc_exit(2) }
+check_flag == 1 && str_eq(file, "") ? { eprint("tiq fmt: --check requires a file argument"); proc_exit(2) }
 
 src <- ""
 path <- "(stdin)"
-?[str_eq(file, "")] { src <- fs_read("/dev/stdin") }
-?[!str_eq(file, "")] { src <- fs_read(file); path <- file }
+str_eq(file, "") ? { src <- fs_read("/dev/stdin") }
+!str_eq(file, "") ? { src <- fs_read(file); path <- file }
 
 toks <- vec_new()
 lerr <- lex_scan(src, path, toks)
-?[lerr != 0] { proc_exit(1) }
+lerr != 0 ? { proc_exit(1) }
 
 st <- vec_new()
 vec_push(st, 1)
@@ -371,20 +372,20 @@ b <- str_buf_new()
 fmt_run(src, toks, st, b)
 formatted <- str_buf_to_str(b)
 
-?[check_flag == 1] {
-    ?[!str_eq(src, formatted)] {
+check_flag == 1 ? {
+    !str_eq(src, formatted) ? {
         eprint(str_cat(path, ": not formatted"))
         proc_exit(1)
     }
     proc_exit(0)
 }
 
-?[!str_eq(output, "")] {
+!str_eq(output, "") ? {
     rc <- fs_write(output, formatted)
-    ?[rc != 0] { eprint(str_cat("tiq fmt: cannot write ", output)); proc_exit(1) }
+    rc != 0 ? { eprint(str_cat("tiq fmt: cannot write ", output)); proc_exit(1) }
 }
-?[str_eq(output, "")] {
+str_eq(output, "") ? {
     rc <- fs_write("/dev/stdout", formatted)
-    ?[rc != 0] { eprint("tiq fmt: cannot write output"); proc_exit(1) }
+    rc != 0 ? { eprint("tiq fmt: cannot write output"); proc_exit(1) }
 }
 0

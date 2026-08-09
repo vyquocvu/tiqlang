@@ -17,18 +17,18 @@ extract_port url:str -> i64 -> {
     colon_at <- -1
     i <- n - 1
     [i >= 0] {
-        ?[str_sub_code(url, i) == 58] { colon_at <- i; i <- -1 }
+        str_sub_code(url, i) == 58 ? { colon_at <- i; i <- -1 }
         i <- i - 1
     }
-    ?[colon_at > 0] {
+    colon_at > 0 ? {
         p <- 0
         pi <- colon_at + 1
         [pi < n] {
             c <- str_sub_code(url, pi)
-            ?[c >= 48 && c <= 57] { p <- p * 10 + (c - 48) }
+            c >= 48 && c <= 57 ? { p <- p * 10 + (c - 48) }
             pi <- pi + 1
         }
-        ?[p > 0] { r <- p }
+        p > 0 ? { r <- p }
     }
     r
 }
@@ -37,8 +37,8 @@ extract_port url:str -> i64 -> {
 http_delete host_port:i64 url_path:str -> str -> {
     r <- ""
     conn <- net_connect(host_port)
-    ?[conn < 0] { r <- "" }
-    ?[conn >= 0] {
+    conn < 0 ? { r <- "" }
+    conn >= 0 ? {
         req <- str_buf_new()
         str_buf_append(req, "DELETE ")
         str_buf_append(req, url_path)
@@ -53,13 +53,13 @@ http_delete host_port:i64 url_path:str -> str -> {
         bi <- 0
         body_start <- 0
         [bi < rn] {
-            ?[bi + 3 < rn && str_sub_code(resp, bi) == 13 && str_sub_code(resp, bi + 1) == 10 && str_sub_code(resp, bi + 2) == 13 && str_sub_code(resp, bi + 3) == 10] {
+            bi + 3 < rn && str_sub_code(resp, bi) == 13 && str_sub_code(resp, bi + 1) == 10 && str_sub_code(resp, bi + 2) == 13 && str_sub_code(resp, bi + 3) == 10 ? {
                 body_start <- bi + 4
                 bi <- rn
             }
             bi <- bi + 1
         }
-        ?[body_start > 0] { r <- str_sub(resp, body_start, rn) }
+        body_start > 0 ? { r <- str_sub(resp, body_start, rn) }
     }
     r
 }
@@ -72,8 +72,8 @@ pkg_name <- ""
 pkg_version <- ""
 handled <- 0
 [ai < nargs] {
-    ?[handled == 0 && str_eq(cli_arg(ai), "--registry")] {
-        ?[ai + 1 >= nargs] {
+    handled == 0 && str_eq(cli_arg(ai), "--registry") ? {
+        ai + 1 >= nargs ? {
             eprint("tiq yank: --registry requires a URL argument")
             proc_exit(2)
         }
@@ -81,18 +81,18 @@ handled <- 0
         ai <- ai + 2
         handled <- 1
     }
-    ?[handled == 0 && len(pkg_name) == 0] {
+    handled == 0 && len(pkg_name) == 0 ? {
         pkg_name <- cli_arg(ai)
         ai <- ai + 1
     }
-    ?[handled == 0 && len(pkg_name) > 0 && len(pkg_version) == 0] {
+    handled == 0 && len(pkg_name) > 0 && len(pkg_version) == 0 ? {
         pkg_version <- cli_arg(ai)
         ai <- ai + 1
     }
-    ?[handled == 1] { handled <- 0 }
+    handled == 1 ? { handled <- 0 }
 }
 
-?[len(pkg_name) == 0 || len(pkg_version) == 0] {
+len(pkg_name) == 0 || len(pkg_version) == 0 ? {
     eprint("tiq yank: usage: tiq yank [--registry <url>] <name> <version>")
     proc_exit(2)
 }
@@ -102,21 +102,21 @@ api_path <- str_cat(str_cat("/api/v1/packages/", pkg_name), str_cat("/", pkg_ver
 port <- extract_port(reg_url)
 resp <- http_delete(port, api_path)
 
-?[len(resp) == 0] {
+len(resp) == 0 ? {
     eprint(str_cat("tiq yank: cannot reach registry at ", reg_url))
     proc_exit(1)
 }
 
 ok_field <- json_get(resp, "ok")
 err_field <- json_get(resp, "error")
-?[len(ok_field) > 0] {
+len(ok_field) > 0 ? {
     print(str_cat(str_cat("Yanked ", pkg_name), str_cat(" ", pkg_version)))
 }
-?[len(err_field) > 0] {
+len(err_field) > 0 ? {
     eprint(str_cat("tiq yank: ", err_field))
     proc_exit(1)
 }
-?[len(ok_field) == 0 && len(err_field) == 0] {
+len(ok_field) == 0 && len(err_field) == 0 ? {
     eprint(str_cat("tiq yank: unexpected response: ", resp))
     proc_exit(1)
 }

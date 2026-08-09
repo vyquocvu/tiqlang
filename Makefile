@@ -180,6 +180,9 @@ $(BUILD)/qbe: third_party/qbe/main.c
 # M17.2: compile the QBE-callable runtime library
 $(BUILD)/runtime_qbe.o: src/runtime_qbe.c
 	mkdir -p $(BUILD)
-	$(CC) -std=c11 -O2 -c $< -o $@
+	# -O1 -fno-merge-constants keeps GCC from splitting content into
+	# .text.startup/.rodata.str1.1 etc., which the integrated ELF linker
+	# only merges by exact section name (.text/.data/.bss/.rodata).
+	$(CC) -std=c11 -O1 -fno-merge-constants -c $< -o $@
 
 distclean: clean

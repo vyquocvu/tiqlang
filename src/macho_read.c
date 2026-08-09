@@ -11,6 +11,7 @@
 // Anything outside that subset fails closed with a diagnostic; all
 // offsets are bounds-checked against the input buffer.
 
+#define _POSIX_C_SOURCE 200809L
 #include "../include/macho_link.h"
 
 #include <stdio.h>

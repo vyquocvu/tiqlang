@@ -43,9 +43,8 @@ static const char TIQ_RUNTIME_PRELUDE_AUX1[] =
     "    return (int64_t)system(cmd);\n"
     "}\n\n"
 
-    "static int64_t tiq_proc_exit(int64_t code) {\n"
+    "static _Noreturn int64_t tiq_proc_exit(int64_t code) {\n"
     "    exit((int)code);\n"
-    "    return 0;\n"
     "}\n\n"
 
     "static int64_t tiq_json_parse_int(const char *str) {\n"
@@ -462,8 +461,12 @@ static const char TIQ_RUNTIME_PRELUDE_AUX5[] =
     "    char *out = (char *)tiq_alloc(n + 1);\n"
     "    memcpy(out, sp1 + 1, n); out[n] = 0;\n"
     "    return out;\n"
-    "}\n\n"
+    "}\n\n";
 
+// M10.10 event loop split out of AUX5 so every emitted literal stays under
+// ISO C's 4095-byte minimum string length.
+static const char TIQ_RUNTIME_PRELUDE_AUX5B[] =
+    "#if defined(__APPLE__)\n"
     "static struct kevent tiq_ev_out_[64];\n"
     "static int64_t tiq_ev_nout_ = 0;\n\n"
 
@@ -496,7 +499,44 @@ static const char TIQ_RUNTIME_PRELUDE_AUX5[] =
     "    for (int i = 0; i < tiq_ev_nout_; i++)\n"
     "        if ((int64_t)tiq_ev_out_[i].ident == fd) return 1;\n"
     "    return 0;\n"
-    "}\n\n";
+    "}\n\n"
+    "#elif defined(__linux__)\n"
+    "static struct epoll_event tiq_ev_out_[64];\n"
+    "static int64_t tiq_ev_nout_ = 0;\n\n"
+
+    "static int64_t tiq_ev_loop(void) {\n"
+    "    static int kq = -2;\n"
+    "    if (kq == -2) kq = epoll_create(8);\n"
+    "    return kq;\n"
+    "}\n\n"
+
+    "static int64_t tiq_ev_add(int64_t loop, int64_t fd) {\n"
+    "    struct epoll_event ev;\n"
+    "    memset(&ev, 0, sizeof(ev));\n"
+    "    ev.events = EPOLLIN;\n"
+    "    ev.data.fd = (int)fd;\n"
+    "    return epoll_ctl((int)loop, EPOLL_CTL_ADD, (int)fd, &ev) == 0 ? 0 : -1;\n"
+    "}\n\n"
+
+    "static int64_t tiq_ev_wait(int64_t loop, int64_t timeout_ms) {\n"
+    "    tiq_ev_nout_ = epoll_wait((int)loop, tiq_ev_out_, 64, (int)timeout_ms);\n"
+    "    return tiq_ev_nout_;\n"
+    "}\n\n"
+
+    "static int64_t tiq_ev_ready(int64_t loop, int64_t fd) {\n"
+    "    (void)loop;\n"
+    "    for (int i = 0; i < tiq_ev_nout_; i++)\n"
+    "        if ((int64_t)tiq_ev_out_[i].data.fd == fd) return 1;\n"
+    "    return 0;\n"
+    "}\n\n"
+    "#else\n"
+    "static int64_t tiq_ev_nout_ = 0;\n\n"
+
+    "static int64_t tiq_ev_loop(void) { return -1; }\n\n"
+    "static int64_t tiq_ev_add(int64_t loop, int64_t fd) { (void)loop; (void)fd; return -1; }\n\n"
+    "static int64_t tiq_ev_wait(int64_t loop, int64_t timeout_ms) { (void)loop; (void)timeout_ms; return -1; }\n\n"
+    "static int64_t tiq_ev_ready(int64_t loop, int64_t fd) { (void)loop; (void)fd; return 0; }\n\n"
+    "#endif\n";
 
 static const char TIQ_RUNTIME_PRELUDE_AUX6[] =
     "static const char *tiq_json_set(const char *json, const char *key, const char *val) {\n"

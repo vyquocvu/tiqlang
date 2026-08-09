@@ -34,8 +34,8 @@ entry_name src:str -> str -> {
     i <- 0
     [i < len(src)] {
         c <- str_sub_code(src, i)
-        ?[c == 47] { str_buf_append(sb, "_") }  // 47 = '/'
-        ?[c != 47] { str_buf_append(sb, str_sub(src, i, i + 1)) }
+        c == 47 ? { str_buf_append(sb, "_") }  // 47 = '/'
+        c != 47 ? { str_buf_append(sb, str_sub(src, i, i + 1)) }
         i <- i + 1
     }
     str_buf_to_str(sb)
@@ -53,19 +53,19 @@ cache_has src:str -> i64 -> {
     cd <- "/tmp/.tiq-cache"
     r <- 0
     ep <- str_cat(str_cat(cd, "/"), entry_name(src))
-    ?[fs_exists(ep)] {
+    fs_exists(ep) ? {
         cached <- fs_read(ep)
-        ?[!str_eq(cached, "")] {
+        !str_eq(cached, "") ? {
             n <- len(cached)
             nli <- 0
             [nli < n && str_sub_code(cached, nli) != 10] { nli <- nli + 1 }
-            ?[nli > 0] {
+            nli > 0 ? {
                 hash_line <- str_sub(cached, 0, nli)
                 prefix_len <- 5
-                ?[len(hash_line) > prefix_len && str_eq(str_sub(hash_line, 0, prefix_len), "hash:")] {
+                len(hash_line) > prefix_len && str_eq(str_sub(hash_line, 0, prefix_len), "hash:") ? {
                     stored_hash_str <- str_sub(hash_line, prefix_len, len(hash_line))
                     current_hash_str <- int_str(fnv_hash(fs_read(src)))
-                    ?[str_eq(stored_hash_str, current_hash_str)] { r <- 1 }
+                    str_eq(stored_hash_str, current_hash_str) ? { r <- 1 }
                 }
             }
         }
@@ -79,8 +79,8 @@ cache_put src:str content:str -> i64 -> {
     cd <- "/tmp/.tiq-cache"
     r <- 0
     flag <- proc_exec(str_cat("mkdir -p ", cd))
-    ?[flag != 0] { r <- -1 }
-    ?[flag == 0] {
+    flag != 0 ? { r <- -1 }
+    flag == 0 ? {
         h <- fnv_hash(fs_read(src))
         hstr <- int_str(h)
         sb <- str_buf_new()
@@ -89,7 +89,7 @@ cache_put src:str content:str -> i64 -> {
         str_buf_append(sb, "\n")
         str_buf_append(sb, content)
         rc <- fs_write(str_cat(str_cat(cd, "/"), entry_name(src)), str_buf_to_str(sb))
-        ?[rc != 0] { r <- -1 }
+        rc != 0 ? { r <- -1 }
     }
     r
 }
@@ -98,24 +98,24 @@ cache_put src:str content:str -> i64 -> {
 
 cd <- "/tmp/.tiq-cache"
 nargs <- cli_arg_count()
-?[nargs == 0] {
+nargs == 0 ? {
     eprint("usage: tiq cache clear | <path>")
     proc_exit(2)
 }
 
-?[nargs == 1] {
+nargs == 1 ? {
     arg <- cli_arg(0)
-    ?[str_eq(arg, "clear")] {
+    str_eq(arg, "clear") ? {
         r <- proc_exec(str_cat("rm -rf ", cd))
-        ?[r != 0] { proc_exit(1) }
+        r != 0 ? { proc_exit(1) }
         proc_exit(0)
     }
-    ?[str_sub_code(arg, 0) == 45] {
+    str_sub_code(arg, 0) == 45 ? {
         eprint(str_cat("tiq cache: unknown option: ", arg))
         proc_exit(2)
     }
     // Show cache status for a path
-    ?[cache_has(arg) != 0] {
+    cache_has(arg) != 0 ? {
         print(str_cat(str_cat(cd, "/"), entry_name(arg)))
         proc_exit(0)
     }
@@ -123,7 +123,7 @@ nargs <- cli_arg_count()
     proc_exit(1)
 }
 
-?[nargs > 1] {
+nargs > 1 ? {
     eprint("tiq cache: too many arguments")
     proc_exit(2)
 }

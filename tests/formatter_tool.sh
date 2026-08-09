@@ -66,9 +66,9 @@ printf '// leading comment\nx = 1 // trailing comment\n[i <- 0..10] {\n    // in
 printf '// leading comment\nx = 1 // trailing comment\n[i <- 0..10] {\n    // inside block\n    x += i\n}\n' >"$TMP_DIR/g4.golden"
 expect_fmt g4 "$TMP_DIR/g4.tiq" "$TMP_DIR/g4.golden"
 
-# 5. Struct bodies are blocks; record literals stay inline; guards glue `{`.
-printf 'struct Point {\nx: i64,\ny: i64\n}\np = Point{x:3,y:4}\n?[p.x == 3]{ print("ok") }\n' >"$TMP_DIR/g5.tiq"
-printf 'struct Point {\n    x: i64,\n    y: i64\n}\np = Point { x: 3, y: 4 }\n?[p.x == 3] {\n    print("ok")\n}\n' >"$TMP_DIR/g5.golden"
+# 5. Struct bodies are blocks; record literals stay inline; guards glue `? {`.
+printf 'struct Point {\nx: i64,\ny: i64\n}\np = Point{x:3,y:4}\np.x == 3 ? { print("ok") }\n' >"$TMP_DIR/g5.tiq"
+printf 'struct Point {\n    x: i64,\n    y: i64\n}\np = Point { x: 3, y: 4 }\np.x == 3 ? {\n    print("ok")\n}\n' >"$TMP_DIR/g5.golden"
 expect_fmt g5 "$TMP_DIR/g5.tiq" "$TMP_DIR/g5.golden"
 
 # 6. Unary minus in generators and literals stays tight.

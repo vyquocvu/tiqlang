@@ -10,6 +10,9 @@
 // to `runtime_aux.h` and will be rewritten natively in Tiq (`std/*.tiq`) in M19.
 
 static const char TIQ_CORE_RUNTIME_PRELUDE[] =
+    "#if !defined(__APPLE__)\n"
+    "#define _POSIX_C_SOURCE 200809L\n"
+    "#endif\n"
     "#include <stdio.h>\n"
     "#include <stdlib.h>\n"
     "#include <string.h>\n"
@@ -19,7 +22,12 @@ static const char TIQ_CORE_RUNTIME_PRELUDE[] =
     "#include <sys/socket.h>\n"
     "#include <netdb.h>\n"
     "#include <netinet/in.h>\n"
+    "#if defined(__APPLE__)\n"
     "#include <sys/event.h>\n"
+    "#endif\n"
+    "#if defined(__linux__)\n"
+    "#include <sys/epoll.h>\n"
+    "#endif\n"
     "#include <dirent.h>\n"
     "#include <unistd.h>\n"
     "#include <time.h>\n"

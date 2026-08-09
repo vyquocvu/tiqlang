@@ -334,7 +334,7 @@ static MemOp parse_mem(const char *s, const char **end) {
         // Check for symbol name (starts with letter, ., or _).
         if ((*p >= 'a' && *p <= 'z') || (*p >= 'A' && *p <= 'Z') || *p == '_' || *p == '.') {
             const char *start = p;
-            while (*p && *p != '(' && *p != '+' && *p != '-' && *p != ' ' && *p != ',') p++;
+            while (*p && *p != '(' && *p != '+' && *p != '-' && *p != ' ' && *p != ',' && *p != '\n' && *p != '\r') p++;
             size_t nlen = (size_t)(p - start);
             if (nlen < sizeof(m.sym_name)) {
                 memcpy(m.sym_name, start, nlen);
@@ -401,7 +401,7 @@ static Operand parse_operand(const char *s, const char **end) {
         // Check for symbolic label.
         if ((*s >= 'a' && *s <= 'z') || (*s >= 'A' && *s <= 'Z') || *s == '_' || *s == '.') {
             const char *start = s;
-            while (*s && *s != ',' && *s != ' ' && *s != '\t' && *s != '+' && *s != '-') s++;
+            while (*s && *s != ',' && *s != ' ' && *s != '\t' && *s != '\n' && *s != '\r' && *s != '+' && *s != '-') s++;
             size_t n = (size_t)(s - start);
             if (n < sizeof(op.label)) {
                 memcpy(op.label, start, n);
@@ -440,7 +440,7 @@ static Operand parse_operand(const char *s, const char **end) {
     if ((*s >= 'a' && *s <= 'z') || (*s >= 'A' && *s <= 'Z') || *s == '_' || *s == '.') {
         const char *look = s;
         int has_paren = 0;
-        while (*look && *look != ',' && *look != ' ' && *look != '\t') {
+        while (*look && *look != ',' && *look != ' ' && *look != '\t' && *look != '\n' && *look != '\r') {
             if (*look == '(') { has_paren = 1; break; }
             look++;
         }
@@ -449,7 +449,7 @@ static Operand parse_operand(const char *s, const char **end) {
             op.kind = OP_IMM;
             op.imm_is_label = 1;
             const char *start = s;
-            while (*s && *s != ',' && *s != ' ' && *s != '\t') s++;
+            while (*s && *s != ',' && *s != ' ' && *s != '\t' && *s != '\n' && *s != '\r') s++;
             size_t n = (size_t)(s - start);
             if (n < sizeof(op.label)) {
                 memcpy(op.label, start, n);
@@ -1221,10 +1221,16 @@ static int parse_size_suffix(const char *mnem, char *base, size_t base_sz) {
     size_t l = strlen(mnem);
     if (l == 0) return SZ_Q;
     char last = mnem[l - 1];
-    if (last == 'q') { strncpy(base, mnem, l-1); base[l-1]=0; return SZ_Q; }
-    if (last == 'l') { strncpy(base, mnem, l-1); base[l-1]=0; return SZ_L; }
-    if (last == 'w') { strncpy(base, mnem, l-1); base[l-1]=0; return SZ_W; }
-    if (last == 'b') { strncpy(base, mnem, l-1); base[l-1]=0; return SZ_B; }
+    if (last == 'q' || last == 'l' || last == 'w' || last == 'b') {
+        size_t n = l - 1;
+        if (n >= base_sz) n = base_sz - 1;
+        memcpy(base, mnem, n);
+        base[n] = '\0';
+        if (last == 'q') return SZ_Q;
+        if (last == 'l') return SZ_L;
+        if (last == 'w') return SZ_W;
+        return SZ_B;
+    }
     strncpy(base, mnem, base_sz); base[base_sz-1] = 0;
     return SZ_Q; // default
 }
@@ -1389,6 +1395,8 @@ static void handle_directive(Ctx *c, const char *dir, const char *args) {
             c->cur = ASM_SEC_RODATA; c->u->sec[ASM_SEC_RODATA].used = 1;
         } else if (strncmp(args, ".data", 5) == 0) {
             c->cur = ASM_SEC_DATA; c->u->sec[ASM_SEC_DATA].used = 1;
+        } else if (strncmp(args, ".note.GNU-stack", 15) == 0) {
+            c->u->has_gnu_stack = 1;
         } else {
             // Unknown section — fail closed.
             err(c, "unsupported section: %s", args);
@@ -1518,6 +1526,15 @@ int asm_amd64_assemble(AsmUnit *u, const char *text, size_t len) {
         size_t line_len = (size_t)(p - line_start);
         if (p < end) p++; // skip \n
         ctx.line++;
+
+        // Strip C-style /* */ comments (QBE emits these between output blocks).
+        const char *cstart = NULL;
+        for (size_t i = 0; i + 1 < line_len; i++) {
+            if (line_start[i] == '/' && line_start[i + 1] == '*') { cstart = line_start + i; break; }
+        }
+        if (cstart) {
+            line_len = (size_t)(cstart - line_start);
+        }
 
         // Trim.
         const char *s = line_start;

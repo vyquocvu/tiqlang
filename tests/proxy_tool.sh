@@ -48,20 +48,20 @@ cat >"$TMP_DIR/upstream.tiq" <<EOF
 import "std/net.tiq"
 
 srv <- net_listen($UP_PORT)
-?[srv < 0] { proc_exit(1) }
+srv < 0 ? { proc_exit(1) }
 [1 == 1] {
     conn <- net_accept(srv)
-    ?[conn < 0] { break }
+    conn < 0 ? { break }
     req <- net_recv(conn)
-    ?[len(req) == 0] { net_close(conn); break }
+    len(req) == 0 ? { net_close(conn); break }
     method <- http_method(req)
     path <- http_path(req)
     body <- ""
     bn <- len(req)
     bi <- 0
-    ?[str_eq(method, "POST")] {
+    str_eq(method, "POST") ? {
         [bi + 3 < bn] {
-            ?[str_sub_code(req, bi) == 13 && str_sub_code(req, bi + 1) == 10 && str_sub_code(req, bi + 2) == 13 && str_sub_code(req, bi + 3) == 10] {
+            str_sub_code(req, bi) == 13 && str_sub_code(req, bi + 1) == 10 && str_sub_code(req, bi + 2) == 13 && str_sub_code(req, bi + 3) == 10 ? {
                 body <- str_sub(req, bi + 4, bn)
                 bi <- bn
             }
@@ -69,7 +69,7 @@ srv <- net_listen($UP_PORT)
         }
     }
     resp_body <- str_cat("upstream:", path)
-    ?[str_eq(method, "POST")] { resp_body <- body }
+    str_eq(method, "POST") ? { resp_body <- body }
     sb <- str_buf_new()
     str_buf_append(sb, "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: ")
     str_buf_append(sb, int_str(len(resp_body)))

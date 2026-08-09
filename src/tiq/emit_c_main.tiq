@@ -7,8 +7,8 @@ import "module.tiq"
 path = cli_arg(0)
 // M16.3: optional emission mode — "" program, "lib", or "header".
 mode <- 0
-?[str_eq(cli_arg(1), "lib")] { mode <- 1 }
-?[str_eq(cli_arg(1), "header")] { mode <- 2 }
+str_eq(cli_arg(1), "lib") ? { mode <- 1 }
+str_eq(cli_arg(1), "header") ? { mode <- 2 }
 source = mod_flatten(path)
 toks = vec_new()
 lex_err = lex_scan(source, path, toks)
@@ -35,12 +35,12 @@ has_err <- semantic_run(source, path, toks, nodes, kids, tops, parse_err, tp, tp
 // before the backend preflight so the diagnostic order matches the C
 // bootstrap. Imports mirror the C flattener: they resolve to module
 // statements and never trigger E31 themselves.
-?[has_err == 0 && mode != 0] {
+has_err == 0 && mode != 0 ? {
     lj <- 0
     [lj < vec_len(tops) && has_err == 0] {
         lni = vec_get(tops, lj)
         lk = nd_get(nodes, lni, NF.Kind)
-        ?[lk != AstKind.Function && lk != AstKind.StructDef && lk != AstKind.EnumDef && lk != AstKind.Extern && lk != AstKind.Import] {
+        lk != AstKind.Function && lk != AstKind.StructDef && lk != AstKind.EnumDef && lk != AstKind.Extern && lk != AstKind.Import ? {
             eprint(diag_line(path, tk_line(toks, nd_get(nodes, lni, NF.Tok)), 31, "library requires definitions only; top-level statement is not allowed"))
             has_err <- 1
         }
@@ -48,16 +48,16 @@ has_err <- semantic_run(source, path, toks, nodes, kids, tops, parse_err, tp, tp
     }
 }
 bad <- 0 - 1
-?[has_err == 0] {
+has_err == 0 ? {
     j <- 0
     [j < vec_len(tops) && bad == 0 - 1] {
         bad <- ec_find_unsupported(source, toks, nodes, kids, types, tp, vec_get(tops, j))
         j <- j + 1
     }
-    ?[bad != 0 - 1] {
+    bad != 0 - 1 ? {
         eprint(diag_line(path, tk_line(toks, nd_get(nodes, bad, NF.Tok)), 7, "self-hosted C emitter does not support this expression yet"))
         has_err <- 1
     }
 }
-?[has_err == 0] { print(emit_c_program(path, source, toks, nodes, kids, tops, types, tp, tpn, mode)) }
+has_err == 0 ? { print(emit_c_program(path, source, toks, nodes, kids, tops, types, tp, tpn, mode)) }
 proc_exit(has_err)

@@ -9,6 +9,14 @@
 #include <stdlib.h>
 #include <string.h>
 
+static char *xstrdup(const char *s) {
+    size_t len = strlen(s);
+    char *copy = malloc(len + 1);
+    if (!copy) return NULL;
+    memcpy(copy, s, len + 1);
+    return copy;
+}
+
 // Bounds-checked read helpers.
 static int read_u16(const uint8_t *p, size_t end, size_t off, uint16_t *out) {
     if (off + 2 > end) return -1;
@@ -143,7 +151,7 @@ int pe_read(const uint8_t *data, size_t size, PeObject *obj) {
                     sym->name = malloc(sl + 1);
                     memcpy(sym->name, s, sl + 1);
                 } else {
-                    sym->name = strdup("?");
+                    sym->name = xstrdup("?");
                 }
             } else {
                 char name[9];
@@ -151,7 +159,7 @@ int pe_read(const uint8_t *data, size_t size, PeObject *obj) {
                 name[8] = '\0';
                 // Trim trailing spaces.
                 for (int j = 7; j >= 0 && name[j] == ' '; j--) name[j] = '\0';
-                sym->name = strdup(name);
+                sym->name = xstrdup(name);
             }
             uint32_t value;
             int16_t sec_num;

@@ -57,12 +57,12 @@ parse_lockfile text: str names: vec[str] sources: vec[str] hashes: vec[str] -> i
     cur_hash <- ""
     i <- 0
     [i <= n] {
-        ?[i == n || str_sub_code(text, i) == 10] {
+        i == n || str_sub_code(text, i) == 10 ? {
             line <- mf_trim(str_sub(text, start, i))
-            ?[len(line) > 0 && str_sub_code(line, 0) != 35] {
-                ?[str_eq(line, "[[pkg]]")] {
+            len(line) > 0 && str_sub_code(line, 0) != 35 ? {
+                str_eq(line, "[[pkg]]") ? {
                     // Save previous entry if any
-                    ?[in_pkg == 1 && len(cur_name) > 0] {
+                    in_pkg == 1 && len(cur_name) > 0 ? {
                         vec_push(names, cur_name)
                         vec_push(sources, cur_source)
                         vec_push(hashes, cur_hash)
@@ -73,14 +73,14 @@ parse_lockfile text: str names: vec[str] sources: vec[str] hashes: vec[str] -> i
                     cur_source <- ""
                     cur_hash <- ""
                 }
-                ?[!str_eq(line, "[[pkg]]") && in_pkg == 1] {
+                !str_eq(line, "[[pkg]]") && in_pkg == 1 ? {
                     eq <- mf_find_eq(line, 0)
-                    ?[eq > 0] {
+                    eq > 0 ? {
                         key <- mf_trim(str_sub(line, 0, eq))
                         val <- mf_unquote(mf_trim(str_sub(line, eq + 1, len(line))))
-                        ?[str_eq(key, "name")] { cur_name <- val }
-                        ?[str_eq(key, "source")] { cur_source <- val }
-                        ?[str_eq(key, "hash")] { cur_hash <- val }
+                        str_eq(key, "name") ? { cur_name <- val }
+                        str_eq(key, "source") ? { cur_source <- val }
+                        str_eq(key, "hash") ? { cur_hash <- val }
                     }
                 }
             }
@@ -89,7 +89,7 @@ parse_lockfile text: str names: vec[str] sources: vec[str] hashes: vec[str] -> i
         i <- i + 1
     }
     // Save last entry
-    ?[in_pkg == 1 && len(cur_name) > 0] {
+    in_pkg == 1 && len(cur_name) > 0 ? {
         vec_push(names, cur_name)
         vec_push(sources, cur_source)
         vec_push(hashes, cur_hash)
@@ -104,7 +104,7 @@ vec_contains v: vec[str] name: str count: i64 -> i64 -> {
     r <- 0
     i <- 0
     [i < count] {
-        ?[str_eq(vec_get(v, i), name)] { r <- 1; i <- count }
+        str_eq(vec_get(v, i), name) ? { r <- 1; i <- count }
         i <- i + 1
     }
     r
@@ -114,7 +114,7 @@ vec_contains v: vec[str] name: str count: i64 -> i64 -> {
 
 // Read manifest
 manifest_path <- "tiq.toml"
-?[!fs_exists(manifest_path)] {
+!fs_exists(manifest_path) ? {
     eprint("tiq audit: cannot read tiq.toml")
     proc_exit(2)
 }
@@ -128,7 +128,7 @@ vec_push(sv, 0)  // version seen
 vec_push(sv, 0)  // package seen
 
 rc2 <- mf_check(src, manifest_path, sv)
-?[rc2 != 0] {
+rc2 != 0 ? {
     proc_exit(2)
 }
 
@@ -139,7 +139,7 @@ mf_count <- mf_extract_deps(src, mf_dep_names, mf_dep_sources)
 
 // Read lockfile
 lock_path <- "tiq.lock"
-?[!fs_exists(lock_path)] {
+!fs_exists(lock_path) ? {
     eprint("tiq audit: tiq.lock not found (run 'tiq install' first)")
     proc_exit(1)
 }
@@ -156,7 +156,7 @@ issues <- 0
 i <- 0
 [i < mf_count] {
     name <- vec_get(mf_dep_names, i)
-    ?[vec_contains(lk_names, name, lk_count) == 0] {
+    vec_contains(lk_names, name, lk_count) == 0 ? {
         msg <- str_cat("tiq audit: '", name)
         msg <- str_cat(msg, "' in manifest but not in lockfile")
         eprint(msg)
@@ -169,7 +169,7 @@ i <- 0
 i <- 0
 [i < lk_count] {
     name <- vec_get(lk_names, i)
-    ?[vec_contains(mf_dep_names, name, mf_count) == 0] {
+    vec_contains(mf_dep_names, name, mf_count) == 0 ? {
         msg <- str_cat("tiq audit: '", name)
         msg <- str_cat(msg, "' in lockfile but not in manifest (stale)")
         eprint(msg)
@@ -184,9 +184,9 @@ i <- 0
     name <- vec_get(lk_names, i)
     expected_hash <- vec_get(lk_hashes, i)
     dep_dir <- str_cat(".tiq-deps/", name)
-    ?[fs_exists(dep_dir)] {
+    fs_exists(dep_dir) ? {
         actual_hash <- dep_hash(dep_dir)
-        ?[!str_eq(actual_hash, expected_hash)] {
+        !str_eq(actual_hash, expected_hash) ? {
             msg <- str_cat("tiq audit: '", name)
             msg <- str_cat(msg, "' hash mismatch (expected: ")
             msg <- str_cat(msg, expected_hash)
@@ -197,7 +197,7 @@ i <- 0
             issues <- issues + 1
         }
     }
-    ?[!fs_exists(dep_dir)] {
+    !fs_exists(dep_dir) ? {
         msg <- str_cat("tiq audit: '", name)
         msg <- str_cat(msg, "' not installed (.tiq-deps/")
         msg <- str_cat(msg, name)
@@ -209,15 +209,15 @@ i <- 0
 }
 
 // Report
-?[issues == 0] {
+issues == 0 ? {
     print(str_cat("tiq audit: ok (", str_cat(int_str(lk_count), " dependencies verified)")))
 }
-?[issues > 0] {
+issues > 0 ? {
     eprint(str_cat("tiq audit: ", str_cat(int_str(issues), " issue" )))
-    ?[issues == 1] {
+    issues == 1 ? {
         eprint("")
     }
-    ?[issues != 1] {
+    issues != 1 ? {
         eprint("s")
     }
     proc_exit(1)

@@ -396,7 +396,7 @@ static void test_arena_reset_reuses_memory(void) {
 // Run compile_to_c on `source` and capture the generated C (plan 2.1:
 // the emitter is re-entrant, so it can be unit-tested in-process).
 static char *emit_c_capture(const char *source, int *had_error) {
-    static char buf[32768];
+    static char buf[65536];
     FILE *out = tmpfile();
     if (!out) return NULL;
     DiagContext diag;

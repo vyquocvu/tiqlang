@@ -46,7 +46,7 @@ dep_hash dir: str -> str -> {
 
 // Main installation logic.
 manifest_path <- "tiq.toml"
-?[!fs_exists(manifest_path)] {
+!fs_exists(manifest_path) ? {
     eprint(str_cat("tiq install: cannot read ", manifest_path))
     proc_exit(1)
 }
@@ -60,7 +60,7 @@ vec_push(sv, 0)  // version seen
 vec_push(sv, 0)  // package seen
 
 rc2 <- mf_check(src, manifest_path, sv)
-?[rc2 != 0] {
+rc2 != 0 ? {
     proc_exit(1)
 }
 
@@ -69,7 +69,7 @@ dep_names = vec_new()
 dep_sources = vec_new()
 dep_count <- mf_extract_deps(src, dep_names, dep_sources)
 
-?[dep_count == 0] {
+dep_count == 0 ? {
     print("No dependencies to install")
     proc_exit(0)
 }
@@ -88,10 +88,10 @@ i <- 0
     // Ensure the target directory exists
     proc_exec(str_cat("mkdir -p ", dep_dir))
 
-    ?[scheme == 1] {
+    scheme == 1 ? {
         // Path dependency
         path <- mf_dep_strip(source)
-        ?[!fs_exists(path)] {
+        !fs_exists(path) ? {
             eprint(str_cat(str_cat("tiq install: dependency '", name), str_cat("' path not found: ", path)))
             proc_exit(1)
         }
@@ -103,23 +103,23 @@ i <- 0
         proc_exec(cp_cmd2)
         installed <- installed + 1
     }
-    ?[scheme == 2] {
+    scheme == 2 ? {
         // Git dependency
         url <- mf_git_url(source)
         ref <- mf_git_ref(source)
         // Remove existing directory for clean clone
         proc_exec(str_cat("rm -rf ", dep_dir))
-        ?[len(ref) > 0] {
+        len(ref) > 0 ? {
             // Check if ref is a version constraint (contains operator chars)
             is_constraint <- 0
             rn <- len(ref)
             ri <- 0
             [ri < rn && is_constraint == 0] {
                 rc <- str_sub_code(ref, ri)
-                ?[rc == 62 || rc == 60 || rc == 33 || rc == 44] { is_constraint <- 1 }
+                rc == 62 || rc == 60 || rc == 33 || rc == 44 ? { is_constraint <- 1 }
                 ri <- ri + 1
             }
-            ?[is_constraint == 1] {
+            is_constraint == 1 ? {
                 // Version constraint: list tags and find best match
                 tmp_tags <- str_cat("/tmp/.tiq-tags-", int_str(fnv_hash(url)))
                 ls_cmd <- str_cat("git ls-remote --tags ", str_cat(url, str_cat(" 2>/dev/null | awk -F/ '{print $3}' > ", tmp_tags)))
@@ -133,16 +133,16 @@ i <- 0
                 tstart <- 0
                 ti <- 0
                 [ti <= tn] {
-                    ?[ti == tn || str_sub_code(tag_list, ti) == 10] {
+                    ti == tn || str_sub_code(tag_list, ti) == 10 ? {
                         tag <- mf_trim(str_sub(tag_list, tstart, ti))
                         // Strip 'v' prefix if present
                         vtag <- tag
-                        ?[len(tag) > 0 && str_sub_code(tag, 0) == 118] {
+                        len(tag) > 0 && str_sub_code(tag, 0) == 118 ? {
                             vtag <- str_sub(tag, 1, len(tag))
                         }
-                        ?[len(vtag) > 0 && mf_ver_satisfies(vtag, ref) == 1] {
+                        len(vtag) > 0 && mf_ver_satisfies(vtag, ref) == 1 ? {
                             vnum <- mf_semver(vtag)
-                            ?[vnum > best_num] {
+                            vnum > best_num ? {
                                 best_num <- vnum
                                 best_ver <- tag
                             }
@@ -151,38 +151,38 @@ i <- 0
                     }
                     ti <- ti + 1
                 }
-                ?[len(best_ver) == 0] {
+                len(best_ver) == 0 ? {
                     eprint(str_cat(str_cat("tiq install: no version matching '", ref), str_cat("' found for '", str_cat(name, "'"))))
                     proc_exit(1)
                 }
                 clone_cmd <- str_cat(str_cat("git clone --depth 1 -b ", best_ver), str_cat(" ", str_cat(url, str_cat(" ", dep_dir))))
                 rc <- proc_exec(clone_cmd)
-                ?[rc != 0] {
+                rc != 0 ? {
                     eprint(str_cat(str_cat("tiq install: git clone failed for '", name), "'"))
                     proc_exit(1)
                 }
             }
-            ?[is_constraint == 0] {
+            is_constraint == 0 ? {
                 // Exact ref (branch/tag name)
                 clone_cmd <- str_cat(str_cat("git clone --depth 1 -b ", ref), str_cat(" ", str_cat(url, str_cat(" ", dep_dir))))
                 rc <- proc_exec(clone_cmd)
-                ?[rc != 0] {
+                rc != 0 ? {
                     eprint(str_cat(str_cat("tiq install: git clone failed for '", name), "'"))
                     proc_exit(1)
                 }
             }
         }
-        ?[len(ref) == 0] {
+        len(ref) == 0 ? {
             clone_cmd <- str_cat("git clone --depth 1 ", str_cat(url, str_cat(" ", dep_dir)))
             rc <- proc_exec(clone_cmd)
-            ?[rc != 0] {
+            rc != 0 ? {
                 eprint(str_cat(str_cat("tiq install: git clone failed for '", name), "'"))
                 proc_exit(1)
             }
         }
         installed <- installed + 1
     }
-    ?[scheme == 3] {
+    scheme == 3 ? {
         // Registry dependency: query registry for source URL, then clone
         reg_url <- "http://127.0.0.1:7070"
         pkg_name <- mf_reg_name(source)
@@ -190,7 +190,7 @@ i <- 0
         // Fetch package metadata
         api_url <- str_cat(str_cat(reg_url, "/api/v1/packages/"), pkg_name)
         pkg_body <- net_fetch(api_url)
-        ?[len(pkg_body) == 0] {
+        len(pkg_body) == 0 ? {
             eprint(str_cat(str_cat("tiq install: cannot find '", pkg_name), "' in registry"))
             proc_exit(1)
         }
@@ -203,62 +203,62 @@ i <- 0
         [vi < n_vers] {
             v <- json_arr_get(vers_str, vi)
             flag <- 1
-            ?[len(constraint) > 0] {
+            len(constraint) > 0 ? {
                 flag <- mf_ver_satisfies(v, constraint)
             }
-            ?[flag == 1] {
+            flag == 1 ? {
                 vnum <- mf_semver(v)
-                ?[vnum > best_num] {
+                vnum > best_num ? {
                     best_num <- vnum
                     best_ver <- v
                 }
             }
             vi <- vi + 1
         }
-        ?[len(best_ver) == 0] {
+        len(best_ver) == 0 ? {
             eprint(str_cat(str_cat("tiq install: no version matching '", constraint), str_cat("' found for '", str_cat(pkg_name, "' in registry"))))
             proc_exit(1)
         }
         // Fetch version details to get source URL
         ver_url <- str_cat(str_cat(api_url, "/"), best_ver)
         ver_body <- net_fetch(ver_url)
-        ?[len(ver_body) == 0] {
+        len(ver_body) == 0 ? {
             eprint(str_cat(str_cat("tiq install: cannot fetch version '", best_ver), str_cat("' for '", str_cat(pkg_name, "'"))))
             proc_exit(1)
         }
         dep_source <- json_get(ver_body, "source")
-        ?[len(dep_source) == 0] {
+        len(dep_source) == 0 ? {
             eprint(str_cat(str_cat("tiq install: no source for '", pkg_name), "' in registry"))
             proc_exit(1)
         }
         // Now install using the resolved source (should be git: or path:)
         dep_scheme <- mf_dep_scheme(dep_source)
-        ?[dep_scheme == 2] {
+        dep_scheme == 2 ? {
             // Git source from registry
             git_url <- mf_git_url(dep_source)
             git_ref <- mf_git_ref(dep_source)
             proc_exec(str_cat("rm -rf ", dep_dir))
-            ?[len(git_ref) > 0] {
+            len(git_ref) > 0 ? {
                 clone_cmd <- str_cat(str_cat("git clone --depth 1 -b ", git_ref), str_cat(" ", str_cat(git_url, str_cat(" ", dep_dir))))
                 rc <- proc_exec(clone_cmd)
-                ?[rc != 0] {
+                rc != 0 ? {
                     eprint(str_cat(str_cat("tiq install: git clone failed for '", name), "'"))
                     proc_exit(1)
                 }
             }
-            ?[len(git_ref) == 0] {
+            len(git_ref) == 0 ? {
                 clone_cmd <- str_cat("git clone --depth 1 ", str_cat(git_url, str_cat(" ", dep_dir)))
                 rc <- proc_exec(clone_cmd)
-                ?[rc != 0] {
+                rc != 0 ? {
                     eprint(str_cat(str_cat("tiq install: git clone failed for '", name), "'"))
                     proc_exit(1)
                 }
             }
         }
-        ?[dep_scheme == 1] {
+        dep_scheme == 1 ? {
             // Path source from registry
             dep_path <- mf_dep_strip(dep_source)
-            ?[!fs_exists(dep_path)] {
+            !fs_exists(dep_path) ? {
                 eprint(str_cat(str_cat("tiq install: registry source path not found for '", name), str_cat("': ", dep_path)))
                 proc_exit(1)
             }
@@ -298,16 +298,16 @@ j <- 0
 
 lock_content <- str_buf_to_str(lock_buf)
 rc <- fs_write("tiq.lock", lock_content)
-?[rc != 0] {
+rc != 0 ? {
     eprint("tiq install: cannot write tiq.lock")
     proc_exit(1)
 }
 
 print(str_cat("Installed ", str_cat(int_str(installed), " dependenc" )))
-?[installed == 1] {
+installed == 1 ? {
     print("y")
 }
-?[installed != 1] {
+installed != 1 ? {
     print("ies")
 }
 0

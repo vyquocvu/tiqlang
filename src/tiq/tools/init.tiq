@@ -19,14 +19,14 @@ npos <- 0
 i <- 0
 [i < nargs] {
     a <- cli_arg(i)
-    ?[str_eq(a, "--check")] {
+    str_eq(a, "--check") ? {
         check_flag <- 1
     }
-    ?[!str_eq(a, "--check")] {
-        ?[str_sub_code(a, 0) == 45] {
+    !str_eq(a, "--check") ? {
+        str_sub_code(a, 0) == 45 ? {
             eprint(str_cat("tiq init: unknown option: ", a)); proc_exit(2)
         }
-        ?[npos == 1] {
+        npos == 1 ? {
             eprint("tiq init: too many arguments"); proc_exit(2)
         }
         pname <- a
@@ -35,12 +35,12 @@ i <- 0
     i <- i + 1
 }
 
-?[check_flag == 1] {
-    ?[str_eq(pname, "")] {
+check_flag == 1 ? {
+    str_eq(pname, "") ? {
         eprint("tiq init: --check requires a manifest file"); proc_exit(2)
     }
     src <- fs_read(pname)
-    ?[str_eq(src, "")] {
+    str_eq(src, "") ? {
         eprint(str_cat("tiq init: cannot read ", pname)); proc_exit(1)
     }
     sv <- vec_new()
@@ -50,29 +50,29 @@ i <- 0
     vec_push(sv, 0)
     vec_push(sv, 0)
     rc <- mf_check(src, pname, sv)
-    ?[rc != 0] {
+    rc != 0 ? {
         proc_exit(1)
     }
     proc_exit(0)
 }
 
-?[npos == 0] {
+npos == 0 ? {
     pname <- "my-package"
 }
-?[mf_valid_name(pname) == 0] {
+mf_valid_name(pname) == 0 ? {
     eprint(str_cat("tiq init: invalid package name: ", pname))
     proc_exit(2)
 }
 path <- "tiq.toml"
-?[npos == 1] {
+npos == 1 ? {
     path <- str_cat(pname, ".tiq.toml")
 }
-?[fs_exists(path)] {
+fs_exists(path) ? {
     eprint(str_cat(path, " already exists"))
     proc_exit(1)
 }
 rc <- fs_write(path, mf_template(pname))
-?[rc != 0] {
+rc != 0 ? {
     eprint(str_cat("tiq init: cannot write ", path)); proc_exit(1)
 }
 print(str_cat("Created ", path))

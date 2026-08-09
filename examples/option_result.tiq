@@ -20,9 +20,9 @@ print(f)
 
 // Propagation operator unwraps Option/Result
 a = some(7)
-b = a?
+b = ?a
 print(b)
 
 c = ok(13)
-d = c?
+d = ?c
 print(d)

@@ -93,7 +93,9 @@ static void write_section_name(Buf *b, const char *name) {
     if (l <= 8) memcpy(field, name, l);
     else {
         // /N format — should not happen for our standard names.
-        snprintf((char *)field, 8, "/%zu", l); // approximate
+        char num[32];
+        snprintf(num, sizeof(num), "/%zu", l); // approximate
+        memcpy(field, num, 8);
     }
     buf_put(b, field, 8);
 }

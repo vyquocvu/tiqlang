@@ -12,25 +12,25 @@ mod_norm path:str -> str -> {
     absolute = len(path) > 0 && str_sub_code(path, 0) == 47
     start <- 0; i <- 0
     [i <= len(path)] {
-        ?[i == len(path) || str_sub_code(path, i) == 47] {
+        i == len(path) || str_sub_code(path, i) == 47 ? {
             part = str_sub(path, start, i)
-            ?[len(part) > 0 && str_eq(part, ".") == false] {
-                ?[str_eq(part, "..")] {
+            len(part) > 0 && str_eq(part, ".") == false ? {
+                str_eq(part, "..") ? {
                     collapsed <- false
-                    ?[vec_len(parts) > 0 && str_eq(vec_get(parts, vec_len(parts) - 1), "..") == false] { old = vec_pop(parts); collapsed <- true }
-                    ?[collapsed == false && absolute == false] { vec_push(parts, part) }
+                    vec_len(parts) > 0 && str_eq(vec_get(parts, vec_len(parts) - 1), "..") == false ? { old = vec_pop(parts); collapsed <- true }
+                    collapsed == false && absolute == false ? { vec_push(parts, part) }
                 }
-                ?[str_eq(part, "..") == false] { vec_push(parts, part) }
+                str_eq(part, "..") == false ? { vec_push(parts, part) }
             }
             start <- i + 1
         }
         i <- i + 1
     }
     b = str_buf_new()
-    ?[absolute] { str_buf_append(b, "/") }
+    absolute ? { str_buf_append(b, "/") }
     j <- 0
     [j < vec_len(parts)] {
-        ?[j > 0] { str_buf_append(b, "/") }
+        j > 0 ? { str_buf_append(b, "/") }
         str_buf_append(b, vec_get(parts, j)); j <- j + 1
     }
     str_buf_to_str(b)
@@ -39,10 +39,10 @@ mod_norm path:str -> str -> {
 mod_join importer:str rel:str -> str -> {
     r <- rel
     cut <- 0
-    ?[str_eq(str_sub(rel, 0, 1), "/") == false] {
+    str_eq(str_sub(rel, 0, 1), "/") == false ? {
         i <- 0
         [i < len(importer)] {
-            ?[str_sub_code(importer, i) == 47] { cut <- i + 1 }
+            str_sub_code(importer, i) == 47 ? { cut <- i + 1 }
             i <- i + 1
         }
         r <- str_cat(str_sub(importer, 0, cut), rel)
@@ -53,20 +53,20 @@ mod_join importer:str rel:str -> str -> {
 mod_flatten_one path:str seen:map stack:map out:strbuf -> i64 -> {
     failed <- 0
     done <- 0
-    ?[map_has(stack, path) && map_get(stack, path) == 1] { eprint(diag_line(path, 1, 28, str_cat("circular import: ", path))); failed <- 1; done <- 1 }
-    ?[done == 0 && map_has(seen, path)] { done <- 1 }
-    ?[done == 0] {
+    map_has(stack, path) && map_get(stack, path) == 1 ? { eprint(diag_line(path, 1, 28, str_cat("circular import: ", path))); failed <- 1; done <- 1 }
+    done == 0 && map_has(seen, path) ? { done <- 1 }
+    done == 0 ? {
         map_set(stack, path, 1)
-        ?[fs_exists(path) == false] { eprint(diag_line(path, 1, 27, str_cat("module not found: ", path))); failed <- 1 }
+        fs_exists(path) == false ? { eprint(diag_line(path, 1, 27, str_cat("module not found: ", path))); failed <- 1 }
         source = fs_read(path)
         toks = vec_new()
-        ?[failed == 0] { failed <- lex_scan(source, path, toks) }
+        failed == 0 ? { failed <- lex_scan(source, path, toks) }
         i <- 0
         [tk_kind(toks, i) == TokenKind.Newline || tk_kind(toks, i) == TokenKind.Semicolon] { i <- i + 1 }
         [failed == 0 && tk_kind(toks, i) == TokenKind.Import] {
             imp = i
             i <- i + 1
-            ?[tk_kind(toks, i) != TokenKind.String] {
+            tk_kind(toks, i) != TokenKind.String ? {
                 eprint(diag_line(path, tk_line(toks, imp), 4, "expected string literal path after 'import'"))
                 failed <- 1
                 break
@@ -76,20 +76,20 @@ mod_flatten_one path:str seen:map stack:map out:strbuf -> i64 -> {
             child <- mod_join(path, rel)
             // M15: cwd fallback — if the relative join doesn't resolve, try
             // the written path directly from the working directory.
-            ?[fs_exists(child) == false && fs_exists(rel)] { child <- rel }
-            ?[fs_exists(child) == false] {
+            fs_exists(child) == false && fs_exists(rel) ? { child <- rel }
+            fs_exists(child) == false ? {
                 eprint(diag_line(path, tk_line(toks, imp), 27, str_cat("module not found: ", rel)))
                 failed <- 1
             }
-            ?[failed == 0 && map_has(stack, child) && map_get(stack, child) == 1] {
+            failed == 0 && map_has(stack, child) && map_get(stack, child) == 1 ? {
                 eprint(diag_line(path, tk_line(toks, imp), 28, str_cat("circular import: ", child)))
                 failed <- 1
             }
-            ?[failed == 0] { failed <- mod_flatten_one(child, seen, stack, out) }
+            failed == 0 ? { failed <- mod_flatten_one(child, seen, stack, out) }
             i <- i + 1
             [tk_kind(toks, i) == TokenKind.Newline || tk_kind(toks, i) == TokenKind.Semicolon] { i <- i + 1 }
         }
-        ?[failed == 0] {
+        failed == 0 ? {
             start = tk_start(toks, i)
             str_buf_append(out, str_sub(source, start, len(source)))
             str_buf_append(out, "\n")
@@ -105,6 +105,6 @@ mod_flatten path:str -> str -> {
     seen = map_new()
     stack = map_new()
     failed = mod_flatten_one(mod_norm(path), seen, stack, out)
-    ?[failed != 0] { proc_exit(1) }
+    failed != 0 ? { proc_exit(1) }
     str_buf_to_str(out)
 }

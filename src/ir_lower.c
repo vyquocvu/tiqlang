@@ -152,7 +152,9 @@ static int lower_expr(LowerCtx *ctx, AstNode *node) {
                 ir_emit_into_block(ctx->func, ctx->current_block, IR_CONST_INT, dst, type, ops, 1, node->token.line);
             } else if (node->as.literal.type == TOK_FLOAT) {
                 double val = strtod(node->token.start, NULL);
-                IrOperand ops[] = {(IrOperand){IR_OP_IMM, .imm = *(long long*)&val}};
+                long long bits;
+                memcpy(&bits, &val, sizeof(bits));
+                IrOperand ops[] = {(IrOperand){IR_OP_IMM, .imm = bits}};
                 ir_emit_into_block(ctx->func, ctx->current_block, IR_CONST_FLOAT, dst, type, ops, 1, node->token.line);
             } else if (node->as.literal.type == TOK_TRUE || node->as.literal.type == TOK_FALSE) {
                 IrOperand ops[] = {(IrOperand){IR_OP_IMM, .imm = (node->as.literal.type == TOK_TRUE)}};
@@ -218,8 +220,21 @@ static int lower_expr(LowerCtx *ctx, AstNode *node) {
         case AST_CONDITIONAL: {
             int cond = lower_expr(ctx, node->as.conditional.cond);
             int then_block_idx = ir_add_block(ctx->func, ctx->func->block_count);
-            int else_block_idx = ir_add_block(ctx->func, ctx->func->block_count);
             int merge_block_idx = ir_add_block(ctx->func, ctx->func->block_count);
+            if (!node->as.conditional.else_branch) {
+                // M25: one-arm conditional (`cond ? then`). The value is
+                // discarded (type unit), so the false edge jumps straight to
+                // the merge block and no phi is produced.
+                IrOperand cbr_ops[] = {reg_op(cond), block_op(then_block_idx), block_op(merge_block_idx)};
+                ir_emit_into_block(ctx->func, ctx->current_block, IR_CBR, -1, void_type(), cbr_ops, 3, node->token.line);
+                ctx->current_block = then_block_idx;
+                lower_expr(ctx, node->as.conditional.then_branch);
+                IrOperand br_then[] = {block_op(merge_block_idx)};
+                ir_emit_into_block(ctx->func, ctx->current_block, IR_BR, -1, void_type(), br_then, 1, node->token.line);
+                ctx->current_block = merge_block_idx;
+                return -1;
+            }
+            int else_block_idx = ir_add_block(ctx->func, ctx->func->block_count);
             IrOperand cbr_ops[] = {reg_op(cond), block_op(then_block_idx), block_op(else_block_idx)};
             ir_emit_into_block(ctx->func, ctx->current_block, IR_CBR, -1, void_type(), cbr_ops, 3, node->token.line);
 

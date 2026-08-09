@@ -8,6 +8,7 @@
 // the subset fails closed with a located diagnostic; partial objects
 // are never produced.
 
+#define _POSIX_C_SOURCE 200809L
 #include "../include/asm_arm64.h"
 #include "../include/elf_link.h"
 

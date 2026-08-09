@@ -39,7 +39,8 @@ typedef enum {
     ERR_CIRCULAR_IMPORT = 28,  // M13.1-P6: cyclic import chain (§17.6)
     ERR_EXTERN = 29,           // M16.1: extern declaration violations (§7.1)
     // Value 30 is reserved for tool-local diagnostics (manifest tooling).
-    ERR_LIBRARY = 31           // M16.3: library-mode violations (definitions-only modules)
+    ERR_LIBRARY = 31,           // M16.3: library-mode violations (definitions-only modules)
+    ERR_LEGACY_SYNTAX = 32      // M25: removed syntax (postfix `expr?`, `?[cond]`)
 } ErrorCode;
 // ERR_EXPECTED_PRINT/ERR_EXPECTED_STRING (dead since the print statement was
 // removed) were retired before this numbering was first pinned and printed,

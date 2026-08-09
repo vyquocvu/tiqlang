@@ -67,7 +67,7 @@ print(x)'
 case_run "conditional" 'x = 9
 print(x > 4 ? 11 : 22)'
 case_run "single_branch_conditional" 'x <- 0
-?[3 < 5] { x <- 42 }
+3 < 5 ? { x <- 42 }
 print(x)'
 # Issue #6: `<-` declares when absent and reassigns when a mutable binding
 # exists — including across nested scopes (never a shadow).
@@ -151,8 +151,8 @@ r = ok(9)
 print(a ?? 3)
 print(b ?? 4)
 print(r ?? 5)
-print(a?)
-print(r?)'
+print(?a)
+print(?r)'
 case_run "numeric_conversions" 'print(i8(130))
 print(u16(65537))
 print(i32(42.9))
@@ -230,7 +230,7 @@ print(a)
 [i <- 0..3] {
   b = json_get("{\"b\":\"two\"}", "b")
   print(b)
-  ?[i < 3] { proc_exit(7) }
+  i < 3 ? { proc_exit(7) }
 }'
 grep -o 'free((void \*)[a-z]);' "$TMP_DIR/owned_proc_exit.1.c" >"$TMP_DIR/owned_proc_exit.frees" || true
 printf 'free((void *)b);\nfree((void *)a);\nfree((void *)b);\nfree((void *)a);\n' >"$TMP_DIR/owned_proc_exit.frees.expected"
@@ -349,8 +349,8 @@ print(json_arr_len("[1,2,3]"))
 print(json_arr_get("[10,20]", 1))'
 # M16.2 extern "C": the prototype pass and the preamble-shadow suppression
 # table must yield executable C with identical observable behavior.
-# llabs emits a prototype; strlen/getpid are suppressed and link through
-# the preamble headers.
+# strlen/getpid/llabs are suppressed (their signatures cannot be spelled
+# with the fixed-width ABI table) and link through the preamble headers.
 case_run "ffi_llabs" 'extern "C" llabs x:i64 -> i64
 print(llabs(3 - 10))'
 case_run "ffi_strlen_suppressed" 'extern "C" strlen s:str -> i64

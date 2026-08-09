@@ -72,8 +72,12 @@ helper x:i64 -> i64 -> llabs(x)
 print(helper(0 - 5))
 EOF
 "$TIQ" emit-c "$TMP_DIR/ffi_emit.tiq" > "$TMP_DIR/ffi_emit.c"
-if ! grep -qxF 'extern int64_t llabs(int64_t x);' "$TMP_DIR/ffi_emit.c"; then
-  echo "ffi: missing llabs prototype" >&2
+# llabs is shadowed by <stdlib.h> too: on LP64 Linux int64_t is `long`
+# while glibc declares `long long llabs(long long)`, so a fixed-width
+# redeclaration would conflict. The header declaration serves codegen
+# and linking, exactly like strlen/getpid below.
+if grep -q 'extern .*llabs' "$TMP_DIR/ffi_emit.c"; then
+  echo "ffi: header-shadowed llabs prototype must be suppressed" >&2
   exit 1
 fi
 # Zero-param externs take (void). A unique name pins the shape because
@@ -89,7 +93,7 @@ if grep -q 'extern .*getpid' "$TMP_DIR/ffi_emit.c"; then
   exit 1
 fi
 enum_line=$(grep -n 'tiq_enum_Color_Red' "$TMP_DIR/ffi_emit.c" | head -1 | cut -d: -f1)
-proto_line=$(grep -nxF 'extern int64_t llabs(int64_t x);' "$TMP_DIR/ffi_emit.c" | head -1 | cut -d: -f1)
+proto_line=$(grep -nxF 'extern int64_t tiq_ffi_zero_probe(void);' "$TMP_DIR/ffi_emit.c" | head -1 | cut -d: -f1)
 fwd_line=$(grep -nxF 'int64_t helper(int64_t x);' "$TMP_DIR/ffi_emit.c" | head -1 | cut -d: -f1)
 if [ -z "$enum_line" ] || [ -z "$proto_line" ] || [ -z "$fwd_line" ]; then
   echo "ffi: emit-c anchors not found" >&2
@@ -144,6 +148,7 @@ ratio a:f64 b:f64 -> f64 -> a / b
 internal v:vec[i64] -> i64 -> 0
 helper x:&i64 -> i64 -> x
 extern "C" llabs x:i64 -> i64
+extern "C" tiq_ffi_zero_probe -> i64
 abs_wrap x:i64 -> i64 -> llabs(x)
 EOF
 
@@ -244,7 +249,7 @@ if ! grep -qxF 'int64_t add(int64_t a, int64_t b);' "$TMP_DIR/hlib.c"; then
   echo "ffi: --lib output missing function forward declaration" >&2
   exit 1
 fi
-if ! grep -qxF 'extern int64_t llabs(int64_t x);' "$TMP_DIR/hlib.c"; then
+if ! grep -qxF 'extern int64_t tiq_ffi_zero_probe(void);' "$TMP_DIR/hlib.c"; then
   echo "ffi: --lib output missing extern prototype" >&2
   exit 1
 fi

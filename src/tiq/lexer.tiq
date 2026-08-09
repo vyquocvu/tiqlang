@@ -142,21 +142,20 @@ lex_scan source:str path:str toks:vec[Token] -> i64 -> {
         [ws] {
             wc = str_sub(source, pos, pos + 1)
             hit <- false
-            ?[str_eq(wc, " ") || str_eq(wc, "\r") || str_eq(wc, "\t")] {
+            str_eq(wc, " ") || str_eq(wc, "\r") || str_eq(wc, "\t") ? {
                 pos += 1
                 hit <- true
             }
-            ?[!hit && str_eq(wc, "/") && str_eq(str_sub(source, pos + 1, pos + 2), "/")] {
+            !hit && str_eq(wc, "/") && str_eq(str_sub(source, pos + 1, pos + 2), "/") ? {
                 pend_c <- pos
                 [pos < n && !str_eq(str_sub(source, pos, pos + 1), "\n")] { pos += 1 }
                 pend_l <- pos - pend_c
                 hit <- true
             }
-            ?[!hit] ws <- false
-        }
+            !hit ? { ws <- false }        }
 
         start = pos
-        ?[pos >= n] {
+        pos >= n ? {
             // is_at_end: emit the EOF token and stop, printing nothing
             // (dump_tokens breaks on EOF before printing).
             vec_push(toks, Token { kind: TokenKind.Eof, start: start, length: 0, line: line, comment_start: pend_c, comment_length: pend_l })
@@ -164,21 +163,19 @@ lex_scan source:str path:str toks:vec[Token] -> i64 -> {
             pend_l <- 0
             eof <- true
         }
-        ?[!eof] {
+        !eof ? {
             c0 = str_sub(source, pos, pos + 1)
             pos += 1
             k <- -1
 
             // '\n' produces a NEWLINE token; line increments afterwards.
-            ?[k == -1 && str_eq(c0, "\n")] k <- TokenKind.Newline
-
+            k == -1 && str_eq(c0, "\n") ? { k <- TokenKind.Newline }
             // identifier(): [A-Za-z_][A-Za-z0-9_]*. Any identifier whose
             // FIRST character is '_' is TOK_UNDERSCORE regardless of length
             // (identifier_type's case '_'), otherwise keyword table or IDENT.
-            ?[k == -1 && map_has(al, c0)] {
+            k == -1 && map_has(al, c0) ? {
                 [map_has(al, str_sub(source, pos, pos + 1)) || map_has(dig, str_sub(source, pos, pos + 1))] { pos += 1 }
-                ?[str_eq(c0, "_")] k <- TokenKind.Underscore
-                ?[k == -1] {
+                str_eq(c0, "_") ? { k <- TokenKind.Underscore }                k == -1 ? {
                     kk = map_get(kw, str_sub(source, start, pos))
                     k <- kk == -1 ? TokenKind.Ident : kk
                 }
@@ -186,36 +183,34 @@ lex_scan source:str path:str toks:vec[Token] -> i64 -> {
 
             // number(): digits/underscores; '.' starts a FLOAT only when
             // followed by a digit (peek_next), fraction also allows '_'.
-            ?[k == -1 && map_has(dig, c0)] {
+            k == -1 && map_has(dig, c0) ? {
                 [map_has(dig, str_sub(source, pos, pos + 1)) || str_eq(str_sub(source, pos, pos + 1), "_")] { pos += 1 }
-                ?[str_eq(str_sub(source, pos, pos + 1), ".") && map_has(dig, str_sub(source, pos + 1, pos + 2))] {
+                str_eq(str_sub(source, pos, pos + 1), ".") && map_has(dig, str_sub(source, pos + 1, pos + 2)) ? {
                     pos += 1
                     [map_has(dig, str_sub(source, pos, pos + 1)) || str_eq(str_sub(source, pos, pos + 1), "_")] { pos += 1 }
                     k <- TokenKind.Float
                 }
-                ?[k == -1] k <- TokenKind.Int
-            }
+                k == -1 ? { k <- TokenKind.Int }            }
 
             // string(): scan to the closing quote. A raw newline inside is
             // E03 (line still counts up); '\' consumes the next char, and
             // only \\ \" \n \r \t \0 are valid escapes — anything else is
             // E01 at lex time. Running off the end is E02 + an EOF token.
-            ?[k == -1 && str_eq(c0, "\"")] {
+            k == -1 && str_eq(c0, "\"") ? {
                 scanning <- true
                 [scanning] {
                     sc = str_sub(source, pos, pos + 1)
-                    ?[pos >= n || str_eq(sc, "\"")] scanning <- false
-                    ?[scanning] {
-                        ?[str_eq(sc, "\n")] {
+                    pos >= n || str_eq(sc, "\"") ? { scanning <- false }                    scanning ? {
+                        str_eq(sc, "\n") ? {
                             has_err <- 1
                             eprint(diag_line(path, line, 3, "newline in string literal"))
                             line += 1
                         }
-                        ?[str_eq(sc, "\\") && pos + 1 < n] {
+                        str_eq(sc, "\\") && pos + 1 < n ? {
                             pos += 1
                             ec = str_sub(source, pos, pos + 1)
                             valid_esc = str_eq(ec, "\\") || str_eq(ec, "\"") || str_eq(ec, "n") || str_eq(ec, "r") || str_eq(ec, "t") || str_eq(ec, "0")
-                            ?[!valid_esc] {
+                            !valid_esc ? {
                                 has_err <- 1
                                 eprint(diag_line(path, line, 1, str_cat(str_cat("unsupported escape sequence '\\", ec), "'")))
                             }
@@ -223,95 +218,71 @@ lex_scan source:str path:str toks:vec[Token] -> i64 -> {
                         pos += 1
                     }
                 }
-                ?[pos >= n] {
+                pos >= n ? {
                     has_err <- 1
                     eprint(diag_line(path, line, 2, "unterminated string literal"))
                     k <- TokenKind.Eof
                 }
-                ?[k == -1] { pos += 1; k <- TokenKind.String }
+                k == -1 ? { pos += 1; k <- TokenKind.String }
             }
 
             // Single-character punctuation.
-            ?[k == -1 && str_eq(c0, "{")] k <- TokenKind.Lbrace
-            ?[k == -1 && str_eq(c0, "}")] k <- TokenKind.Rbrace
-            ?[k == -1 && str_eq(c0, "(")] k <- TokenKind.Lparen
-            ?[k == -1 && str_eq(c0, ")")] k <- TokenKind.Rparen
-            ?[k == -1 && str_eq(c0, "[")] k <- TokenKind.Lbracket
-            ?[k == -1 && str_eq(c0, "]")] k <- TokenKind.Rbracket
-            ?[k == -1 && str_eq(c0, ",")] k <- TokenKind.Comma
-            ?[k == -1 && str_eq(c0, ";")] k <- TokenKind.Semicolon
-            ?[k == -1 && str_eq(c0, "^")] k <- TokenKind.Caret
-
+            k == -1 && str_eq(c0, "{") ? { k <- TokenKind.Lbrace }            k == -1 && str_eq(c0, "}") ? { k <- TokenKind.Rbrace }            k == -1 && str_eq(c0, "(") ? { k <- TokenKind.Lparen }            k == -1 && str_eq(c0, ")") ? { k <- TokenKind.Rparen }            k == -1 && str_eq(c0, "[") ? { k <- TokenKind.Lbracket }            k == -1 && str_eq(c0, "]") ? { k <- TokenKind.Rbracket }            k == -1 && str_eq(c0, ",") ? { k <- TokenKind.Comma }            k == -1 && str_eq(c0, ";") ? { k <- TokenKind.Semicolon }            k == -1 && str_eq(c0, "^") ? { k <- TokenKind.Caret }
             // Multi-character operators: each match() consumes on success.
-            ?[k == -1 && str_eq(c0, "?")] {
-                ?[str_eq(str_sub(source, pos, pos + 1), "?")] { pos += 1; k <- TokenKind.QuestionQuestion }
-                ?[k == -1] k <- TokenKind.Question
-            }
-            ?[k == -1 && str_eq(c0, ".")] {
-                ?[str_eq(str_sub(source, pos, pos + 1), ".")] {
+            k == -1 && str_eq(c0, "?") ? {
+                str_eq(str_sub(source, pos, pos + 1), "?") ? { pos += 1; k <- TokenKind.QuestionQuestion }
+                k == -1 ? { k <- TokenKind.Question }            }
+            k == -1 && str_eq(c0, ".") ? {
+                str_eq(str_sub(source, pos, pos + 1), ".") ? {
                     pos += 1
-                    ?[str_eq(str_sub(source, pos, pos + 1), ".")] { pos += 1; k <- TokenKind.DotDotDot }
-                    ?[k == -1] k <- TokenKind.DotDot
-                }
-                ?[k == -1] k <- TokenKind.Dot
-            }
-            ?[k == -1 && str_eq(c0, "+")] {
-                ?[str_eq(str_sub(source, pos, pos + 1), "=")] { pos += 1; k <- TokenKind.PlusEq }
-                ?[k == -1] k <- TokenKind.Plus
-            }
-            ?[k == -1 && str_eq(c0, "-")] {
-                ?[str_eq(str_sub(source, pos, pos + 1), "=")] { pos += 1; k <- TokenKind.MinusEq }
-                ?[k == -1 && str_eq(str_sub(source, pos, pos + 1), ">")] { pos += 1; k <- TokenKind.Rarrow }
-                ?[k == -1] k <- TokenKind.Minus
-            }
-            ?[k == -1 && str_eq(c0, "*")] {
-                ?[str_eq(str_sub(source, pos, pos + 1), "=")] { pos += 1; k <- TokenKind.StarEq }
-                ?[k == -1] k <- TokenKind.Star
-            }
-            ?[k == -1 && str_eq(c0, "/")] {
-                ?[str_eq(str_sub(source, pos, pos + 1), "=")] { pos += 1; k <- TokenKind.SlashEq }
-                ?[k == -1] k <- TokenKind.Slash
-            }
-            ?[k == -1 && str_eq(c0, "%")] {
-                ?[str_eq(str_sub(source, pos, pos + 1), "=")] { pos += 1; k <- TokenKind.PercentEq }
-                ?[k == -1] k <- TokenKind.Percent
-            }
-            ?[k == -1 && str_eq(c0, "=")] {
-                ?[str_eq(str_sub(source, pos, pos + 1), "=")] { pos += 1; k <- TokenKind.EqEq }
-                ?[k == -1 && str_eq(str_sub(source, pos, pos + 1), ">")] { pos += 1; k <- TokenKind.FatArrow }
-                ?[k == -1] k <- TokenKind.Eq
-            }
-            ?[k == -1 && str_eq(c0, "!")] {
-                ?[str_eq(str_sub(source, pos, pos + 1), "=")] { pos += 1; k <- TokenKind.BangEq }
-                ?[k == -1] k <- TokenKind.Bang
-            }
-            ?[k == -1 && str_eq(c0, "<")] {
-                ?[str_eq(str_sub(source, pos, pos + 1), "=")] { pos += 1; k <- TokenKind.Lte }
-                ?[k == -1 && str_eq(str_sub(source, pos, pos + 1), "<")] { pos += 1; k <- TokenKind.Lshift }
-                ?[k == -1 && str_eq(str_sub(source, pos, pos + 1), "-")] { pos += 1; k <- TokenKind.Larrow }
-                ?[k == -1] k <- TokenKind.Lt
-            }
-            ?[k == -1 && str_eq(c0, ">")] {
-                ?[str_eq(str_sub(source, pos, pos + 1), "=")] { pos += 1; k <- TokenKind.Gte }
-                ?[k == -1 && str_eq(str_sub(source, pos, pos + 1), ">")] { pos += 1; k <- TokenKind.Rshift }
-                ?[k == -1] k <- TokenKind.Gt
-            }
-            ?[k == -1 && str_eq(c0, "&")] {
-                ?[str_eq(str_sub(source, pos, pos + 1), "&")] { pos += 1; k <- TokenKind.AndAnd }
-                ?[k == -1] k <- TokenKind.Amp
-            }
-            ?[k == -1 && str_eq(c0, "|")] {
-                ?[str_eq(str_sub(source, pos, pos + 1), "|")] { pos += 1; k <- TokenKind.OrOr }
-                ?[k == -1] k <- TokenKind.Pipe
-            }
-            ?[k == -1 && str_eq(c0, ":")] {
-                ?[str_eq(str_sub(source, pos, pos + 1), "=")] { pos += 1; k <- TokenKind.ColonEq }
-                ?[k == -1] k <- TokenKind.Colon
-            }
+                    str_eq(str_sub(source, pos, pos + 1), ".") ? { pos += 1; k <- TokenKind.DotDotDot }
+                    k == -1 ? { k <- TokenKind.DotDot }                }
+                k == -1 ? { k <- TokenKind.Dot }            }
+            k == -1 && str_eq(c0, "+") ? {
+                str_eq(str_sub(source, pos, pos + 1), "=") ? { pos += 1; k <- TokenKind.PlusEq }
+                k == -1 ? { k <- TokenKind.Plus }            }
+            k == -1 && str_eq(c0, "-") ? {
+                str_eq(str_sub(source, pos, pos + 1), "=") ? { pos += 1; k <- TokenKind.MinusEq }
+                k == -1 && str_eq(str_sub(source, pos, pos + 1), ">") ? { pos += 1; k <- TokenKind.Rarrow }
+                k == -1 ? { k <- TokenKind.Minus }            }
+            k == -1 && str_eq(c0, "*") ? {
+                str_eq(str_sub(source, pos, pos + 1), "=") ? { pos += 1; k <- TokenKind.StarEq }
+                k == -1 ? { k <- TokenKind.Star }            }
+            k == -1 && str_eq(c0, "/") ? {
+                str_eq(str_sub(source, pos, pos + 1), "=") ? { pos += 1; k <- TokenKind.SlashEq }
+                k == -1 ? { k <- TokenKind.Slash }            }
+            k == -1 && str_eq(c0, "%") ? {
+                str_eq(str_sub(source, pos, pos + 1), "=") ? { pos += 1; k <- TokenKind.PercentEq }
+                k == -1 ? { k <- TokenKind.Percent }            }
+            k == -1 && str_eq(c0, "=") ? {
+                str_eq(str_sub(source, pos, pos + 1), "=") ? { pos += 1; k <- TokenKind.EqEq }
+                k == -1 && str_eq(str_sub(source, pos, pos + 1), ">") ? { pos += 1; k <- TokenKind.FatArrow }
+                k == -1 ? { k <- TokenKind.Eq }            }
+            k == -1 && str_eq(c0, "!") ? {
+                str_eq(str_sub(source, pos, pos + 1), "=") ? { pos += 1; k <- TokenKind.BangEq }
+                k == -1 ? { k <- TokenKind.Bang }            }
+            k == -1 && str_eq(c0, "<") ? {
+                str_eq(str_sub(source, pos, pos + 1), "=") ? { pos += 1; k <- TokenKind.Lte }
+                k == -1 && str_eq(str_sub(source, pos, pos + 1), "<") ? { pos += 1; k <- TokenKind.Lshift }
+                k == -1 && str_eq(str_sub(source, pos, pos + 1), "-") ? { pos += 1; k <- TokenKind.Larrow }
+                k == -1 ? { k <- TokenKind.Lt }            }
+            k == -1 && str_eq(c0, ">") ? {
+                str_eq(str_sub(source, pos, pos + 1), "=") ? { pos += 1; k <- TokenKind.Gte }
+                k == -1 && str_eq(str_sub(source, pos, pos + 1), ">") ? { pos += 1; k <- TokenKind.Rshift }
+                k == -1 ? { k <- TokenKind.Gt }            }
+            k == -1 && str_eq(c0, "&") ? {
+                str_eq(str_sub(source, pos, pos + 1), "&") ? { pos += 1; k <- TokenKind.AndAnd }
+                k == -1 ? { k <- TokenKind.Amp }            }
+            k == -1 && str_eq(c0, "|") ? {
+                str_eq(str_sub(source, pos, pos + 1), "|") ? { pos += 1; k <- TokenKind.OrOr }
+                k == -1 ? { k <- TokenKind.Pipe }            }
+            k == -1 && str_eq(c0, ":") ? {
+                str_eq(str_sub(source, pos, pos + 1), "=") ? { pos += 1; k <- TokenKind.ColonEq }
+                k == -1 ? { k <- TokenKind.Colon }            }
 
             // Anything else is E01; lexer_next returns an EOF token, which
             // makes the dump loop stop right here.
-            ?[k == -1] {
+            k == -1 ? {
                 has_err <- 1
                 eprint(diag_line(path, line, 1, str_cat(str_cat("unexpected character '", c0), "'")))
                 k <- TokenKind.Eof
@@ -324,9 +295,7 @@ lex_scan source:str path:str toks:vec[Token] -> i64 -> {
 
             // The stream ends at the first EOF token; '\n' bumps the line
             // counter after its NEWLINE token was made, like make_token.
-            ?[k == TokenKind.Eof] eof <- true
-            ?[k == TokenKind.Newline] line += 1
-        }
+            k == TokenKind.Eof ? { eof <- true }            k == TokenKind.Newline ? { line += 1 }        }
     }
     has_err
 }
@@ -339,7 +308,7 @@ lex_dump source:str path:str -> i64 -> {
     count = vec_len(toks)
     [j <- 0..count] {
         k = tk_kind(toks, j)
-        ?[k != TokenKind.Eof && k != TokenKind.Newline] {
+        k != TokenKind.Eof && k != TokenKind.Newline ? {
             nm = token_kind_name(k)
             lexed = k == TokenKind.Ident || k == TokenKind.Int || k == TokenKind.Float || k == TokenKind.String
             print(lexed ? str_cat(str_cat(nm, " "), tk_lex(source, toks, j)) : nm)

@@ -18,11 +18,11 @@ contains src:str pat:str -> i64 -> {
     n <- len(src)
     m <- len(pat)
     r <- 0
-    ?[m == 0] { r <- 1 }
-    ?[m > 0 && m <= n] {
+    m == 0 ? { r <- 1 }
+    m > 0 && m <= n ? {
         i <- 0
         [i <= n - m && r == 0] {
-            ?[str_eq(str_sub(src, i, i + m), pat)] { r <- 1 }
+            str_eq(str_sub(src, i, i + m), pat) ? { r <- 1 }
             i <- i + 1
         }
     }
@@ -33,7 +33,7 @@ ends_with s:str suf:str -> i64 -> {
     n <- len(s)
     m <- len(suf)
     r <- 0
-    ?[m <= n && str_eq(str_sub(s, n - m, n), suf)] { r <- 1 }
+    m <= n && str_eq(str_sub(s, n - m, n), suf) ? { r <- 1 }
     r
 }
 
@@ -53,11 +53,11 @@ extract_expected src:str -> str -> {
         ws <- pos
         [ws < e && (str_sub_code(src, ws) == 32 || str_sub_code(src, ws) == 9)] { ws <- ws + 1 }
         ism <- 0
-        ?[e - ws >= 13 && str_eq(str_sub(src, ws, ws + 13), "//! expected:")] { ism <- 1 }
-        ?[ism == 1 && (count == 0 || prev == 1)] {
+        e - ws >= 13 && str_eq(str_sub(src, ws, ws + 13), "//! expected:") ? { ism <- 1 }
+        ism == 1 && (count == 0 || prev == 1) ? {
             c0 <- ws + 13
             [c0 < e && (str_sub_code(src, c0) == 32 || str_sub_code(src, c0) == 9)] { c0 <- c0 + 1 }
-            ?[count > 0] { str_buf_append(eb, "\n") }
+            count > 0 ? { str_buf_append(eb, "\n") }
             str_buf_append(eb, str_sub(src, c0, e))
             count <- count + 1
         }
@@ -78,12 +78,12 @@ trim_end s:str -> str -> {
 run_test path:str tiq:str verbose:i64 list_mode:i64 state:vec[int] -> i64 -> {
     src <- fs_read(path)
     no_run <- 0
-    ?[str_eq(src, "")] { no_run <- 1 }
-    ?[contains(src, "//! expected:") == 0] { no_run <- 1 }
-    ?[list_mode == 1 && no_run == 0] { print(path) }
-    ?[no_run == 1] { vec_set(state, 2, vec_get(state, 2) + 1) }
-    ?[list_mode == 0 && no_run == 0] {
-        ?[verbose == 1] { print(str_cat("running test ", path)) }
+    str_eq(src, "") ? { no_run <- 1 }
+    contains(src, "//! expected:") == 0 ? { no_run <- 1 }
+    list_mode == 1 && no_run == 0 ? { print(path) }
+    no_run == 1 ? { vec_set(state, 2, vec_get(state, 2) + 1) }
+    list_mode == 0 && no_run == 0 ? {
+        verbose == 1 ? { print(str_cat("running test ", path)) }
         exp <- extract_expected(src)
         bin <- str_cat(path, ".testexe")
         out <- str_cat(path, ".testout")
@@ -98,13 +98,13 @@ run_test path:str tiq:str verbose:i64 list_mode:i64 state:vec[int] -> i64 -> {
         str_buf_append(cb, errf)
         str_buf_append(cb, " 2>&1")
         rc <- proc_exec(str_buf_to_str(cb))
-        ?[rc != 0] {
+        rc != 0 ? {
             eprint(str_cat("FAIL: ", path))
             cerr <- fs_read(errf)
-            ?[!str_eq(cerr, "")] { eprint(cerr) }
+            !str_eq(cerr, "") ? { eprint(cerr) }
             vec_set(state, 1, vec_get(state, 1) + 1)
         }
-        ?[rc == 0] {
+        rc == 0 ? {
             rb <- str_buf_new()
             str_buf_append(rb, bin)
             str_buf_append(rb, " > ")
@@ -113,9 +113,9 @@ run_test path:str tiq:str verbose:i64 list_mode:i64 state:vec[int] -> i64 -> {
             rrc <- proc_exec(str_buf_to_str(rb))
             got <- trim_end(fs_read(out))
             passed <- 0
-            ?[rrc == 0 && str_eq(got, exp)] { passed <- 1 }
-            ?[passed == 1] {
-                ?[verbose == 1] {
+            rrc == 0 && str_eq(got, exp) ? { passed <- 1 }
+            passed == 1 ? {
+                verbose == 1 ? {
                     pl <- str_buf_new()
                     str_buf_append(pl, "PASS: ")
                     str_buf_append(pl, path)
@@ -126,11 +126,11 @@ run_test path:str tiq:str verbose:i64 list_mode:i64 state:vec[int] -> i64 -> {
                 }
                 vec_set(state, 0, vec_get(state, 0) + 1)
             }
-            ?[passed == 0] {
+            passed == 0 ? {
                 eprint(str_cat("FAIL: ", path))
                 eprint(str_cat("expected: ", exp))
                 eprint(str_cat("got: ", got))
-                ?[rrc != 0] { eprint(str_cat("exit code: ", int_str(rrc))) }
+                rrc != 0 ? { eprint(str_cat("exit code: ", int_str(rrc))) }
                 vec_set(state, 1, vec_get(state, 1) + 1)
             }
         }
@@ -143,12 +143,12 @@ run_test path:str tiq:str verbose:i64 list_mode:i64 state:vec[int] -> i64 -> {
 // (non-recursive). Files whose names begin with '.' are ignored.
 run_target t:str tiq:str verbose:i64 list_mode:i64 state:vec[int] -> i64 -> {
     is_file <- 0
-    ?[ends_with(t, ".tiq") == 1] {
+    ends_with(t, ".tiq") == 1 ? {
         is_file <- 1
         run_test(t, tiq, verbose, list_mode, state)
     }
-    ?[is_file == 0] {
-        ?[verbose == 1] { print(str_cat("running tests in ", t)) }
+    is_file == 0 ? {
+        verbose == 1 ? { print(str_cat("running tests in ", t)) }
         names <- fs_list(t)
         n <- len(names)
         pos <- 0
@@ -156,7 +156,7 @@ run_target t:str tiq:str verbose:i64 list_mode:i64 state:vec[int] -> i64 -> {
             e <- pos
             [e < n && str_sub_code(names, e) != 10] { e <- e + 1 }
             name <- str_sub(names, pos, e)
-            ?[str_sub_code(name, 0) != 46 && ends_with(name, ".tiq") == 1] {
+            str_sub_code(name, 0) != 46 && ends_with(name, ".tiq") == 1 ? {
                 run_test(str_cat(str_cat(t, "/"), name), tiq, verbose, list_mode, state)
             }
             pos <- e + 1
@@ -177,16 +177,16 @@ i <- 0
 [i < nargs] {
     a <- cli_arg(i)
     used <- 0
-    ?[str_eq(a, "--verbose") || str_eq(a, "-v")] { verbose <- 1; used <- 1 }
-    ?[str_eq(a, "--list") || str_eq(a, "-l")] { list_mode <- 1; used <- 1 }
-    ?[str_eq(a, "--tiq") && i + 1 < nargs] { i <- i + 1; tiq <- cli_arg(i); used <- 1 }
-    ?[used == 0 && str_sub_code(a, 0) != 45] { run_target(a, tiq, verbose, list_mode, state) }
+    str_eq(a, "--verbose") || str_eq(a, "-v") ? { verbose <- 1; used <- 1 }
+    str_eq(a, "--list") || str_eq(a, "-l") ? { list_mode <- 1; used <- 1 }
+    str_eq(a, "--tiq") && i + 1 < nargs ? { i <- i + 1; tiq <- cli_arg(i); used <- 1 }
+    used == 0 && str_sub_code(a, 0) != 45 ? { run_target(a, tiq, verbose, list_mode, state) }
     i <- i + 1
 }
 p <- vec_get(state, 0)
 f <- vec_get(state, 1)
 s <- vec_get(state, 2)
-?[list_mode == 0] {
+list_mode == 0 ? {
     sb <- str_buf_new()
     str_buf_append(sb, "Tests: ")
     str_buf_append(sb, int_str(p))
@@ -196,7 +196,7 @@ s <- vec_get(state, 2)
     str_buf_append(sb, int_str(s))
     str_buf_append(sb, " skipped")
     print(str_buf_to_str(sb))
-    ?[p == 0 && f == 0] { print("Note: Test files should contain a '//! expected:' marker line") }
+    p == 0 && f == 0 ? { print("Note: Test files should contain a '//! expected:' marker line") }
 }
-?[f > 0] { proc_exit(1) }
+f > 0 ? { proc_exit(1) }
 0

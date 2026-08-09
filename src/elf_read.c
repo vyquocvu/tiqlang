@@ -247,8 +247,11 @@ int elf_read(const uint8_t *data, size_t len, ElfObject *out,
             if (st_name >= strtab_size) continue;
             const char *name = (const char *)sym_strtab + st_name;
             size_t nlen = strlen(name);
-            if (nlen == 0) continue;
-
+            // Keep every entry (even unnamed ones such as the SECTION
+            // symbols GCC emits) so that out->symbols[i] corresponds to
+            // .symtab entry i+1. Relocations store rel->sym = r_sym - 1
+            // and rely on that 1:1 mapping; skipping entries here would
+            // misalign every later relocation.
             ElfSymbol *sym = &out->symbols[out->nsymbol];
             sym->name = malloc(nlen + 1);
             memcpy(sym->name, name, nlen + 1);

@@ -11,7 +11,7 @@
 
 mf_is_ws c: i64 -> i64 -> {
     r <- 0
-    ?[c == 32 || c == 9 || c == 13] {
+    c == 32 || c == 9 || c == 13 ? {
         r <- 1
     }
     r
@@ -19,7 +19,7 @@ mf_is_ws c: i64 -> i64 -> {
 
 mf_is_digit c: i64 -> i64 -> {
     r <- 0
-    ?[c >= 48 && c <= 57] {
+    c >= 48 && c <= 57 ? {
         r <- 1
     }
     r
@@ -43,13 +43,13 @@ mf_trim s: str -> str -> {
 mf_unquote s: str -> str -> {
     n <- len(s)
     r <- s
-    ?[n >= 2] {
+    n >= 2 ? {
         c0 <- str_sub_code(s, 0)
         c1 <- str_sub_code(s, n - 1)
-        ?[c0 == 34 && c1 == 34] {
+        c0 == 34 && c1 == 34 ? {
             r <- str_sub(s, 1, n - 1)
         }
-        ?[c0 == 39 && c1 == 39] {
+        c0 == 39 && c1 == 39 ? {
             r <- str_sub(s, 1, n - 1)
         }
     }
@@ -62,7 +62,7 @@ mf_find_eq s: str from: i64 -> i64 -> {
     r <- -1
     i <- from
     [i < n] {
-        ?[str_sub_code(s, i) == 61] {
+        str_sub_code(s, i) == 61 ? {
             r <- i; i <- n
         }
         i <- i + 1
@@ -74,30 +74,30 @@ mf_find_eq s: str from: i64 -> i64 -> {
 mf_valid_name s: str -> i64 -> {
     flag <- 1
     n <- len(s)
-    ?[n == 0] {
+    n == 0 ? {
         flag <- 0
     }
-    ?[str_eq(s, ".") || str_eq(s, "..")] {
+    str_eq(s, ".") || str_eq(s, "..") ? {
         flag <- 0
     }
     i <- 0
     [flag == 1 && i < n] {
         c <- str_sub_code(s, i)
         alnum <- 0
-        ?[c >= 48 && c <= 57] {
+        c >= 48 && c <= 57 ? {
             alnum <- 1
         }
-        ?[c >= 65 && c <= 90] {
+        c >= 65 && c <= 90 ? {
             alnum <- 1
         }
-        ?[c >= 97 && c <= 122] {
+        c >= 97 && c <= 122 ? {
             alnum <- 1
         }
         okc <- 0
-        ?[alnum == 1 || c == 45 || c == 95 || c == 46] {
+        alnum == 1 || c == 45 || c == 95 || c == 46 ? {
             okc <- 1
         }
-        ?[okc == 0] {
+        okc == 0 ? {
             flag <- 0
         }
         i <- i + 1
@@ -111,31 +111,31 @@ mf_valid_version v: str -> i64 -> {
     flag <- 1
     parts <- 0
     in_digit <- 0
-    ?[n == 0] {
+    n == 0 ? {
         flag <- 0
     }
     i <- 0
     [flag == 1 && i < n] {
         c <- str_sub_code(v, i)
-        ?[c == 46] {
-            ?[in_digit == 0] {
+        c == 46 ? {
+            in_digit == 0 ? {
                 flag <- 0
             }
             in_digit <- 0
             parts <- parts + 1
         }
-        ?[c != 46 && mf_is_digit(c) == 0] {
+        c != 46 && mf_is_digit(c) == 0 ? {
             flag <- 0
         }
-        ?[mf_is_digit(c) == 1] {
+        mf_is_digit(c) == 1 ? {
             in_digit <- 1
         }
         i <- i + 1
     }
-    ?[in_digit == 0] {
+    in_digit == 0 ? {
         flag <- 0
     }
-    ?[parts != 2] {
+    parts != 2 ? {
         flag <- 0
     }
     flag
@@ -156,29 +156,29 @@ mf_err path: str ln: i64 msg: str -> i64 -> {
 
 mf_check_package key: str val: str ln: i64 path: str sv: vec[int] -> i64 -> {
     r <- 0
-    ?[str_eq(key, "name")] {
-        ?[vec_get(sv, 1) == 1] {
+    str_eq(key, "name") ? {
+        vec_get(sv, 1) == 1 ? {
             mf_err(path, ln, "duplicate 'name'"); vec_set(sv, 2, 1); r <- 1
         }
-        ?[r == 0 && len(val) == 0] {
+        r == 0 && len(val) == 0 ? {
             mf_err(path, ln, "'name' must not be empty"); vec_set(sv, 2, 1); r <- 1
         }
-        ?[r == 0] {
+        r == 0 ? {
             vec_set(sv, 1, 1)
         }
     }
-    ?[r == 0 && str_eq(key, "version")] {
-        ?[vec_get(sv, 3) == 1] {
+    r == 0 && str_eq(key, "version") ? {
+        vec_get(sv, 3) == 1 ? {
             mf_err(path, ln, "duplicate 'version'"); vec_set(sv, 2, 1); r <- 1
         }
-        ?[r == 0 && mf_valid_version(val) == 0] {
+        r == 0 && mf_valid_version(val) == 0 ? {
             mf_err(path, ln, "version must be 'major.minor.patch' of digits"); vec_set(sv, 2, 1); r <- 1
         }
-        ?[r == 0] {
+        r == 0 ? {
             vec_set(sv, 3, 1)
         }
     }
-    ?[r == 0 && !str_eq(key, "name") && !str_eq(key, "version") && !str_eq(key, "description") && !str_eq(key, "license") && !str_eq(key, "repository") && !str_eq(key, "src")] {
+    r == 0 && !str_eq(key, "name") && !str_eq(key, "version") && !str_eq(key, "description") && !str_eq(key, "license") && !str_eq(key, "repository") && !str_eq(key, "src") ? {
         mf_err(path, ln, str_cat(str_cat("unknown [package] key '", key), "'")); vec_set(sv, 2, 1); r <- 1
     }
     r
@@ -189,13 +189,13 @@ mf_check_package key: str val: str ln: i64 path: str sv: vec[int] -> i64 -> {
 mf_dep_scheme val: str -> i64 -> {
     r <- 1
     n <- len(val)
-    ?[n >= 5 && str_eq(str_sub(val, 0, 5), "path:")] {
+    n >= 5 && str_eq(str_sub(val, 0, 5), "path:") ? {
         r <- 1
     }
-    ?[n >= 4 && str_eq(str_sub(val, 0, 4), "git:")] {
+    n >= 4 && str_eq(str_sub(val, 0, 4), "git:") ? {
         r <- 2
     }
-    ?[n >= 9 && str_eq(str_sub(val, 0, 9), "registry:")] {
+    n >= 9 && str_eq(str_sub(val, 0, 9), "registry:") ? {
         r <- 3
     }
     r
@@ -207,13 +207,13 @@ mf_dep_scheme val: str -> i64 -> {
 mf_dep_strip val: str -> str -> {
     r <- val
     n <- len(val)
-    ?[n >= 5 && str_eq(str_sub(val, 0, 5), "path:")] {
+    n >= 5 && str_eq(str_sub(val, 0, 5), "path:") ? {
         r <- str_sub(val, 5, n)
     }
-    ?[n >= 4 && str_eq(str_sub(val, 0, 4), "git:")] {
+    n >= 4 && str_eq(str_sub(val, 0, 4), "git:") ? {
         r <- str_sub(val, 4, n)
     }
-    ?[n >= 9 && str_eq(str_sub(val, 0, 9), "registry:")] {
+    n >= 9 && str_eq(str_sub(val, 0, 9), "registry:") ? {
         r <- str_sub(val, 9, n)
     }
     r
@@ -227,7 +227,7 @@ mf_git_ref val: str -> str -> {
     r <- ""
     i <- n - 1
     [i >= 0] {
-        ?[str_sub_code(stripped, i) == 35] {
+        str_sub_code(stripped, i) == 35 ? {
             r <- str_sub(stripped, i + 1, n)
             i <- -1
         }
@@ -243,7 +243,7 @@ mf_git_url val: str -> str -> {
     cut <- n
     i <- n - 1
     [i >= 0] {
-        ?[str_sub_code(stripped, i) == 35] {
+        str_sub_code(stripped, i) == 35 ? {
             cut <- i
             i <- -1
         }
@@ -260,7 +260,7 @@ mf_reg_name val: str -> str -> {
     cut <- n
     i <- 0
     [i < n] {
-        ?[str_sub_code(stripped, i) == 35] {
+        str_sub_code(stripped, i) == 35 ? {
             cut <- i
             i <- n
         }
@@ -277,7 +277,7 @@ mf_reg_constraint val: str -> str -> {
     r <- ""
     i <- 0
     [i < n] {
-        ?[str_sub_code(stripped, i) == 35] {
+        str_sub_code(stripped, i) == 35 ? {
             r <- str_sub(stripped, i + 1, n)
             i <- n
         }
@@ -292,7 +292,7 @@ mf_reg_constraint val: str -> str -> {
 mf_semver s: str -> i64 -> {
     r <- -1
     n <- len(s)
-    ?[n > 0] {
+    n > 0 ? {
         maj <- 0
         min <- 0
         pat <- 0
@@ -303,22 +303,22 @@ mf_semver s: str -> i64 -> {
         i <- 0
         [i < n && flag == 1] {
             c <- str_sub_code(s, i)
-            ?[c == 46] {
-                ?[part == 0] { maj <- cur }
-                ?[part == 1] { min <- cur }
+            c == 46 ? {
+                part == 0 ? { maj <- cur }
+                part == 1 ? { min <- cur }
                 cur <- 0
                 part <- part + 1
                 dots <- dots + 1
             }
-            ?[c >= 48 && c <= 57] {
+            c >= 48 && c <= 57 ? {
                 cur <- cur * 10 + (c - 48)
             }
-            ?[c != 46 && (c < 48 || c > 57)] {
+            c != 46 && (c < 48 || c > 57) ? {
                 flag <- 0
             }
             i <- i + 1
         }
-        ?[flag == 1 && part == 2] {
+        flag == 1 && part == 2 ? {
             pat <- cur
             r <- maj * 1000000 + min * 1000 + pat
         }
@@ -330,12 +330,12 @@ mf_semver s: str -> i64 -> {
 // `target` (encoded). op: 0=exact, 1=>=, 2=<=, 3=>, 4=<, 5=!=
 mf_ver_match v: i64 op: i64 target: i64 -> i64 -> {
     r <- 0
-    ?[op == 0] { r <- v == target }
-    ?[op == 1] { r <- v >= target }
-    ?[op == 2] { r <- v <= target }
-    ?[op == 3] { r <- v > target }
-    ?[op == 4] { r <- v < target }
-    ?[op == 5] { r <- v != target }
+    op == 0 ? { r <- v == target }
+    op == 1 ? { r <- v >= target }
+    op == 2 ? { r <- v <= target }
+    op == 3 ? { r <- v > target }
+    op == 4 ? { r <- v < target }
+    op == 5 ? { r <- v != target }
     r
 }
 
@@ -345,19 +345,19 @@ mf_ver_parse_op s: str out_op: vec[int] -> str -> {
     n <- len(s)
     op <- 0
     rest <- s
-    ?[n >= 2 && str_eq(str_sub(s, 0, 2), ">=")] {
+    n >= 2 && str_eq(str_sub(s, 0, 2), ">=") ? {
         op <- 1; rest <- str_sub(s, 2, n)
     }
-    ?[n >= 2 && str_eq(str_sub(s, 0, 2), "<=")] {
+    n >= 2 && str_eq(str_sub(s, 0, 2), "<=") ? {
         op <- 2; rest <- str_sub(s, 2, n)
     }
-    ?[n >= 2 && str_eq(str_sub(s, 0, 2), "!=")] {
+    n >= 2 && str_eq(str_sub(s, 0, 2), "!=") ? {
         op <- 5; rest <- str_sub(s, 2, n)
     }
-    ?[n >= 1 && str_sub_code(s, 0) == 62 && op == 0] {
+    n >= 1 && str_sub_code(s, 0) == 62 && op == 0 ? {
         op <- 3; rest <- str_sub(s, 1, n)
     }
-    ?[n >= 1 && str_sub_code(s, 0) == 60 && op == 0] {
+    n >= 1 && str_sub_code(s, 0) == 60 && op == 0 ? {
         op <- 4; rest <- str_sub(s, 1, n)
     }
     vec_set(out_op, 0, op)
@@ -370,23 +370,23 @@ mf_ver_parse_op s: str out_op: vec[int] -> str -> {
 mf_ver_satisfies ver: str cs: str -> i64 -> {
     r <- 1
     v <- mf_semver(ver)
-    ?[v < 0] { r <- 0 }
-    ?[r == 1] {
+    v < 0 ? { r <- 0 }
+    r == 1 ? {
         op_box = vec_new()
         vec_push(op_box, 0)
         cn <- len(cs)
         start <- 0
         i <- 0
         [r == 1 && i <= cn] {
-            ?[i == cn || str_sub_code(cs, i) == 44] {
+            i == cn || str_sub_code(cs, i) == 44 ? {
                 part <- mf_trim(str_sub(cs, start, i))
-                ?[len(part) > 0] {
+                len(part) > 0 ? {
                     vstr <- mf_ver_parse_op(part, op_box)
                     tv <- mf_semver(vstr)
-                    ?[tv < 0] { r <- 0 }
-                    ?[r == 1] {
+                    tv < 0 ? { r <- 0 }
+                    r == 1 ? {
                         op <- vec_get(op_box, 0)
-                        ?[mf_ver_match(v, op, tv) == 0] { r <- 0 }
+                        mf_ver_match(v, op, tv) == 0 ? { r <- 0 }
                     }
                 }
                 start <- i + 1
@@ -406,63 +406,63 @@ mf_valid_constraint cs: str -> i64 -> {
     start <- 0
     i <- 0
     [r == 1 && i <= cn] {
-        ?[i == cn || str_sub_code(cs, i) == 44] {
+        i == cn || str_sub_code(cs, i) == 44 ? {
             part <- mf_trim(str_sub(cs, start, i))
-            ?[len(part) > 0] {
+            len(part) > 0 ? {
                 vstr <- mf_ver_parse_op(part, op_box)
-                ?[len(vstr) == 0] { r <- 0 }
-                ?[r == 1 && mf_semver(vstr) < 0] { r <- 0 }
+                len(vstr) == 0 ? { r <- 0 }
+                r == 1 && mf_semver(vstr) < 0 ? { r <- 0 }
             }
-            ?[len(part) == 0] { r <- 0 }
+            len(part) == 0 ? { r <- 0 }
             start <- i + 1
         }
         i <- i + 1
     }
-    ?[cn == 0] { r <- 0 }
+    cn == 0 ? { r <- 0 }
     r
 }
 
 mf_check_deps key: str val: str ln: i64 path: str sv: vec[int] -> i64 -> {
     r <- 0
-    ?[len(key) == 0] {
+    len(key) == 0 ? {
         mf_err(path, ln, "dependency name must not be empty"); vec_set(sv, 2, 1); r <- 1
     }
-    ?[r == 0 && len(val) == 0] {
+    r == 0 && len(val) == 0 ? {
         mf_err(path, ln, "dependency source must not be empty"); vec_set(sv, 2, 1); r <- 1
     }
     // M18.1: validate the dependency name is a flag package name
-    ?[r == 0 && mf_valid_name(key) == 0] {
+    r == 0 && mf_valid_name(key) == 0 ? {
         mf_err(path, ln, str_cat(str_cat("invalid dependency name: '", key), "'")); vec_set(sv, 2, 1); r <- 1
     }
     // M18.1/M18.4: validate the source scheme (1=path, 2=git, 3=registry)
-    ?[r == 0] {
+    r == 0 ? {
         scheme <- mf_dep_scheme(val)
-        ?[scheme != 1 && scheme != 2 && scheme != 3] {
+        scheme != 1 && scheme != 2 && scheme != 3 ? {
             mf_err(path, ln, str_cat(str_cat("unsupported dependency source: '", val), "' (expected 'path:', 'git:', or 'registry:')")); vec_set(sv, 2, 1); r <- 1
         }
     }
     // M18.1: validate the path/url is non-empty after stripping the scheme
-    ?[r == 0] {
+    r == 0 ? {
         stripped <- mf_dep_strip(val)
-        ?[len(stripped) == 0] {
+        len(stripped) == 0 ? {
             mf_err(path, ln, "dependency source path must not be empty after scheme prefix"); vec_set(sv, 2, 1); r <- 1
         }
     }
     // M18.3: git refs with version constraints must have flag constraints
-    ?[r == 0 && mf_dep_scheme(val) == 2] {
+    r == 0 && mf_dep_scheme(val) == 2 ? {
         ref <- mf_git_ref(val)
-        ?[len(ref) > 0 && mf_valid_constraint(ref) == 0] {
+        len(ref) > 0 && mf_valid_constraint(ref) == 0 ? {
             mf_err(path, ln, str_cat(str_cat("invalid version constraint: '", ref), "' (expected semver like '>=1.0.0,<2.0.0')")); vec_set(sv, 2, 1); r <- 1
         }
     }
     // M18.4: registry sources must have a flag package name and optional constraint
-    ?[r == 0 && mf_dep_scheme(val) == 3] {
+    r == 0 && mf_dep_scheme(val) == 3 ? {
         rname <- mf_reg_name(val)
-        ?[len(rname) == 0 || mf_valid_name(rname) == 0] {
+        len(rname) == 0 || mf_valid_name(rname) == 0 ? {
             mf_err(path, ln, str_cat(str_cat("invalid registry package name: '", rname), "'")); vec_set(sv, 2, 1); r <- 1
         }
         rconstraint <- mf_reg_constraint(val)
-        ?[len(rconstraint) > 0 && mf_valid_constraint(rconstraint) == 0] {
+        len(rconstraint) > 0 && mf_valid_constraint(rconstraint) == 0 ? {
             mf_err(path, ln, str_cat(str_cat("invalid version constraint: '", rconstraint), "' (expected semver like '>=1.0.0,<2.0.0')")); vec_set(sv, 2, 1); r <- 1
         }
     }
@@ -471,7 +471,7 @@ mf_check_deps key: str val: str ln: i64 path: str sv: vec[int] -> i64 -> {
 
 mf_check_tests key: str val: str ln: i64 path: str sv: vec[int] -> i64 -> {
     r <- 0
-    ?[!str_eq(key, "dir") && !str_eq(key, "include")] {
+    !str_eq(key, "dir") && !str_eq(key, "include") ? {
         mf_err(path, ln, str_cat(str_cat("unknown [tests] key '", key), "'")); vec_set(sv, 2, 1); r <- 1
     }
     r
@@ -480,47 +480,47 @@ mf_check_tests key: str val: str ln: i64 path: str sv: vec[int] -> i64 -> {
 mf_check_line line: str ln: i64 path: str sv: vec[int] -> i64 -> {
     r <- 0
     t <- mf_trim(line)
-    ?[len(t) > 0 && str_sub_code(t, 0) != 35] {
-        ?[str_sub_code(t, 0) == 91] {
+    len(t) > 0 && str_sub_code(t, 0) != 35 ? {
+        str_sub_code(t, 0) == 91 ? {
             lt <- len(t)
-            ?[lt < 2 || str_sub_code(t, lt - 1) != 93] {
+            lt < 2 || str_sub_code(t, lt - 1) != 93 ? {
                 mf_err(path, ln, "malformed section header"); vec_set(sv, 2, 1); r <- 1
             }
-            ?[r == 0] {
+            r == 0 ? {
                 name <- mf_trim(str_sub(t, 1, lt - 1))
-                ?[str_eq(name, "package")] {
+                str_eq(name, "package") ? {
                     vec_set(sv, 0, 1); vec_set(sv, 4, 1)
                 }
-                ?[str_eq(name, "deps")] {
+                str_eq(name, "deps") ? {
                     vec_set(sv, 0, 2)
                 }
-                ?[str_eq(name, "tests")] {
+                str_eq(name, "tests") ? {
                     vec_set(sv, 0, 3)
                 }
-                ?[!str_eq(name, "package") && !str_eq(name, "deps") && !str_eq(name, "tests")] {
+                !str_eq(name, "package") && !str_eq(name, "deps") && !str_eq(name, "tests") ? {
                     mf_err(path, ln, str_cat(str_cat("unknown section [", name), "]")); vec_set(sv, 2, 1); r <- 1
                 }
             }
         }
-        ?[r == 0 && str_sub_code(t, 0) != 91] {
+        r == 0 && str_sub_code(t, 0) != 91 ? {
             eq <- mf_find_eq(t, 0)
-            ?[eq <= 0] {
+            eq <= 0 ? {
                 mf_err(path, ln, "expected 'key = value'"); vec_set(sv, 2, 1); r <- 1
             }
-            ?[r == 0] {
+            r == 0 ? {
                 key <- mf_trim(str_sub(t, 0, eq))
                 val <- mf_unquote(mf_trim(str_sub(t, eq + 1, len(t))))
                 sec <- vec_get(sv, 0)
-                ?[sec == 0] {
+                sec == 0 ? {
                     mf_err(path, ln, "key outside a section"); vec_set(sv, 2, 1); r <- 1
                 }
-                ?[r == 0 && sec == 1] {
+                r == 0 && sec == 1 ? {
                     r <- mf_check_package(key, val, ln, path, sv)
                 }
-                ?[r == 0 && sec == 2] {
+                r == 0 && sec == 2 ? {
                     r <- mf_check_deps(key, val, ln, path, sv)
                 }
-                ?[r == 0 && sec == 3] {
+                r == 0 && sec == 3 ? {
                     r <- mf_check_tests(key, val, ln, path, sv)
                 }
             }
@@ -538,9 +538,9 @@ mf_check text: str path: str sv: vec[int] -> i64 -> {
     start <- 0
     i <- 0
     [i <= n] {
-        ?[i == n || str_sub_code(text, i) == 10] {
+        i == n || str_sub_code(text, i) == 10 ? {
             one <- mf_check_line(str_sub(text, start, i), ln, path, sv)
-            ?[one == 1] {
+            one == 1 ? {
                 vec_set(sv, 2, 1)
             }
             ln <- ln + 1
@@ -548,10 +548,10 @@ mf_check text: str path: str sv: vec[int] -> i64 -> {
         }
         i <- i + 1
     }
-    ?[vec_get(sv, 4) == 0] {
+    vec_get(sv, 4) == 0 ? {
         mf_err(path, 1, "missing [package] section"); vec_set(sv, 2, 1)
     }
-    ?[vec_get(sv, 4) == 1 && vec_get(sv, 1) == 0] {
+    vec_get(sv, 4) == 1 && vec_get(sv, 1) == 0 ? {
         mf_err(path, 1, "[package] is missing a 'name' field"); vec_set(sv, 2, 1)
     }
     vec_get(sv, 2)
@@ -587,24 +587,24 @@ mf_extract_name text: str -> str -> {
     in_package <- 0
     i <- 0
     [i <= n] {
-        ?[i == n || str_sub_code(text, i) == 10] {
+        i == n || str_sub_code(text, i) == 10 ? {
             line <- mf_trim(str_sub(text, start, i))
-            ?[len(line) > 0 && str_sub_code(line, 0) != 35] {
-                ?[str_sub_code(line, 0) == 91] {
+            len(line) > 0 && str_sub_code(line, 0) != 35 ? {
+                str_sub_code(line, 0) == 91 ? {
                     // Section header
                     lt <- len(line)
-                    ?[lt >= 2 && str_sub_code(line, lt - 1) == 93] {
+                    lt >= 2 && str_sub_code(line, lt - 1) == 93 ? {
                         sname <- mf_trim(str_sub(line, 1, lt - 1))
-                        ?[str_eq(sname, "package")] { in_package <- 1 }
-                        ?[!str_eq(sname, "package")] { in_package <- 0 }
+                        str_eq(sname, "package") ? { in_package <- 1 }
+                        !str_eq(sname, "package") ? { in_package <- 0 }
                     }
                 }
-                ?[in_package == 1 && str_sub_code(line, 0) != 91] {
+                in_package == 1 && str_sub_code(line, 0) != 91 ? {
                     eq <- mf_find_eq(line, 0)
-                    ?[eq > 0] {
+                    eq > 0 ? {
                         key <- mf_trim(str_sub(line, 0, eq))
                         val <- mf_unquote(mf_trim(str_sub(line, eq + 1, len(line))))
-                        ?[str_eq(key, "name")] {
+                        str_eq(key, "name") ? {
                             r <- val
                             in_package <- 0
                         }
@@ -629,23 +629,23 @@ mf_extract_deps text: str names: vec[str] sources: vec[str] -> i64 -> {
     in_deps <- 0
     i <- 0
     [i <= n] {
-        ?[i == n || str_sub_code(text, i) == 10] {
+        i == n || str_sub_code(text, i) == 10 ? {
             line <- mf_trim(str_sub(text, start, i))
-            ?[len(line) > 0 && str_sub_code(line, 0) != 35] {
-                ?[str_sub_code(line, 0) == 91] {
+            len(line) > 0 && str_sub_code(line, 0) != 35 ? {
+                str_sub_code(line, 0) == 91 ? {
                     lt <- len(line)
-                    ?[lt >= 2 && str_sub_code(line, lt - 1) == 93] {
+                    lt >= 2 && str_sub_code(line, lt - 1) == 93 ? {
                         sname <- mf_trim(str_sub(line, 1, lt - 1))
-                        ?[str_eq(sname, "deps")] { in_deps <- 1 }
-                        ?[!str_eq(sname, "deps")] { in_deps <- 0 }
+                        str_eq(sname, "deps") ? { in_deps <- 1 }
+                        !str_eq(sname, "deps") ? { in_deps <- 0 }
                     }
                 }
-                ?[in_deps == 1 && str_sub_code(line, 0) != 91] {
+                in_deps == 1 && str_sub_code(line, 0) != 91 ? {
                     eq <- mf_find_eq(line, 0)
-                    ?[eq > 0] {
+                    eq > 0 ? {
                         key <- mf_trim(str_sub(line, 0, eq))
                         val <- mf_unquote(mf_trim(str_sub(line, eq + 1, len(line))))
-                        ?[len(key) > 0 && len(val) > 0] {
+                        len(key) > 0 && len(val) > 0 ? {
                             vec_push(names, key)
                             vec_push(sources, val)
                             count <- count + 1

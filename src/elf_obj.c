@@ -194,6 +194,20 @@ int elf_obj_write(const AsmUnit *u, FILE *out) {
         if (!u->syms[i].global) first_global++;
     }
 
+    // ELF symbol index for each assembler symbol. The ELF symtab is emitted
+    // locals-first then globals, so the emitted index differs from the
+    // assembler's u->syms index. Relocations must reference the ELF index, so
+    // build a remap here (used when writing .rela.* sections).
+    uint32_t *elf_idx = malloc(u->nsym * sizeof(uint32_t));
+    if (!elf_idx) { free(sym_strtab_off); free(strtab.bytes); free(shstrtab.bytes); return 1; }
+    uint32_t elf_next = 1; // ELF symbol 0 is the null symbol
+    for (size_t i = 0; i < u->nsym; i++) {
+        if (!u->syms[i].global) { elf_idx[i] = elf_next++; }
+    }
+    for (size_t i = 0; i < u->nsym; i++) {
+        if (u->syms[i].global) { elf_idx[i] = elf_next++; }
+    }
+
     size_t symtab_off = (cur_off + 7) & ~(size_t)7;
     cur_off = symtab_off + 24 * nsym_elf; // Elf64_Sym = 24 bytes
 
@@ -258,7 +272,7 @@ int elf_obj_write(const AsmUnit *u, FILE *out) {
         for (size_t i = 0; i < text->nreloc; i++) {
             const AsmReloc *r = &text->relocs[i];
             buf_le64(&b, (uint64_t)r->address);
-            uint64_t info = ((uint64_t)(r->symbol + 1) << 32) |
+            uint64_t info = ((uint64_t)elf_idx[r->symbol] << 32) |
                             (uint64_t)elf_reloc_type(u->machine, r->type);
             buf_le64(&b, info);
             // x86_64 PC-relative relocations need addend = -4.
@@ -280,7 +294,7 @@ int elf_obj_write(const AsmUnit *u, FILE *out) {
         for (size_t i = 0; i < ds->nreloc; i++) {
             const AsmReloc *r = &ds->relocs[i];
             buf_le64(&b, (uint64_t)r->address);
-            uint64_t info = ((uint64_t)(r->symbol + 1) << 32) |
+            uint64_t info = ((uint64_t)elf_idx[r->symbol] << 32) |
                             (uint64_t)elf_reloc_type(u->machine, r->type);
             buf_le64(&b, info);
             int64_t addend = 0;
@@ -390,6 +404,7 @@ int elf_obj_write(const AsmUnit *u, FILE *out) {
         emit_shdr(&b, name_gnu_stack, SHT_PROGBITS, 0,
                   0, gnu_stack_off, 4, 0, 0, 1, 0);
 
+    free(elf_idx);
     free(sym_strtab_off);
     free(strtab.bytes);
     free(shstrtab.bytes);

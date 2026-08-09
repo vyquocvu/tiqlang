@@ -161,6 +161,14 @@ static SemanticType *struct_lookup(SemanticContext *ctx, Token name) {
     return NULL;
 }
 
+static char *xstrdup(const char *s) {
+    size_t len = strlen(s);
+    char *copy = malloc(len + 1);
+    if (!copy) { fprintf(stderr, "out of memory\n"); exit(1); }
+    memcpy(copy, s, len + 1);
+    return copy;
+}
+
 static void struct_register(SemanticContext *ctx, const char *name, SemanticType *type) {
     if (ctx->struct_count + 1 > ctx->struct_capacity) {
         int new_cap = ctx->struct_capacity < 8 ? 8 : ctx->struct_capacity * 2;
@@ -168,7 +176,7 @@ static void struct_register(SemanticContext *ctx, const char *name, SemanticType
         if (!ctx->structs) { fprintf(stderr, "out of memory\n"); exit(1); }
         ctx->struct_capacity = new_cap;
     }
-    ctx->structs[ctx->struct_count].name = strdup(name);
+    ctx->structs[ctx->struct_count].name = xstrdup(name);
     ctx->structs[ctx->struct_count].type = type;
     ctx->struct_count++;
 }
@@ -772,6 +780,11 @@ static void check_node(SemanticContext *ctx, AstNode *node) {
                     } else {
                         node->semantic_type = tt;
                     }
+                } else if (tt && !node->as.conditional.else_branch) {
+                    // M25: one-arm conditional (`cond ? then`). The condition
+                    // is checked for bool above; the then-branch value is
+                    // discarded and the conditional's type is unit.
+                    node->semantic_type = ty(ctx, TYPE_UNIT);
                 } else if (tt) {
                     node->semantic_type = tt;
                 } else {
@@ -1575,8 +1588,7 @@ static void check_node(SemanticContext *ctx, AstNode *node) {
                                "extern parameter type is not FFI-safe");
                     continue;
                 }
-                Token elem;
-                elem.kind = TOK_EOF;
+                Token elem = {0};
                 if (node->as.function.param_elem_annots)
                     elem = node->as.function.param_elem_annots[i];
                 SemanticType *cont = resolve_container_annot(ctx, annot, elem);
@@ -1678,8 +1690,7 @@ static void check_node(SemanticContext *ctx, AstNode *node) {
                     node->as.function.param_type_annots[i].kind == TOK_IDENT) {
                     // M13.1-P8: container annotations resolve before plain
                     // names (vec/strbuf/map win in annotation position).
-                    Token elem_tok;
-                    elem_tok.kind = TOK_EOF;
+                    Token elem_tok = {0};
                     if (node->as.function.param_elem_annots)
                         elem_tok = node->as.function.param_elem_annots[i];
                     SemanticType *cont = resolve_container_annot(ctx,

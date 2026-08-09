@@ -26,14 +26,14 @@ ends_with s:str suf:str -> i64 -> {
     n <- len(s)
     m <- len(suf)
     r <- 0
-    ?[m <= n && str_eq(str_sub(s, n - m, n), suf)] { r <- 1 }
+    m <= n && str_eq(str_sub(s, n - m, n), suf) ? { r <- 1 }
     r
 }
 
 pad3 n:i64 -> str -> {
     b <- str_buf_new()
-    ?[n < 100] { str_buf_append(b, " ") }
-    ?[n < 10] { str_buf_append(b, " ") }
+    n < 100 ? { str_buf_append(b, " ") }
+    n < 10 ? { str_buf_append(b, " ") }
     str_buf_append(b, int_str(n))
     str_buf_to_str(b)
 }
@@ -42,7 +42,7 @@ pad3 n:i64 -> str -> {
 // iterations (fresh driver state per iteration, exactly like the C parser
 // init), then prints per-phase averages and throughput to stdout.
 bench_file path:str iter:i64 -> i64 -> {
-    ?[str_eq(fs_read(path), "")] {
+    str_eq(fs_read(path), "") ? {
         eprint(str_cat("tiq bench: cannot read ", path))
         proc_exit(1)
     }
@@ -99,21 +99,21 @@ bench_file path:str iter:i64 -> i64 -> {
     print(str_cat("  parser:    ", pad3(par_avg)))
     print(str_cat("  semantic:  ", pad3(sem_avg)))
     print(str_cat("  total:     ", pad3(tot_avg)))
-    ?[tot_acc > 0] {
+    tot_acc > 0 ? {
         thr <- size * iter * 1000 / tot_acc
         print(str_cat(str_cat("  throughput: ", int_str(thr)), " bytes/s"))
     }
-    ?[tot_acc == 0] { print("  throughput: (too fast to measure)") }
+    tot_acc == 0 ? { print("  throughput: (too fast to measure)") }
     0
 }
 
 // Benchmark a whole target: a named .tiq file, or every .tiq file in a
 // directory (non-recursive). Files whose names begin with '.' are ignored.
 bench_target t:str iter:i64 files:vec[str] -> i64 -> {
-    ?[ends_with(t, ".tiq") == 1] {
+    ends_with(t, ".tiq") == 1 ? {
         vec_push(files, t)
     }
-    ?[ends_with(t, ".tiq") == 0] {
+    ends_with(t, ".tiq") == 0 ? {
         names <- fs_list(t)
         n <- len(names)
         pos <- 0
@@ -121,7 +121,7 @@ bench_target t:str iter:i64 files:vec[str] -> i64 -> {
             e <- pos
             [e < n && str_sub_code(names, e) != 10] { e <- e + 1 }
             name <- str_sub(names, pos, e)
-            ?[str_sub_code(name, 0) != 46 && ends_with(name, ".tiq") == 1] {
+            str_sub_code(name, 0) != 46 && ends_with(name, ".tiq") == 1 ? {
                 vec_push(files, str_cat(str_cat(t, "/"), name))
             }
             pos <- e + 1
@@ -137,19 +137,19 @@ i <- 0
 [i < nargs] {
     a <- cli_arg(i)
     used <- 0
-    ?[str_eq(a, "-i") && i + 1 < nargs] {
+    str_eq(a, "-i") && i + 1 < nargs ? {
         i <- i + 1
         iter <- json_parse_int(cli_arg(i))
         used <- 1
     }
-    ?[used == 0 && str_sub_code(a, 0) != 45] { bench_target(a, iter, files) }
+    used == 0 && str_sub_code(a, 0) != 45 ? { bench_target(a, iter, files) }
     i <- i + 1
 }
-?[iter < 1] {
+iter < 1 ? {
     eprint("tiq bench: -i iterations must be a positive integer")
     proc_exit(2)
 }
-?[vec_len(files) == 0] {
+vec_len(files) == 0 ? {
     eprint("tiq bench: no .tiq files given")
     proc_exit(2)
 }
