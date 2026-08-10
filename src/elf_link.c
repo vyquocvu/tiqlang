@@ -352,13 +352,6 @@ int link_elf_exec(const ElfObject *objs, size_t nobj, const char *entry,
     uint64_t rela_plt_vm = data_vm + rela_plt_seg_off;
     uint64_t dynamic_vm = data_vm + dynamic_seg_off;
 
-    fprintf(stderr, "DBG total_text=%zu text_file_off=%zu plt_file_off=%zu plt_vm=0x%llx plt_size=%zu rodata_file_off=%zu rodata_vm=0x%llx total_rodata=%zu data_seg_off=%zu data_seg_vm=0x%llx got_seg_off=%zu got_vm=0x%llx got_size=%zu dynsym_seg_off=%zu dynsym_vm=0x%llx next=%zu\n",
-        total_text, text_file_off, plt_file_off, (unsigned long long)plt_vm, plt_size,
-        rodata_file_off, (unsigned long long)rodata_vm, total_rodata,
-        data_seg_off, (unsigned long long)data_seg_vm, got_seg_off,
-        (unsigned long long)got_vm, got_size, dynsym_seg_off,
-        (unsigned long long)(data_vm + dynsym_seg_off), next);
-
     // Section headers (0 for executable).
     uint16_t shnum = 0;
 
@@ -529,10 +522,6 @@ int link_elf_exec(const ElfObject *objs, size_t nobj, const char *entry,
         for (uint32_t r = 0; r < t->nreloc; r++) {
             const ElfReloc *rel = &t->relocs[r];
             uint8_t *loc = text_base + text_off[o] + rel->offset;
-            if (rel->sym >= 0 && (uint32_t)rel->sym < objs[o].nsymbol) {
-                const ElfSymbol *ts = &objs[o].symbols[rel->sym];
-                fprintf(stderr, "RELOC obj=%zu sym='%s' type=%d off=0x%llx\n", o, ts->name, rel->type, (unsigned long long)rel->offset);
-            }
 
             // Resolve the symbol.
             const ElfSymbol *sym = NULL;
@@ -562,11 +551,6 @@ int link_elf_exec(const ElfObject *objs, size_t nobj, const char *entry,
                         if (sym_defined) {
                             const ElfSymbol *def = &objs[sym_oi].symbols[sym_si];
                             S = symbol_vm(text_off, rodata_off, data_off, bss_off, sym_oi, def, text_vm_off, rodata_vm, data_vm, bss_seg_off);
-                            if (strcmp(sym->name, "tiq_argc_global") == 0 || strcmp(sym->name, "tiq_argv_global") == 0)
-                                fprintf(stderr, "DBG %s S=0x%llx sec=%d data_vm=0x%llx bss_off=%zu val=%llu P=0x%llx\n",
-                                    sym->name, (unsigned long long)S, def->section,
-                                    (unsigned long long)data_vm, bss_off[sym_oi],
-                                    (unsigned long long)def->value, (unsigned long long)P);
                         } else if (sym) {
                             // External: redirect to PLT entry.
                             int plt_idx = -1;

@@ -1245,6 +1245,9 @@ static void encode_instruction(Ctx *c, const char *mnem, Operand *ops, int nop) 
     if (strcmp(mnem, "nop") == 0) { sec_put8(c, 0x90); return; }
     if (strcmp(mnem, "cqto") == 0) { emit_rex(c, 1, 0, 0, 0); sec_put8(c, 0x99); return; }
     if (strcmp(mnem, "cltd") == 0) { sec_put8(c, 0x99); return; }
+    // syscall (0F 05): used by the native linkers' _start stubs and by the
+    // PE linker test exit path (issue #7, 2026-08-10). Beyond the QBE subset
+    // but kept as a first-class no-operand form.
     if (strcmp(mnem, "syscall") == 0) { sec_put8(c, 0x0F); sec_put8(c, 0x05); return; }
 
     // ALU operations.
@@ -1397,6 +1400,7 @@ static void handle_directive(Ctx *c, const char *dir, const char *args) {
         } else if (strncmp(args, ".data", 5) == 0) {
             c->cur = ASM_SEC_DATA; c->u->sec[ASM_SEC_DATA].used = 1;
         } else if (strncmp(args, ".note.GNU-stack", 15) == 0) {
+            // Non-executable stack marker QBE emits on the amd64/ELF path.
             c->u->has_gnu_stack = 1;
         } else {
             // Unknown section — fail closed.

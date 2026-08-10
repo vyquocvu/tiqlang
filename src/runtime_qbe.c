@@ -115,6 +115,12 @@ int64_t tiq_clock_ms(void) {
 // QBE generates $main as the entry point. We need a C `main` that calls it.
 // This is handled by the linker: we provide `main` here that calls
 // `tiq_user_main` (the QBE-compiled function).
+//
+// `main` must `exit(0)`, never `return 0`: the integrated native linkers
+// (Mach-O, ELF, PE) point the process entry at this function directly, so
+// there is no C runtime wrapper around it to consume the return value.
+// A `ret` here would pop the linker-provided argc (1) as the return address
+// and crash (issue #7, 2026-08-10).
 
 extern void tiq_user_main(void);
 
