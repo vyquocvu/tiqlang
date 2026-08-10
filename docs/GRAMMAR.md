@@ -29,8 +29,8 @@ program       = { import_decl }, { top_item } ;                    (* ✅ — im
 import_decl   = "import", string_literal ;                          (* ✅ — M13.1-P6; path relative to importing file *)
 top_item      = function_def | extern_decl | struct_def | enum_def | binding | statement ; (* ✅ — extern_decl M16.1 *)
 
-function_def  = identifier, { param }, "->", [ ( type | container_type ), "->" ], expression ;  (* ✅ — param:type M12.4; container_type M13.1-P8 *)
-extern_decl   = "extern", string_literal, identifier, { param }, "->", ( type | container_type ) ; (* ✅ — M16.1; ABI operand must be "C" (E29); annotated params mandatory (E29), borrow prefixes E23; no body *)
+function_def  = identifier, { param }, [ ":", type ], "->", expression ;  (* ✅ — M25: ':' return type, sole '->' introduces body (issue #8) *)
+extern_decl   = "extern", string_literal, identifier, { param }, ":", type ; (* ✅ — M16.1/M25; ABI operand must be "C" (E29); annotated params mandatory (E29), borrow prefixes E23; no body *)
 param         = identifier, [ ":", param_type ] ;                        (*  ✅ — M12.4 *)
 param_type    = [ "&", [ "mut" ] ], ( type | container_type ) ;   (* ✅ — M9.1 borrowed params; "&" on container_type is semantic E23 (M13.1-P8) *)
 struct_def    = "struct", identifier, "{", { field_def, [ "," ] }, "}" ; (* ✅ — M12.6 *)
@@ -97,7 +97,7 @@ container_type = "strbuf" | "map" | ( "vec", "[", type_name, "]" ) ; (* ✅ — 
 
 Function application without parentheses, as in `fib n`, is allowed only in a function declaration parameter list. Calls use parentheses in v0.1 to avoid whitespace-sensitive ambiguity.
 
-**Type annotations (M12.4)**: `function_def` parameters may have optional type annotations (`param:type`). An optional return type may follow the parameter list (`-> type -> body`). When omitted, types are inferred from use. A program whose recursive or exported function type cannot be inferred is rejected.
+**Type annotations (M12.4/M25)**: `function_def` parameters may have optional type annotations (`param:type`). An optional return type may follow the parameter list (`: type -> body`), using `:` for type information and reserving `->` for body introduction (issue #8). When omitted, types are inferred from use. A program whose recursive or exported function type cannot be inferred is rejected.
 
 **Container annotations (M13.1-P8)**: `container_type` is accepted only in function parameter and return annotation position — `strbuf` and `map` parse exactly like plain type names, and `vec` must be immediately followed by `[`, a single element type name, and `]` (reusing the existing bracket tokens, so the grammar stays LL(1) with no new token kinds). `vec`, `strbuf`, and `map` remain ordinary identifiers everywhere else. Container annotations are not valid struct field types (fail closed, semantic E09).
 

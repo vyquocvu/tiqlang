@@ -8,6 +8,6 @@
 // zero-parameter function syntax, so it stays a core builtin available
 // without this import.
 
-ev_add loop:i64 fd:i64 -> i64 -> { ev_add(loop, fd) }
-ev_wait loop:i64 timeout:i64 -> i64 -> { ev_wait(loop, timeout) }
-ev_ready loop:i64 idx:i64 -> i64 -> { ev_ready(loop, idx) }
+ev_add loop:i64 fd:i64 : i64 -> { ev_add(loop, fd) }
+ev_wait loop:i64 timeout:i64 : i64 -> { ev_wait(loop, timeout) }
+ev_ready loop:i64 idx:i64 : i64 -> { ev_ready(loop, idx) }

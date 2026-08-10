@@ -11,7 +11,7 @@ import "std/net.tiq"
 import "std/json.tiq"
 
 // Extract port from http://host:port URL. Returns 7070 as default.
-extract_port url:str -> i64 -> {
+extract_port url:str : i64 -> {
     r <- 7070
     n <- len(url)
     colon_at <- -1
@@ -34,7 +34,7 @@ extract_port url:str -> i64 -> {
 }
 
 // Send HTTP DELETE request and return the response body (JSON).
-http_delete host_port:i64 url_path:str -> str -> {
+http_delete host_port:i64 url_path:str : str -> {
     r <- ""
     conn <- net_connect(host_port)
     conn < 0 ? { r <- "" }

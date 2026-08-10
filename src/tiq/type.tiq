@@ -59,14 +59,14 @@ enum TF {
 }
 
 // TW must equal the number of TF variants.
-ty_width d:i64 -> i64 -> 8
+ty_width d:i64 : i64 -> 8
 
 // Read field f of pooled type i.
-tf_get tp:vec[int] i:i64 f:i64 -> i64 -> vec_get(tp, i * 8 + f)
+tf_get tp:vec[int] i:i64 f:i64 : i64 -> vec_get(tp, i * 8 + f)
 
 // intern(): the generic structural interner. Named structs are nominal and
 // never match structurally; identity is (kind, element, length, pc).
-ty_intern tp:vec[int] tpn:vec[str] kind:i64 elem:i64 len:i64 pc:i64 -> i64 -> {
+ty_intern tp:vec[int] tpn:vec[str] kind:i64 elem:i64 len:i64 pc:i64 : i64 -> {
     n = vec_len(tp) / 8
     r <- 0 - 1
     i <- 0
@@ -96,20 +96,20 @@ ty_intern tp:vec[int] tpn:vec[str] kind:i64 elem:i64 len:i64 pc:i64 -> i64 -> {
 // type_get / type_get_func / type_get_array / type_get_slice /
 // type_get_ref / type_get_vec: thin wrappers over the generic interner,
 // exactly as in C (a vec's element may be -1 = unestablished).
-ty_get tp:vec[int] tpn:vec[str] kind:i64 -> i64 -> ty_intern(tp, tpn, kind, 0 - 1, 0, 0)
+ty_get tp:vec[int] tpn:vec[str] kind:i64 : i64 -> ty_intern(tp, tpn, kind, 0 - 1, 0, 0)
 
-ty_func tp:vec[int] tpn:vec[str] ret:i64 pc:i64 -> i64 -> ty_intern(tp, tpn, ret, 0 - 1, 0, pc)
+ty_func tp:vec[int] tpn:vec[str] ret:i64 pc:i64 : i64 -> ty_intern(tp, tpn, ret, 0 - 1, 0, pc)
 
-ty_array tp:vec[int] tpn:vec[str] elem:i64 len:i64 -> i64 -> ty_intern(tp, tpn, TY.Array, elem, len, 0)
+ty_array tp:vec[int] tpn:vec[str] elem:i64 len:i64 : i64 -> ty_intern(tp, tpn, TY.Array, elem, len, 0)
 
-ty_slice tp:vec[int] tpn:vec[str] elem:i64 -> i64 -> ty_intern(tp, tpn, TY.Slice, elem, 0, 0)
+ty_slice tp:vec[int] tpn:vec[str] elem:i64 : i64 -> ty_intern(tp, tpn, TY.Slice, elem, 0, 0)
 
-ty_ref tp:vec[int] tpn:vec[str] elem:i64 is_mut:i64 -> i64 -> ty_intern(tp, tpn, is_mut == 1 ? TY.RefMut : TY.Ref, elem, 0, 0)
+ty_ref tp:vec[int] tpn:vec[str] elem:i64 is_mut:i64 : i64 -> ty_intern(tp, tpn, is_mut == 1 ? TY.RefMut : TY.Ref, elem, 0, 0)
 
-ty_vec tp:vec[int] tpn:vec[str] elem:i64 -> i64 -> ty_intern(tp, tpn, TY.Vec, elem, 0, 0)
+ty_vec tp:vec[int] tpn:vec[str] elem:i64 : i64 -> ty_intern(tp, tpn, TY.Vec, elem, 0, 0)
 
 // type_get_option(): structural, matched on (kind, inner) in its own loop.
-ty_option tp:vec[int] tpn:vec[str] inner:i64 -> i64 -> {
+ty_option tp:vec[int] tpn:vec[str] inner:i64 : i64 -> {
     n = vec_len(tp) / 8
     r <- 0 - 1
     i <- 0
@@ -137,7 +137,7 @@ ty_option tp:vec[int] tpn:vec[str] inner:i64 -> i64 -> {
 }
 
 // type_get_result(): structural on (kind, inner, error).
-ty_result tp:vec[int] tpn:vec[str] inner:i64 error:i64 -> i64 -> {
+ty_result tp:vec[int] tpn:vec[str] inner:i64 error:i64 : i64 -> {
     n = vec_len(tp) / 8
     r <- 0 - 1
     i <- 0
@@ -168,7 +168,7 @@ ty_result tp:vec[int] tpn:vec[str] inner:i64 error:i64 -> i64 -> {
 // name only. The caller stages the field names/types into ff/ft FIRST and
 // passes the span; on a nominal hit the staged span is simply abandoned
 // (nothing points at it), mirroring C, which only copies on a miss.
-ty_struct tp:vec[int] tpn:vec[str] name:str fs:i64 fn:i64 -> i64 -> {
+ty_struct tp:vec[int] tpn:vec[str] name:str fs:i64 fn:i64 : i64 -> {
     n = vec_len(tp) / 8
     r <- 0 - 1
     i <- 0
@@ -196,7 +196,7 @@ ty_struct tp:vec[int] tpn:vec[str] name:str fs:i64 fn:i64 -> i64 -> {
 }
 
 // kind_display_name(): the user-facing names in diagnostics.
-kind_disp k:i64 -> str -> match k {
+kind_disp k:i64 : str -> match k {
     TY.Int => "int",
     TY.Float => "float",
     TY.Str => "str",
@@ -228,7 +228,7 @@ kind_disp k:i64 -> str -> match k {
 // type_display(): the diagnostic rendering ("vec<int>", "[]str", "&mut T",
 // "T?", "T!E", struct names). A -1 type renders as "" (the C NULL), and an
 // absent element inside a compound renders as "unknown".
-disp tp:vec[int] tpn:vec[str] t:i64 -> str -> {
+disp tp:vec[int] tpn:vec[str] t:i64 : str -> {
     r <- ""
     [(t != 0 - 1)] {
         k = vec_get(tp, t * 8 + TF.Kind)
@@ -286,7 +286,7 @@ disp tp:vec[int] tpn:vec[str] t:i64 -> str -> {
 
 // type_kind_name() from src/parser.c: the TYPE_* names of the typed dump.
 // TYPE_UNKNOWN and TYPE_CHAN fall to the C default:.
-tkn k:i64 -> str -> match k {
+tkn k:i64 : str -> match k {
     TY.Int => "TYPE_INT",
     TY.Float => "TYPE_FLOAT",
     TY.Str => "TYPE_STR",
@@ -319,7 +319,7 @@ tkn k:i64 -> str -> match k {
 // dump_type_display() from src/parser.c: ARRAY/SLICE/VEC append ":elem"
 // only when the element renders non-empty; OPTION wraps <...> only when
 // the inner renders non-empty; RESULT always prints <inner,err>.
-tdisp tp:vec[int] tpn:vec[str] t:i64 -> str -> {
+tdisp tp:vec[int] tpn:vec[str] t:i64 : str -> {
     r <- ""
     [(t != 0 - 1)] {
         k = vec_get(tp, t * 8 + TF.Kind)
@@ -366,4 +366,4 @@ tdisp tp:vec[int] tpn:vec[str] t:i64 -> str -> {
 }
 
 // format_type(): the " <BODY>" suffix, empty for an untyped (-1) node.
-fmt_type tp:vec[int] tpn:vec[str] t:i64 -> str -> t == 0 - 1 ? "" : str_cat(str_cat(" <", tdisp(tp, tpn, t)), ">")
+fmt_type tp:vec[int] tpn:vec[str] t:i64 : str -> t == 0 - 1 ? "" : str_cat(str_cat(" <", tdisp(tp, tpn, t)), ">")

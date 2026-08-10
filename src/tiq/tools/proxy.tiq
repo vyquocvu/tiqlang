@@ -23,7 +23,7 @@ import "std/net.tiq"
 import "std/json.tiq"
 
 // Parse a decimal port; 0 for empty, non-numeric, or out-of-range input.
-parse_port s:str -> i64 -> {
+parse_port s:str : i64 -> {
     p <- 0
     flag <- 1
     n <- len(s)
@@ -40,7 +40,7 @@ parse_port s:str -> i64 -> {
 }
 
 // Index just past the header-terminating blank line (\r\n\r\n), or -1.
-find_hdr_end s:str -> i64 -> {
+find_hdr_end s:str : i64 -> {
     r <- 0 - 1
     n <- len(s)
     i <- 0
@@ -54,7 +54,7 @@ find_hdr_end s:str -> i64 -> {
 }
 
 // Content-Length of a request/response header block, 0 when absent.
-hdr_content_len s:str -> i64 -> {
+hdr_content_len s:str : i64 -> {
     v <- http_header(s, "Content-Length")
     r <- 0
     len(v) > 0 ? { r <- json_parse_int(v) }
@@ -63,7 +63,7 @@ hdr_content_len s:str -> i64 -> {
 }
 
 // Fixed-body error response for the fail-closed paths.
-err_resp status:i64 -> str -> {
+err_resp status:i64 : str -> {
     text <- "400 Bad Request"
     status == 413 ? { text <- "413 Payload Too Large" }
     status == 502 ? { text <- "502 Bad Gateway" }
@@ -79,7 +79,7 @@ err_resp status:i64 -> str -> {
 }
 
 // Handle one proxied connection end to end. Always closes `conn`.
-serve_one conn:i64 upstream:i64 -> i64 -> {
+serve_one conn:i64 upstream:i64 : i64 -> {
     // 1. Read the request: headers plus the declared body, capped at 256 KiB.
     buf <- str_buf_new()
     total <- 0

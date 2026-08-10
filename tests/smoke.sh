@@ -693,7 +693,7 @@ get_n src:str -> {
     v = json_get(src, "n")
     json_parse_int(v)
 }
-get_s src:str -> str -> {
+get_s src:str : str -> {
     w = json_get(src, "s")
     w
 }
@@ -768,7 +768,7 @@ cmp "$TMP_DIR/m92e_exit.out" "$TMP_DIR/m92e_exit.expected"
 # end of the statement; a user-function argument is not (LANGUAGE_SPEC §16.4).
 cat > "$TMP_DIR/m92f_tmp.tiq" <<'EOF'
 import "std/json.tiq"
-id x:str -> str -> {
+id x:str : str -> {
     x
 }
 print(json_get("{\"k\": \"one\"}", "k"))
@@ -794,15 +794,15 @@ cmp "$TMP_DIR/m92f_tmp.out" "$TMP_DIR/m92f_tmp.expected"
 # fresh-result calls in argument position are hoisted and freed by the caller.
 cat > "$TMP_DIR/m92g_strfn.tiq" <<'EOF'
 import "std/json.tiq"
-make_s src:str -> str -> {
+make_s src:str : str -> {
     v = json_get(src, "s")
     json_encode_str(v)
 }
-lit_s src:str -> str -> {
+lit_s src:str : str -> {
     w = json_get(src, "s")
     "lit"
 }
-alias_s src:str -> str -> {
+alias_s src:str : str -> {
     u = json_get(src, "s")
     u
 }
@@ -827,12 +827,12 @@ cmp "$TMP_DIR/m92g_strfn.out" "$TMP_DIR/m92g_strfn.expected"
 # position is hoisted and freed by the caller; the alias-returning call is not.
 cat > "$TMP_DIR/m92h_xfer.tiq" <<'EOF'
 import "std/json.tiq"
-pick src:str -> str -> {
+pick src:str : str -> {
     a = json_get(src, "a")
     b = json_get(src, "b")
     b
 }
-alias_ret src:str -> str -> {
+alias_ret src:str : str -> {
     c = json_get(src, "c")
     d = c
     d
@@ -856,16 +856,16 @@ cmp "$TMP_DIR/m92h_xfer.out" "$TMP_DIR/m92h_xfer.expected"
 # (LANGUAGE_SPEC §16.4).
 cat > "$TMP_DIR/m92i_call.tiq" <<'EOF'
 import "std/json.tiq"
-mk src:str -> str -> {
+mk src:str : str -> {
     a = json_get(src, "a")
     json_encode_str(a)
 }
-pick src:str -> str -> {
+pick src:str : str -> {
     b = json_get(src, "b")
     c = json_get(src, "c")
     c
 }
-lit src:str -> str -> {
+lit src:str : str -> {
     "static"
 }
 v = mk("{\"a\": \"hi\"}")
@@ -891,18 +891,18 @@ cmp "$TMP_DIR/m92i_call.out" "$TMP_DIR/m92i_call.expected"
 # still not a hoist position (LANGUAGE_SPEC §16.4).
 cat > "$TMP_DIR/m92j_tmp.tiq" <<'EOF'
 import "std/json.tiq"
-mk src:str -> str -> {
+mk src:str : str -> {
     a = json_get(src, "a")
     json_encode_str(a)
 }
-wrap s:str -> str -> {
+wrap s:str : str -> {
     json_encode_str(s)
 }
-pick src:str -> str -> {
+pick src:str : str -> {
     b = json_get(src, "b")
     b
 }
-keep x:str -> str -> {
+keep x:str : str -> {
     x
 }
 mk("{\"a\": \"one\"}")
@@ -950,7 +950,7 @@ cmp "$TMP_DIR/m106_jview.out" "$TMP_DIR/m106_jview.expected"
 # non-owning branch (e.g. a literal) does not create an owner.
 cat > "$TMP_DIR/m92k_cond.tiq" <<'EOF'
 import "std/json.tiq"
-mk src:str -> str -> {
+mk src:str : str -> {
     a = json_get(src, "a")
     json_encode_str(a)
 }
@@ -993,7 +993,7 @@ cmp "$TMP_DIR/m107_jhas.out" "$TMP_DIR/m107_jhas.expected"
 # is not hoisted (leaks, never dangles).
 cat > "$TMP_DIR/m92l_cond_tmp.tiq" <<'EOF'
 import "std/json.tiq"
-mk src:str -> str -> {
+mk src:str : str -> {
     json_get(src, "v")
 }
 a = json_get("{\"k\": \"hello\"}", "k")
@@ -1557,12 +1557,12 @@ cmp "$TMP_DIR/p8_str_index_oob.err" "$TMP_DIR/p8_str_index_oob.err.expected"
 # unestablished vec is established by the annotated parameter, and a
 # vec[int] return carries the element type to the caller. Output pinned.
 cat > "$TMP_DIR/p8_vec_across_fns.tiq" <<'EOF'
-fill v:vec[int] -> int -> {
+fill v:vec[int] : int -> {
   vec_push(v, 10)
   vec_push(v, 20)
   vec_len(v)
 }
-mk seed:int -> vec[int] -> {
+mk seed:int : vec[int] -> {
   v = vec_new()
   vec_push(v, seed)
   v
@@ -1583,7 +1583,7 @@ cmp "$TMP_DIR/p8_vec_across_fns.out" "$TMP_DIR/p8_vec_across_fns.expected"
 # its nominal element type intact (§19.10).
 cat > "$TMP_DIR/p8_vec_struct_across.tiq" <<'EOF'
 struct Tok { kind: int, val: int }
-first v:vec[Tok] -> Tok -> vec_get(v, 0)
+first v:vec[Tok] : Tok -> vec_get(v, 0)
 v = vec_new()
 vec_push(v, Tok { kind: 2, val: 5 })
 t = first(v)
@@ -1597,7 +1597,7 @@ cmp "$TMP_DIR/p8_vec_struct_across.out" "$TMP_DIR/p8_vec_struct_across.expected"
 # M13.1-P8 item 2: a strbuf handle passed to a function is appended
 # through the shared handle; the caller snapshots the result (§19.10).
 cat > "$TMP_DIR/p8_strbuf_across.tiq" <<'EOF'
-addtwice sb:strbuf s:str -> int -> {
+addtwice sb:strbuf s:str : int -> {
   str_buf_append(sb, s)
   str_buf_append(sb, s)
   str_buf_len(sb)
@@ -1616,7 +1616,7 @@ cmp "$TMP_DIR/p8_strbuf_across.out" "$TMP_DIR/p8_strbuf_across.expected"
 # M13.1-P8 item 2: a map set in the callee is visible in the caller —
 # shared-handle semantics, not a copy (§19.10).
 cat > "$TMP_DIR/p8_map_across.tiq" <<'EOF'
-put m:map -> int -> map_set(m, "answer", 42)
+put m:map : int -> map_set(m, "answer", 42)
 m = map_new()
 put(m)
 print(map_get(m, "answer"))
@@ -1632,8 +1632,8 @@ cmp "$TMP_DIR/p8_map_across.out" "$TMP_DIR/p8_map_across.expected"
 # type_get_func interns function return types per-arity). Output pinned:
 # f(1)=2, f(2)=3, so sum(v)=5 and vec_get(v,1)+1 = 4.
 cat > "$TMP_DIR/p9_vec_helper_fill.tiq" <<'EOF'
-f x:int -> int -> x + 1
-sum v:vec[int] -> int -> {
+f x:int : int -> x + 1
+sum v:vec[int] : int -> {
   total <- 0
   n = vec_len(v)
   [i <- 0..n] { total += vec_get(v, i) }

@@ -75,7 +75,7 @@ enum PM {
 
 // Is `k` an operator of binary level `lv`? One row per C function
 // (fallback .. multiplicative).
-lvl_op lv:i64 k:i64 -> i64 -> match lv {
+lvl_op lv:i64 k:i64 : i64 -> match lv {
     PM.Fb => k == TokenKind.QuestionQuestion ? 1 : 0,
     PM.LOr => k == TokenKind.OrOr ? 1 : 0,
     PM.LAnd => k == TokenKind.AndAnd ? 1 : 0,
@@ -92,11 +92,11 @@ lvl_op lv:i64 k:i64 -> i64 -> match lv {
 
 // Levels handled by the shared left-associative loop. Rng sits between Shf
 // and Add and is NOT one of them (it is right-open and non-repeating).
-lvl_gen lv:i64 -> i64 -> (lv >= PM.Fb && lv <= PM.Shf) || lv == PM.Add || lv == PM.Mul ? 1 : 0
+lvl_gen lv:i64 : i64 -> (lv >= PM.Fb && lv <= PM.Shf) || lv == PM.Add || lv == PM.Mul ? 1 : 0
 
 // Clamp a token index to the trailing EOF token: the C lexer returns EOF
 // forever once the source is exhausted, and lex_scan emits exactly one.
-p_ix toks:vec[Token] i:i64 -> i64 -> {
+p_ix toks:vec[Token] i:i64 : i64 -> {
     last = vec_len(toks) - 1
     i > last ? last : i
 }
@@ -104,7 +104,7 @@ p_ix toks:vec[Token] i:i64 -> i64 -> {
 // The C `Lexer peek_lexer` idiom: the first non-NEWLINE token at or after
 // i (every peek site in src/parser.c skips newlines except the ternary
 // lookahead, which stops at them and walks raw indices instead).
-p_peek toks:vec[Token] i:i64 -> i64 -> {
+p_peek toks:vec[Token] i:i64 : i64 -> {
     j <- p_ix(toks, i)
     [tk_kind(toks, j) == TokenKind.Newline] { j <- p_ix(toks, j + 1) }
     j
@@ -114,7 +114,7 @@ p_peek toks:vec[Token] i:i64 -> i64 -> {
 //   '(' IDENT {',' IDENT} [';' IDENT] ')' '->'
 // Current token must be '('. Returns 1 if binder syntax, 0 otherwise.
 // Uses only ?[cond] { } (no else) since ?[]{}{} is not a statement form.
-p_is_binder toks:vec[Token] st:vec[int] -> i64 -> {
+p_is_binder toks:vec[Token] st:vec[int] : i64 -> {
     res <- 0
     tk_kind(toks, vec_get(st, PS.Cur)) == TokenKind.Lparen ? {
         j <- p_peek(toks, vec_get(st, PS.Cur) + 1)
@@ -163,13 +163,13 @@ p_is_binder toks:vec[Token] st:vec[int] -> i64 -> {
 }
 
 // parser->current.kind / the two token indices.
-p_ck toks:vec[Token] st:vec[int] -> i64 -> tk_kind(toks, vec_get(st, PS.Cur))
-p_ci st:vec[int] -> i64 -> vec_get(st, PS.Cur)
-p_pi st:vec[int] -> i64 -> vec_get(st, PS.Prev)
+p_ck toks:vec[Token] st:vec[int] : i64 -> tk_kind(toks, vec_get(st, PS.Cur))
+p_ci st:vec[int] : i64 -> vec_get(st, PS.Cur)
+p_pi st:vec[int] : i64 -> vec_get(st, PS.Prev)
 
 // advance(): previous = current, then step to the next non-NEWLINE token,
 // recording whether any NEWLINE was crossed.
-p_advance toks:vec[Token] st:vec[int] -> i64 -> {
+p_advance toks:vec[Token] st:vec[int] : i64 -> {
     cur = vec_get(st, PS.Cur)
     vec_set(st, PS.Prev, cur)
     vec_set(st, PS.Crossed, 0)
@@ -183,7 +183,7 @@ p_advance toks:vec[Token] st:vec[int] -> i64 -> {
 }
 
 // match(): consume the token when it is `k`, reporting whether it was.
-p_matchk toks:vec[Token] st:vec[int] k:i64 -> i64 -> {
+p_matchk toks:vec[Token] st:vec[int] k:i64 : i64 -> {
     r <- 0
     tk_kind(toks, vec_get(st, PS.Cur)) == k ? {
         p_advance(toks, st)
@@ -193,7 +193,7 @@ p_matchk toks:vec[Token] st:vec[int] k:i64 -> i64 -> {
 }
 
 // diag_error(): stderr in src/diag.c's format, and has_error is latched.
-p_diag st:vec[int] path:str ln:i64 code:i64 msg:str -> i64 -> {
+p_diag st:vec[int] path:str ln:i64 code:i64 msg:str : i64 -> {
     vec_set(st, PS.HasErr, 1)
     eprint(diag_line(path, ln, code, msg))
     0
@@ -201,7 +201,7 @@ p_diag st:vec[int] path:str ln:i64 code:i64 msg:str -> i64 -> {
 
 // error_at_current(): report at the current token's line, then consume it
 // so every parse loop makes progress (fuzz 0.4).
-p_errcur toks:vec[Token] st:vec[int] path:str code:i64 msg:str -> i64 -> {
+p_errcur toks:vec[Token] st:vec[int] path:str code:i64 msg:str : i64 -> {
     p_diag(st, path, tk_line(toks, vec_get(st, PS.Cur)), code, msg)
     tk_kind(toks, vec_get(st, PS.Cur)) != TokenKind.Eof ? {
         p_advance(toks, st)
@@ -210,7 +210,7 @@ p_errcur toks:vec[Token] st:vec[int] path:str code:i64 msg:str -> i64 -> {
 }
 
 // consume(): expect and eat `k`, else error_at_current.
-p_expect toks:vec[Token] st:vec[int] path:str k:i64 code:i64 msg:str -> i64 -> {
+p_expect toks:vec[Token] st:vec[int] path:str k:i64 code:i64 msg:str : i64 -> {
     found <- 0
     tk_kind(toks, vec_get(st, PS.Cur)) == k ? {
         p_advance(toks, st)
@@ -226,7 +226,7 @@ p_expect toks:vec[Token] st:vec[int] path:str k:i64 code:i64 msg:str -> i64 -> {
 // production; the return value is a node index into `nodes`, or -1 for the
 // C parser's NULL. Every branch is a guarded block sequenced on the `hit`
 // sentinel, because Tiq has no early return.
-pnode mode:i64 src:str path:str toks:vec[Token] st:vec[int] nodes:vec[int] kids:vec[int] sk:vec[int] sk2:vec[int] -> i64 -> {
+pnode mode:i64 src:str path:str toks:vec[Token] st:vec[int] nodes:vec[int] kids:vec[int] sk:vec[int] sk2:vec[int] : i64 -> {
     res <- -1
     hit <- 0
 
@@ -884,7 +884,7 @@ pnode mode:i64 src:str path:str toks:vec[Token] st:vec[int] nodes:vec[int] kids:
 // declaration(): the top-level productions — import, struct, enum,
 // binding, function — falling back to statement(). Not part of the
 // pnode cycle, so it is a separate function declared after it.
-p_decl src:str path:str toks:vec[Token] st:vec[int] nodes:vec[int] kids:vec[int] sk:vec[int] sk2:vec[int] -> i64 -> {
+p_decl src:str path:str toks:vec[Token] st:vec[int] nodes:vec[int] kids:vec[int] sk:vec[int] sk2:vec[int] : i64 -> {
     res <- -1
     hit <- 0
     k0 = p_ck(toks, st)
@@ -1012,8 +1012,18 @@ p_decl src:str path:str toks:vec[Token] st:vec[int] nodes:vec[int] kids:vec[int]
             nd_set(nodes, n, NF.L1n, pc)
             nd_set(nodes, n, NF.L2s, kids_flush(sk2, kids, ab))
             nd_set(nodes, n, NF.L2n, ac)
-            p_expect(toks, st, path, TokenKind.Rarrow, 4, "expected '->' after extern parameters")
-            p_expect(toks, st, path, TokenKind.Ident, 4, "expected return type after '->'")
+            // M25 (issue #8): ':' introduces the return type; a legacy '->'
+            // separator gets a one-shot migration diagnostic and is consumed.
+            legacy_arrow <- 0
+            p_ck(toks, st) == TokenKind.Rarrow ? {
+                legacy_arrow <- 1
+                p_diag(st, path, tk_line(toks, p_ci(st)), 4, "extern return type annotations use ':': write ': Type'")
+                p_advance(toks, st)
+            }
+            legacy_arrow == 0 ? {
+                p_expect(toks, st, path, TokenKind.Colon, 4, "expected ':' before extern return type")
+            }
+            p_expect(toks, st, path, TokenKind.Ident, 4, "expected return type after ':'")
             nd_set(nodes, n, NF.R1, p_pi(st))
             // vec[T] return annotation parses here so semantic can reject
             // it as not FFI-safe (E29) instead of cascading a parse error.
@@ -1027,6 +1037,13 @@ p_decl src:str path:str toks:vec[Token] st:vec[int] nodes:vec[int] kids:vec[int]
                     p_diag(st, path, tk_line(toks, p_ci(st)), 4, "expected element type name in vec[...]")
                 }
                 p_expect(toks, st, path, TokenKind.Rbracket, 4, "expected ']' after vec element type")
+            }
+            // An extern has no body; reject an attempted body marker directly
+            // instead of letting it cascade as a top-level expression error.
+            p_ck(toks, st) == TokenKind.Rarrow ? {
+                p_diag(st, path, tk_line(toks, p_ci(st)), 4, "extern declarations end after the return type")
+                p_advance(toks, st)
+                pnode(PM.Cond, src, path, toks, st, nodes, kids, sk, sk2)
             }
         }
         res <- n
@@ -1187,36 +1204,58 @@ p_decl src:str path:str toks:vec[Token] st:vec[int] nodes:vec[int] kids:vec[int]
             nd_set(nodes, n, NF.L1n, pc)
             nd_set(nodes, n, NF.L2s, kids_flush(sk2, kids, ab))
             nd_set(nodes, n, NF.L2n, ac)
-            p_expect(toks, st, path, TokenKind.Rarrow, 4, "expected '->' after function parameters")
-            // Optional return annotation: `-> type ->` or `-> vec[T] ->`.
-            // Only the exact 4-token shape is an annotation; anything else
-            // stays part of the body (fail closed).
-            p_ck(toks, st) == TokenKind.Ident ? {
-                ci = p_ci(st)
-                pk1 = p_peek(toks, ci + 1)
-                isv = str_eq(tk_lex(src, toks, ci), "vec")
-                // `took` mirrors C's if/else-if: the plain `type ->` form is
-                // only considered when the vec[...] shape did not apply.
-                took <- 0
-                isv && tk_kind(toks, pk1) == TokenKind.Lbracket ? {
-                    took <- 1
-                    t1 = p_peek(toks, pk1 + 1)
-                    t2 = p_peek(toks, t1 + 1)
-                    t3 = p_peek(toks, t2 + 1)
-                    tk_kind(toks, t1) == TokenKind.Ident && tk_kind(toks, t2) == TokenKind.Rbracket && tk_kind(toks, t3) == TokenKind.Rarrow ? {
-                        nd_set(nodes, n, NF.R1, ci)
-                        p_advance(toks, st)
-                        p_advance(toks, st)
-                        nd_set(nodes, n, NF.R2, p_ci(st))
-                        p_advance(toks, st)
-                        p_expect(toks, st, path, TokenKind.Rbracket, 4, "expected ']' after vec element type")
+            // M25 (issue #8): ':' introduces the return type and the sole
+            // '->' introduces the body.
+            took_colon <- 0
+            p_ck(toks, st) == TokenKind.Colon ? {
+                took_colon <- 1
+                p_advance(toks, st)
+                p_expect(toks, st, path, TokenKind.Ident, 4, "expected return type after ':'")
+                nd_set(nodes, n, NF.R1, p_pi(st))
+                // vec[T] container return annotation (M13.1-P8).
+                str_eq(tk_lex(src, toks, nd_get(nodes, n, NF.R1)), "vec") && p_ck(toks, st) == TokenKind.Lbracket ? {
+                    p_advance(toks, st)
+                    p_expect(toks, st, path, TokenKind.Ident, 4, "expected element type name in vec[...]")
+                    nd_set(nodes, n, NF.R2, p_pi(st))
+                    p_expect(toks, st, path, TokenKind.Rbracket, 4, "expected ']' after vec element type")
+                }
+                p_expect(toks, st, path, TokenKind.Rarrow, 4, "expected '->' after function signature")
+            }
+            took_colon == 0 ? {
+                p_expect(toks, st, path, TokenKind.Rarrow, 4, "expected '->' after function parameters")
+                // Recover the removed `-> Type ->` spelling as one located
+                // migration diagnostic, then consume it so parsing continues
+                // at the body without a cascade.
+                p_ck(toks, st) == TokenKind.Ident ? {
+                    ci = p_ci(st)
+                    pk1 = p_peek(toks, ci + 1)
+                    isv = str_eq(tk_lex(src, toks, ci), "vec")
+                    legacy <- 0
+                    // `took` mirrors C's if/else-if: the plain `type ->` form
+                    // is only considered when the vec[...] shape did not apply.
+                    took <- 0
+                    isv && tk_kind(toks, pk1) == TokenKind.Lbracket ? {
+                        took <- 1
+                        t1 = p_peek(toks, pk1 + 1)
+                        t2 = p_peek(toks, t1 + 1)
+                        t3 = p_peek(toks, t2 + 1)
+                        tk_kind(toks, t1) == TokenKind.Ident && tk_kind(toks, t2) == TokenKind.Rbracket && tk_kind(toks, t3) == TokenKind.Rarrow ? {
+                            legacy <- 1
+                        }
+                    }
+                    took == 0 && tk_kind(toks, pk1) == TokenKind.Rarrow ? {
+                        legacy <- 1
+                    }
+                    legacy == 1 ? {
+                        p_diag(st, path, tk_line(toks, p_ci(st)), 4, "return type annotations use ':': write ': Type -> body'")
+                        p_advance(toks, st) // type or vec
+                        isv && p_ck(toks, st) == TokenKind.Lbracket ? {
+                            p_advance(toks, st) // '['
+                            p_advance(toks, st) // element type
+                            p_expect(toks, st, path, TokenKind.Rbracket, 4, "expected ']' after vec element type")
+                        }
                         p_expect(toks, st, path, TokenKind.Rarrow, 4, "expected '->' after return type")
                     }
-                }
-                took == 0 && tk_kind(toks, pk1) == TokenKind.Rarrow ? {
-                    nd_set(nodes, n, NF.R1, ci)
-                    p_advance(toks, st)
-                    p_expect(toks, st, path, TokenKind.Rarrow, 4, "expected '->' after return type")
                 }
             }
             nd_set(nodes, n, NF.A, pnode(PM.Cond, src, path, toks, st, nodes, kids, sk, sk2))
@@ -1241,7 +1280,7 @@ p_decl src:str path:str toks:vec[Token] st:vec[int] nodes:vec[int] kids:vec[int]
 // parser_parse(): the top-level statement list. Imports must form a prefix
 // of the file; the first one past a non-import item is rejected (§17.6).
 // Returns diag->has_error.
-p_parse src:str path:str toks:vec[Token] st:vec[int] nodes:vec[int] kids:vec[int] sk:vec[int] sk2:vec[int] tops:vec[int] -> i64 -> {
+p_parse src:str path:str toks:vec[Token] st:vec[int] nodes:vec[int] kids:vec[int] sk:vec[int] sk2:vec[int] tops:vec[int] : i64 -> {
     seen <- 0
     go <- 1
     [go == 1] {
@@ -1272,7 +1311,7 @@ p_parse src:str path:str toks:vec[Token] st:vec[int] nodes:vec[int] kids:vec[int
 }
 
 // ast_print's indent: two spaces per level.
-pad n:i64 -> str -> {
+pad n:i64 : str -> {
     s <- ""
     [j <- 0..n] { s <- str_cat(s, "  ") }
     s
@@ -1287,7 +1326,7 @@ pad n:i64 -> str -> {
 // RECORD_LIT, MATCH, SPAWN, CHAN — and MatchArm, which exists only in this
 // port) fall to `default:` and print UNKNOWN with NO children, so their
 // subtrees stay invisible. That is faithfully reproduced below.
-ast_show src:str toks:vec[Token] nodes:vec[int] kids:vec[int] i:i64 ind:i64 -> i64 -> {
+ast_show src:str toks:vec[Token] nodes:vec[int] kids:vec[int] i:i64 ind:i64 : i64 -> {
     i != -1 ? {
         pd = pad(ind)
         pp = pad(ind + 1)

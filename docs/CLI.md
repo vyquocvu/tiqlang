@@ -122,7 +122,7 @@ An explicit name replaces `my-package` in `name` and in the file name (`<name>.t
 
 The formatter re-emits the token stream with the repository's canonical layout, and is idempotent (`fmt(fmt(x)) == fmt(x)`):
 
-- One space on either side of binary, comparison, assignment, and declaration operators: `a + b`, `x = 1`, `r <- "double"`, `b == 0`, `n % 2`, `x += 1`, `a < b`, `f a -> i64 -> ...`, `x ?? 0`, `_ => y`, `pt:Point`.
+- One space on either side of binary, comparison, assignment, and declaration operators: `a + b`, `x = 1`, `r <- "double"`, `b == 0`, `n % 2`, `x += 1`, `a < b`, `add a: i32 b: i32 : i32 -> a + b`, `x ?? 0`, `_ => y`, `pt:Point`.
 - Unary `+`, `-`, `&`, and `!` stay tight against their operand (`-x`, `-121`, `&mut x`, `!flag`, `bool!str`), and `move` keeps a trailing space.
 - `?` takes a trailing space except when it opens a guard (`?[cond]`) or is the propagation operator (`a?`); a `{` following `]`, `->`, or an identifier is glued onto the line (`[0..11] {`, `?[cond] {`, `f x -> {`, `struct Point {`, `match x {`) and opens a new line with one more indent level.
 - Record literals written on one source line stay inline (`Point { x: 3, y: 4 }`); a record literal that spans lines formats as a block. Struct, enum, and match bodies always format as blocks.

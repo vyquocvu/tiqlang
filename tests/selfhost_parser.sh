@@ -130,9 +130,9 @@ corpus "bad_string_escape" 'x = "a\q"'
 # including the missing-ABI recovery that skips the rest of the line.
 corpus "extern_in_block" '{ extern "C" f x:i64 -> i64 }'
 corpus "extern_no_abi" 'extern llabs x:i64 -> i64'
-corpus "extern_body_attempt" 'extern "C" f x:i64 -> i64 -> x'
-corpus "extern_missing_return" 'extern "C" f x:i64 ->'
-corpus "extern_missing_name" 'extern "C" -> i64'
+corpus "extern_body_attempt" 'extern "C" f x:i64 : i64 -> x'
+corpus "extern_missing_return" 'extern "C" f x:i64 :'
+corpus "extern_missing_name" 'extern "C" : i64'
 
 # Positive-construct corpus: the fixture set above never reaches SLICE,
 # OMITTED, or DEFER, and covers only a few of the productions in
@@ -155,8 +155,8 @@ construct "slice_bare" 'x = a[..]'
 construct "take_while" 'x = s[while c]'
 construct "take_until" 'x = s[until c]'
 # defer (E19 only outside a block, legal as a block statement).
-construct "defer_block" 'f d:i64 -> i64 -> { defer print(1) 2 }'
-construct "defer_two" 'f d:i64 -> i64 -> { defer print(1) defer print(2) 3 }'
+construct "defer_block" 'f d:i64 : i64 -> { defer print(1) 2 }'
+construct "defer_two" 'f d:i64 : i64 -> { defer print(1) defer print(2) 3 }'
 # Postfix propagation vs. the conditional operator (both use QUESTION).
 construct "propagate" 'x = f(1)? + 2'
 construct "fallback" 'x = a ?? b ?? c'
@@ -175,13 +175,13 @@ construct "spawn" 'h = spawn f(1)'
 construct "chan_typed" 'c = chan int'
 construct "chan_bare" 'c = chan'
 # Borrows in declaration and call position.
-construct "borrow" 'f p:&P -> i64 -> 1'
-construct "borrow_mut" 'f p:&mut P -> i64 -> 1'
+construct "borrow" 'f p:&P : i64 -> 1'
+construct "borrow_mut" 'f p:&mut P : i64 -> 1'
 construct "borrow_call" 'x = g(&p, &mut q)'
 # M13.1-P8 container annotations (4-token peek in return position).
-construct "vec_ret" 'f d:i64 -> vec[int] -> vec_new()'
-construct "vec_param" 'f v:vec[Token] b:strbuf m:map -> i64 -> 1'
-construct "compound_annot" 'f a:[i64; 4] -> i64 -> 1'
+construct "vec_ret" 'f d:i64 : vec[int] -> vec_new()'
+construct "vec_param" 'f v:vec[Token] b:strbuf m:map : i64 -> 1'
+construct "compound_annot" 'f a:[i64; 4] : i64 -> 1'
 # Bracket loops, field access, call chains, indexed assignment.
 construct "multi_binder" '[j <- 0..3, k <- 0..j] { print(int_str(j)) }'
 construct "nested_field" 'x = a.b.c.d'
@@ -202,15 +202,15 @@ construct "float_lit" 'x = 1.5'
 construct "bool_lit" 'x = true'
 construct "paren_group" 'x = (1 + 2) * 3'
 construct "block_expr" 'x = { 1; 2 }'
-construct "semicolons" 'f d:i64 -> i64 -> { a = 1; b = 2; a + b }'
+construct "semicolons" 'f d:i64 : i64 -> { a = 1; b = 2; a + b }'
 # M16.1 extern declarations: annotated, zero-param, multi-param, and the
 # parse-clean shapes semantic later rejects (vec return, borrow param). The
 # dump mirrors the FUNCTION shape and must match byte-for-byte.
-construct "extern_decl" 'extern "C" llabs x:i64 -> i64'
-construct "extern_zero_param" 'extern "C" getpid -> i64'
-construct "extern_multi_param" 'extern "C" memcmp a:str b:str n:i64 -> i64'
-construct "extern_vec_ret" 'extern "C" f x:i64 -> vec[i64]'
-construct "extern_borrow_param" 'extern "C" f x:&i64 -> i64'
+construct "extern_decl" 'extern "C" llabs x:i64 : i64'
+construct "extern_zero_param" 'extern "C" getpid : i64'
+construct "extern_multi_param" 'extern "C" memcmp a:str b:str n:i64 : i64'
+construct "extern_vec_ret" 'extern "C" f x:i64 : vec[i64]'
+construct "extern_borrow_param" 'extern "C" f x:&i64 : i64'
 
 if [ "$fixture_count" -eq 0 ]; then
   echo "selfhost_parser: FAIL (no fixtures found)" >&2

@@ -68,7 +68,7 @@ expect_err() {
 # Create a simple library
 mkdir -p "$TMP_DIR/libs/mylib"
 cat > "$TMP_DIR/libs/mylib/lib.tiq" << 'LIBEOF'
-lib_hello -> str -> { "hello from mylib" }
+lib_hello : str -> { "hello from mylib" }
 LIBEOF
 
 # Create a project with a manifest declaring a path dependency
@@ -148,8 +148,8 @@ expect_out no_deps "No dependencies"
 # 8. Multiple deps are all resolved.
 mkdir -p "$TMP_DIR/libs/liba"
 mkdir -p "$TMP_DIR/libs/libb"
-echo 'a_fn -> i64 -> { 1 }' > "$TMP_DIR/libs/liba/a.tiq"
-echo 'b_fn -> i64 -> { 2 }' > "$TMP_DIR/libs/libb/b.tiq"
+echo 'a_fn : i64 -> { 1 }' > "$TMP_DIR/libs/liba/a.tiq"
+echo 'b_fn : i64 -> { 2 }' > "$TMP_DIR/libs/libb/b.tiq"
 mkdir -p "$TMP_DIR/multi"
 cd "$TMP_DIR/multi"
 cat > "tiq.toml" << 'MULTIEOF'

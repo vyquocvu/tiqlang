@@ -10,11 +10,11 @@
 // type cannot be expressed as a function return, so it stays a core
 // builtin available without this import.
 
-json_parse_int s:str -> i64 -> { json_parse_int(s) }
-json_encode_str s:str -> str -> { json_encode_str(s) }
-json_get json:str key:str -> str -> { json_get(json, key) }
-json_arr_len arr:str -> i64 -> { json_arr_len(arr) }
-json_arr_get arr:str idx:i64 -> str -> { json_arr_get(arr, idx) }
-json_has json:str key:str -> bool -> { json_has(json, key) }
-json_set json:str key:str val:str -> str -> { json_set(json, key, val) }
-json_del json:str key:str -> str -> { json_del(json, key) }
+json_parse_int s:str : i64 -> { json_parse_int(s) }
+json_encode_str s:str : str -> { json_encode_str(s) }
+json_get json:str key:str : str -> { json_get(json, key) }
+json_arr_len arr:str : i64 -> { json_arr_len(arr) }
+json_arr_get arr:str idx:i64 : str -> { json_arr_get(arr, idx) }
+json_has json:str key:str : bool -> { json_has(json, key) }
+json_set json:str key:str val:str : str -> { json_set(json, key, val) }
+json_del json:str key:str : str -> { json_del(json, key) }

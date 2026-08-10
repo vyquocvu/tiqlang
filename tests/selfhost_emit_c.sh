@@ -240,16 +240,16 @@ if ! cmp -s "$TMP_DIR/owned_proc_exit.frees" "$TMP_DIR/owned_proc_exit.frees.exp
   fail=1
 fi
 case_run "owned_fresh_calls" 'import "std/json.tiq"
-mk src:str -> str -> {
+mk src:str : str -> {
   a = json_get(src, "a")
   json_encode_str(a)
 }
-pick src:str -> str -> {
+pick src:str : str -> {
   b = json_get(src, "b")
   c = json_get(src, "c")
   c
 }
-lit src:str -> str -> "static"
+lit src:str : str -> "static"
 v = mk("{\"a\":\"one\"}")
 u = pick("{\"b\":\"two\",\"c\":\"three\"}")
 w = lit("x")
@@ -264,8 +264,8 @@ if ! cmp -s "$TMP_DIR/owned_fresh_calls.frees" "$TMP_DIR/owned_fresh_calls.frees
   fail=1
 fi
 case_run "owned_temporaries" 'import "std/json.tiq"
-mk src:str -> str -> json_encode_str(src)
-keep src:str -> str -> src
+mk src:str : str -> json_encode_str(src)
+keep src:str : str -> src
 print(json_get("{\"k\":\"one\"}", "k"))
 json_encode_str("two")
 print(mk(json_get("{\"k\":\"three\"}", "k")))
@@ -351,15 +351,15 @@ print(json_arr_get("[10,20]", 1))'
 # table must yield executable C with identical observable behavior.
 # strlen/getpid/llabs are suppressed (their signatures cannot be spelled
 # with the fixed-width ABI table) and link through the preamble headers.
-case_run "ffi_llabs" 'extern "C" llabs x:i64 -> i64
+case_run "ffi_llabs" 'extern "C" llabs x:i64 : i64
 print(llabs(3 - 10))'
-case_run "ffi_strlen_suppressed" 'extern "C" strlen s:str -> i64
+case_run "ffi_strlen_suppressed" 'extern "C" strlen s:str : i64
 print(strlen("hello"))'
-case_run "ffi_zero_param_suppressed" 'extern "C" getpid -> i64
+case_run "ffi_zero_param_suppressed" 'extern "C" getpid : i64
 print(getpid() > 0)'
-case_run "ffi_mixed" 'extern "C" llabs x:i64 -> i64
-extern "C" getpid -> i64
-extern "C" strlen s:str -> i64
+case_run "ffi_mixed" 'extern "C" llabs x:i64 : i64
+extern "C" getpid : i64
+extern "C" strlen s:str : i64
 print(llabs(0 - 5))
 print(strlen("tiq"))
 print(getpid() > 0)'
@@ -434,21 +434,21 @@ fi
 # tests/ffi.sh); the lib mode keeps the M13.6 observable-behavior contract, so
 # it gets a structural pin instead of a byte compare.
 printf '%s\n' 'struct Point { x: i64, y: i64 }
-add a:i64 b:i64 -> i64 -> a + b
-scale p:Point k:i64 -> Point -> Point { x: p.x * k, y: p.y * k }
-greet n:i64 -> str -> "hi"
-flag n:i64 -> bool -> n > 0
-ratio a:f64 b:f64 -> f64 -> a / b
-internal v:vec[i64] -> i64 -> 0
-helper x:&i64 -> i64 -> x
-extern "C" llabs x:i64 -> i64
-abs_wrap x:i64 -> i64 -> llabs(x)' >"$TMP_DIR/m16_hlib.tiq"
+add a:i64 b:i64 : i64 -> a + b
+scale p:Point k:i64 : Point -> Point { x: p.x * k, y: p.y * k }
+greet n:i64 : str -> "hi"
+flag n:i64 : bool -> n > 0
+ratio a:f64 b:f64 : f64 -> a / b
+internal v:vec[i64] : i64 -> 0
+helper x:&i64 : i64 -> x
+extern "C" llabs x:i64 : i64
+abs_wrap x:i64 : i64 -> llabs(x)' >"$TMP_DIR/m16_hlib.tiq"
 printf '%s\n' 'struct Point { x: i64, y: i64 }
-add a:i64 b:i64 -> i64 -> a + b
-internal v:vec[i64] -> i64 -> 0
-helper x:&i64 -> i64 -> x
-scale p:Point k:i64 -> Point -> Point { x: p.x * k, y: p.y * k }' >"$TMP_DIR/m16_skiplib.tiq"
-printf '%s\n' 'add a:i64 b:i64 -> i64 -> a + b
+add a:i64 b:i64 : i64 -> a + b
+internal v:vec[i64] : i64 -> 0
+helper x:&i64 : i64 -> x
+scale p:Point k:i64 : Point -> Point { x: p.x * k, y: p.y * k }' >"$TMP_DIR/m16_skiplib.tiq"
+printf '%s\n' 'add a:i64 b:i64 : i64 -> a + b
 print(add(1, 2))' >"$TMP_DIR/m16_notlib.tiq"
 
 for m16_name in m16_hlib m16_skiplib; do

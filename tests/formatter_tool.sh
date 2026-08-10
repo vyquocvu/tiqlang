@@ -86,7 +86,27 @@ if ! cmp -s "$TMP_DIR/eq.file" "$TMP_DIR/eq.stdin"; then
   fail=1
 fi
 
-# 8. --check passes on canonical input and fails on unformatted input.
+# 8. Function return-type annotations take a space before the ':' while
+#    parameter and field annotations stay tight (`a:i32`, `x: i64`); the
+#    greedy parameter annotation keeps `f a : i64` a param annotation.
+printf 'add a:i32 b:i32 : i32 -> a+b\nstruct P { x: i64 }\nmanhattan pt: Point : i64 -> pt.x\nf a : i64 -> a\n' >"$TMP_DIR/g8.tiq"
+printf 'add a: i32 b: i32 : i32 -> a + b\nstruct P {\n    x: i64\n}\nmanhattan pt: Point : i64 -> pt.x\nf a: i64 -> a\n' >"$TMP_DIR/g8.golden"
+expect_fmt g8 "$TMP_DIR/g8.tiq" "$TMP_DIR/g8.golden"
+
+# 9. A one-arm conditional body (`cond ? { ... }`) is a guard, not a ternary
+#    opener: a later return annotation is still spaced and a later ternary
+#    still formats, proving the ternary counter did not leak past the block.
+printf 'ok ? { print("go") }\nadd a:i32 : i32 -> a\ny = c ? a : b\n' >"$TMP_DIR/g9.tiq"
+printf 'ok ? {\n    print("go")\n}\nadd a: i32 : i32 -> a\ny = c ? a : b\n' >"$TMP_DIR/g9.golden"
+expect_fmt g9 "$TMP_DIR/g9.tiq" "$TMP_DIR/g9.golden"
+
+# 10. vec[...] return types and extern declarations use the same ':' rule.
+printf 'sumall v:vec[int] : i64 -> v[0]\nextern "C" llabs x:i64 : i64\n' >"$TMP_DIR/g10.tiq"
+printf 'sumall v: vec[int] : i64 -> v[0]\nextern "C" llabs x: i64 : i64\n' >"$TMP_DIR/g10.golden"
+expect_fmt g10 "$TMP_DIR/g10.tiq" "$TMP_DIR/g10.golden"
+
+
+# 11. --check passes on canonical input and fails on unformatted input.
 "$FMT" < "$TMP_DIR/eq.tiq" >"$TMP_DIR/eq.golden" 2>/dev/null
 printf 'x = 1\n' >"$TMP_DIR/canon.tiq"
 printf 'x=1\n' >"$TMP_DIR/ugly.tiq"
@@ -98,7 +118,7 @@ if ! grep -qF ": not formatted" "$TMP_DIR/check_fail.err"; then
   fail=1
 fi
 
-# 9. --output writes the file instead of stdout (identical bytes).
+# 12. --output writes the file instead of stdout (identical bytes).
 expect_exit 0 write_output "$FMT" --output "$TMP_DIR/eq.out" "$TMP_DIR/eq.tiq"
 if [ ! -s "$TMP_DIR/eq.out" ]; then
   echo "formatter_tool: FAIL write_output (output file empty)" >&2
@@ -114,7 +134,7 @@ if [ -s "$TMP_DIR/write_output.out" ]; then
   fail=1
 fi
 
-# 10. --use-tabs indents with tabs; --indent-width sets the space count.
+# 13. --use-tabs indents with tabs; --indent-width sets the space count.
 printf '[0..2] {\nx = 1\n}\n' >"$TMP_DIR/ind.tiq"
 printf '[0..2] {\n\tx = 1\n}\n' >"$TMP_DIR/tab.golden"
 expect_exit 0 tabs "$FMT" --use-tabs < "$TMP_DIR/ind.tiq"
@@ -131,7 +151,7 @@ cmp -s "$TMP_DIR/w2.golden" "$TMP_DIR/width2.out" || {
   fail=1
 }
 
-# 11. Formatting is idempotent: a second pass changes nothing.
+# 14. Formatting is idempotent: a second pass changes nothing.
 expect_exit 0 idem_pass1 "$FMT" < "$TMP_DIR/eq.tiq"
 expect_exit 0 idem_pass2 "$FMT" < "$TMP_DIR/idem_pass1.out"
 cmp -s "$TMP_DIR/idem_pass1.out" "$TMP_DIR/idem_pass2.out" || {
@@ -140,7 +160,7 @@ cmp -s "$TMP_DIR/idem_pass1.out" "$TMP_DIR/idem_pass2.out" || {
   fail=1
 }
 
-# 12. Empty input produces empty output (empty regular file redirect).
+# 15. Empty input produces empty output (empty regular file redirect).
 : >"$TMP_DIR/empty.tiq"
 expect_exit 0 empty "$FMT" < "$TMP_DIR/empty.tiq"
 if [ -s "$TMP_DIR/empty.out" ]; then
@@ -149,12 +169,12 @@ if [ -s "$TMP_DIR/empty.out" ]; then
   fail=1
 fi
 
-# 13. Unknown options and a bad --indent-width fail closed with exit 2.
+# 16. Unknown options and a bad --indent-width fail closed with exit 2.
 expect_exit 2 unknown_flag "$FMT" --frobnicate "$TMP_DIR/eq.tiq"
 expect_exit 2 bad_width "$FMT" --indent-width 0 < "$TMP_DIR/eq.tiq"
 expect_exit 2 check_no_file "$FMT" --check < "$TMP_DIR/eq.tiq"
 
-# 14. A lexical error fails closed with the located diagnostic on stderr.
+# 17. A lexical error fails closed with the located diagnostic on stderr.
 printf 'this is "unterminated\n' >"$TMP_DIR/badlex.tiq"
 expect_exit 1 lex_error "$FMT" "$TMP_DIR/badlex.tiq"
 if ! grep -qF "error[" "$TMP_DIR/lex_error.err"; then
@@ -163,7 +183,7 @@ if ! grep -qF "error[" "$TMP_DIR/lex_error.err"; then
   fail=1
 fi
 
-# 15. Every example is --check clean after the M14.2 normalization pass.
+# 18. Every example is --check clean after the M14.2 normalization pass.
 for src in examples/*.tiq examples/leetcode/*.tiq; do
   if ! "$FMT" --check "$src" >/dev/null 2>"$TMP_DIR/example.err"; then
     echo "formatter_tool: FAIL example --check clean: $src" >&2
@@ -172,7 +192,7 @@ for src in examples/*.tiq examples/leetcode/*.tiq; do
   fi
 done
 
-# 16. The formatter's generated C is memory-clean under ASan/UBSan.
+# 19. The formatter's generated C is memory-clean under ASan/UBSan.
 if "$TIQ" emit-c src/tiq/tools/fmt.tiq >"$TMP_DIR/fmt.c" 2>"$TMP_DIR/fmt.emit.err"; then
   if "$CC_BIN" -std=c11 -g -fsanitize=address,undefined "$TMP_DIR/fmt.c" -o "$TMP_DIR/fmt.asan" 2>"$TMP_DIR/fmt.cc.err"; then
     ASAN_OPTIONS=detect_leaks=0 "$TMP_DIR/fmt.asan" < "$TMP_DIR/g1.tiq" >"$TMP_DIR/asan.out" 2>"$TMP_DIR/asan.err"

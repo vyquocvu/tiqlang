@@ -95,7 +95,8 @@ Tiq-specific operators:
 ```text
 =    immutable definition
 <-   mutable definition or reassignment
-->   function definition
+:    type annotation (params, return, fields, record literals)
+->   function definition / body introduction
 ? :  conditional expression
 ..   half-open range
 ...  stream generator expansion
@@ -175,10 +176,10 @@ Single-expression function:
 add a b -> a + b
 ```
 
-**Type annotations (M12.4)**: parameters may have optional type annotations using `param:type` syntax. An optional return type may follow the parameter list:
+**Type annotations (M12.4/M25)**: parameters may have optional type annotations using `param:type` syntax. An optional return type may follow the parameter list, using `:` for type information and reserving `->` for body introduction (issue #8):
 
 ```tiq
-add a:i32 b:i32 -> i32 -> a + b
+add a: i32 b: i32 : i32 -> a + b
 ```
 
 When annotations are omitted, types are inferred from use. A program whose recursive or exported function type cannot be inferred is rejected.
@@ -211,9 +212,9 @@ A top-level `extern` declaration binds a name to a function defined by the
 host C environment (M16.1/M16.2):
 
 ```tiq
-extern "C" llabs x:i64 -> i64        // fully annotated params, mandatory return
-extern "C" strlen s:str -> i64
-extern "C" getpid -> i64             // zero-param form: extern-only exception
+extern "C" llabs x: i64 : i64      // fully annotated params, mandatory return
+extern "C" strlen s: str : i64
+extern "C" getpid : i64            // zero-param form: extern-only exception
 ```
 
 Rules:
@@ -468,13 +469,13 @@ Tiq has no exceptions. Fallible functions return a result value.
 
 ```tiq
 // Option: may hold a value or be absent
-find xs:i64 key:i64 -> i64? -> {
+find xs: i64 key: i64 : i64? -> {
   [i <- 0..len(xs)] { xs[i] == key ? i : skip }
   none
 }
 
 // Result: may hold a value or an error
-parse s:str -> i64!str -> {
+parse s: str : i64!str -> {
   // ... parsing logic ...
   ok(42)   // or err("invalid")
 }
@@ -497,7 +498,7 @@ x = find(xs, 5) ?? -1   // -1 if not found
 If `expr` is absent or an error, the enclosing function returns that state immediately; otherwise `expr?` evaluates to the unwrapped value. The enclosing function's return type must itself be optional/result-compatible, checked at compile time.
 
 ```tiq
-process s:str -> i64? -> {
+process s: str : i64? -> {
   x = parse(s)?   // returns none if parse fails
   some(x * 2)
 }
@@ -624,7 +625,7 @@ This section is normative for the bootstrap compiler's observable boundary. Ever
 
 | Tier | Meaning | Example |
 |------|---------|---------|
-| **Implemented** | Fully specified, compiled, and tested | `[i <- 0..10] { print(i) }`, `move x`, `defer`, `struct`, `enum`, `f(&mut x)`, `extern "C" llabs x:i64 -> i64` |
+| **Implemented** | Fully specified, compiled, and tested | `[i <- 0..10] { print(i) }`, `move x`, `defer`, `struct`, `enum`, `f(&mut x)`, `extern "C" llabs x:i64 : i64` |
 | **Provisional** | Parsed and partially checked; semantics may change | `match` |
 | **Fail-closed** | Parsed but rejected at semantic analysis; no code produced | `spawn`, `chan`, `b = &x` |
 | **Reserved** | Keyword exists in lexer; no parse path exists yet | `mut` (standalone) |
@@ -1037,15 +1038,15 @@ A map binding holds a handle with reference semantics: the builtins mutate the m
 
 ### 19.10 Containers across function boundaries (M13.1-P8)
 
-Container values cross function boundaries through the §7 annotation syntax: `vec[T]` (with `T` ∈ `int`, `str`, named struct), `strbuf`, and `map` are accepted in parameter position (`param:vec[int]`) and return position (`-> vec[int] ->`). Annotations are required for containers: an unannotated parameter can never be inferred as a container type (fail closed).
+Container values cross function boundaries through the §7 annotation syntax: `vec[T]` (with `T` ∈ `int`, `str`, named struct), `strbuf`, and `map` are accepted in parameter position (`param:vec[int]`) and return position (`: vec[int] ->`). Annotations are required for containers: an unannotated parameter can never be inferred as a container type (fail closed).
 
 **Handle semantics.** A container argument passes its handle by value: caller and callee share the same underlying container, so mutations made through builtins in the callee are visible to the caller afterwards. Because the handle is already a reference, borrow prefixes on container annotations are rejected with E23 ("container parameters are reference-semantics handles; '&' is not allowed").
 
 **Vec element typing at boundaries.** An annotated `vec[T]` parameter is *established* with element type `T` inside the callee — `vec_get`/`vec_set`/`vec_pop` work immediately, and pushes of a different element type are E09 as usual. At a call site: an argument vec that is already established must match `T` exactly (nominal, struct name included) or the call is rejected with E09 ("argument N: expected vec<T>, found vec<U>") at the call's location; an argument vec that is *not* yet established (no `vec_push` before the call) is established as `vec<T>` by the call, exactly as a first `vec_push` would establish it — the P3 unestablished-vec rules (§19.7) remain coherent because the annotation supplies the missing element type. A non-vec argument for a `vec[T]` parameter is E09 ("argument N: expected vec<T>, found <U>").
 
-**Vec returns.** A function annotated `-> vec[T] ->` returns an established `vec<T>`: call results carry the full element type, so the caller may `vec_get` immediately. The function body's result is checked against the annotation; an expression body whose established vec element type differs from `T` is rejected with E09 ("return type mismatch: expected vec<T>, found vec<U>"). For block bodies the result is checked at kind level (a non-vec result is E09); the annotation is authoritative for callers.
+**Vec returns.** A function annotated `: vec[T] ->` returns an established `vec<T>`: call results carry the full element type, so the caller may `vec_get` immediately. The function body's result is checked against the annotation; an expression body whose established vec element type differs from `T` is rejected with E09 ("return type mismatch: expected vec<T>, found vec<U>"). For block bodies the result is checked at kind level (a non-vec result is E09); the annotation is authoritative for callers.
 
-**strbuf/map at boundaries.** `strbuf` and `map` are unparametrized: an argument for a `strbuf`/`map` parameter must be a strbuf/map (E09 otherwise), and `-> strbuf ->` / `-> map ->` returns type-check the body the same way. Shared-handle semantics apply: a `map_set` in the callee is visible via `map_get` in the caller.
+**strbuf/map at boundaries.** `strbuf` and `map` are unparametrized: an argument for a `strbuf`/`map` parameter must be a strbuf/map (E09 otherwise), and `: strbuf ->` / `: map ->` returns type-check the body the same way. Shared-handle semantics apply: a `map_set` in the callee is visible via `map_get` in the caller.
 
 **Arity.** Calls to container-typed functions check arity like any other user function: wrong argument count is E12.
 
@@ -1054,10 +1055,10 @@ Container values cross function boundaries through the §7 annotation syntax: `v
 Runtime dynamic loading of native libraries through four builtins, gated behind `import "std/dl.tiq"` (§17.7):
 
 ```text
-dl_open(path:str) -> u64
-dl_sym(handle:u64, name:str) -> u64
-dl_error() -> str
-dl_call(sym:u64, a:i64, b:i64, c:i64, d:i64, e:i64, f:i64) -> i64
+dl_open(path: str) : u64
+dl_sym(handle: u64, name: str) : u64
+dl_error() : str
+dl_call(sym: u64, a: i64, b: i64, c: i64, d: i64, e: i64, f: i64) : i64
 ```
 
 - `dl_open` loads the library at `path` with `RTLD_NOW | RTLD_LOCAL` and returns the handle as a `u64`; a failed load returns `0`.

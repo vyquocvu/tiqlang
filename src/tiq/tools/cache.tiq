@@ -16,7 +16,7 @@
 // FNV-1a hash (32-bit, unsigned). Returns the hash of a string as int.
 // The hash is computed from the byte values of the string (str_sub_code
 // returns 0-255 unsigned bytes).
-fnv_hash s:str -> i64 -> {
+fnv_hash s:str : i64 -> {
     h <- 2166136261
     i <- 0
     [i < len(s)] {
@@ -29,7 +29,7 @@ fnv_hash s:str -> i64 -> {
 
 // Mangle a source path into a cache entry file name. Path separators ('/')
 // are replaced with '_' so the entry always lives flat inside the cache dir.
-entry_name src:str -> str -> {
+entry_name src:str : str -> {
     sb <- str_buf_new()
     i <- 0
     [i < len(src)] {
@@ -42,14 +42,14 @@ entry_name src:str -> str -> {
 }
 
 // Full path to the cache entry for a source file.
-cache_entry_path src:str -> str -> {
+cache_entry_path src:str : str -> {
     cd <- "/tmp/.tiq-cache"
     str_cat(str_cat(cd, "/"), entry_name(src))
 }
 
 // Check if a source file has a valid cache entry. Returns true when the
 // cache entry exists and its stored hash matches the current source content.
-cache_has src:str -> i64 -> {
+cache_has src:str : i64 -> {
     cd <- "/tmp/.tiq-cache"
     r <- 0
     ep <- str_cat(str_cat(cd, "/"), entry_name(src))
@@ -75,7 +75,7 @@ cache_has src:str -> i64 -> {
 
 // Store the emitted C content for a source file in the cache.
 // Returns 0 on success, -1 on failure.
-cache_put src:str content:str -> i64 -> {
+cache_put src:str content:str : i64 -> {
     cd <- "/tmp/.tiq-cache"
     r <- 0
     flag <- proc_exec(str_cat("mkdir -p ", cd))

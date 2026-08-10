@@ -7,7 +7,7 @@ import "lexer.tiq"
 // Canonicalize the path spelling available to the self-hosted frontend. This
 // removes repeated separators plus `.`/`..` components before DFS identity
 // checks, covering the deterministic relative aliases used by Tiq modules.
-mod_norm path:str -> str -> {
+mod_norm path:str : str -> {
     parts = vec_new(); vec_push(parts, ""); init = vec_pop(parts)
     absolute = len(path) > 0 && str_sub_code(path, 0) == 47
     start <- 0; i <- 0
@@ -36,7 +36,7 @@ mod_norm path:str -> str -> {
     str_buf_to_str(b)
 }
 
-mod_join importer:str rel:str -> str -> {
+mod_join importer:str rel:str : str -> {
     r <- rel
     cut <- 0
     str_eq(str_sub(rel, 0, 1), "/") == false ? {
@@ -50,7 +50,7 @@ mod_join importer:str rel:str -> str -> {
     mod_norm(r)
 }
 
-mod_flatten_one path:str seen:map stack:map out:strbuf -> i64 -> {
+mod_flatten_one path:str seen:map stack:map out:strbuf : i64 -> {
     failed <- 0
     done <- 0
     map_has(stack, path) && map_get(stack, path) == 1 ? { eprint(diag_line(path, 1, 28, str_cat("circular import: ", path))); failed <- 1; done <- 1 }
@@ -100,7 +100,7 @@ mod_flatten_one path:str seen:map stack:map out:strbuf -> i64 -> {
     failed
 }
 
-mod_flatten path:str -> str -> {
+mod_flatten path:str : str -> {
     out = str_buf_new()
     seen = map_new()
     stack = map_new()

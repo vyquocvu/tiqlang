@@ -26,7 +26,7 @@ import "../semantic.tiq"
 
 // Safe string equality that works with str_sub results (avoids compiler bug
 // where str_eq returns false for equal strings when one is a str_sub result).
-str_eq_safe a:str b:str -> i64 -> {
+str_eq_safe a:str b:str : i64 -> {
     r <- 0
     len(a) == len(b) ? {
         all_ok <- 1
@@ -45,7 +45,7 @@ str_eq_safe a:str b:str -> i64 -> {
 // ============================================================================
 
 // Return the position after `"key":` in the JSON string, or "" if not found.
-json_after_key json:str key:str -> str -> {
+json_after_key json:str key:str : str -> {
     pat <- str_cat("\"", str_cat(key, "\""))
     at <- 0
     n <- len(json)
@@ -74,7 +74,7 @@ json_after_key json:str key:str -> str -> {
 // Returns the unescaped string, or "" on failure.
 // Simplified: finds the closing quote and returns the substring.
 // Does NOT handle escape sequences (not needed for LSP method names).
-json_unescape src:str -> str -> {
+json_unescape src:str : str -> {
     r <- ""
     len(src) > 0 && str_sub_code(src, 0) == 34 ? {
         end <- 1
@@ -90,7 +90,7 @@ json_unescape src:str -> str -> {
 }
 
 // Extract a JSON string value by key.
-json_get_string json:str key:str -> str -> {
+json_get_string json:str key:str : str -> {
     r <- ""
     v <- json_after_key(json, key)
     str_eq_safe(v, "") == 0 ? { r <- json_unescape(v) }
@@ -98,7 +98,7 @@ json_get_string json:str key:str -> str -> {
 }
 
 // Extract a JSON integer value by key.
-json_get_long json:str key:str -> i64 -> {
+json_get_long json:str key:str : i64 -> {
     r <- 0 - 1
     v <- json_after_key(json, key)
     str_eq_safe(v, "") == 0 ? {
@@ -123,7 +123,7 @@ json_get_long json:str key:str -> i64 -> {
 // ============================================================================
 
 // Find the first occurrence of `pat` in `s`, or -1.
-str_find s:str pat:str -> i64 -> {
+str_find s:str pat:str : i64 -> {
     r <- 0 - 1
     n <- len(s)
     m <- len(pat)
@@ -145,7 +145,7 @@ str_find s:str pat:str -> i64 -> {
 
 // Check if the string at position `pos` starts with the given prefix.
 // Uses character-by-character comparison to avoid str_eq bug with str_sub.
-starts_at s:str pos:i64 prefix:str -> i64 -> {
+starts_at s:str pos:i64 prefix:str : i64 -> {
     n <- len(s)
     m <- len(prefix)
     r <- 0
@@ -162,7 +162,7 @@ starts_at s:str pos:i64 prefix:str -> i64 -> {
 }
 
 // Token column offset (0-based) in the source text.
-token_col text:str start:i64 -> i64 -> {
+token_col text:str start:i64 : i64 -> {
     p <- start
     [p > 0 && str_sub_code(text, p - 1) != 10] { p <- p - 1 }
     start - p
@@ -173,7 +173,7 @@ token_col text:str start:i64 -> i64 -> {
 // ============================================================================
 
 // Store a document. Uses parallel vecs for the document store.
-doc_open uris:vec[str] vers:vec[i64] texts:vec[str] uri:str version:i64 text:str -> i64 -> {
+doc_open uris:vec[str] vers:vec[i64] texts:vec[str] uri:str version:i64 text:str : i64 -> {
     i <- 0
     found <- 0
     [i < vec_len(uris)] {
@@ -185,7 +185,7 @@ doc_open uris:vec[str] vers:vec[i64] texts:vec[str] uri:str version:i64 text:str
     0
 }
 
-doc_find uris:vec[str] texts:vec[str] uri:str -> str -> {
+doc_find uris:vec[str] texts:vec[str] uri:str : str -> {
     r <- ""
     i <- 0
     [i < vec_len(uris) && str_eq_safe(r, "") == 1] {
@@ -195,7 +195,7 @@ doc_find uris:vec[str] texts:vec[str] uri:str -> str -> {
     r
 }
 
-doc_close uris:vec[str] vers:vec[i64] texts:vec[str] uri:str -> i64 -> {
+doc_close uris:vec[str] vers:vec[i64] texts:vec[str] uri:str : i64 -> {
     i <- 0
     [i < vec_len(uris)] {
         str_eq_safe(vec_get(uris, i), uri) == 1 ? {
@@ -221,7 +221,7 @@ doc_close uris:vec[str] vers:vec[i64] texts:vec[str] uri:str -> i64 -> {
 
 // Run the full compiler frontend on a document and return diagnostics as
 // a JSON array string, or empty string on failure.
-run_diagnostics text:str path:str -> str -> {
+run_diagnostics text:str path:str : str -> {
     toks <- vec_new()
     lex_err <- lex_scan(text, path, toks)
     st <- vec_new()
@@ -240,7 +240,7 @@ run_diagnostics text:str path:str -> str -> {
 // ============================================================================
 
 // Build a full Content-Length-wrapped response.
-lsp_send_response out:str id:i64 result:str -> str -> {
+lsp_send_response out:str id:i64 result:str : str -> {
     content <- str_cat("{\"jsonrpc\":\"2.0\",\"id\":", str_cat(int_str(id), str_cat(",\"result\":", str_cat(result, "}"))))
     str_cat(str_cat(out, str_cat("Content-Length: ", str_cat(int_str(len(content)), "\r\n\r\n"))), content)
 }
@@ -250,7 +250,7 @@ lsp_send_response out:str id:i64 result:str -> str -> {
 // ============================================================================
 
 // Extract the request ID from a JSON-RPC message.
-parse_id content:str -> i64 -> {
+parse_id content:str : i64 -> {
     r <- 0 - 1
     id_str <- json_after_key(content, "id")
     str_eq_safe(id_str, "") == 0 ? {
@@ -270,12 +270,12 @@ parse_id content:str -> i64 -> {
 }
 
 // Extract the method name from a JSON-RPC message.
-extract_method content:str -> str -> {
+extract_method content:str : str -> {
     json_get_string(content, "method")
 }
 
 // Check if content is a request (has "method" field).
-is_request content:str -> i64 -> {
+is_request content:str : i64 -> {
     r <- 0
     str_find(content, "\"method\"") != 0 - 1 ? { r <- 1 }
     r

@@ -23,7 +23,7 @@
 import "../manifest.tiq"
 
 // FNV-1a hash (32-bit, unsigned). Same as install.tiq and cache.tiq.
-fnv_hash s: str -> i64 -> {
+fnv_hash s: str : i64 -> {
     h <- 2166136261
     i <- 0
     [i < len(s)] {
@@ -36,7 +36,7 @@ fnv_hash s: str -> i64 -> {
 
 // Compute a content hash for a dependency directory by hashing the
 // concatenated contents of all .tiq files.
-dep_hash dir: str -> str -> {
+dep_hash dir: str : str -> {
     tmp <- str_cat("/tmp/.tiq-audit-hash-", int_str(fnv_hash(dir)))
     cmd <- str_cat(str_cat("find ", dir), str_cat(" -name '*.tiq' -exec cat {} \\; > ", tmp))
     proc_exec(cmd)
@@ -47,7 +47,7 @@ dep_hash dir: str -> str -> {
 
 // Parse lockfile to extract dep entries. Returns parallel vecs of
 // (name, source, hash). Returns the count of entries found.
-parse_lockfile text: str names: vec[str] sources: vec[str] hashes: vec[str] -> i64 -> {
+parse_lockfile text: str names: vec[str] sources: vec[str] hashes: vec[str] : i64 -> {
     count <- 0
     n <- len(text)
     start <- 0
@@ -100,7 +100,7 @@ parse_lockfile text: str names: vec[str] sources: vec[str] hashes: vec[str] -> i
 
 // Check if a name exists in a vec of strings (up to count elements).
 // Returns 1 if found.
-vec_contains v: vec[str] name: str count: i64 -> i64 -> {
+vec_contains v: vec[str] name: str count: i64 : i64 -> {
     r <- 0
     i <- 0
     [i < count] {

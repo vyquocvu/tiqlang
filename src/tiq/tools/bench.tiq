@@ -22,7 +22,7 @@ import "../semantic.tiq"
 import "../module.tiq"
 import "std/json.tiq"
 
-ends_with s:str suf:str -> i64 -> {
+ends_with s:str suf:str : i64 -> {
     n <- len(s)
     m <- len(suf)
     r <- 0
@@ -30,7 +30,7 @@ ends_with s:str suf:str -> i64 -> {
     r
 }
 
-pad3 n:i64 -> str -> {
+pad3 n:i64 : str -> {
     b <- str_buf_new()
     n < 100 ? { str_buf_append(b, " ") }
     n < 10 ? { str_buf_append(b, " ") }
@@ -41,7 +41,7 @@ pad3 n:i64 -> str -> {
 // Benchmark one file. Accumulates the three phase times across `iter`
 // iterations (fresh driver state per iteration, exactly like the C parser
 // init), then prints per-phase averages and throughput to stdout.
-bench_file path:str iter:i64 -> i64 -> {
+bench_file path:str iter:i64 : i64 -> {
     str_eq(fs_read(path), "") ? {
         eprint(str_cat("tiq bench: cannot read ", path))
         proc_exit(1)
@@ -109,7 +109,7 @@ bench_file path:str iter:i64 -> i64 -> {
 
 // Benchmark a whole target: a named .tiq file, or every .tiq file in a
 // directory (non-recursive). Files whose names begin with '.' are ignored.
-bench_target t:str iter:i64 files:vec[str] -> i64 -> {
+bench_target t:str iter:i64 files:vec[str] : i64 -> {
     ends_with(t, ".tiq") == 1 ? {
         vec_push(files, t)
     }

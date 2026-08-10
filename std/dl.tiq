@@ -10,6 +10,6 @@
 // in Tiq, so it stays a core builtin available without this import
 // (same as ev_loop).
 
-dl_open path:str -> u64 -> { dl_open(path) }
-dl_sym handle:u64 name:str -> u64 -> { dl_sym(handle, name) }
-dl_call sym:u64 a:i64 b:i64 c:i64 d:i64 e:i64 f:i64 -> i64 -> { dl_call(sym, a, b, c, d, e, f) }
+dl_open path:str : u64 -> { dl_open(path) }
+dl_sym handle:u64 name:str : u64 -> { dl_sym(handle, name) }
+dl_call sym:u64 a:i64 b:i64 c:i64 d:i64 e:i64 f:i64 : i64 -> { dl_call(sym, a, b, c, d, e, f) }

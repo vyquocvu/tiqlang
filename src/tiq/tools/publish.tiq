@@ -18,7 +18,7 @@ import "std/net.tiq"
 import "std/json.tiq"
 
 // Extract port from http://host:port URL. Returns 7070 as default.
-extract_port url:str -> i64 -> {
+extract_port url:str : i64 -> {
     r <- 7070
     n <- len(url)
     // Find last ':'
@@ -42,7 +42,7 @@ extract_port url:str -> i64 -> {
 }
 
 // Extract path from http://host:port/path URL.
-extract_url_path url:str -> str -> {
+extract_url_path url:str : str -> {
     n <- len(url)
     // Find first '/' after "http://"
     r <- "/api/v1/packages"
@@ -61,7 +61,7 @@ extract_url_path url:str -> str -> {
 }
 
 // Send HTTP PUT request and return the response body (JSON).
-http_put host_port:i64 url_path:str body:str -> str -> {
+http_put host_port:i64 url_path:str body:str : str -> {
     r <- ""
     conn <- net_connect(host_port)
     conn < 0 ? { r <- "" }

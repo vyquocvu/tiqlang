@@ -163,44 +163,44 @@ corpus "e12_conv_zero" 'x = i32()'
 corpus "e12_conv_two" 'x = i32(1, 2)'
 # E12 arity for print / user functions.
 corpus "e12_print" 'print(1, 2)'
-corpus "e12_user_fn" 'f a:i64 -> i64 -> a
+corpus "e12_user_fn" 'f a:i64 : i64 -> a
 x = f(1, 2)'
 # E20/E21 literals and arrays.
 corpus "e20_literal_range" 'x = 99999999999999999999'
 corpus "e20_literal_edge" 'x = 9223372036854775808'
 corpus "e21_empty_array" 'a = []'
 # E23 borrow errors (LANGUAGE_SPEC 16.3).
-corpus "e23_missing_borrow" 'f p:&i64 -> i64 -> 1
+corpus "e23_missing_borrow" 'f p:&i64 : i64 -> 1
 x <- 1
 y = f(x)'
-corpus "e23_by_value_borrow" 'f p:i64 -> i64 -> p
+corpus "e23_by_value_borrow" 'f p:i64 : i64 -> p
 x <- 1
 y = f(&x)'
-corpus "e23_mut_mismatch" 'f p:&mut i64 -> i64 -> 1
+corpus "e23_mut_mismatch" 'f p:&mut i64 : i64 -> 1
 x <- 1
 y = f(&x)'
-corpus "e23_shared_mismatch" 'f p:&i64 -> i64 -> 1
+corpus "e23_shared_mismatch" 'f p:&i64 : i64 -> 1
 x <- 1
 y = f(&mut x)'
-corpus "e23_immutable_as_mut" 'f p:&mut i64 -> i64 -> 1
+corpus "e23_immutable_as_mut" 'f p:&mut i64 : i64 -> 1
 x = 1
 y = f(&mut x)'
-corpus "e23_double_mut" 'f a:&mut i64 b:&mut i64 -> i64 -> 1
+corpus "e23_double_mut" 'f a:&mut i64 b:&mut i64 : i64 -> 1
 x <- 1
 y = f(&mut x, &mut x)'
-corpus "e23_mixed_alias" 'f a:&i64 b:&mut i64 -> i64 -> 1
+corpus "e23_mixed_alias" 'f a:&i64 b:&mut i64 : i64 -> 1
 x <- 1
 y = f(&x, &mut x)'
-corpus "e23_borrow_nonident" 'f p:&i64 -> i64 -> 1
+corpus "e23_borrow_nonident" 'f p:&i64 : i64 -> 1
 y = f(&(1 + 2))'
 corpus "e07_borrow_outside_call" 'x <- 1
 y = &x'
 # Function annotations (P8) and return types.
-corpus "e23_container_amp" 'f v:&map -> i64 -> 1'
-corpus "e09_vec_annot_elem" 'f v:vec[bool] -> i64 -> 1'
-corpus "e09_unknown_annot" 'f p:Foo -> i64 -> 1'
-corpus "e09_unknown_ret" 'f d:i64 -> Foo -> 1'
-corpus "e09_ret_mismatch" 'f d:i64 -> str -> 1'
+corpus "e23_container_amp" 'f v:&map : i64 -> 1'
+corpus "e09_vec_annot_elem" 'f v:vec[bool] : i64 -> 1'
+corpus "e09_unknown_annot" 'f p:Foo : i64 -> 1'
+corpus "e09_unknown_ret" 'f d:i64 : Foo -> 1'
+corpus "e09_ret_mismatch" 'f d:i64 : str -> 1'
 # Enums (E24/E25/E26 and the bare-enum E09).
 corpus "enum_duplicate" 'enum Color { Red }
 enum Color { Blue }'
@@ -315,11 +315,11 @@ k = map_key_at(m, "0")'
 corpus "map_has_bad_map_type" 'x = 1
 b = map_has(x, "k")'
 # P8/P9 structural vec element checks across function boundaries.
-corpus "p9_arg_elem_mismatch" 'g v:vec[int] -> i64 -> vec_len(v)
+corpus "p9_arg_elem_mismatch" 'g v:vec[int] : i64 -> vec_len(v)
 w = vec_new()
 n = vec_push(w, "s")
 x = g(w)'
-corpus "p9_ret_elem_mismatch" 'g d:i64 -> vec[str] -> {
+corpus "p9_ret_elem_mismatch" 'g d:i64 : vec[str] -> {
   v = vec_new()
   n = vec_push(v, 1)
   v
@@ -327,24 +327,24 @@ corpus "p9_ret_elem_mismatch" 'g d:i64 -> vec[str] -> {
 # M16.1/M16.2 extern declarations: the parse-clean E29/E23/E09/E12 shapes
 # of tests/semantic.sh. The ABI operand, FFI-safety, collisions, and the
 # call-site arity/argument checks must agree byte-for-byte.
-corpus "extern_bad_abi" 'extern "Rust" f x:i64 -> i64'
-corpus "extern_unannotated_param" 'extern "C" f x -> i64'
-corpus "extern_borrow_param" 'extern "C" f x:&i64 -> i64'
-corpus "extern_vec_param" 'extern "C" f v:vec[int] -> i64'
-corpus "extern_array_param" 'extern "C" f a:[i64; 4] -> i64'
-corpus "extern_vec_return" 'extern "C" f x:i64 -> vec[int]'
-corpus "extern_unknown_type" 'extern "C" f x:unknown -> i64'
-corpus "extern_duplicate" 'extern "C" llabs x:i64 -> i64
-extern "C" llabs y:i64 -> i64'
-corpus "extern_function_collision" 'f x:i64 -> i64 -> x
-extern "C" f y:i64 -> i64'
+corpus "extern_bad_abi" 'extern "Rust" f x:i64 : i64'
+corpus "extern_unannotated_param" 'extern "C" f x y:i64 : i64'
+corpus "extern_borrow_param" 'extern "C" f x:&i64 : i64'
+corpus "extern_vec_param" 'extern "C" f v:vec[int] : i64'
+corpus "extern_array_param" 'extern "C" f a:[i64; 4] : i64'
+corpus "extern_vec_return" 'extern "C" f x:i64 : vec[int]'
+corpus "extern_unknown_type" 'extern "C" f x:unknown : i64'
+corpus "extern_duplicate" 'extern "C" llabs x:i64 : i64
+extern "C" llabs y:i64 : i64'
+corpus "extern_function_collision" 'f x:i64 : i64 -> x
+extern "C" f y:i64 : i64'
 corpus "extern_struct_collision" 'struct P { x: i64 }
-extern "C" P y:i64 -> i64'
+extern "C" P y:i64 : i64'
 corpus "extern_enum_collision" 'enum P { A }
-extern "C" P y:i64 -> i64'
-corpus "extern_arity" 'extern "C" llabs x:i64 -> i64
+extern "C" P y:i64 : i64'
+corpus "extern_arity" 'extern "C" llabs x:i64 : i64
 y = llabs()'
-corpus "extern_arg_type" 'extern "C" llabs x:i64 -> i64
+corpus "extern_arg_type" 'extern "C" llabs x:i64 : i64
 y = llabs("a")'
 
 # Positive-construct corpus: well-formed sources exercising the types and
@@ -395,9 +395,9 @@ n = len(v)'
 construct "stream" 'g = [1, 2 ... (a, b) -> a + b]
 x = g[0]'
 construct "stream_one_seed" 'g = [1 ... (x) -> x + 1]'
-construct "function_call" 'add a:i64 b:i64 -> i64 -> a + b
+construct "function_call" 'add a:i64 b:i64 : i64 -> a + b
 x = add(1, 2)'
-construct "recursion" 'fib n:i64 -> i64 -> n < 2 ? n : fib(n - 1) + fib(n - 2)
+construct "recursion" 'fib n:i64 : i64 -> n < 2 ? n : fib(n - 1) + fib(n - 2)
 x = fib(10)'
 construct "block_expr" 'x = { a = 1; b = 2; a + b }'
 construct "rebind_rewrite" 'x <- 1
@@ -406,17 +406,17 @@ construct "compound_assign" 'x <- 1
 x += 2'
 construct "index_assign" 'a <- [1, 2]
 a[0] <- 5'
-construct "defer_block" 'f d:i64 -> i64 -> { defer print(1) 2 }'
+construct "defer_block" 'f d:i64 : i64 -> { defer print(1) 2 }'
 construct "loop_binder" '[j <- 0..3] { print(int_str(j)) }'
 construct "loop_cond" 'i <- 0
 [i < 3] { i += 1 }'
 construct "loop_break_skip" '[i <- 0..3] { skip break }'
 construct "move_ok" 'x <- 1
 y = move x'
-construct "borrow_shared" 'f p:&i64 -> i64 -> 1
+construct "borrow_shared" 'f p:&i64 : i64 -> 1
 x <- 1
 y = f(&x)'
-construct "borrow_mut" 'g p:&mut i64 -> i64 -> 1
+construct "borrow_mut" 'g p:&mut i64 : i64 -> 1
 x <- 1
 y = g(&mut x)'
 construct "struct_field" 'struct P { x: i64, y: str }
@@ -450,25 +450,25 @@ p = P { x: 1 }
 n = vec_push(v, p)
 q = vec_get(v, 0)
 y = q.x'
-construct "vec_annot_param" 'g v:vec[int] -> i64 -> vec_len(v)
+construct "vec_annot_param" 'g v:vec[int] : i64 -> vec_len(v)
 w = vec_new()
 n = vec_push(w, 1)
 x = g(w)'
-construct "vec_annot_ret" 'mk d:i64 -> vec[int] -> {
+construct "vec_annot_ret" 'mk d:i64 : vec[int] -> {
   v = vec_new()
   n = vec_push(v, d)
   v
 }
 u = mk(3)
 y = vec_get(u, 0)'
-construct "vec_unestablished_pass" 'g v:vec[int] -> i64 -> vec_len(v)
+construct "vec_unestablished_pass" 'g v:vec[int] : i64 -> vec_len(v)
 w = vec_new()
 x = g(w)'
 construct "strbuf" 'sb = str_buf_new()
 n = str_buf_append(sb, "hi")
 s = str_buf_to_str(sb)
 m = str_buf_len(sb)'
-construct "strbuf_annot" 'g b:strbuf -> i64 -> str_buf_len(b)
+construct "strbuf_annot" 'g b:strbuf : i64 -> str_buf_len(b)
 sb = str_buf_new()
 x = g(sb)'
 construct "map" 'm = map_new()
@@ -478,7 +478,7 @@ h = map_has(m, "k")
 k = map_key_at(m, 0)
 v = map_val_at(m, 0)
 c = map_len(m)'
-construct "map_annot" 'g m:map -> i64 -> map_len(m)
+construct "map_annot" 'g m:map : i64 -> map_len(m)
 m = map_new()
 x = g(m)'
 construct "str_builtins" 'x = int_str(42)
@@ -490,16 +490,16 @@ y = cli_arg(0)
 n = cli_arg_count()'
 # M16.1/M16.2 extern positives: the decl registers with its declared return
 # type and calls type-check like user functions (typed-dump goldens).
-construct "extern_typed_call" 'extern "C" llabs x:i64 -> i64
+construct "extern_typed_call" 'extern "C" llabs x:i64 : i64
 y = llabs(3 - 10)'
-construct "extern_zero_param" 'extern "C" getpid -> i64
+construct "extern_zero_param" 'extern "C" getpid : i64
 p = getpid()'
-construct "extern_str_f64" 'extern "C" strlen s:str -> i64
-extern "C" sqrt x:f64 -> f64
+construct "extern_str_f64" 'extern "C" strlen s:str : i64
+extern "C" sqrt x:f64 : f64
 n = strlen("abc")
 r = sqrt(4.0)'
 construct "extern_struct_by_value" 'struct Point { x: i64 }
-extern "C" px p:Point -> i64
+extern "C" px p:Point : i64
 q = Point { x: 1 }'
 
 if [ "$fixture_count" -eq 0 ]; then

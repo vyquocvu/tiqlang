@@ -22,7 +22,7 @@ import "std/json.tiq"
 import "../manifest.tiq"
 
 // Registry data directory
-reg_dir dummy:i64 -> str -> {
+reg_dir dummy:i64 : str -> {
     "/tmp/.tiq-registry/packages"
 }
 
@@ -31,7 +31,7 @@ proc_exec(str_cat("mkdir -p ", reg_dir(0)))
 
 // --- HTTP response helpers ---
 
-http_response status:i64 body:str -> str -> {
+http_response status:i64 body:str : str -> {
     status_text <- "200 OK"
     status == 201 ? { status_text <- "201 Created" }
     status == 400 ? { status_text <- "400 Bad Request" }
@@ -48,11 +48,11 @@ http_response status:i64 body:str -> str -> {
     str_buf_to_str(sb)
 }
 
-json_ok msg:str -> str -> {
+json_ok msg:str : str -> {
     json_set("{}", "ok", json_encode_str(msg))
 }
 
-json_err msg:str -> str -> {
+json_err msg:str : str -> {
     json_set("{}", "error", json_encode_str(msg))
 }
 
@@ -60,7 +60,7 @@ json_err msg:str -> str -> {
 
 // Extract path segments after /api/v1/packages
 // Returns: 0=no match, 1=/api/v1/packages, 2=+name, 3=+name+version
-parse_api_path path:str -> i64 -> {
+parse_api_path path:str : i64 -> {
     r <- 0
     prefix <- "/api/v1/packages"
     pn <- len(prefix)
@@ -90,7 +90,7 @@ parse_api_path path:str -> i64 -> {
 }
 
 // Extract name from path (after /api/v1/packages/)
-extract_name path:str -> str -> {
+extract_name path:str : str -> {
     prefix <- "/api/v1/packages/"
     pn <- len(prefix)
     pathn <- len(path)
@@ -106,7 +106,7 @@ extract_name path:str -> str -> {
 }
 
 // Extract version from path (after /api/v1/packages/<name>/)
-extract_version path:str -> str -> {
+extract_version path:str : str -> {
     name <- extract_name(path)
     prefix <- str_cat("/api/v1/packages/", str_cat(name, "/"))
     pn <- len(prefix)
@@ -117,7 +117,7 @@ extract_version path:str -> str -> {
 // --- Package index operations ---
 
 // Read a package index. Returns the JSON string, or "" if not found.
-read_index name:str -> str -> {
+read_index name:str : str -> {
     r <- ""
     idx_path <- str_cat(str_cat(reg_dir(0), "/"), str_cat(name, "/index.json"))
     fs_exists(idx_path) ? { r <- fs_read(idx_path) }
@@ -125,7 +125,7 @@ read_index name:str -> str -> {
 }
 
 // Write a package index.
-write_index name:str content:str -> i64 -> {
+write_index name:str content:str : i64 -> {
     pkg_dir <- str_cat(reg_dir(0), "/")
     proc_exec(str_cat("mkdir -p ", pkg_dir))
     pkg_dir <- str_cat(str_cat(reg_dir(0), "/"), name)
@@ -135,7 +135,7 @@ write_index name:str content:str -> i64 -> {
 }
 
 // List all package names. Returns a JSON array string.
-list_packages dummy:i64 -> str -> {
+list_packages dummy:i64 : str -> {
     content <- fs_list(reg_dir(0))
     // Build JSON array from newline-separated names
     result <- "["
@@ -161,11 +161,11 @@ list_packages dummy:i64 -> str -> {
 
 // --- Request handlers ---
 
-handle_list dummy:i64 -> str -> {
+handle_list dummy:i64 : str -> {
     http_response(200, list_packages(0))
 }
 
-handle_get_pkg name:str -> str -> {
+handle_get_pkg name:str : str -> {
     r <- ""
     idx <- read_index(name)
     len(idx) == 0 ? { r <- http_response(404, json_err("package not found")) }
@@ -173,7 +173,7 @@ handle_get_pkg name:str -> str -> {
     r
 }
 
-handle_get_ver name:str version:str -> str -> {
+handle_get_ver name:str version:str : str -> {
     r <- ""
     ver_path <- str_cat(str_cat(reg_dir(0), "/"), str_cat(name, str_cat("/", str_cat(version, ".json"))))
     !fs_exists(ver_path) ? { r <- http_response(404, json_err("version not found")) }
@@ -184,7 +184,7 @@ handle_get_ver name:str version:str -> str -> {
     r
 }
 
-handle_publish name:str version:str body:str -> str -> {
+handle_publish name:str version:str body:str : str -> {
     r <- ""
     // Validate version format
     mf_semver(version) < 0 ? {
@@ -240,7 +240,7 @@ handle_publish name:str version:str body:str -> str -> {
     r
 }
 
-handle_yank name:str version:str -> str -> {
+handle_yank name:str version:str : str -> {
     r <- ""
     ver_path <- str_cat(str_cat(reg_dir(0), "/"), str_cat(name, str_cat("/", str_cat(version, ".json"))))
     !fs_exists(ver_path) ? {

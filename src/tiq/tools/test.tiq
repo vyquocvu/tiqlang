@@ -14,7 +14,7 @@
 // Determinism: directories are enumerated with fs_list (sorted), tests run
 // in that order, and no path/environment information reaches the output.
 
-contains src:str pat:str -> i64 -> {
+contains src:str pat:str : i64 -> {
     n <- len(src)
     m <- len(pat)
     r <- 0
@@ -29,7 +29,7 @@ contains src:str pat:str -> i64 -> {
     r
 }
 
-ends_with s:str suf:str -> i64 -> {
+ends_with s:str suf:str : i64 -> {
     n <- len(s)
     m <- len(suf)
     r <- 0
@@ -41,7 +41,7 @@ ends_with s:str suf:str -> i64 -> {
 // remainder of each marker (leading whitespace stripped) is appended; the
 // first marker contributes without a separator, each following marker adds
 // a single newline first. A file with no marker yields "".
-extract_expected src:str -> str -> {
+extract_expected src:str : str -> {
     n <- len(src)
     pos <- 0
     count <- 0
@@ -67,7 +67,7 @@ extract_expected src:str -> str -> {
     str_buf_to_str(eb)
 }
 
-trim_end s:str -> str -> {
+trim_end s:str : str -> {
     n <- len(s)
     [n > 0 && str_sub_code(s, n - 1) == 10] { n <- n - 1 }
     str_sub(s, 0, n)
@@ -75,7 +75,7 @@ trim_end s:str -> str -> {
 
 // Run one test file. Returns 0 (pass), 1 (fail), 2 (skip) or 3 (listed);
 // updates state [passed, failed, skipped] for counts 0..2.
-run_test path:str tiq:str verbose:i64 list_mode:i64 state:vec[int] -> i64 -> {
+run_test path:str tiq:str verbose:i64 list_mode:i64 state:vec[int] : i64 -> {
     src <- fs_read(path)
     no_run <- 0
     str_eq(src, "") ? { no_run <- 1 }
@@ -141,7 +141,7 @@ run_test path:str tiq:str verbose:i64 list_mode:i64 state:vec[int] -> i64 -> {
 
 // Run a whole target: a named .tiq file, or every .tiq file in a directory
 // (non-recursive). Files whose names begin with '.' are ignored.
-run_target t:str tiq:str verbose:i64 list_mode:i64 state:vec[int] -> i64 -> {
+run_target t:str tiq:str verbose:i64 list_mode:i64 state:vec[int] : i64 -> {
     is_file <- 0
     ends_with(t, ".tiq") == 1 ? {
         is_file <- 1

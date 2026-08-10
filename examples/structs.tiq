@@ -10,7 +10,7 @@ print(p.x)
 print(p.y)
 
 // Structs in functions (with type annotation)
-manhattan pt: Point -> i64 -> pt.x + pt.y
+manhattan pt: Point : i64 -> pt.x + pt.y
 
 q = Point { x: 10, y: 20 }
 print(manhattan(q))

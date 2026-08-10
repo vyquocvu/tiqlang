@@ -9,7 +9,7 @@
 // ---------------------------------------------------------------------------
 // Character helpers.
 
-mf_is_ws c: i64 -> i64 -> {
+mf_is_ws c: i64 : i64 -> {
     r <- 0
     c == 32 || c == 9 || c == 13 ? {
         r <- 1
@@ -17,7 +17,7 @@ mf_is_ws c: i64 -> i64 -> {
     r
 }
 
-mf_is_digit c: i64 -> i64 -> {
+mf_is_digit c: i64 : i64 -> {
     r <- 0
     c >= 48 && c <= 57 ? {
         r <- 1
@@ -26,7 +26,7 @@ mf_is_digit c: i64 -> i64 -> {
 }
 
 // Trim ASCII whitespace (space/tab/CR) from both ends.
-mf_trim s: str -> str -> {
+mf_trim s: str : str -> {
     n <- len(s)
     a <- 0
     b <- n
@@ -40,7 +40,7 @@ mf_trim s: str -> str -> {
 }
 
 // Strip one layer of double or single quotes.
-mf_unquote s: str -> str -> {
+mf_unquote s: str : str -> {
     n <- len(s)
     r <- s
     n >= 2 ? {
@@ -57,7 +57,7 @@ mf_unquote s: str -> str -> {
 }
 
 // Index of the first '=' at or after `from`, or -1.
-mf_find_eq s: str from: i64 -> i64 -> {
+mf_find_eq s: str from: i64 : i64 -> {
     n <- len(s)
     r <- -1
     i <- from
@@ -71,7 +71,7 @@ mf_find_eq s: str from: i64 -> i64 -> {
 }
 
 // A package name is a non-empty string without whitespace or path separators.
-mf_valid_name s: str -> i64 -> {
+mf_valid_name s: str : i64 -> {
     flag <- 1
     n <- len(s)
     n == 0 ? {
@@ -106,7 +106,7 @@ mf_valid_name s: str -> i64 -> {
 }
 
 // `major.minor.patch`: three dot-separated runs of digits, no empty part.
-mf_valid_version v: str -> i64 -> {
+mf_valid_version v: str : i64 -> {
     n <- len(v)
     flag <- 1
     parts <- 0
@@ -145,7 +145,7 @@ mf_valid_version v: str -> i64 -> {
 // Diagnostics. Manifest errors use code E30 (LANGUAGE_SPEC §18.2); the code is
 // tool-local and never emitted by the compiler itself.
 
-mf_err path: str ln: i64 msg: str -> i64 -> {
+mf_err path: str ln: i64 msg: str : i64 -> {
     eprint(str_cat(str_cat(str_cat(str_cat(path, ":"), int_str(ln)), ": error[E30]: "), msg))
     1
 }
@@ -154,7 +154,7 @@ mf_err path: str ln: i64 msg: str -> i64 -> {
 // Per-line validation. `sv` layout: [0] section (0 none, 1 package, 2 deps,
 // 3 tests), [1] name seen, [2] error flag, [3] version seen, [4] package seen.
 
-mf_check_package key: str val: str ln: i64 path: str sv: vec[int] -> i64 -> {
+mf_check_package key: str val: str ln: i64 path: str sv: vec[int] : i64 -> {
     r <- 0
     str_eq(key, "name") ? {
         vec_get(sv, 1) == 1 ? {
@@ -186,7 +186,7 @@ mf_check_package key: str val: str ln: i64 path: str sv: vec[int] -> i64 -> {
 
 // M18.1: dependency source scheme prefix. Returns 1 for "path:" (or bare
 // values, which default to paths), 2 for "git:", 3 for "registry:".
-mf_dep_scheme val: str -> i64 -> {
+mf_dep_scheme val: str : i64 -> {
     r <- 1
     n <- len(val)
     n >= 5 && str_eq(str_sub(val, 0, 5), "path:") ? {
@@ -204,7 +204,7 @@ mf_dep_scheme val: str -> i64 -> {
 // M18.1: strip the scheme prefix from a dependency value. "path:../lib" ->
 // "../lib", "git:https://..." -> "https://...", "registry:foo" -> "foo",
 // bare "../lib" -> "../lib".
-mf_dep_strip val: str -> str -> {
+mf_dep_strip val: str : str -> {
     r <- val
     n <- len(val)
     n >= 5 && str_eq(str_sub(val, 0, 5), "path:") ? {
@@ -221,7 +221,7 @@ mf_dep_strip val: str -> str -> {
 
 // M18.1: extract the git ref from a "git:<url>#<ref>" value, or "" if no
 // ref is present.
-mf_git_ref val: str -> str -> {
+mf_git_ref val: str : str -> {
     stripped <- mf_dep_strip(val)
     n <- len(stripped)
     r <- ""
@@ -237,7 +237,7 @@ mf_git_ref val: str -> str -> {
 }
 
 // M18.1: extract the git url (without ref) from a "git:<url>#<ref>" value.
-mf_git_url val: str -> str -> {
+mf_git_url val: str : str -> {
     stripped <- mf_dep_strip(val)
     n <- len(stripped)
     cut <- n
@@ -254,7 +254,7 @@ mf_git_url val: str -> str -> {
 
 // M18.4: extract the package name from a "registry:<name>" or
 // "registry:<name>#<constraint>" value.
-mf_reg_name val: str -> str -> {
+mf_reg_name val: str : str -> {
     stripped <- mf_dep_strip(val)
     n <- len(stripped)
     cut <- n
@@ -271,7 +271,7 @@ mf_reg_name val: str -> str -> {
 
 // M18.4: extract the version constraint from a "registry:<name>#<constraint>"
 // value, or "" if no constraint is present.
-mf_reg_constraint val: str -> str -> {
+mf_reg_constraint val: str : str -> {
     stripped <- mf_dep_strip(val)
     n <- len(stripped)
     r <- ""
@@ -289,7 +289,7 @@ mf_reg_constraint val: str -> str -> {
 // M18.3: Parse a semver string "major.minor.patch" into a single i64 for
 // comparison. Returns -1 on invalid input. Encoding: major*1000000 +
 // minor*1000 + patch.
-mf_semver s: str -> i64 -> {
+mf_semver s: str : i64 -> {
     r <- -1
     n <- len(s)
     n > 0 ? {
@@ -328,7 +328,7 @@ mf_semver s: str -> i64 -> {
 
 // M18.3: Check if version `v` (encoded) satisfies constraint `op` against
 // `target` (encoded). op: 0=exact, 1=>=, 2=<=, 3=>, 4=<, 5=!=
-mf_ver_match v: i64 op: i64 target: i64 -> i64 -> {
+mf_ver_match v: i64 op: i64 target: i64 : i64 -> {
     r <- 0
     op == 0 ? { r <- v == target }
     op == 1 ? { r <- v >= target }
@@ -341,7 +341,7 @@ mf_ver_match v: i64 op: i64 target: i64 -> i64 -> {
 
 // M18.3: Parse constraint operator prefix, return op code and strip prefix.
 // Sets out_op to 0=exact,1=>=,2=<=,3=>,4=<,5=!= and returns the version part.
-mf_ver_parse_op s: str out_op: vec[int] -> str -> {
+mf_ver_parse_op s: str out_op: vec[int] : str -> {
     n <- len(s)
     op <- 0
     rest <- s
@@ -367,7 +367,7 @@ mf_ver_parse_op s: str out_op: vec[int] -> str -> {
 
 // M18.3: Check if version string `ver` satisfies constraint string `cs`.
 // Constraint is comma-separated: ">=1.0.0,<2.0.0". Returns 1 if satisfied.
-mf_ver_satisfies ver: str cs: str -> i64 -> {
+mf_ver_satisfies ver: str cs: str : i64 -> {
     r <- 1
     v <- mf_semver(ver)
     v < 0 ? { r <- 0 }
@@ -398,7 +398,7 @@ mf_ver_satisfies ver: str cs: str -> i64 -> {
 }
 
 // M18.3: Check if a version constraint string is flag. Returns 1 if flag.
-mf_valid_constraint cs: str -> i64 -> {
+mf_valid_constraint cs: str : i64 -> {
     r <- 1
     op_box = vec_new()
     vec_push(op_box, 0)
@@ -422,7 +422,7 @@ mf_valid_constraint cs: str -> i64 -> {
     r
 }
 
-mf_check_deps key: str val: str ln: i64 path: str sv: vec[int] -> i64 -> {
+mf_check_deps key: str val: str ln: i64 path: str sv: vec[int] : i64 -> {
     r <- 0
     len(key) == 0 ? {
         mf_err(path, ln, "dependency name must not be empty"); vec_set(sv, 2, 1); r <- 1
@@ -469,7 +469,7 @@ mf_check_deps key: str val: str ln: i64 path: str sv: vec[int] -> i64 -> {
     r
 }
 
-mf_check_tests key: str val: str ln: i64 path: str sv: vec[int] -> i64 -> {
+mf_check_tests key: str val: str ln: i64 path: str sv: vec[int] : i64 -> {
     r <- 0
     !str_eq(key, "dir") && !str_eq(key, "include") ? {
         mf_err(path, ln, str_cat(str_cat("unknown [tests] key '", key), "'")); vec_set(sv, 2, 1); r <- 1
@@ -477,7 +477,7 @@ mf_check_tests key: str val: str ln: i64 path: str sv: vec[int] -> i64 -> {
     r
 }
 
-mf_check_line line: str ln: i64 path: str sv: vec[int] -> i64 -> {
+mf_check_line line: str ln: i64 path: str sv: vec[int] : i64 -> {
     r <- 0
     t <- mf_trim(line)
     len(t) > 0 && str_sub_code(t, 0) != 35 ? {
@@ -532,7 +532,7 @@ mf_check_line line: str ln: i64 path: str sv: vec[int] -> i64 -> {
 // Parse and validate the whole manifest text. Returns 0 when flag, 1 when any
 // error was found (diagnostics printed to stderr). Requires [package] with a
 // non-empty `name`.
-mf_check text: str path: str sv: vec[int] -> i64 -> {
+mf_check text: str path: str sv: vec[int] : i64 -> {
     n <- len(text)
     ln <- 1
     start <- 0
@@ -558,7 +558,7 @@ mf_check text: str path: str sv: vec[int] -> i64 -> {
 }
 
 // Deterministic manifest template for `tiq init [name]`.
-mf_template name: str -> str -> {
+mf_template name: str : str -> {
     b <- str_buf_new()
     str_buf_append(b, "# Tiq package manifest\n")
     str_buf_append(b, "[package]\n")
@@ -579,7 +579,7 @@ mf_template name: str -> str -> {
 // should have already validated with mf_check.
 
 // Extract the [package] name from manifest text. Returns "" if not found.
-mf_extract_name text: str -> str -> {
+mf_extract_name text: str : str -> {
     r <- ""
     n <- len(text)
     ln <- 1
@@ -622,7 +622,7 @@ mf_extract_name text: str -> str -> {
 // M18.1: Extract [deps] entries into parallel vecs. Returns the number of
 // deps found. The caller provides `names` and `sources` vecs; each dep
 // appends its name and source value respectively.
-mf_extract_deps text: str names: vec[str] sources: vec[str] -> i64 -> {
+mf_extract_deps text: str names: vec[str] sources: vec[str] : i64 -> {
     count <- 0
     n <- len(text)
     start <- 0

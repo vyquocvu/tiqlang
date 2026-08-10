@@ -27,7 +27,7 @@
 import "ast.tiq"
 
 // diag_error's stderr format (src/diag.c): "%s:%d: error[E%02d]: %s".
-diag_line path:str ln:i64 code:i64 msg:str -> str -> {
+diag_line path:str ln:i64 code:i64 msg:str : str -> {
     a = str_cat(path, ":")
     b = str_cat(a, int_str(ln))
     c = str_cat(b, ": error[E")
@@ -36,7 +36,7 @@ diag_line path:str ln:i64 code:i64 msg:str -> str -> {
     str_cat(e, msg)
 }
 
-lex_scan source:str path:str toks:vec[Token] -> i64 -> {
+lex_scan source:str path:str toks:vec[Token] : i64 -> {
     // Reserved words (identifier_type in src/lexer.c). Exact-match lookup
     // is equivalent to the C first-letter dispatch + memcmp of the rest.
     kw = map_new()
@@ -302,7 +302,7 @@ lex_scan source:str path:str toks:vec[Token] -> i64 -> {
 
 // dump_tokens() in src/main.c: print every token but NEWLINE, stopping at
 // EOF (which lex_scan already made the last token).
-lex_dump source:str path:str -> i64 -> {
+lex_dump source:str path:str : i64 -> {
     toks = vec_new()
     has_err = lex_scan(source, path, toks)
     count = vec_len(toks)

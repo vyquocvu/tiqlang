@@ -40,18 +40,18 @@ assert_run() {
 }
 
 # libc symbols link without extra flags and map through the C ABI table.
-assert_run "ffi_llabs" 'extern "C" llabs x:i64 -> i64
+assert_run "ffi_llabs" 'extern "C" llabs x:i64 : i64
 print(llabs(3 - 10))' "7"
 
-assert_run "ffi_strlen" 'extern "C" strlen s:str -> i64
+assert_run "ffi_strlen" 'extern "C" strlen s:str : i64
 print(strlen("tiq lang"))' "8"
 
 # -l/-L are repeatable link options forwarded to the host compiler.
-assert_run "ffi_sqrt_libm" 'extern "C" sqrt x:f64 -> f64
+assert_run "ffi_sqrt_libm" 'extern "C" sqrt x:f64 : f64
 print(sqrt(9.0))' "3" -l m -L "$TMP_DIR"
 
 # `tiq build` accepts the same link options.
-printf '%s\n' 'extern "C" sqrt x:f64 -> f64
+printf '%s\n' 'extern "C" sqrt x:f64 : f64
 print(sqrt(16.0))' > "$TMP_DIR/sqrt_build.tiq"
 "$TIQ" build "$TMP_DIR/sqrt_build.tiq" -o "$TMP_DIR/sqrt_build" -l m
 OUT=$("$TMP_DIR/sqrt_build")
@@ -64,11 +64,11 @@ echo "ffi sqrt_build: passed"
 # Prototype emission: exact lines and pass position (after the enum
 # constants, before user function forward declarations).
 cat > "$TMP_DIR/ffi_emit.tiq" << 'EOF'
-extern "C" llabs x:i64 -> i64
-extern "C" tiq_ffi_zero_probe -> i64
-extern "C" getpid -> i64
+extern "C" llabs x:i64 : i64
+extern "C" tiq_ffi_zero_probe : i64
+extern "C" getpid : i64
 enum Color { Red }
-helper x:i64 -> i64 -> llabs(x)
+helper x:i64 : i64 -> llabs(x)
 print(helper(0 - 5))
 EOF
 "$TIQ" emit-c "$TMP_DIR/ffi_emit.tiq" > "$TMP_DIR/ffi_emit.c"
@@ -112,7 +112,7 @@ echo "ffi emit_c_prototypes: passed"
 
 # Fail closed: an undefined extern symbol must fail at link time and
 # leave no executable behind.
-printf '%s\n' 'extern "C" tiq_ffi_missing_symbol_xyz x:i64 -> i64
+printf '%s\n' 'extern "C" tiq_ffi_missing_symbol_xyz x:i64 : i64
 print(tiq_ffi_missing_symbol_xyz(1))' > "$TMP_DIR/missing.tiq"
 if "$TIQ" build "$TMP_DIR/missing.tiq" -o "$TMP_DIR/missing" 2>"$TMP_DIR/missing.err"; then
   echo "ffi: missing symbol should fail to link" >&2
@@ -140,16 +140,16 @@ echo "ffi asan_clean: passed"
 # extern decls stay internal but the file still compiles as a library.
 cat > "$TMP_DIR/hlib.tiq" << 'EOF'
 struct Point { x: i64, y: i64 }
-add a:i64 b:i64 -> i64 -> a + b
-scale p:Point k:i64 -> Point -> Point { x: p.x * k, y: p.y * k }
-greet n:i64 -> str -> "hi"
-flag n:i64 -> bool -> n > 0
-ratio a:f64 b:f64 -> f64 -> a / b
-internal v:vec[i64] -> i64 -> 0
-helper x:&i64 -> i64 -> x
-extern "C" llabs x:i64 -> i64
-extern "C" tiq_ffi_zero_probe -> i64
-abs_wrap x:i64 -> i64 -> llabs(x)
+add a:i64 b:i64 : i64 -> a + b
+scale p:Point k:i64 : Point -> Point { x: p.x * k, y: p.y * k }
+greet n:i64 : str -> "hi"
+flag n:i64 : bool -> n > 0
+ratio a:f64 b:f64 : f64 -> a / b
+internal v:vec[i64] : i64 -> 0
+helper x:&i64 : i64 -> x
+extern "C" llabs x:i64 : i64
+extern "C" tiq_ffi_zero_probe : i64
+abs_wrap x:i64 : i64 -> llabs(x)
 EOF
 
 # Header golden: byte-exact shape, declaration order, ABI spelling.
@@ -199,7 +199,7 @@ echo "ffi emit_header_golden: passed"
 
 # Fail closed (E31): a top-level statement disqualifies the library in
 # both modes; stdout stays empty and the diagnostic carries the location.
-printf '%s\n' 'add a:i64 b:i64 -> i64 -> a + b' 'print(add(1, 2))' > "$TMP_DIR/notlib.tiq"
+printf '%s\n' 'add a:i64 b:i64 : i64 -> a + b' 'print(add(1, 2))' > "$TMP_DIR/notlib.tiq"
 set +e
 OUT=$("$TIQ" emit-header "$TMP_DIR/notlib.tiq" 2>"$TMP_DIR/notlib.err")
 rc=$?

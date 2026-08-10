@@ -20,7 +20,7 @@ enum CX { HasErr, Fatal, LoopDepth, InRange, IsStd }
 // function; ev_loop and dl_error stay ungated: zero-parameter functions
 // cannot be defined in Tiq. All remain core builtins (same as the C
 // bootstrap).
-is_gated_name n:str -> bool ->
+is_gated_name n:str : bool ->
     str_eq(n, "json_parse_int") || str_eq(n, "json_encode_str") || str_eq(n, "json_get") ||
     str_eq(n, "json_arr_len") || str_eq(n, "json_arr_get") ||
     str_eq(n, "json_has") || str_eq(n, "json_set") || str_eq(n, "json_del") ||
@@ -36,10 +36,10 @@ is_gated_name n:str -> bool ->
 // inner_type, so the first OPTION/RESULT in the pool wins for ty_get. If we
 // primed a bare OPTION, then `none` would match it instead of an earlier
 // OPTION<INT> created by `some(1)`. Let them be created on demand like C.
-prime_pool tp:vec[int] tpn:vec[str] -> i64 -> { k <- 0; [k < 28] { k != 10 && k != 11 ? { ty_get(tp, tpn, k) }; k <- k + 1 }; 0 }
+prime_pool tp:vec[int] tpn:vec[str] : i64 -> { k <- 0; [k < 28] { k != 10 && k != 11 ? { ty_get(tp, tpn, k) }; k <- k + 1 }; 0 }
 
 // diag_error(): path:line: error[E%02d]: msg. E07 is fatal → suppresses later diag.
-s_diag ctx:vec[int] path:str ln:i64 code:i64 msg:str -> i64 -> {
+s_diag ctx:vec[int] path:str ln:i64 code:i64 msg:str : i64 -> {
     vec_get(ctx, CX.Fatal) == 0 ? {
         vec_set(ctx, CX.HasErr, 1); eprint(diag_line(path, ln, code, msg))
         code == 7 ? { vec_set(ctx, CX.Fatal, 1) }
@@ -47,27 +47,27 @@ s_diag ctx:vec[int] path:str ln:i64 code:i64 msg:str -> i64 -> {
     0
 }
 
-env_lookup en:vec[str] ed:vec[int] name:str -> i64 -> {
+env_lookup en:vec[str] ed:vec[int] name:str : i64 -> {
     r <- 0 - 1; i <- vec_len(en) - 1
     [i >= 0] { str_eq(vec_get(en, i), name) ? { r <- i; break }; i <- i - 1 }; r
 }
-env_define en:vec[str] ed:vec[int] sc:vec[int] name:str is_mut:i64 tp:i64 ln:i64 -> i64 -> {
+env_define en:vec[str] ed:vec[int] sc:vec[int] name:str is_mut:i64 tp:i64 ln:i64 : i64 -> {
     dup <- 0; ss <- vec_len(en)
     vec_len(sc) > 0 ? { ss <- vec_get(sc, vec_len(sc) - 1) }    i <- vec_len(en) - 1
     [i >= ss && dup == 0] { str_eq(vec_get(en, i), name) ? { dup <- 1; break }; i <- i - 1 }
     dup == 0 ? { vec_push(en, name); vec_push(ed, is_mut); vec_push(ed, 0); vec_push(ed, tp); vec_push(ed, ln) }
     dup == 0 ? 1 : 0
 }
-env_push_scope sc:vec[int] en:vec[str] -> i64 -> { vec_push(sc, vec_len(en)); 0 }
-env_pop_scope sc:vec[int] en:vec[str] ed:vec[int] -> i64 -> {
+env_push_scope sc:vec[int] en:vec[str] : i64 -> { vec_push(sc, vec_len(en)); 0 }
+env_pop_scope sc:vec[int] en:vec[str] ed:vec[int] : i64 -> {
     b <- 0; vec_len(sc) > 0 ? { b <- vec_get(sc, vec_len(sc) - 1); drop2 <- vec_pop(sc) }
     [vec_len(en) > b] { d4 <- vec_pop(ed); d3 <- vec_pop(ed); d2 <- vec_pop(ed); d1 <- vec_pop(ed); dn <- vec_pop(en) }; 0
 }
-env_set_moved en:vec[str] ed:vec[int] name:str -> i64 -> {
+env_set_moved en:vec[str] ed:vec[int] name:str : i64 -> {
     i <- vec_len(en) - 1
     [i >= 0] { str_eq(vec_get(en, i), name) ? { vec_set(ed, i * 4 + 1, 1); break }; i <- i - 1 }; 0
 }
-env_set_type en:vec[str] ed:vec[int] name:str tp:i64 -> i64 -> {
+env_set_type en:vec[str] ed:vec[int] name:str tp:i64 : i64 -> {
     i <- vec_len(en) - 1
     [i >= 0] { str_eq(vec_get(en, i), name) ? { vec_set(ed, i * 4 + 2, tp); break }; i <- i - 1 }; 0
 }
@@ -75,7 +75,7 @@ env_set_type en:vec[str] ed:vec[int] name:str tp:i64 -> i64 -> {
 // Struct name registry: names in st_names (flat), types in st_meta (flat,
 // parallel). Mirrors C's ctx->structs table: single-pass, forward-scan
 // (earliest definition wins for duplicates).
-struct_lookup st_names:vec[str] name:str -> i64 -> {
+struct_lookup st_names:vec[str] name:str : i64 -> {
     r <- 0 - 1; i <- 0
     [i < vec_len(st_names) && r == -1] { str_eq(vec_get(st_names, i), name) ? { r <- i; break }; i <- i + 1 }
     r
@@ -86,7 +86,7 @@ struct_lookup st_names:vec[str] name:str -> i64 -> {
 // enum-name pair, var_base the index of the first variant-name pair, and
 // var_count the number of variants. Variant pairs live in en_reg after the
 // name pair, so en_reg stays the single string store.
-enum_lookup en_reg:vec[str] en_data:vec[int] name:str -> i64 -> {
+enum_lookup en_reg:vec[str] en_data:vec[int] name:str : i64 -> {
     r <- 0 - 1; i <- 0
     [i < vec_len(en_data) / 3 && r == -1] {
         str_eq(vec_get(en_reg, vec_get(en_data, i * 3)), name) ? { r <- i }        i <- i + 1
@@ -94,14 +94,14 @@ enum_lookup en_reg:vec[str] en_data:vec[int] name:str -> i64 -> {
     r
 }
 
-resolve_type src:str toks:vec[Token] tp:vec[int] tpn:vec[str] tidx:i64 -> i64 -> {
+resolve_type src:str toks:vec[Token] tp:vec[int] tpn:vec[str] tidx:i64 : i64 -> {
     r <- 0 - 1
     tidx != -1 ? {
         nm <- tk_lex(src, toks, tidx)
         str_eq(nm, "i8") ? { r <- ty_get(tp, tpn, TY.I8) }        str_eq(nm, "i16") ? { r <- ty_get(tp, tpn, TY.I16) }        str_eq(nm, "i32") ? { r <- ty_get(tp, tpn, TY.I32) }        str_eq(nm, "i64") ? { r <- ty_get(tp, tpn, TY.Int) }        str_eq(nm, "u8") ? { r <- ty_get(tp, tpn, TY.U8) }        str_eq(nm, "u16") ? { r <- ty_get(tp, tpn, TY.U16) }        str_eq(nm, "u32") ? { r <- ty_get(tp, tpn, TY.U32) }        str_eq(nm, "u64") ? { r <- ty_get(tp, tpn, TY.U64) }        str_eq(nm, "f32") ? { r <- ty_get(tp, tpn, TY.F32) }        str_eq(nm, "f64") ? { r <- ty_get(tp, tpn, TY.Float) }        str_eq(nm, "bool") ? { r <- ty_get(tp, tpn, TY.Bool) }        str_eq(nm, "str") ? { r <- ty_get(tp, tpn, TY.Str) }        str_eq(nm, "int") ? { r <- ty_get(tp, tpn, TY.Int) }        str_eq(nm, "float") ? { r <- ty_get(tp, tpn, TY.Float) }    }
     r
 }
-resolve_cont src:str toks:vec[Token] tp:vec[int] tpn:vec[str] st_names:vec[str] st_meta:vec[int] tidx:i64 eidx:i64 path:str ctx:vec[int] -> i64 -> {
+resolve_cont src:str toks:vec[Token] tp:vec[int] tpn:vec[str] st_names:vec[str] st_meta:vec[int] tidx:i64 eidx:i64 path:str ctx:vec[int] : i64 -> {
     r <- 0 - 1
     tidx != -1 ? {
         nm <- tk_lex(src, toks, tidx)
@@ -123,7 +123,7 @@ resolve_cont src:str toks:vec[Token] tp:vec[int] tpn:vec[str] st_names:vec[str] 
 
 // Annotation resolution mirroring C resolve_container_annot + resolve_type_annot:
 // containers (strbuf/map/vec[T]) first, then primitive names, then structs.
-resolve_ann src:str toks:vec[Token] tp:vec[int] tpn:vec[str] st_names:vec[str] st_meta:vec[int] tidx:i64 eidx:i64 path:str ctx:vec[int] -> i64 -> {
+resolve_ann src:str toks:vec[Token] tp:vec[int] tpn:vec[str] st_names:vec[str] st_meta:vec[int] tidx:i64 eidx:i64 path:str ctx:vec[int] : i64 -> {
     r <- resolve_cont(src, toks, tp, tpn, st_names, st_meta, tidx, eidx, path, ctx)
     r == -1 ? { r <- resolve_type(src, toks, tp, tpn, tidx) }    r == -1 && tidx != -1 ? {
         nm <- tk_lex(src, toks, tidx)
@@ -131,7 +131,7 @@ resolve_ann src:str toks:vec[Token] tp:vec[int] tpn:vec[str] st_names:vec[str] s
         si2 != -1 ? { r <- vec_get(st_meta, si2) }    }
     r
 }
-unify ctx:vec[int] path:str ln:i64 tp:vec[int] tpn:vec[str] exp:i64 found:i64 emsg:str -> i64 -> {
+unify ctx:vec[int] path:str ln:i64 tp:vec[int] tpn:vec[str] exp:i64 found:i64 emsg:str : i64 -> {
     r <- 0 - 1; d <- 0
     d == 0 && exp == -1 ? { r <- found; d <- 1 }
     d == 0 && found == -1 ? { r <- exp; d <- 1 }
@@ -147,10 +147,10 @@ unify ctx:vec[int] path:str ln:i64 tp:vec[int] tpn:vec[str] exp:i64 found:i64 em
     }
     r
 }
-vec_elem_ok k:i64 -> i64 -> k == TY.Int || k == TY.Str || k == TY.Struct ? 1 : 0
-vec_elem_same tp:vec[int] a:i64 b:i64 -> i64 -> { ak <- vec_get(tp, a * 8 + TF.Kind); bk <- vec_get(tp, b * 8 + TF.Kind); ak == bk && (ak != TY.Struct || a == b) ? 1 : 0 }
+vec_elem_ok k:i64 : i64 -> k == TY.Int || k == TY.Str || k == TY.Struct ? 1 : 0
+vec_elem_same tp:vec[int] a:i64 b:i64 : i64 -> { ak <- vec_get(tp, a * 8 + TF.Kind); bk <- vec_get(tp, b * 8 + TF.Kind); ak == bk && (ak != TY.Struct || a == b) ? 1 : 0 }
 
-check_int_range src:str toks:vec[Token] ctx:vec[int] path:str tidx:i64 -> i64 -> {
+check_int_range src:str toks:vec[Token] ctx:vec[int] path:str tidx:i64 : i64 -> {
     lx <- tk_lex(src, toks, tidx)
     n <- len(lx)
     n > 19 ? { s_diag(ctx, path, tk_line(toks, tidx), 20, "integer literal out of range for i64") }
@@ -169,7 +169,7 @@ check_int_range src:str toks:vec[Token] ctx:vec[int] path:str tidx:i64 -> i64 ->
 }
 
 // vec/strbuf/map builtin checkers (args already checked by caller).
-chk_vec src:str toks:vec[Token] ctx:vec[int] path:str nodes:vec[int] kids:vec[int] types:vec[int] en:vec[str] ed:vec[int] tp:vec[int] tpn:vec[str] ni:i64 nm:str -> i64 -> {
+chk_vec src:str toks:vec[Token] ctx:vec[int] path:str nodes:vec[int] kids:vec[int] types:vec[int] en:vec[str] ed:vec[int] tp:vec[int] tpn:vec[str] ni:i64 nm:str : i64 -> {
     s1 <- nd_get(nodes, ni, NF.L1s); c1 <- nd_get(nodes, ni, NF.L1n)
     isn <- str_eq(nm, "vec_new") ? 1 : 0; isp <- str_eq(nm, "vec_push") ? 1 : 0
     isg <- str_eq(nm, "vec_get") ? 1 : 0; iss <- str_eq(nm, "vec_set") ? 1 : 0
@@ -239,7 +239,7 @@ chk_vec src:str toks:vec[Token] ctx:vec[int] path:str nodes:vec[int] kids:vec[in
     }
     0
 }
-chk_sb ctx:vec[int] path:str toks:vec[Token] nodes:vec[int] kids:vec[int] types:vec[int] tp:vec[int] tpn:vec[str] ni:i64 nm:str -> i64 -> {
+chk_sb ctx:vec[int] path:str toks:vec[Token] nodes:vec[int] kids:vec[int] types:vec[int] tp:vec[int] tpn:vec[str] ni:i64 nm:str : i64 -> {
     s1 <- nd_get(nodes, ni, NF.L1s); c1 <- nd_get(nodes, ni, NF.L1n)
     isn <- str_eq(nm, "str_buf_new") ? 1 : 0; isa <- str_eq(nm, "str_buf_append") ? 1 : 0; ist <- str_eq(nm, "str_buf_to_str") ? 1 : 0
     ar <- isn == 1 ? 0 : isa == 1 ? 2 : 1
@@ -264,7 +264,7 @@ chk_sb ctx:vec[int] path:str toks:vec[Token] nodes:vec[int] kids:vec[int] types:
     }
     0
 }
-chk_map ctx:vec[int] path:str toks:vec[Token] nodes:vec[int] kids:vec[int] types:vec[int] tp:vec[int] tpn:vec[str] ni:i64 nm:str -> i64 -> {
+chk_map ctx:vec[int] path:str toks:vec[Token] nodes:vec[int] kids:vec[int] types:vec[int] tp:vec[int] tpn:vec[str] ni:i64 nm:str : i64 -> {
     s1 <- nd_get(nodes, ni, NF.L1s); c1 <- nd_get(nodes, ni, NF.L1n)
     isn <- str_eq(nm, "map_new") ? 1 : 0; iss <- str_eq(nm, "map_set") ? 1 : 0; isg <- str_eq(nm, "map_get") ? 1 : 0; ish <- str_eq(nm, "map_has") ? 1 : 0; isk <- str_eq(nm, "map_key_at") ? 1 : 0; isv <- str_eq(nm, "map_val_at") ? 1 : 0
     ar <- isn == 1 ? 0 : iss == 1 ? 3 : (isg == 1 || ish == 1 || isk == 1 || isv == 1) ? 2 : 1
@@ -301,13 +301,13 @@ chk_map ctx:vec[int] path:str toks:vec[Token] nodes:vec[int] kids:vec[int] types
     0
 }
 
-chk_generic_arity nm:str -> i64 -> {
+chk_generic_arity nm:str : i64 -> {
     ar <- 0 - 1
     str_eq(nm, "str_cat") || str_eq(nm, "fs_write") || str_eq(nm, "str_eq") || str_eq(nm, "json_get") || str_eq(nm, "json_arr_get") || str_eq(nm, "json_view") || str_eq(nm, "json_has") || str_eq(nm, "json_del") || str_eq(nm, "net_send") || str_eq(nm, "http_header") || str_eq(nm, "ev_add") || str_eq(nm, "ev_wait") || str_eq(nm, "ev_ready") || str_eq(nm, "str_sub_code") ? { ar <- 2 }    str_eq(nm, "int_str") || str_eq(nm, "eprint") || str_eq(nm, "fs_read") || str_eq(nm, "fs_exists") || str_eq(nm, "fs_list") || str_eq(nm, "proc_exec") || str_eq(nm, "proc_exit") || str_eq(nm, "net_fetch") || str_eq(nm, "cli_arg") || str_eq(nm, "json_parse_int") || str_eq(nm, "json_encode_str") || str_eq(nm, "json_arr_len") || str_eq(nm, "net_listen") || str_eq(nm, "net_accept") || str_eq(nm, "net_connect") || str_eq(nm, "net_recv") || str_eq(nm, "net_close") || str_eq(nm, "net_port") || str_eq(nm, "net_shutdown") || str_eq(nm, "http_method") || str_eq(nm, "http_path") ? { ar <- 1 }    str_eq(nm, "str_sub") || str_eq(nm, "json_set") ? { ar <- 3 }    str_eq(nm, "cli_arg_count") || str_eq(nm, "ev_loop") || str_eq(nm, "clock_ms") || str_eq(nm, "dl_error") ? { ar <- 0 }    str_eq(nm, "dl_open") ? { ar <- 1 }    str_eq(nm, "dl_sym") ? { ar <- 2 }    str_eq(nm, "dl_call") ? { ar <- 7 }    ar
 }
 
 // Generic builtin checker: returns 1 if matched, 0 if not.
-chk_generic ctx:vec[int] path:str toks:vec[Token] nodes:vec[int] kids:vec[int] types:vec[int] tp:vec[int] tpn:vec[str] ni:i64 nm:str c1:i64 -> i64 -> {
+chk_generic ctx:vec[int] path:str toks:vec[Token] nodes:vec[int] kids:vec[int] types:vec[int] tp:vec[int] tpn:vec[str] ni:i64 nm:str c1:i64 : i64 -> {
     ln <- tk_line(toks, nd_get(nodes, ni, NF.Tok))
     r <- 0; hit <- 0
     ar <- 0; exp <- 0; ret <- 0; exp2 <- 0
@@ -387,7 +387,7 @@ chk_generic ctx:vec[int] path:str toks:vec[Token] nodes:vec[int] kids:vec[int] t
 
 // The monolithic self-recursive check_node. Dispatches on node kind.
 // All 25 AstKind cases are handled inline (Tiq allows only self-recursion).
-check_node src:str path:str toks:vec[Token] nodes:vec[int] kids:vec[int] types:vec[int] en:vec[str] ed:vec[int] sc:vec[int] st_reg:vec[str] st_data:vec[int] st_names:vec[str] st_meta:vec[int] en_reg:vec[str] en_data:vec[int] fn_reg:vec[str] fn_data:vec[int] fpts:vec[int] frks:vec[int] tp:vec[int] tpn:vec[str] ctx:vec[int] ni:i64 -> i64 -> {
+check_node src:str path:str toks:vec[Token] nodes:vec[int] kids:vec[int] types:vec[int] en:vec[str] ed:vec[int] sc:vec[int] st_reg:vec[str] st_data:vec[int] st_names:vec[str] st_meta:vec[int] en_reg:vec[str] en_data:vec[int] fn_reg:vec[str] fn_data:vec[int] fpts:vec[int] frks:vec[int] tp:vec[int] tpn:vec[str] ctx:vec[int] ni:i64 : i64 -> {
     k <- 0 - 1; tok <- 0 - 1; ln <- 0; done <- 1
     ni != -1 ? { k <- nd_get(nodes, ni, NF.Kind); tok <- nd_get(nodes, ni, NF.Tok); ln <- tok != -1 ? tk_line(toks, tok) : 0; done <- 0 }
 
@@ -1298,9 +1298,9 @@ check_node src:str path:str toks:vec[Token] nodes:vec[int] kids:vec[int] types:v
 
 // --- typed_ast_show: mirrors C ast_print with type suffixes ---
 // indent_print: print `n` two-space indents
-indent_print n:i64 -> i64 -> { j <- 0; [j < n] { print("  "); j <- j + 1 }; 0 }
+indent_print n:i64 : i64 -> { j <- 0; [j < n] { print("  "); j <- j + 1 }; 0 }
 
-typed_ast_show src:str toks:vec[Token] nodes:vec[int] kids:vec[int] types:vec[int] tp:vec[int] tpn:vec[str] ni:i64 indent:i64 -> i64 -> {
+typed_ast_show src:str toks:vec[Token] nodes:vec[int] kids:vec[int] types:vec[int] tp:vec[int] tpn:vec[str] ni:i64 indent:i64 : i64 -> {
     ni != -1 ? {
         k <- nd_get(nodes, ni, NF.Kind)
         ts <- fmt_type(tp, tpn, vec_get(types, ni))
@@ -1515,7 +1515,7 @@ typed_ast_show src:str toks:vec[Token] nodes:vec[int] kids:vec[int] types:vec[in
 // pool for the backend. All three output containers use shared-handle
 // semantics, so the caller sees the elements appended here. Unlike
 // semantic_check(), this entry point never writes a typed-AST dump to stdout.
-semantic_run src:str path:str toks:vec[Token] nodes:vec[int] kids:vec[int] tops:vec[int] parse_err:i64 tp:vec[int] tpn:vec[str] types:vec[int] -> i64 -> {
+semantic_run src:str path:str toks:vec[Token] nodes:vec[int] kids:vec[int] tops:vec[int] parse_err:i64 tp:vec[int] tpn:vec[str] types:vec[int] : i64 -> {
     prime_pool(tp, tpn)
     // Pre-fill types with -1 for each node
     nc <- vec_len(nodes) / 15
@@ -1543,7 +1543,7 @@ semantic_run src:str path:str toks:vec[Token] nodes:vec[int] kids:vec[int] tops:
 
 // Top-level dump entry: run the retained-state checker above, then print the
 // typed AST exactly like the C dump_typed_ast command.
-semantic_check src:str path:str toks:vec[Token] nodes:vec[int] kids:vec[int] tops:vec[int] parse_err:i64 -> i64 -> {
+semantic_check src:str path:str toks:vec[Token] nodes:vec[int] kids:vec[int] tops:vec[int] parse_err:i64 : i64 -> {
     tp <- vec_new(); tpn <- vec_new(); types <- vec_new()
     has_err = semantic_run(src, path, toks, nodes, kids, tops, parse_err, tp, tpn, types)
     top_count = vec_len(tops)

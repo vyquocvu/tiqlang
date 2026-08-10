@@ -9,14 +9,14 @@
 import "semantic.tiq"
 import "emit_c_runtime.tiq"
 
-ec_put b:strbuf s:str -> i64 -> str_buf_append(b, s)
+ec_put b:strbuf s:str : i64 -> str_buf_append(b, s)
 
-ec_indent b:strbuf n:i64 -> i64 -> {
+ec_indent b:strbuf n:i64 : i64 -> {
     [i <- 0..n] { str_buf_append(b, "    ") }
     0
 }
 
-ec_op k:i64 -> str -> match k {
+ec_op k:i64 : str -> match k {
     TokenKind.Plus => "+",
     TokenKind.Minus => "-",
     TokenKind.Star => "*",
@@ -39,7 +39,7 @@ ec_op k:i64 -> str -> match k {
     _ => ""
 }
 
-ec_assign_op k:i64 -> str -> match k {
+ec_assign_op k:i64 : str -> match k {
     TokenKind.PlusEq => "+=",
     TokenKind.MinusEq => "-=",
     TokenKind.StarEq => "*=",
@@ -48,17 +48,17 @@ ec_assign_op k:i64 -> str -> match k {
     _ => "="
 }
 
-ec_kind types:vec[int] tp:vec[int] ni:i64 -> i64 -> {
+ec_kind types:vec[int] tp:vec[int] ni:i64 : i64 -> {
     t = vec_get(types, ni)
     t == 0 - 1 ? TY.Unknown : vec_get(tp, t * 8 + TF.Kind)
 }
 
-ec_array_len types:vec[int] tp:vec[int] ni:i64 -> i64 -> {
+ec_array_len types:vec[int] tp:vec[int] ni:i64 : i64 -> {
     t = vec_get(types, ni)
     t == 0 - 1 ? 0 : vec_get(tp, t * 8 + TF.Len)
 }
 
-ec_kind_type k:i64 -> str -> match k {
+ec_kind_type k:i64 : str -> match k {
     TY.Float => "double",
     TY.Str => "const char *",
     TY.I8 => "int8_t",
@@ -72,7 +72,7 @@ ec_kind_type k:i64 -> str -> match k {
     _ => "int64_t"
 }
 
-ec_annot_type src:str toks:vec[Token] ti:i64 -> str -> {
+ec_annot_type src:str toks:vec[Token] ti:i64 : str -> {
     n = tk_lex(src, toks, ti)
     r <- "int64_t"
     str_eq(n, "f64") ? { r <- "double" }
@@ -97,7 +97,7 @@ ec_annot_type src:str toks:vec[Token] ti:i64 -> str -> {
 // header declaration serves for codegen and the symbol links normally.
 // Mirrors C's ffi_shadows_preamble_header byte-for-byte (selfhost
 // byte-compare); keep both tables identical.
-ec_ffi_shadow n:str -> bool ->
+ec_ffi_shadow n:str : bool ->
     str_eq(n, "clock") || str_eq(n, "close") || str_eq(n, "exit") || str_eq(n, "fork") ||
     str_eq(n, "getpid") || str_eq(n, "getppid") || str_eq(n, "llabs") || str_eq(n, "memcmp") || str_eq(n, "rand") ||
     str_eq(n, "read") || str_eq(n, "sleep") || str_eq(n, "strcmp") || str_eq(n, "strlen") ||
@@ -106,7 +106,7 @@ ec_ffi_shadow n:str -> bool ->
 // FFI-safe parameter annotation to its C ABI spelling (M16.2 table).
 // Semantic already rejected everything else (E29): the surviving names
 // are the scalar keywords and top-level struct typedefs.
-ec_ffi_param_type src:str toks:vec[Token] nodes:vec[int] tops:vec[int] ti:i64 -> str -> {
+ec_ffi_param_type src:str toks:vec[Token] nodes:vec[int] tops:vec[int] ti:i64 : str -> {
     n = tk_lex(src, toks, ti)
     r <- ""
     str_eq(n, "i8") ? { r <- "int8_t" }
@@ -135,7 +135,7 @@ ec_ffi_param_type src:str toks:vec[Token] nodes:vec[int] tops:vec[int] ti:i64 ->
     r
 }
 
-ec_runtime_builtin n:str -> bool ->
+ec_runtime_builtin n:str : bool ->
     str_eq(n, "fs_read") || str_eq(n, "fs_write") || str_eq(n, "fs_exists") || str_eq(n, "fs_list") ||
     str_eq(n, "proc_exec") || str_eq(n, "proc_exit") || str_eq(n, "json_parse_int") || str_eq(n, "json_encode_str") ||
     str_eq(n, "net_fetch") || str_eq(n, "cli_arg_count") || str_eq(n, "cli_arg") || str_eq(n, "json_get") ||
@@ -151,7 +151,7 @@ ec_runtime_builtin n:str -> bool ->
 
 // Backend preflight. A partial self-hosting package must still fail closed:
 // find the first unsupported node before any C bytes are written.
-ec_find_unsupported src:str toks:vec[Token] nodes:vec[int] kids:vec[int] types:vec[int] tp:vec[int] ni:i64 -> i64 -> {
+ec_find_unsupported src:str toks:vec[Token] nodes:vec[int] kids:vec[int] types:vec[int] tp:vec[int] ni:i64 : i64 -> {
     found <- 0 - 1
     [(ni != 0 - 1)] {
         k = nd_get(nodes, ni, NF.Kind)
@@ -203,7 +203,7 @@ ec_find_unsupported src:str toks:vec[Token] nodes:vec[int] kids:vec[int] types:v
     found
 }
 
-ec_type tp:vec[int] tpn:vec[str] types:vec[int] ni:i64 -> str -> {
+ec_type tp:vec[int] tpn:vec[str] types:vec[int] ni:i64 : str -> {
     r <- "int64_t"
     t = vec_get(types, ni)
     [(t != 0 - 1)] {
@@ -232,7 +232,7 @@ ec_type tp:vec[int] tpn:vec[str] types:vec[int] ni:i64 -> str -> {
     r
 }
 
-ec_owned_name n:str -> bool ->
+ec_owned_name n:str : bool ->
     str_eq(n, "fs_read") || str_eq(n, "json_encode_str") || str_eq(n, "json_get") ||
     str_eq(n, "json_arr_get") || str_eq(n, "net_fetch") || str_eq(n, "net_recv") ||
     str_eq(n, "http_method") || str_eq(n, "http_path") || str_eq(n, "json_set") ||
@@ -240,14 +240,14 @@ ec_owned_name n:str -> bool ->
     str_eq(n, "http_header") || str_eq(n, "str_sub") || str_eq(n, "fs_list") ||
     str_eq(n, "str_buf_to_str")
 
-ec_name_in names:vec[str] name:str -> bool -> {
+ec_name_in names:vec[str] name:str : bool -> {
     r <- false
     j <- 0
     [j < vec_len(names) && !r] { r <- str_eq(vec_get(names, j), name); j <- j + 1 }
     r
 }
 
-ec_owned_expr src:str toks:vec[Token] nodes:vec[int] fresh:vec[str] ni:i64 -> bool -> {
+ec_owned_expr src:str toks:vec[Token] nodes:vec[int] fresh:vec[str] ni:i64 : bool -> {
     r <- false
     ni != 0 - 1 ? {
         k = nd_get(nodes, ni, NF.Kind)
@@ -268,7 +268,7 @@ ec_owned_expr src:str toks:vec[Token] nodes:vec[int] fresh:vec[str] ni:i64 -> bo
 // M9.2-I: classify direct heap-producing str functions before emission. The
 // classifier intentionally does not consult `fresh`, so declaration order and
 // recursion cannot change the result.
-ec_fn_fresh src:str toks:vec[Token] nodes:vec[int] kids:vec[int] types:vec[int] tp:vec[int] ni:i64 -> bool -> {
+ec_fn_fresh src:str toks:vec[Token] nodes:vec[int] kids:vec[int] types:vec[int] tp:vec[int] ni:i64 : bool -> {
     r <- false
     body = nd_get(nodes, ni, NF.A)
     ret <- body
@@ -300,7 +300,7 @@ ec_fn_fresh src:str toks:vec[Token] nodes:vec[int] kids:vec[int] types:vec[int] 
     r
 }
 
-ec_safe_name n:str -> bool ->
+ec_safe_name n:str : bool ->
     ec_runtime_builtin(n) || str_eq(n, "print") || str_eq(n, "len") ||
     str_eq(n, "vec_new") || str_eq(n, "vec_push") || str_eq(n, "vec_get") ||
     str_eq(n, "vec_set") || str_eq(n, "vec_len") || str_eq(n, "vec_pop") ||
@@ -308,7 +308,7 @@ ec_safe_name n:str -> bool ->
     str_eq(n, "map_new") || str_eq(n, "map_set") || str_eq(n, "map_get") || str_eq(n, "map_has") ||
     str_eq(n, "map_len") || str_eq(n, "map_key_at") || str_eq(n, "map_val_at")
 
-ec_mut_ok src:str toks:vec[Token] nodes:vec[int] kids:vec[int] fresh:vec[str] ni:i64 name:str -> bool -> {
+ec_mut_ok src:str toks:vec[Token] nodes:vec[int] kids:vec[int] fresh:vec[str] ni:i64 name:str : bool -> {
     r <- true
     ni != 0 - 1 ? {
         k = nd_get(nodes, ni, NF.Kind)
@@ -368,14 +368,14 @@ ec_mut_ok src:str toks:vec[Token] nodes:vec[int] kids:vec[int] fresh:vec[str] ni
     r
 }
 
-ec_mut_qualifies src:str toks:vec[Token] nodes:vec[int] kids:vec[int] fresh:vec[str] scope:vec[int] s:i64 n:i64 at:i64 name:str -> bool -> {
+ec_mut_qualifies src:str toks:vec[Token] nodes:vec[int] kids:vec[int] fresh:vec[str] scope:vec[int] s:i64 n:i64 at:i64 name:str : bool -> {
     r <- true
     j <- at + 1
     [j < n && r] { r <- ec_mut_ok(src, toks, nodes, kids, fresh, vec_get(scope, s + j), name); j <- j + 1 }
     r
 }
 
-ec_mut_active src:str toks:vec[Token] nodes:vec[int] kids:vec[int] fresh:vec[str] ss:vec[int] ns:vec[int] ms:vec[int] name:str -> bool -> {
+ec_mut_active src:str toks:vec[Token] nodes:vec[int] kids:vec[int] fresh:vec[str] ss:vec[int] ns:vec[int] ms:vec[int] name:str : bool -> {
     r <- false
     z <- vec_len(ss)
     [z > 0 && !r] {
@@ -393,7 +393,7 @@ ec_mut_active src:str toks:vec[Token] nodes:vec[int] kids:vec[int] fresh:vec[str
     r
 }
 
-ec_emit_frees src:str toks:vec[Token] nodes:vec[int] kids:vec[int] fresh:vec[str] b:strbuf scope:vec[int] s:i64 n:i64 indent:i64 omit:str -> i64 -> {
+ec_emit_frees src:str toks:vec[Token] nodes:vec[int] kids:vec[int] fresh:vec[str] b:strbuf scope:vec[int] s:i64 n:i64 indent:i64 omit:str : i64 -> {
     j <- n
     [j > 0] {
         j <- j - 1
@@ -417,7 +417,7 @@ ec_emit_frees src:str toks:vec[Token] nodes:vec[int] kids:vec[int] fresh:vec[str
     0
 }
 
-ec_emit_exit_frees src:str toks:vec[Token] nodes:vec[int] kids:vec[int] fresh:vec[str] b:strbuf ss:vec[int] ns:vec[int] ms:vec[int] indent:i64 -> i64 -> {
+ec_emit_exit_frees src:str toks:vec[Token] nodes:vec[int] kids:vec[int] fresh:vec[str] b:strbuf ss:vec[int] ns:vec[int] ms:vec[int] indent:i64 : i64 -> {
     j <- vec_len(ss)
     stop <- false
     [j > 0 && !stop] {
@@ -429,7 +429,7 @@ ec_emit_exit_frees src:str toks:vec[Token] nodes:vec[int] kids:vec[int] fresh:ve
     0
 }
 
-ec_emit_all_frees src:str toks:vec[Token] nodes:vec[int] kids:vec[int] fresh:vec[str] b:strbuf ss:vec[int] ms:vec[int] indent:i64 -> i64 -> {
+ec_emit_all_frees src:str toks:vec[Token] nodes:vec[int] kids:vec[int] fresh:vec[str] b:strbuf ss:vec[int] ms:vec[int] indent:i64 : i64 -> {
     j <- vec_len(ss)
     [j > 0] {
         j <- j - 1
@@ -438,7 +438,7 @@ ec_emit_all_frees src:str toks:vec[Token] nodes:vec[int] kids:vec[int] fresh:vec
     0
 }
 
-ec_hoist_collect src:str toks:vec[Token] nodes:vec[int] kids:vec[int] fresh:vec[str] hs:vec[int] ni:i64 bound:i64 -> i64 -> {
+ec_hoist_collect src:str toks:vec[Token] nodes:vec[int] kids:vec[int] fresh:vec[str] hs:vec[int] ni:i64 bound:i64 : i64 -> {
     ni != 0 - 1 ? {
         k = nd_get(nodes, ni, NF.Kind)
         k == AstKind.Conditional && bound == 0 && ec_owned_expr(src, toks, nodes, fresh, ni) ? { vec_push(hs, ni) }
@@ -458,7 +458,7 @@ ec_hoist_collect src:str toks:vec[Token] nodes:vec[int] kids:vec[int] fresh:vec[
     0
 }
 
-ec_expr src:str toks:vec[Token] nodes:vec[int] kids:vec[int] hs:vec[int] his:vec[int] hem:vec[int] types:vec[int] tp:vec[int] tpn:vec[str] b:strbuf ni:i64 -> i64 -> {
+ec_expr src:str toks:vec[Token] nodes:vec[int] kids:vec[int] hs:vec[int] his:vec[int] hem:vec[int] types:vec[int] tp:vec[int] tpn:vec[str] b:strbuf ni:i64 : i64 -> {
     k = nd_get(nodes, ni, NF.Kind)
     done <- 0
     jh <- 0
@@ -813,7 +813,7 @@ ec_expr src:str toks:vec[Token] nodes:vec[int] kids:vec[int] hs:vec[int] his:vec
     0
 }
 
-ec_stmt src:str toks:vec[Token] nodes:vec[int] kids:vec[int] fresh:vec[str] hs:vec[int] his:vec[int] hem:vec[int] hnext:vec[int] types:vec[int] tp:vec[int] tpn:vec[str] b:strbuf ni:i64 indent:i64 oss:vec[int] ons:vec[int] oms:vec[int] -> i64 -> {
+ec_stmt src:str toks:vec[Token] nodes:vec[int] kids:vec[int] fresh:vec[str] hs:vec[int] his:vec[int] hem:vec[int] hnext:vec[int] types:vec[int] tp:vec[int] tpn:vec[str] b:strbuf ni:i64 indent:i64 oss:vec[int] ons:vec[int] oms:vec[int] : i64 -> {
     k = nd_get(nodes, ni, NF.Kind)
     hstart = vec_len(hs)
     k == AstKind.Binding || k == AstKind.Assign ? { ec_hoist_collect(src, toks, nodes, kids, fresh, hs, nd_get(nodes, ni, NF.A), 1) }
@@ -989,7 +989,7 @@ ec_stmt src:str toks:vec[Token] nodes:vec[int] kids:vec[int] fresh:vec[str] hs:v
     0
 }
 
-ec_stream_def src:str toks:vec[Token] nodes:vec[int] kids:vec[int] hs:vec[int] his:vec[int] hem:vec[int] types:vec[int] tp:vec[int] tpn:vec[str] b:strbuf name:str gen:i64 owner:i64 -> i64 -> {
+ec_stream_def src:str toks:vec[Token] nodes:vec[int] kids:vec[int] hs:vec[int] his:vec[int] hem:vec[int] types:vec[int] tp:vec[int] tpn:vec[str] b:strbuf name:str gen:i64 owner:i64 : i64 -> {
     s = nd_get(nodes, gen, NF.L1s); n = nd_get(nodes, gen, NF.L1n)
     ec_put(b, "int64_t tiq_gen_"); ec_put(b, name); ec_put(b, "(")
     owner != 0 - 1 ? {
@@ -1012,7 +1012,7 @@ ec_stream_def src:str toks:vec[Token] nodes:vec[int] kids:vec[int] hs:vec[int] h
     0
 }
 
-ec_function src:str toks:vec[Token] nodes:vec[int] kids:vec[int] fresh:vec[str] hs:vec[int] his:vec[int] hem:vec[int] hnext:vec[int] types:vec[int] tp:vec[int] tpn:vec[str] b:strbuf ni:i64 body_only:i64 -> i64 -> {
+ec_function src:str toks:vec[Token] nodes:vec[int] kids:vec[int] fresh:vec[str] hs:vec[int] his:vec[int] hem:vec[int] hnext:vec[int] types:vec[int] tp:vec[int] tpn:vec[str] b:strbuf ni:i64 body_only:i64 : i64 -> {
     name = tk_lex(src, toks, nd_get(nodes, ni, NF.Name))
     body_only == 0 ? {
         ec_put(b, ec_type(tp, tpn, types, ni)); ec_put(b, " "); ec_put(b, name); ec_put(b, "(")
@@ -1100,7 +1100,7 @@ ec_function src:str toks:vec[Token] nodes:vec[int] kids:vec[int] fresh:vec[str] 
 
 // M16.3: last path component with the .tiq suffix removed; never empty.
 // Mirrors C's emit_c_header byte-for-byte (selfhost byte-compare).
-ec_path_base path:str -> str -> {
+ec_path_base path:str : str -> {
     pn = len(path)
     s <- 0
     j <- 0
@@ -1117,7 +1117,7 @@ ec_path_base path:str -> str -> {
 
 // M16.3: include-guard body — uppercased, non-alphanumerics mapped to '_'.
 // Uppercasing uses paired alphabet tables (there is no code-to-str builtin).
-ec_header_guard base:str -> str -> {
+ec_header_guard base:str : str -> {
     lc = "abcdefghijklmnopqrstuvwxyz"
     uc = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
     gb = str_buf_new()
@@ -1143,7 +1143,7 @@ ec_header_guard base:str -> str -> {
 
 // M16.3: FFI-safe parameter annotation names (the M16.2 scalar table plus
 // top-level struct typedefs). Everything else keeps the function internal.
-ec_ffi_safe_annot src:str toks:vec[Token] nodes:vec[int] tops:vec[int] ti:i64 -> bool -> {
+ec_ffi_safe_annot src:str toks:vec[Token] nodes:vec[int] tops:vec[int] ti:i64 : bool -> {
     n = tk_lex(src, toks, ti)
     r <- str_eq(n, "i8") || str_eq(n, "i16") || str_eq(n, "i32") || str_eq(n, "i64") || str_eq(n, "int") ||
          str_eq(n, "u8") || str_eq(n, "u16") || str_eq(n, "u32") || str_eq(n, "u64") ||
@@ -1163,7 +1163,7 @@ ec_ffi_safe_annot src:str toks:vec[Token] nodes:vec[int] tops:vec[int] ti:i64 ->
 // container annotations, stream-gen bodies, and non-FFI-safe returns keep
 // the function callable from Tiq but out of the header. Unannotated
 // parameters stay int64_t per the emitted-C convention.
-ec_exportable src:str toks:vec[Token] nodes:vec[int] kids:vec[int] tops:vec[int] types:vec[int] tp:vec[int] tpn:vec[str] ni:i64 -> bool -> {
+ec_exportable src:str toks:vec[Token] nodes:vec[int] kids:vec[int] tops:vec[int] types:vec[int] tp:vec[int] tpn:vec[str] ni:i64 : bool -> {
     valid <- true
     nd_get(nodes, ni, NF.Kind) != AstKind.Function ? { valid <- false }
     valid && nd_get(nodes, nd_get(nodes, ni, NF.A), NF.Kind) == AstKind.StreamGen ? { valid <- false }
@@ -1189,7 +1189,7 @@ ec_exportable src:str toks:vec[Token] nodes:vec[int] kids:vec[int] tops:vec[int]
 // M16.3: deterministic C header for a definitions-only library. Struct
 // typedefs come first (by-value parameter support), then the exported
 // prototypes spelled exactly like the --lib forward declarations.
-ec_header b:strbuf path:str src:str toks:vec[Token] nodes:vec[int] kids:vec[int] tops:vec[int] types:vec[int] tp:vec[int] tpn:vec[str] -> i64 -> {
+ec_header b:strbuf path:str src:str toks:vec[Token] nodes:vec[int] kids:vec[int] tops:vec[int] types:vec[int] tp:vec[int] tpn:vec[str] : i64 -> {
     base = ec_path_base(path)
     guard = ec_header_guard(base)
     ec_put(b, "/* Generated by tiq emit-header from "); ec_put(b, base); ec_put(b, ". Do not edit. */\n")
@@ -1245,7 +1245,7 @@ ec_header b:strbuf path:str src:str toks:vec[Token] nodes:vec[int] kids:vec[int]
 // M16.3: program/lib emission body. mode 0 emits the full executable;
 // mode 1 (lib) omits the entry point so the definitions link into a host
 // program. Header mode is handled by emit_c_program before this runs.
-ec_program_body src:str toks:vec[Token] nodes:vec[int] kids:vec[int] tops:vec[int] types:vec[int] tp:vec[int] tpn:vec[str] b:strbuf mode:i64 -> i64 -> {
+ec_program_body src:str toks:vec[Token] nodes:vec[int] kids:vec[int] tops:vec[int] types:vec[int] tp:vec[int] tpn:vec[str] b:strbuf mode:i64 : i64 -> {
     oss = vec_new(); ons = vec_new(); oms = vec_new()
     hs = vec_new(); his = vec_new(); hem = vec_new(); hnext = vec_new(); vec_push(hnext, 0)
     ec_runtime(b)
@@ -1362,7 +1362,7 @@ ec_program_body src:str toks:vec[Token] nodes:vec[int] kids:vec[int] tops:vec[in
 
 // M16.3: mode 0 = program, 1 = lib (no entry point), 2 = C header.
 // path seeds the header guard; it never reaches program/lib output.
-emit_c_program path:str src:str toks:vec[Token] nodes:vec[int] kids:vec[int] tops:vec[int] types:vec[int] tp:vec[int] tpn:vec[str] mode:i64 -> str -> {
+emit_c_program path:str src:str toks:vec[Token] nodes:vec[int] kids:vec[int] tops:vec[int] types:vec[int] tp:vec[int] tpn:vec[str] mode:i64 : str -> {
     b = str_buf_new()
     mode == 2 ? { ec_header(b, path, src, toks, nodes, kids, tops, types, tp, tpn) }
     mode != 2 ? { ec_program_body(src, toks, nodes, kids, tops, types, tp, tpn, b, mode) }

@@ -83,7 +83,7 @@ x = f(1, 2)
 
 # M12.4: type annotations are now supported.
 # Test return type mismatch detection.
-assert_semantic "func_return_type_mismatch" 'f a:i32 -> str -> a
+assert_semantic "func_return_type_mismatch" 'f a:i32 : str -> a
 ' "$TMP_DIR/func_return_type_mismatch.tiq:1: error[E09]: return type mismatch: expected str, found i32"
 
 # M22.1 (issue #5 Finding 3): 'none' is a reserved literal. It cannot be
@@ -969,7 +969,7 @@ f(1)
 assert_semantic "p8_container_borrow" 'f v:&vec[int] -> vec_len(v)
 ' "$TMP_DIR/p8_container_borrow.tiq:1: error[E23]: container parameters are reference-semantics handles; '&' is not allowed"
 
-assert_semantic "p8_vec_return_elem_mismatch" 'g v:vec[str] -> vec[int] -> v
+assert_semantic "p8_vec_return_elem_mismatch" 'g v:vec[str] : vec[int] -> v
 ' "$TMP_DIR/p8_vec_return_elem_mismatch.tiq:1: error[E09]: return type mismatch: expected vec<int>, found vec<str>"
 
 assert_semantic "p8_strbuf_arg_mismatch" 'f b:strbuf -> str_buf_len(b)
@@ -992,7 +992,7 @@ assert_semantic_ast "p8_typed_vec_param" 'f v:vec[int] -> vec_get(v, 0)
     IDENT v <TYPE_VEC:TYPE_INT>
     INT 0 <TYPE_INT>'
 
-assert_semantic_ast "p8_typed_vec_return" 'f v:vec[int] b:strbuf m:map -> vec[int] -> v
+assert_semantic_ast "p8_typed_vec_return" 'f v:vec[int] b:strbuf m:map : vec[int] -> v
 ' 'FUNCTION f <TYPE_VEC:TYPE_INT>
   PARAM v
   PARAM b
@@ -1005,8 +1005,8 @@ assert_semantic_ast "p8_typed_vec_return" 'f v:vec[int] b:strbuf m:map -> vec[in
 # canonical one; a vec established via vec_push(v, f(1)) must still be
 # accepted by a vec[int] parameter (was a false E09 "expected vec<int>,
 # found vec<int>").
-assert_semantic_ast "p9_vec_helper_elem_param" 'f x:int -> int -> x + 1
-g v:vec[int] -> int -> vec_len(v)
+assert_semantic_ast "p9_vec_helper_elem_param" 'f x:int : int -> x + 1
+g v:vec[int] : int -> vec_len(v)
 v = vec_new()
 vec_push(v, f(1))
 n = g(v)
@@ -1036,10 +1036,10 @@ BINDING n <TYPE_INT>
 
 # M13.1-P9: the vec[int] return-annotation check has the same structural
 # rule (expression bodies carry the full vec<T> element).
-assert_semantic_ast "p9_vec_helper_elem_return" 'h x:int -> int -> x
+assert_semantic_ast "p9_vec_helper_elem_return" 'h x:int : int -> x
 v = vec_new()
 vec_push(v, h(1))
-f a:int -> vec[int] -> v
+f a:int : vec[int] -> v
 ' 'FUNCTION h <TYPE_INT>
   PARAM x
   IDENT x <TYPE_INT>
@@ -1058,8 +1058,8 @@ FUNCTION f <TYPE_VEC:TYPE_INT>
 
 # M13.1-P9 true negative: structural comparison must not over-accept — a
 # helper-established vec<int> into a vec[str] parameter is still E09.
-assert_semantic "p9_vec_helper_elem_param_neg" 'h x:int -> int -> x
-f v:vec[str] -> int -> vec_len(v)
+assert_semantic "p9_vec_helper_elem_param_neg" 'h x:int : int -> x
+f v:vec[str] : int -> vec_len(v)
 v = vec_new()
 vec_push(v, h(1))
 f(v)
@@ -1069,7 +1069,7 @@ f(v)
 # into a vec[B] parameter is E09 even though the shapes match.
 assert_semantic "p9_vec_struct_elem_nominal_neg" 'struct A { x: int }
 struct B { x: int }
-f v:vec[B] -> int -> vec_len(v)
+f v:vec[B] : int -> vec_len(v)
 v = vec_new()
 vec_push(v, A { x: 1 })
 f(v)
@@ -1078,54 +1078,54 @@ f(v)
 # M16.1/M16.2: extern "C" declarations (LANGUAGE_SPEC §7.1). Fail-closed
 # semantic checks carry the new E29 code; calls type-check like user
 # functions (E12 arity, E09 argument types).
-assert_semantic "extern_bad_abi" 'extern "Rust" f x:i64 -> i64
+assert_semantic "extern_bad_abi" 'extern "Rust" f x:i64 : i64
 ' "$TMP_DIR/extern_bad_abi.tiq:1: error[E29]: extern ABI must be \"C\""
 
-assert_semantic "extern_unannotated_param" 'extern "C" f x -> i64
+assert_semantic "extern_unannotated_param" 'extern "C" f x y:i64 : i64
 ' "$TMP_DIR/extern_unannotated_param.tiq:1: error[E29]: extern parameters require type annotations"
 
-assert_semantic "extern_borrow_param" 'extern "C" f x:&i64 -> i64
+assert_semantic "extern_borrow_param" 'extern "C" f x:&i64 : i64
 ' "$TMP_DIR/extern_borrow_param.tiq:1: error[E23]: extern parameters cannot use borrow annotations"
 
-assert_semantic "extern_vec_param" 'extern "C" f v:vec[int] -> i64
+assert_semantic "extern_vec_param" 'extern "C" f v:vec[int] : i64
 ' "$TMP_DIR/extern_vec_param.tiq:1: error[E29]: extern parameter type is not FFI-safe"
 
-assert_semantic "extern_array_param" 'extern "C" f a:[i64; 4] -> i64
+assert_semantic "extern_array_param" 'extern "C" f a:[i64; 4] : i64
 ' "$TMP_DIR/extern_array_param.tiq:1: error[E29]: extern parameter type is not FFI-safe"
 
-assert_semantic "extern_vec_return" 'extern "C" f x:i64 -> vec[int]
+assert_semantic "extern_vec_return" 'extern "C" f x:i64 : vec[int]
 ' "$TMP_DIR/extern_vec_return.tiq:1: error[E29]: extern return type is not FFI-safe"
 
-assert_semantic "extern_unknown_type" 'extern "C" f x:unknown -> i64
+assert_semantic "extern_unknown_type" 'extern "C" f x:unknown : i64
 ' "$TMP_DIR/extern_unknown_type.tiq:1: error[E09]: unknown type 'unknown'"
 
-assert_semantic "extern_duplicate" 'extern "C" llabs x:i64 -> i64
-extern "C" llabs y:i64 -> i64
+assert_semantic "extern_duplicate" 'extern "C" llabs x:i64 : i64
+extern "C" llabs y:i64 : i64
 ' "$TMP_DIR/extern_duplicate.tiq:2: error[E29]: duplicate extern declaration 'llabs'"
 
-assert_semantic "extern_function_collision" 'f x:i64 -> i64 -> x
-extern "C" f y:i64 -> i64
+assert_semantic "extern_function_collision" 'f x:i64 : i64 -> x
+extern "C" f y:i64 : i64
 ' "$TMP_DIR/extern_function_collision.tiq:2: error[E29]: extern declaration 'f' collides with an existing declaration"
 
 assert_semantic "extern_struct_collision" 'struct P { x: i64 }
-extern "C" P y:i64 -> i64
+extern "C" P y:i64 : i64
 ' "$TMP_DIR/extern_struct_collision.tiq:2: error[E29]: extern declaration 'P' collides with an existing declaration"
 
 assert_semantic "extern_enum_collision" 'enum P { A }
-extern "C" P y:i64 -> i64
+extern "C" P y:i64 : i64
 ' "$TMP_DIR/extern_enum_collision.tiq:2: error[E29]: extern declaration 'P' collides with an existing declaration"
 
 # Calls to extern functions type-check like user functions.
-assert_semantic "extern_arity" 'extern "C" llabs x:i64 -> i64
+assert_semantic "extern_arity" 'extern "C" llabs x:i64 : i64
 y = llabs(1, 2)
 ' "$TMP_DIR/extern_arity.tiq:2: error[E12]: arity mismatch"
 
-assert_semantic "extern_arg_type" 'extern "C" llabs x:i64 -> i64
+assert_semantic "extern_arg_type" 'extern "C" llabs x:i64 : i64
 y = llabs("a")
 ' "$TMP_DIR/extern_arg_type.tiq:2: error[E09]: argument 1: expected int, found str"
 
 # Typed-AST goldens: extern decls register with their declared return type.
-assert_semantic_ast "extern_typed_call" 'extern "C" llabs x:i64 -> i64
+assert_semantic_ast "extern_typed_call" 'extern "C" llabs x:i64 : i64
 y = llabs(3 - 10)
 ' 'EXTERN llabs <TYPE_INT>
   PARAM x
@@ -1136,15 +1136,15 @@ BINDING y <TYPE_INT>
       INT 3 <TYPE_INT>
       INT 10 <TYPE_INT>'
 
-assert_semantic_ast "extern_typed_zero_param" 'extern "C" getpid -> i64
+assert_semantic_ast "extern_typed_zero_param" 'extern "C" getpid : i64
 y = getpid()
 ' 'EXTERN getpid <TYPE_INT>
 BINDING y <TYPE_INT>
   CALL <TYPE_INT>
     IDENT getpid <TYPE_INT>'
 
-assert_semantic_ast "extern_typed_str_f64" 'extern "C" strlen s:str -> i64
-extern "C" sqrt x:f64 -> f64
+assert_semantic_ast "extern_typed_str_f64" 'extern "C" strlen s:str : i64
+extern "C" sqrt x:f64 : f64
 n = strlen("tiq")
 ' 'EXTERN strlen <TYPE_INT>
   PARAM s
@@ -1157,7 +1157,7 @@ BINDING n <TYPE_INT>
 
 # Structs pass by value through the C ABI (M16.2).
 assert_semantic_ast "extern_struct_by_value" 'struct Point { x: i64 }
-extern "C" px p:Point -> i64
+extern "C" px p:Point : i64
 ' 'UNKNOWN <TYPE_STRUCT>
 EXTERN px <TYPE_INT>
   PARAM p'

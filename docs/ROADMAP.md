@@ -405,8 +405,8 @@ Status: done (2026-07-29)
 - [x] Recursive and exported functions require inferable-or-explicit signatures; bodies checked against declared types
 
 Evidence 2026-07-29: GRAMMAR.md updated with `param`, `type`, `type_name`, `array_type`,
-`slice_type` productions; LANGUAGE_SPEC §7 documents `param:type` and `-> type ->` return
-annotation syntax; parser accepts optional `:type` after parameters and optional `-> type ->`
+`slice_type` productions; LANGUAGE_SPEC §7 documents `param:type` and `: type ->` return
+annotation syntax; parser accepts optional `:type` after parameters and optional `: type ->`
 before body; semantic analysis resolves type annotations via `resolve_type_annot()` and
 checks body against declared return type; unknown type names rejected (E09); tests:
 `semantic.sh` (typed_func_annot, func_return_type_mismatch, func_unknown_type); ASan/UBSan green.

@@ -89,7 +89,7 @@ expect_err hash_mismatch "not cached: examples/hello.tiq"
 # For a valid cache entry, we need to write the actual hash of the source.
 # Let's compute it using a small Tiq program.
 cat > "$TMP_DIR/compute_hash.tiq" << 'TEOF'
-fnv_hash s:str -> i64 -> {
+fnv_hash s:str : i64 -> {
     h <- 2166136261
     i <- 0
     [i < len(s)] {

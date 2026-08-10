@@ -22,8 +22,8 @@ import "std/json.tiq"
 // ---------------------------------------------------------------------------
 // Token stream accessors (comment trivia is exposed here; ast.tiq exposes the
 // other Token fields through tk_kind/tk_start/tk_length/tk_line).
-tk_cs toks:vec[Token] i:i64 -> i64 -> vec_get(toks, i).comment_start
-tk_cl toks:vec[Token] i:i64 -> i64 -> vec_get(toks, i).comment_length
+tk_cs toks:vec[Token] i:i64 : i64 -> vec_get(toks, i).comment_start
+tk_cl toks:vec[Token] i:i64 : i64 -> vec_get(toks, i).comment_length
 
 // ---------------------------------------------------------------------------
 // Kind predicates.
@@ -31,7 +31,7 @@ tk_cl toks:vec[Token] i:i64 -> i64 -> vec_get(toks, i).comment_length
 // Operators that take a space on both sides. Plus/Minus/Amp are context
 // sensitive (unary tight, binary spaced) and are handled by their own rule;
 // Question and Colon have their own ternary/annotation rules.
-space_op k:i64 -> i64 -> {
+space_op k:i64 : i64 -> {
     r <- 0
     k == TokenKind.Star || k == TokenKind.Slash || k == TokenKind.Percent ? { r <- 1 }
     k == TokenKind.EqEq || k == TokenKind.BangEq || k == TokenKind.Lt || k == TokenKind.Lte || k == TokenKind.Gt || k == TokenKind.Gte ? { r <- 1 }
@@ -43,21 +43,21 @@ space_op k:i64 -> i64 -> {
 
 // Tokens that end an operand: a following + - & is then binary, and the token
 // takes a trailing space unless it is followed by a tight-after token.
-operand_end k:i64 -> i64 -> {
+operand_end k:i64 : i64 -> {
     r <- 0
     k == TokenKind.Ident || k == TokenKind.Int || k == TokenKind.Float || k == TokenKind.String || k == TokenKind.Underscore || k == TokenKind.Rparen || k == TokenKind.Rbracket ? { r <- 1 }
     r
 }
 
 // Keywords and keyword-like words: always take a trailing space.
-is_keyword k:i64 -> i64 -> {
+is_keyword k:i64 : i64 -> {
     r <- 0
     k == TokenKind.While || k == TokenKind.Break || k == TokenKind.Skip || k == TokenKind.Move || k == TokenKind.Defer || k == TokenKind.Until || k == TokenKind.Spawn || k == TokenKind.Chan || k == TokenKind.Struct || k == TokenKind.Enum || k == TokenKind.Match || k == TokenKind.Mut || k == TokenKind.True || k == TokenKind.False || k == TokenKind.None || k == TokenKind.Import || k == TokenKind.Extern ? { r <- 1 }
     r
 }
 
 // May the current token be followed by a space at all?
-space_ok k:i64 -> i64 -> {
+space_ok k:i64 : i64 -> {
     r <- 1
     k == TokenKind.Newline || k == TokenKind.Eof || k == TokenKind.Rbrace || k == TokenKind.Rbracket || k == TokenKind.Rparen || k == TokenKind.Comma || k == TokenKind.Semicolon ? { r <- 0 }
     r
@@ -65,7 +65,7 @@ space_ok k:i64 -> i64 -> {
 
 // A token that ends a nested construct: the propagation `?` stays tight
 // before these, and a block-closing `}` needs no following line break.
-is_closer k:i64 -> i64 -> {
+is_closer k:i64 : i64 -> {
     r <- 0
     k == TokenKind.Newline || k == TokenKind.Eof || k == TokenKind.Rbrace || k == TokenKind.Rbracket || k == TokenKind.Rparen || k == TokenKind.Comma || k == TokenKind.Semicolon ? { r <- 1 }
     r
@@ -74,7 +74,7 @@ is_closer k:i64 -> i64 -> {
 // An operand-end token stays tight before these (call/index/field/range/
 // type-postfix and every closer). `?` and `:` are handled separately: they
 // may need a space (ternary) or stay tight (guard/propagation, annotation).
-tight_after k:i64 -> i64 -> {
+tight_after k:i64 : i64 -> {
     r <- 0
     k == TokenKind.Newline || k == TokenKind.Eof || k == TokenKind.Rbrace || k == TokenKind.Rbracket || k == TokenKind.Rparen || k == TokenKind.Comma || k == TokenKind.Semicolon || k == TokenKind.Lparen || k == TokenKind.Lbracket || k == TokenKind.Dot || k == TokenKind.DotDot || k == TokenKind.DotDotDot || k == TokenKind.Bang ? { r <- 1 }
     r
@@ -89,12 +89,12 @@ tight_after k:i64 -> i64 -> {
 //   4 indent_width
 // Helpers append to the `b` strbuf, which is shared by value.
 
-em_space st:vec[int] b:strbuf -> i64 -> {
+em_space st:vec[int] b:strbuf : i64 -> {
     vec_get(st, 0) == 0 ? { str_buf_append(b, " ") }
     0
 }
 
-em_newline st:vec[int] b:strbuf -> i64 -> {
+em_newline st:vec[int] b:strbuf : i64 -> {
     vec_get(st, 0) == 0 ? {
         str_buf_append(b, "\n")
         vec_set(st, 0, 1)
@@ -102,7 +102,7 @@ em_newline st:vec[int] b:strbuf -> i64 -> {
     0
 }
 
-em_indent st:vec[int] b:strbuf -> i64 -> {
+em_indent st:vec[int] b:strbuf : i64 -> {
     vec_get(st, 0) == 1 ? {
         ind <- vec_get(st, 1)
         tabs <- vec_get(st, 3)
@@ -120,7 +120,7 @@ em_indent st:vec[int] b:strbuf -> i64 -> {
     0
 }
 
-em_comment st:vec[int] b:strbuf src:str toks:vec[Token] i:i64 -> i64 -> {
+em_comment st:vec[int] b:strbuf src:str toks:vec[Token] i:i64 : i64 -> {
     clen <- tk_cl(toks, i)
     clen > 0 ? {
         cstart <- tk_cs(toks, i)
@@ -134,7 +134,7 @@ em_comment st:vec[int] b:strbuf src:str toks:vec[Token] i:i64 -> i64 -> {
 
 // Emit token i (its comment first), then either a newline (nl=1, the NEWLINE
 // token case) or the lexeme at the current position.
-em_token st:vec[int] b:strbuf src:str toks:vec[Token] i:i64 nl:i64 -> i64 -> {
+em_token st:vec[int] b:strbuf src:str toks:vec[Token] i:i64 nl:i64 : i64 -> {
     em_comment(st, b, src, toks, i)
     nl == 1 ? {
         str_buf_append(b, "\n")
@@ -155,7 +155,7 @@ em_token st:vec[int] b:strbuf src:str toks:vec[Token] i:i64 nl:i64 -> i64 -> {
 // `tern` counts unmatched ternary `?` openers so `:` can be told apart from a
 // type/field annotation; `prev`/`prev2` are the two previously emitted token
 // kinds and `peek`/`peek2` the next two.
-fmt_run src:str toks:vec[Token] st:vec[int] b:strbuf -> i64 -> {
+fmt_run src:str toks:vec[Token] st:vec[int] b:strbuf : i64 -> {
     n <- vec_len(toks)
     i <- 0
     prev <- 0
@@ -212,10 +212,16 @@ fmt_run src:str toks:vec[Token] st:vec[int] b:strbuf -> i64 -> {
             done <- 1
         }
 
-        // ':' is a ternary colon (matches a pending '?') or a type/field
-        // annotation (tight before); it always takes a trailing space. A
-        // record-literal field colon does not close an outer ternary.
+        // ':' is a ternary colon (matches a pending '?'), a type/field
+        // annotation (tight before), or a function return-type annotation
+        // (`: Type` after the last parameter's type: `prev2` is the parameter
+        // colon or `prev` closes a vec[...]) which is spaced before. It always
+        // takes a trailing space. A record-literal field colon does not close
+        // an outer ternary.
         done == 0 && k == TokenKind.Colon ? {
+            is_ret <- 0
+            tern == 0 && (prev == TokenKind.Rbracket || (prev == TokenKind.Ident && prev2 == TokenKind.Colon)) ? { is_ret <- 1 }
+            is_ret == 1 ? { em_space(st, b) }
             em_token(st, b, src, toks, i, 0)
             space_ok(pk) == 1 ? { em_space(st, b) }
             is_fc <- 0
@@ -260,6 +266,12 @@ fmt_run src:str toks:vec[Token] st:vec[int] b:strbuf -> i64 -> {
             }
             inl == 0 ? {
                 vec_set(st, 1, vec_get(st, 1) + 1)
+                // Track whether this block is a one-arm conditional body
+                // (`x ? { ... }`), so its closing '}' can balance the '?' that
+                // opened it (that '?' is a guard, not a ternary opener).
+                grd <- 0
+                prev == TokenKind.Question ? { grd <- 1 }
+                vec_push(st, grd)
                 pk != TokenKind.Newline && pk != TokenKind.Eof ? { em_newline(st, b) }
             }
             done <- 1
@@ -279,6 +291,14 @@ fmt_run src:str toks:vec[Token] st:vec[int] b:strbuf -> i64 -> {
                 em_newline(st, b)
                 vec_set(st, 1, vec_get(st, 1) - 1)
                 em_token(st, b, src, toks, i, 0)
+                // A one-arm conditional body opened with `x ? { ... }`: its
+                // '?' was a guard, not a ternary opener, so balance it now
+                // unless a ':' follows (two-arm conditional with block arms).
+                glen <- vec_len(st)
+                glen > 5 ? {
+                    grd <- vec_pop(st)
+                    grd == 1 && pk != TokenKind.Colon ? { tern <- tern - 1 }
+                }
                 close <- 0
                 is_closer(pk) == 1 ? { close <- 1 }
                 close == 0 && (space_op(pk) == 1 || pk == TokenKind.Question || pk == TokenKind.Colon) ? { em_space(st, b) }

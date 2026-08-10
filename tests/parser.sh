@@ -65,15 +65,24 @@ assert_parser "conditional" 'z = a ? b : c ? d : e' 'BINDING z
       IDENT d
       IDENT e'
 
-assert_parser "function_and_block" 'f a b -> {
-  a + b
-}' 'FUNCTION f
+# M25 (issue #8): typed function returns use ':' for type information and
+# reserve '->' for introducing the body.
+assert_parser "typed_return_colon" 'add32 a:i32 b:i32 : i32 -> a + b' 'FUNCTION add32
   PARAM a
   PARAM b
+  BINARY PLUS
+    IDENT a
+    IDENT b'
+
+assert_parser "typed_return_colon_block" 'f x:i64 : i64 -> {
+  x + 1
+}' 'FUNCTION f
+  PARAM x
   BLOCK
     BINARY PLUS
-      IDENT a
-      IDENT b'
+      IDENT x
+      INT 1'
+
 
 assert_parser "call_and_assign" 'val <- f(1, 2)
 val += 3' 'MUT_BINDING val
@@ -242,28 +251,25 @@ IMPORT "sub/b.tiq"'
 # M13.1-P8: container type annotations parse in param and return position
 # (vec[T] / strbuf / map); annotations are not shown by dump-ast, so this
 # pins acceptance and body shape only.
-assert_parser "container_annots" 'f v:vec[int] b:strbuf m:map -> vec[int] -> v
+assert_parser "container_annots" 'f v:vec[int] b:strbuf m:map : vec[int] -> v
 ' 'FUNCTION f
   PARAM v
   PARAM b
   PARAM m
   IDENT v'
 
-# M16.1: extern "C" declarations parse at top level (LANGUAGE_SPEC §7.1,
-# GRAMMAR extern_decl). The dump mirrors the FUNCTION shape; annotations
-# and the ABI operand are not shown by dump-ast.
-assert_parser "extern_decl" 'extern "C" llabs x:i64 -> i64' 'EXTERN llabs
+assert_parser "extern_decl" 'extern "C" llabs x:i64 : i64' 'EXTERN llabs
   PARAM x'
 
-assert_parser "extern_zero_param" 'extern "C" getpid -> i64' 'EXTERN getpid'
+assert_parser "extern_zero_param" 'extern "C" getpid : i64' 'EXTERN getpid'
 
-assert_parser "extern_multi_param" 'extern "C" memcmp a:str b:str n:i64 -> i64' 'EXTERN memcmp
+assert_parser "extern_multi_param" 'extern "C" memcmp a:str b:str n:i64 : i64' 'EXTERN memcmp
   PARAM a
   PARAM b
   PARAM n'
 
 assert_parser "extern_after_import" 'import "lib.tiq"
-extern "C" llabs x:i64 -> i64' 'IMPORT "lib.tiq"
+extern "C" llabs x:i64 : i64' 'IMPORT "lib.tiq"
 EXTERN llabs
   PARAM x'
 
@@ -301,9 +307,11 @@ $TMP_DIR/extern_in_block.tiq:1: error[E05]: expected expression
 $TMP_DIR/extern_in_block.tiq:1: error[E05]: expected expression"
 assert_parse_error "extern_no_abi" 'extern llabs x:i64 -> i64' \
   "$TMP_DIR/extern_no_abi.tiq:1: error[E04]: expected string literal after 'extern'"
-assert_parse_error "extern_body_attempt" 'extern "C" f x:i64 -> i64 -> x' \
-  "$TMP_DIR/extern_body_attempt.tiq:1: error[E05]: expected expression"
-assert_parse_error "extern_missing_return" 'extern "C" f x:i64 ->' \
-  "$TMP_DIR/extern_missing_return.tiq:1: error[E04]: expected return type after '->'"
+assert_parse_error "extern_body_attempt" 'extern "C" f x:i64 : i64 -> x' \
+  "$TMP_DIR/extern_body_attempt.tiq:1: error[E04]: extern declarations end after the return type"
+assert_parse_error "extern_missing_return" 'extern "C" f x:i64 :' \
+  "$TMP_DIR/extern_missing_return.tiq:1: error[E04]: expected return type after ':'"
+assert_parse_error "legacy_typed_return" 'f x:i64 -> i64 -> x' \
+  "$TMP_DIR/legacy_typed_return.tiq:1: error[E04]: return type annotations use ':': write ': Type -> body'"
 
 echo "parser: ok"

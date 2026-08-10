@@ -58,7 +58,7 @@ Functions have fixed parameter and return types after inference. They are not dy
 Planned explicit syntax:
 
 ```tiq
-add a:i32 b:i32 -> i32 -> a + b
+add a: i32 b: i32 : i32 -> a + b
 ```
 
 ## Conditional typing

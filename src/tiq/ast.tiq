@@ -104,17 +104,17 @@ struct Token {
 // Token stream accessors. `t = vec_get(toks, i)` cannot be bound to a
 // local (a struct read out of a vec loses its type in the bootstrap), so
 // every field read goes through one of these and stays inline.
-tk_kind toks:vec[Token] i:i64 -> i64 -> vec_get(toks, i).kind
-tk_start toks:vec[Token] i:i64 -> i64 -> vec_get(toks, i).start
-tk_length toks:vec[Token] i:i64 -> i64 -> vec_get(toks, i).length
-tk_line toks:vec[Token] i:i64 -> i64 -> vec_get(toks, i).line
+tk_kind toks:vec[Token] i:i64 : i64 -> vec_get(toks, i).kind
+tk_start toks:vec[Token] i:i64 : i64 -> vec_get(toks, i).start
+tk_length toks:vec[Token] i:i64 : i64 -> vec_get(toks, i).length
+tk_line toks:vec[Token] i:i64 : i64 -> vec_get(toks, i).line
 
 // The raw lexeme of token i, the port of `%.*s` on token.start/length.
-tk_lex src:str toks:vec[Token] i:i64 -> str -> str_sub(src, tk_start(toks, i), tk_start(toks, i) + tk_length(toks, i))
+tk_lex src:str toks:vec[Token] i:i64 : str -> str_sub(src, tk_start(toks, i), tk_start(toks, i) + tk_length(toks, i))
 
 // Do tokens a and b spell the same name? The port of the length + memcmp
 // pair the C parser uses for duplicate loop binders.
-tk_same src:str toks:vec[Token] a:i64 b:i64 -> i64 -> str_eq(tk_lex(src, toks, a), tk_lex(src, toks, b)) ? 1 : 0
+tk_same src:str toks:vec[Token] a:i64 b:i64 : i64 -> str_eq(tk_lex(src, toks, a), tk_lex(src, toks, b)) ? 1 : 0
 
 // AstKind mirrors include/ast.h. MatchArm is not an AstKind in C (arms are
 // a side struct); here each arm is a node so that one child-list span can
@@ -184,12 +184,12 @@ enum NF {
 }
 
 // NodeWidth must equal the number of NF variants.
-node_width d:i64 -> i64 -> 15
+node_width d:i64 : i64 -> 15
 
 // Read/write field f of node i in the flat node store.
-nd_get nodes:vec[int] i:i64 f:i64 -> i64 -> vec_get(nodes, i * 15 + f)
+nd_get nodes:vec[int] i:i64 f:i64 : i64 -> vec_get(nodes, i * 15 + f)
 
-nd_set nodes:vec[int] i:i64 f:i64 v:i64 -> i64 -> {
+nd_set nodes:vec[int] i:i64 f:i64 v:i64 : i64 -> {
     vec_set(nodes, i * 15 + f, v)
     i
 }
@@ -198,7 +198,7 @@ nd_set nodes:vec[int] i:i64 f:i64 v:i64 -> i64 -> {
 // token references start at -1 (the NULL/absent marker of the C AST);
 // flags and child-list COUNTS start at 0, so an unused list is empty
 // rather than a negative-length range.
-nd_new nodes:vec[int] kind:i64 tidx:i64 -> i64 -> {
+nd_new nodes:vec[int] kind:i64 tidx:i64 : i64 -> {
     idx = vec_len(nodes) / 15
     vec_push(nodes, kind)
     vec_push(nodes, tidx)
@@ -222,7 +222,7 @@ nd_new nodes:vec[int] kind:i64 tidx:i64 -> i64 -> {
 // is still growing while its children are parsed. Regions nest strictly,
 // so a finished region is copied into `kids` — contiguous and final — and
 // popped off the scratch stack. Returns the start index in `kids`.
-kids_flush sk:vec[int] kids:vec[int] base:i64 -> i64 -> {
+kids_flush sk:vec[int] kids:vec[int] base:i64 : i64 -> {
     start = vec_len(kids)
     count = vec_len(sk) - base
     [j <- 0..count] { vec_push(kids, vec_get(sk, base + j)) }
@@ -232,7 +232,7 @@ kids_flush sk:vec[int] kids:vec[int] base:i64 -> i64 -> {
 
 // Port of token_kind_name() in src/lexer.c: the exact names printed by
 // `tiq dump-tokens`.
-token_kind_name k:i64 -> str -> match k {
+token_kind_name k:i64 : str -> match k {
     TokenKind.Eof => "EOF",
     TokenKind.Ident => "IDENT",
     TokenKind.Int => "INT",

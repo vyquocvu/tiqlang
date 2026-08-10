@@ -877,11 +877,12 @@ static AstNode *declaration(Parser *parser) {
         }
         return node;
     }
-    // M16.1: extern "C" declaration — extern <abi-string> <name> { param }
-    // "->" <return-type> (LANGUAGE_SPEC §7.1, GRAMMAR extern_decl). Top
-    // level only: inside blocks 'extern' has no parse path and fails
-    // closed with E05. The ABI operand must be a string literal here;
-    // its content and the FFI-safety of the signature are semantic (E29).
+    // M16.1/M25: extern "C" declaration — extern <abi-string> <name>
+    // { param } ":" <return-type> (LANGUAGE_SPEC §7.1, GRAMMAR
+    // extern_decl). Top level only: inside blocks 'extern' has no parse path
+    // and fails closed with E05. The ABI operand must be a string literal
+    // here; its content and the FFI-safety of the signature are semantic
+    // (E29).
     if (match(parser, TOK_EXTERN)) {
         AstNode *node = allocate_node(parser, AST_EXTERN);
         node->as.function.return_type_annot.kind = TOK_EOF;
@@ -902,8 +903,16 @@ static AstNode *declaration(Parser *parser) {
                 "expected extern function name after 'extern'");
         node->as.function.name = parser->previous;
         parse_param_list(parser, node);
-        consume(parser, TOK_RARROW, ERR_UNEXPECTED_TOKEN, "expected '->' after extern parameters");
-        consume(parser, TOK_IDENT, ERR_UNEXPECTED_TOKEN, "expected return type after '->'");
+        if (check(parser, TOK_RARROW)) {
+            diag_error(parser->diag, parser->lexer.path, parser->current.line,
+                       ERR_UNEXPECTED_TOKEN,
+                       "extern return type annotations use ':': write ': Type'");
+            advance(parser); // recover through the legacy separator
+        } else {
+            consume(parser, TOK_COLON, ERR_UNEXPECTED_TOKEN,
+                    "expected ':' before extern return type");
+        }
+        consume(parser, TOK_IDENT, ERR_UNEXPECTED_TOKEN, "expected return type after ':'");
         node->as.function.return_type_annot = parser->previous;
         // vec[T] return annotation parses here so semantic can reject it
         // as not FFI-safe (E29) instead of cascading a parse error.
@@ -920,7 +929,15 @@ static AstNode *declaration(Parser *parser) {
             }
             consume(parser, TOK_RBRACKET, ERR_UNEXPECTED_TOKEN, "expected ']' after vec element type");
         }
-        // No body: the declaration ends at the return type.
+        // An extern has no body; reject an attempted body marker directly
+        // instead of letting it cascade as a top-level expression error.
+        if (check(parser, TOK_RARROW)) {
+            diag_error(parser->diag, parser->lexer.path, parser->current.line,
+                       ERR_UNEXPECTED_TOKEN,
+                       "extern declarations end after the return type");
+            advance(parser);
+            (void)expression(parser); // consume the attempted body for recovery
+        }
         return node;
     }
     // M12.6: struct definition
@@ -996,39 +1013,64 @@ static AstNode *declaration(Parser *parser) {
             node->as.function.return_type_annot.kind = TOK_EOF; // no return type by default
             node->as.function.return_elem_annot.kind = TOK_EOF; // M13.1-P8: no vec[T] element by default
             parse_param_list(parser, node);
-            consume(parser, TOK_RARROW, ERR_UNEXPECTED_TOKEN, "expected '->' after function parameters");
-            // M12.4: parse optional return type annotation: -> type -> body
-            if (check(parser, TOK_IDENT)) {
-                // Could be return type or start of body expression
-                // Peek ahead: if next is '->', this is a return type
-                Lexer peek_lexer2 = parser->lexer;
-                Token peek_tok = lexer_next(&peek_lexer2);
-                while (peek_tok.kind == TOK_NEWLINE) peek_tok = lexer_next(&peek_lexer2);
-                bool cur_is_vec = parser->current.length == 3 &&
-                                  memcmp(parser->current.start, "vec", 3) == 0;
-                if (cur_is_vec && peek_tok.kind == TOK_LBRACKET) {
-                    // M13.1-P8: only the exact "vec [ elem ] ->" sequence is a
-                    // return annotation; anything else stays body (fail closed).
-                    Token t1 = lexer_next(&peek_lexer2);
-                    while (t1.kind == TOK_NEWLINE) t1 = lexer_next(&peek_lexer2);
-                    Token t2 = lexer_next(&peek_lexer2);
-                    while (t2.kind == TOK_NEWLINE) t2 = lexer_next(&peek_lexer2);
-                    Token t3 = lexer_next(&peek_lexer2);
-                    while (t3.kind == TOK_NEWLINE) t3 = lexer_next(&peek_lexer2);
-                    if (t1.kind == TOK_IDENT && t2.kind == TOK_RBRACKET && t3.kind == TOK_RARROW) {
-                        node->as.function.return_type_annot = parser->current;
-                        advance(parser); // consume 'vec'
-                        advance(parser); // consume '['
-                        node->as.function.return_elem_annot = parser->current;
-                        advance(parser); // consume element type name
-                        consume(parser, TOK_RBRACKET, ERR_UNEXPECTED_TOKEN, "expected ']' after vec element type");
-                        consume(parser, TOK_RARROW, ERR_UNEXPECTED_TOKEN, "expected '->' after return type");
+            // M25 (issue #8): ':' introduces return type information and the
+            // sole '->' introduces the function body.
+            if (match(parser, TOK_COLON)) {
+                consume(parser, TOK_IDENT, ERR_UNEXPECTED_TOKEN,
+                        "expected return type after ':'");
+                node->as.function.return_type_annot = parser->previous;
+                if (node->as.function.return_type_annot.length == 3 &&
+                    memcmp(node->as.function.return_type_annot.start, "vec", 3) == 0 &&
+                    check(parser, TOK_LBRACKET)) {
+                    advance(parser);
+                    consume(parser, TOK_IDENT, ERR_UNEXPECTED_TOKEN,
+                            "expected element type name in vec[...]");
+                    node->as.function.return_elem_annot = parser->previous;
+                    consume(parser, TOK_RBRACKET, ERR_UNEXPECTED_TOKEN,
+                            "expected ']' after vec element type");
+                }
+                consume(parser, TOK_RARROW, ERR_UNEXPECTED_TOKEN,
+                        "expected '->' after function signature");
+            } else {
+                consume(parser, TOK_RARROW, ERR_UNEXPECTED_TOKEN,
+                        "expected '->' after function parameters");
+                // Recover the removed `-> Type ->` spelling as one located
+                // migration diagnostic, then consume it so parsing continues
+                // at the body without a cascade.
+                if (check(parser, TOK_IDENT)) {
+                    Lexer legacy_lexer = parser->lexer;
+                    Token legacy_next = lexer_next(&legacy_lexer);
+                    while (legacy_next.kind == TOK_NEWLINE)
+                        legacy_next = lexer_next(&legacy_lexer);
+                    bool legacy_plain = legacy_next.kind == TOK_RARROW;
+                    bool legacy_vec = false;
+                    if (parser->current.length == 3 &&
+                        memcmp(parser->current.start, "vec", 3) == 0 &&
+                        legacy_next.kind == TOK_LBRACKET) {
+                        Token t1 = lexer_next(&legacy_lexer);
+                        while (t1.kind == TOK_NEWLINE) t1 = lexer_next(&legacy_lexer);
+                        Token t2 = lexer_next(&legacy_lexer);
+                        while (t2.kind == TOK_NEWLINE) t2 = lexer_next(&legacy_lexer);
+                        Token t3 = lexer_next(&legacy_lexer);
+                        while (t3.kind == TOK_NEWLINE) t3 = lexer_next(&legacy_lexer);
+                        legacy_vec = t1.kind == TOK_IDENT &&
+                                     t2.kind == TOK_RBRACKET &&
+                                     t3.kind == TOK_RARROW;
                     }
-                } else if (peek_tok.kind == TOK_RARROW) {
-                    // This is a return type annotation
-                    node->as.function.return_type_annot = parser->current;
-                    advance(parser); // consume type name
-                    consume(parser, TOK_RARROW, ERR_UNEXPECTED_TOKEN, "expected '->' after return type");
+                    if (legacy_plain || legacy_vec) {
+                        diag_error(parser->diag, parser->lexer.path,
+                                   parser->current.line, ERR_UNEXPECTED_TOKEN,
+                                   "return type annotations use ':': write ': Type -> body'");
+                        advance(parser); // type or vec
+                        if (legacy_vec) {
+                            advance(parser); // '['
+                            advance(parser); // element type
+                            consume(parser, TOK_RBRACKET, ERR_UNEXPECTED_TOKEN,
+                                    "expected ']' after vec element type");
+                        }
+                        consume(parser, TOK_RARROW, ERR_UNEXPECTED_TOKEN,
+                                "expected '->' after return type");
+                    }
                 }
             }
             node->as.function.body = expression(parser);
