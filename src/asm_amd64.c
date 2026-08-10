@@ -1245,6 +1245,7 @@ static void encode_instruction(Ctx *c, const char *mnem, Operand *ops, int nop) 
     if (strcmp(mnem, "nop") == 0) { sec_put8(c, 0x90); return; }
     if (strcmp(mnem, "cqto") == 0) { emit_rex(c, 1, 0, 0, 0); sec_put8(c, 0x99); return; }
     if (strcmp(mnem, "cltd") == 0) { sec_put8(c, 0x99); return; }
+    if (strcmp(mnem, "syscall") == 0) { sec_put8(c, 0x0F); sec_put8(c, 0x05); return; }
 
     // ALU operations.
     if ((strcmp(base, "add") == 0 || strcmp(base, "sub") == 0 ||

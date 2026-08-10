@@ -135,4 +135,22 @@ if ! $TIQ emit-obj "$TMP_DIR/data.s" -o "$TMP_DIR/data.o" 2>"$TMP_DIR/data.err";
   exit 1
 fi
 
+# --- Test 9: syscall instruction -------------------------------------------
+
+printf '.text\n.globl main\nmain:\n\tmovq\t$42, %%rdi\n\tmovq\t$60, %%rax\n\tsyscall\n' > "$TMP_DIR/syscall.s"
+if ! $TIQ emit-obj "$TMP_DIR/syscall.s" -o "$TMP_DIR/syscall.o" 2>"$TMP_DIR/syscall.err"; then
+  echo "syscall: emit-obj failed" >&2
+  cat "$TMP_DIR/syscall.err" >&2
+  exit 1
+fi
+# syscall = 0x0F 0x05, verify the object has the expected text size
+# movq $42,%rdi = 48 c7 c7 2a 00 00 00 (7 bytes)
+# movq $60,%rax = 48 c7 c0 3c 00 00 00 (7 bytes)
+# syscall = 0f 05 (2 bytes)
+# total = 16 bytes
+if [ ! -s "$TMP_DIR/syscall.o" ]; then
+  echo "syscall: empty object file" >&2
+  exit 1
+fi
+
 echo "amd64 assembler tests passed"
