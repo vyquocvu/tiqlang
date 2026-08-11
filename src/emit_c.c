@@ -86,6 +86,7 @@ typedef struct EmitContext {
 static void emit_expr(AstNode *node, EmitContext *ctx);
 static void emit_stmt(AstNode *node, EmitContext *ctx, int indent);
 static void emit_type_name(PrimitiveType kind, FILE *out);
+static void emit_semantic_type(SemanticType *t, FILE *out);
 
 // M13.1-P2: find a top-level enum definition by name; NULL when absent.
 static AstNode *emit_enum_lookup(EmitContext *ctx, Token name) {
@@ -339,7 +340,19 @@ static bool mut_uses_ok(AstNode *n, Token name) {
         case AST_MATCH:
             if (!mut_uses_ok(n->as.match_expr.expr, name)) return false;
             for (int i = 0; i < n->as.match_expr.arm_count; i++) {
-                if (!mut_uses_ok(n->as.match_expr.arms[i].pattern, name)) return false;
+                // Pattern bindings shadow the queried name; only literal
+                // expressions and constructor sub-patterns can reference it.
+                Pattern *p = n->as.match_expr.arms[i].pat;
+                if (p) {
+                    if (p->kind == PAT_LITERAL && !mut_uses_ok(p->as.literal.expr, name)) return false;
+                    if (p->kind == PAT_CONSTRUCTOR) {
+                        for (int j = 0; j < p->as.constructor.arg_count; j++) {
+                            Pattern *sub = p->as.constructor.args[j];
+                            if (sub && sub->kind == PAT_LITERAL && !mut_uses_ok(sub->as.literal.expr, name)) return false;
+                        }
+                    }
+                    // PAT_BINDING, PAT_WILDCARD, PAT_ENUM_VARIANT: no mutable ref
+                }
                 if (!mut_uses_ok(n->as.match_expr.arms[i].body, name)) return false;
             }
             return true;
@@ -1284,28 +1297,139 @@ static void emit_expr(AstNode *node, EmitContext *ctx) {
             diag_error(ctx->diag, ctx->path, node->token.line, ERR_UNSUPPORTED_STATEMENT, "chan is not supported yet");
             break;
         case AST_MATCH: {
-            // Emit: (cond1 ? body1 : (cond2 ? body2 : (... : 0)))
-            // Wildcard arms match everything and should be the last arm
-            // Structure: (cond) ? then : else  (parens close right after condition)
-            bool has_wildcard = false;
+            // Emit match as a GCC statement expression:
+            // __extension__({ T _t = expr; R _r;
+            //   if (cond1) { bindings; _r = body1; }
+            //   else if (cond2) { ... }
+            //   else { _r = bodyN; } _r; })
+            SemanticType *scrut_type = node->as.match_expr.expr ?
+                (SemanticType *)node->as.match_expr.expr->semantic_type : NULL;
+            SemanticType *res_type = (SemanticType *)node->semantic_type;
+
+            fputs("__extension__({ ", ctx->out);
+            // Scrutinee temporary
+            if (scrut_type) {
+                emit_semantic_type(scrut_type, ctx->out);
+            } else {
+                fputs("int64_t", ctx->out);
+            }
+            fputs(" _t = ", ctx->out);
+            emit_expr(node->as.match_expr.expr, ctx);
+            fputs("; ", ctx->out);
+            // Result temporary
+            if (res_type) {
+                emit_semantic_type(res_type, ctx->out);
+            } else {
+                fputs("int64_t", ctx->out);
+            }
+            fputs(" _r; ", ctx->out);
+
+            bool first = true;
             for (int i = 0; i < node->as.match_expr.arm_count; i++) {
-                if (node->as.match_expr.arms[i].is_wildcard) {
-                    emit_expr(node->as.match_expr.arms[i].body, ctx);
-                    has_wildcard = true;
+                MatchArm *arm = &node->as.match_expr.arms[i];
+                Pattern *pat = arm->pat;
+
+                if (!first) fputs("else ", ctx->out);
+                first = false;
+
+                // Emit condition and bindings
+                if (arm->is_wildcard) {
+                    // Wildcard: unconditional
+                    fputs("{ ", ctx->out);
+                } else if (pat && pat->kind == PAT_LITERAL) {
+                    SemanticType *lit_t = pat->as.literal.expr ?
+                        (SemanticType *)pat->as.literal.expr->semantic_type : NULL;
+                    if (lit_t && lit_t->kind == TYPE_OPTION) {
+                        // none literal matching Option: !(_t.has_value)
+                        fputs("if (!(_t.has_value)) { ", ctx->out);
+                    } else if (lit_t && lit_t->kind == TYPE_RESULT) {
+                        // none literal matching Result: !(_t.is_ok)
+                        fputs("if (!(_t.is_ok)) { ", ctx->out);
+                    } else {
+                        // Regular literal: _t == literal
+                        fputs("if (_t == ", ctx->out);
+                        emit_expr(pat->as.literal.expr, ctx);
+                        fputs(") { ", ctx->out);
+                    }
+                } else if (pat && pat->kind == PAT_BINDING) {
+                    // Binding: always matches, bind _t to name
+                    fputs("{ ", ctx->out);
+                    if (scrut_type) {
+                        emit_semantic_type(scrut_type, ctx->out);
+                    } else {
+                        fputs("int64_t", ctx->out);
+                    }
+                    fputs(" ", ctx->out);
+                    fprintf(ctx->out, "%.*s", (int)pat->as.binding.name.length,
+                            pat->as.binding.name.start);
+                    fputs(" = _t; ", ctx->out);
+                } else if (pat && pat->kind == PAT_CONSTRUCTOR) {
+                    Token cname = pat->as.constructor.name;
+                    bool is_some = cname.length == 4 && memcmp(cname.start, "some", 4) == 0;
+                    bool is_ok   = cname.length == 2 && memcmp(cname.start, "ok", 2) == 0;
+                    // bool is_err = cname.length == 3 && memcmp(cname.start, "err", 3) == 0;
+
+                    if (is_some) {
+                        fputs("if (_t.has_value) { ", ctx->out);
+                        if (pat->as.constructor.arg_count >= 1 &&
+                            pat->as.constructor.args[0] &&
+                            pat->as.constructor.args[0]->kind == PAT_BINDING) {
+                            Pattern *sub = pat->as.constructor.args[0];
+                            SemanticType *inner = scrut_type ? scrut_type->inner_type : NULL;
+                            if (inner) { emit_semantic_type(inner, ctx->out); }
+                            else { fputs("int64_t", ctx->out); }
+                            fprintf(ctx->out, " %.*s = _t.value; ",
+                                    (int)sub->as.binding.name.length,
+                                    sub->as.binding.name.start);
+                        }
+                    } else if (is_ok) {
+                        fputs("if (_t.is_ok) { ", ctx->out);
+                        if (pat->as.constructor.arg_count >= 1 &&
+                            pat->as.constructor.args[0] &&
+                            pat->as.constructor.args[0]->kind == PAT_BINDING) {
+                            Pattern *sub = pat->as.constructor.args[0];
+                            SemanticType *inner = scrut_type ? scrut_type->inner_type : NULL;
+                            if (inner) { emit_semantic_type(inner, ctx->out); }
+                            else { fputs("int64_t", ctx->out); }
+                            fprintf(ctx->out, " %.*s = _t.value; ",
+                                    (int)sub->as.binding.name.length,
+                                    sub->as.binding.name.start);
+                        }
+                    } else {
+                        // err(e)
+                        fputs("if (!(_t.is_ok)) { ", ctx->out);
+                        if (pat->as.constructor.arg_count >= 1 &&
+                            pat->as.constructor.args[0] &&
+                            pat->as.constructor.args[0]->kind == PAT_BINDING) {
+                            Pattern *sub = pat->as.constructor.args[0];
+                            SemanticType *err_t = scrut_type ? scrut_type->error_type : NULL;
+                            if (err_t) { emit_semantic_type(err_t, ctx->out); }
+                            else { fputs("int64_t", ctx->out); }
+                            fprintf(ctx->out, " %.*s = _t.error; ",
+                                    (int)sub->as.binding.name.length,
+                                    sub->as.binding.name.start);
+                        }
+                    }
+                } else if (pat && pat->kind == PAT_ENUM_VARIANT) {
+                    fputs("if (_t == ", ctx->out);
+                    fprintf(ctx->out, "tiq_enum_%.*s_%.*s",
+                            (int)pat->as.enum_variant.type_name.length,
+                            pat->as.enum_variant.type_name.start,
+                            (int)pat->as.enum_variant.variant_name.length,
+                            pat->as.enum_variant.variant_name.start);
+                    fputs(") { ", ctx->out);
                 } else {
-                    fputs("(", ctx->out);
-                    emit_expr(node->as.match_expr.expr, ctx);
-                    fputs(" == ", ctx->out);
-                    emit_expr(node->as.match_expr.arms[i].pattern, ctx);
-                    fputs(") ? ", ctx->out);
-                    emit_expr(node->as.match_expr.arms[i].body, ctx);
-                    fputs(" : ", ctx->out);
+                    // Fallback (shouldn't happen after semantic checking)
+                    fputs("{ ", ctx->out);
                 }
+
+                // Emit body
+                fputs("_r = ", ctx->out);
+                emit_expr(arm->body, ctx);
+                fputs("; } ", ctx->out);
             }
-            // Final fallback (only if no wildcard arm)
-            if (!has_wildcard) {
-                fputs("0", ctx->out);
-            }
+
+            fputs("_r; })", ctx->out);
             break;
         }
         case AST_BLOCK:

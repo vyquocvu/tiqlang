@@ -58,6 +58,7 @@ static AstNode *expression(Parser *parser);
 static AstNode *statement(Parser *parser);
 static AstNode *declaration(Parser *parser);
 static AstNode *bit_xor(Parser *parser);
+static Pattern *parse_pattern(Parser *parser);
 
 static AstNode *block(Parser *parser) {
     AstNode *node = allocate_node(parser, AST_BLOCK);
@@ -290,6 +291,98 @@ static AstNode *bracket_loop(Parser *parser) {
     return node;
 }
 
+// Parse a match-arm pattern.  Patterns are a first-class syntactic category:
+//   _              -> PAT_WILDCARD
+//   literal        -> PAT_LITERAL  (int, float, string, true, false, none)
+//   ident(pat,...) -> PAT_CONSTRUCTOR  (some(v), ok(v), err(e))
+//   ident.ident    -> PAT_ENUM_VARIANT   (Color.Red)
+//   ident          -> PAT_BINDING        (fresh immutable binding)
+// Arbitrary expressions (e.g. a + b) are rejected here with a parse error.
+static Pattern *parse_pattern(Parser *parser) {
+    Pattern *pat = arena_alloc(&parser->arena, sizeof(Pattern));
+    memset(pat, 0, sizeof(Pattern));
+    pat->token = parser->current;
+
+    // Wildcard: _
+    if (match(parser, TOK_UNDERSCORE)) {
+        pat->kind = PAT_WILDCARD;
+        return pat;
+    }
+
+    // Literal: integer, float, string, true, false, none
+    if (check(parser, TOK_INT) || check(parser, TOK_FLOAT) ||
+        check(parser, TOK_STRING) || check(parser, TOK_TRUE) ||
+        check(parser, TOK_FALSE) || check(parser, TOK_NONE)) {
+        pat->kind = PAT_LITERAL;
+        AstNode *lit = allocate_node(parser, AST_LITERAL);
+        lit->token = parser->current;  // literal node needs the literal's token
+        lit->as.literal.type = parser->current.kind;
+        pat->as.literal.expr = lit;
+        advance(parser);
+        return pat;
+    }
+
+    // Identifier-starting patterns: constructor, enum variant, or binding
+    if (check(parser, TOK_IDENT)) {
+        Token ident_tok = parser->current;
+        advance(parser);
+
+        // Constructor pattern: ident(pattern, pattern, ...)
+        if (check(parser, TOK_LPAREN)) {
+            advance(parser); // consume '('
+            pat->kind = PAT_CONSTRUCTOR;
+            pat->token = ident_tok;
+            pat->as.constructor.name = ident_tok;
+            int cap = 0;
+            while (!check(parser, TOK_RPAREN) && !check(parser, TOK_EOF)) {
+                if (pat->as.constructor.arg_count + 1 > cap) {
+                    int new_cap = cap < 4 ? 4 : cap * 2;
+                    pat->as.constructor.args = arena_realloc(&parser->arena,
+                        pat->as.constructor.args,
+                        sizeof(Pattern *) * (size_t)cap,
+                        sizeof(Pattern *) * (size_t)new_cap);
+                    cap = new_cap;
+                }
+                pat->as.constructor.args[pat->as.constructor.arg_count++] =
+                    parse_pattern(parser);
+                if (!check(parser, TOK_RPAREN)) {
+                    consume(parser, TOK_COMMA, ERR_UNEXPECTED_TOKEN,
+                            "expected ',' or ')' in constructor pattern");
+                }
+            }
+            consume(parser, TOK_RPAREN, ERR_UNEXPECTED_TOKEN,
+                    "expected ')' after constructor pattern arguments");
+            if (pat->as.constructor.arg_count == 0) {
+                diag_error(parser->diag, parser->lexer.path, ident_tok.line,
+                           ERR_UNEXPECTED_TOKEN,
+                           "constructor pattern must have at least one argument");
+            }
+            return pat;
+        }
+
+        // Enum variant pattern: Ident.Variant
+        if (check(parser, TOK_DOT)) {
+            advance(parser); // consume '.'
+            consume(parser, TOK_IDENT, ERR_UNEXPECTED_TOKEN,
+                    "expected variant name after '.'");
+            pat->kind = PAT_ENUM_VARIANT;
+            pat->token = ident_tok;
+            pat->as.enum_variant.type_name = ident_tok;
+            pat->as.enum_variant.variant_name = parser->previous;
+            return pat;
+        }
+
+        // Binding pattern: bare identifier creates a fresh immutable binding
+        pat->kind = PAT_BINDING;
+        pat->token = ident_tok;
+        pat->as.binding.name = ident_tok;
+        return pat;
+    }
+
+    error_at_current(parser, ERR_UNEXPECTED_TOKEN, "expected pattern");
+    return NULL;
+}
+
 static AstNode *primary(Parser *parser) {
     if (match(parser, TOK_FALSE) || match(parser, TOK_TRUE) || match(parser, TOK_INT) || match(parser, TOK_FLOAT) || match(parser, TOK_STRING) || match(parser, TOK_NONE)) {
         AstNode *node = allocate_node(parser, AST_LITERAL);
@@ -315,14 +408,7 @@ static AstNode *primary(Parser *parser) {
         consume(parser, TOK_LBRACE, ERR_UNEXPECTED_TOKEN, "expected '{' after match expression");
         int cap = 0;
         while (!check(parser, TOK_RBRACE) && !check(parser, TOK_EOF)) {
-            AstNode *pat = NULL;
-            bool is_wildcard = false;
-            if (match(parser, TOK_UNDERSCORE)) {
-                // Wildcard pattern: _ => ...
-                is_wildcard = true;
-            } else {
-                pat = expression(parser);
-            }
+            Pattern *pat = parse_pattern(parser);
             if (parser->diag->fatal_error) break;
             consume(parser, TOK_FAT_ARROW, ERR_UNEXPECTED_TOKEN, "expected '=>' in match arm");
             AstNode *arm_body = expression(parser);
@@ -334,9 +420,10 @@ static AstNode *primary(Parser *parser) {
                                                          sizeof(MatchArm) * new_cap);
                 cap = new_cap;
             }
-            node->as.match_expr.arms[node->as.match_expr.arm_count].pattern = pat;
+            node->as.match_expr.arms[node->as.match_expr.arm_count].pat = pat;
             node->as.match_expr.arms[node->as.match_expr.arm_count].body = arm_body;
-            node->as.match_expr.arms[node->as.match_expr.arm_count].is_wildcard = is_wildcard;
+            node->as.match_expr.arms[node->as.match_expr.arm_count].is_wildcard =
+                (pat && pat->kind == PAT_WILDCARD);
             node->as.match_expr.arm_count++;
             if (check(parser, TOK_COMMA)) advance(parser);
         }
@@ -1194,6 +1281,52 @@ static void format_type(SemanticType *t, char *buf, size_t cap) {
     snprintf(buf, cap, " <%s>", body);
 }
 
+static void print_pattern(Pattern *pat, int indent) {
+    if (!pat) return;
+    for (int i = 0; i < indent; i++) printf("  ");
+    switch (pat->kind) {
+        case PAT_WILDCARD:
+            printf("WILDCARD\n");
+            break;
+        case PAT_LITERAL:
+            if (pat->as.literal.expr) {
+                TokenKind lt = pat->as.literal.expr->as.literal.type;
+                if (lt == TOK_INT)
+                    printf("PAT_INT %.*s\n", (int)pat->token.length, pat->token.start);
+                else if (lt == TOK_FLOAT)
+                    printf("PAT_FLOAT %.*s\n", (int)pat->token.length, pat->token.start);
+                else if (lt == TOK_STRING)
+                    printf("PAT_STR %.*s\n", (int)pat->token.length, pat->token.start);
+                else if (lt == TOK_TRUE)
+                    printf("PAT_TRUE\n");
+                else if (lt == TOK_FALSE)
+                    printf("PAT_FALSE\n");
+                else if (lt == TOK_NONE)
+                    printf("PAT_NONE\n");
+                else
+                    printf("PAT_LITERAL\n");
+            }
+            break;
+        case PAT_BINDING:
+            printf("PAT_BIND %.*s\n", (int)pat->as.binding.name.length,
+                   pat->as.binding.name.start);
+            break;
+        case PAT_CONSTRUCTOR:
+            printf("PAT_CTOR %.*s\n", (int)pat->as.constructor.name.length,
+                   pat->as.constructor.name.start);
+            for (int i = 0; i < pat->as.constructor.arg_count; i++)
+                print_pattern(pat->as.constructor.args[i], indent + 1);
+            break;
+        case PAT_ENUM_VARIANT:
+            printf("PAT_ENUM %.*s.%.*s\n",
+                   (int)pat->as.enum_variant.type_name.length,
+                   pat->as.enum_variant.type_name.start,
+                   (int)pat->as.enum_variant.variant_name.length,
+                   pat->as.enum_variant.variant_name.start);
+            break;
+    }
+}
+
 void ast_print(AstNode *node, int indent) {
     if (!node) return;
     for (int i = 0; i < indent; i++) printf("  ");
@@ -1365,6 +1498,18 @@ void ast_print(AstNode *node, int indent) {
                        node->as.function.params[i].start);
             }
             break;
+        case AST_MATCH: {
+            printf("MATCH%s\n", t_str);
+            ast_print(node->as.match_expr.expr, indent + 1);
+            for (int i = 0; i < node->as.match_expr.arm_count; i++) {
+                MatchArm *arm = &node->as.match_expr.arms[i];
+                for (int j = 0; j < indent + 1; j++) printf("  ");
+                printf("ARM\n");
+                print_pattern(arm->pat, indent + 2);
+                ast_print(arm->body, indent + 2);
+            }
+            break;
+        }
         default:
             printf("UNKNOWN%s\n", t_str);
             break;

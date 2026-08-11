@@ -149,6 +149,23 @@ enum AstKind {
     MatchArm
 }
 
+// PatKind mirrors include/ast.h's PatKind for pattern matching in match arms.
+// Pattern field layout on MatchArm nodes:
+//   NF.F1 = PatKind (0=Wildcard, 1=Literal, 2=Binding, 3=Constructor, 4=EnumVariant)
+//   NF.A = pattern-specific data:
+//     Wildcard: unused (-1)
+//     Literal: literal node index (points to a Literal node)
+//     Binding: Name field = token index of the binding name
+//     Constructor: Name field = constructor name token; L1s/L1n = sub-pattern node indices
+//     EnumVariant: Name field = type name token; F2 = variant name token index
+enum PatKind {
+    Wildcard,
+    Literal,
+    Binding,
+    Constructor,
+    EnumVariant
+}
+
 // Field offsets within one node's NodeWidth slots. The generic names carry
 // a per-kind meaning, documented here once:
 //   Tok   token index of the C node->token (allocate_node's parser->previous)
@@ -161,8 +178,8 @@ enum AstKind {
 //   Name  token index of the node's name (Identifier/Binding/Assign/
 //         Function/FieldAccess field/StructDef/EnumDef/RecordLit/Chan elem/
 //         BracketLoop binder/Import path), -1 when absent
-//   F1    is_mutable / has_binder / is_bracket_call / is_mut_borrow / is_wildcard
-//   F2    is_slice
+//   F1    is_mutable / has_binder / is_bracket_call / is_mut_borrow / PatKind (MatchArm)
+//   F2    is_slice / variant name token index (MatchArm EnumVariant)
 //   L1s/L1n first child-list span, L2s/L2n second (see below)
 //   R1/R2 Function return_type_annot / return_elem_annot token indices
 enum NF {

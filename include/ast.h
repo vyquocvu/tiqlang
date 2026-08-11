@@ -38,10 +38,34 @@ typedef enum {
 
 typedef struct AstNode AstNode;
 
+// Pattern kinds for match arm patterns (first-class syntactic category,
+// never arbitrary expressions).  Patterns are parsed into Pattern nodes
+// and validated during semantic analysis.
+typedef enum {
+    PAT_WILDCARD,       // _ => ...
+    PAT_LITERAL,        // integer, float, string, true, false, none
+    PAT_BINDING,        // bare identifier -> new immutable binding
+    PAT_CONSTRUCTOR,    // some(v), ok(v), err(e)
+    PAT_ENUM_VARIANT    // Color.Red
+} PatKind;
+
+typedef struct Pattern Pattern;
+struct Pattern {
+    PatKind kind;
+    Token token;              // source location
+    void *semantic_type;      // filled by semantic analysis (Pattern*)
+    union {
+        struct { AstNode *expr; } literal;                          // AST_LITERAL node
+        struct { Token name; } binding;                              // identifier token
+        struct { Token name; Pattern **args; int arg_count; } constructor;
+        struct { Token type_name; Token variant_name; } enum_variant;
+    } as;
+};
+
 typedef struct {
-    AstNode *pattern;
+    Pattern *pat;
     AstNode *body;
-    bool is_wildcard;  // true for _ => ... wildcard arm
+    bool is_wildcard;  // true for _ => ... wildcard arm (pat->kind == PAT_WILDCARD)
 } MatchArm;
 
 struct AstNode {

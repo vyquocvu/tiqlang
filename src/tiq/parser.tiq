@@ -483,18 +483,100 @@ pnode mode:i64 src:str path:str toks:vec[Token] st:vec[int] nodes:vec[int] kids:
             p_expect(toks, st, path, TokenKind.Lbrace, 4, "expected '{' after match expression")
             base = vec_len(sk)
             [p_ck(toks, st) != TokenKind.Rbrace && p_ck(toks, st) != TokenKind.Eof] {
-                pat <- -1
-                wild <- 0
+                pat_kind <- PatKind.Wildcard
+                pat_data <- -1
+                pat_name <- -1
+                pat_name2 <- -1
+                pat_subs_base <- -1
+                pat_subs_n <- 0
+                matched <- 0
+                
+                // Wildcard: _
                 p_matchk(toks, st, TokenKind.Underscore) == 1 ? {
-                    wild <- 1
+                    pat_kind <- PatKind.Wildcard
+                    matched <- 1
                 }
-                wild == 0 ? {
-                    pat <- pnode(PM.Cond, src, path, toks, st, nodes, kids, sk, sk2)
+                // Literal tokens
+                matched == 0 && (p_ck(toks, st) == TokenKind.Int || p_ck(toks, st) == TokenKind.Float ||
+                p_ck(toks, st) == TokenKind.String || p_ck(toks, st) == TokenKind.True ||
+                p_ck(toks, st) == TokenKind.False || p_ck(toks, st) == TokenKind.None) ? {
+                    pat_kind <- PatKind.Literal
+                    lit = nd_new(nodes, AstKind.Literal, p_ci(st))
+                    nd_set(nodes, lit, NF.Op, p_ck(toks, st))
+                    p_advance(toks, st)
+                    pat_data <- lit
+                    matched <- 1
                 }
+                // Identifier-starting patterns
+                matched == 0 && p_ck(toks, st) == TokenKind.Ident ? {
+                    ident_tok = p_ci(st)
+                    p_advance(toks, st)
+                    // Constructor: ident(...)
+                    p_ck(toks, st) == TokenKind.Lparen ? {
+                        pat_kind <- PatKind.Constructor
+                        pat_name <- ident_tok
+                        p_advance(toks, st) // consume '('
+                        sub_base = vec_len(sk)
+                        [p_ck(toks, st) != TokenKind.Rparen && p_ck(toks, st) != TokenKind.Eof] {
+                            // Parse sub-pattern (recursive, but we inline it here for simplicity)
+                            // For now, only support binding sub-patterns
+                            sub_pat <- -1
+                            p_matchk(toks, st, TokenKind.Underscore) == 1 ? {
+                                sub_pat <- nd_new(nodes, AstKind.MatchArm, p_pi(st))
+                                nd_set(nodes, sub_pat, NF.F1, PatKind.Wildcard)
+                            }
+                            p_ck(toks, st) == TokenKind.Ident && sub_pat == -1 ? {
+                                sub_pat <- nd_new(nodes, AstKind.MatchArm, p_ci(st))
+                                nd_set(nodes, sub_pat, NF.F1, PatKind.Binding)
+                                nd_set(nodes, sub_pat, NF.Name, p_ci(st))
+                                p_advance(toks, st)
+                            }
+                            vec_push(sk, sub_pat)
+                            p_ck(toks, st) == TokenKind.Comma ? {
+                                p_advance(toks, st)
+                            }
+                        }
+                        p_expect(toks, st, path, TokenKind.Rparen, 4, "expected ')' after constructor pattern")
+                        pat_subs_base <- kids_flush(sk, kids, sub_base)
+                        pat_subs_n <- vec_len(sk) - sub_base
+                    }
+                    // Enum variant: ident.ident
+                    p_ck(toks, st) == TokenKind.Dot && pat_kind == PatKind.Wildcard ? {
+                        pat_kind <- PatKind.EnumVariant
+                        pat_name <- ident_tok
+                        p_advance(toks, st) // consume '.'
+                        p_ck(toks, st) == TokenKind.Ident ? {
+                            pat_name2 <- p_ci(st)
+                            p_advance(toks, st)
+                        }
+                    }
+                    // Binding: bare ident
+                    pat_kind == PatKind.Wildcard && pat_data == -1 ? {
+                        pat_kind <- PatKind.Binding
+                        pat_name <- ident_tok
+                    }
+                    matched <- 1
+                }
+                
+                matched == 0 ? {
+                    p_expect(toks, st, path, TokenKind.Underscore, 4, "expected pattern")
+                }
+                
                 p_expect(toks, st, path, TokenKind.FatArrow, 4, "expected '=>' in match arm")
                 arm = nd_new(nodes, AstKind.MatchArm, p_pi(st))
-                nd_set(nodes, arm, NF.A, pat)
-                nd_set(nodes, arm, NF.F1, wild)
+                matched == 1 ? {
+                    nd_set(nodes, arm, NF.F1, pat_kind)
+                    nd_set(nodes, arm, NF.A, pat_data)
+                    nd_set(nodes, arm, NF.Name, pat_name)
+                    nd_set(nodes, arm, NF.F2, pat_name2)
+                    pat_subs_base >= 0 ? {
+                        nd_set(nodes, arm, NF.L1s, pat_subs_base)
+                        nd_set(nodes, arm, NF.L1n, pat_subs_n)
+                    }
+                }
+                matched == 0 ? {
+                    nd_set(nodes, arm, NF.F1, -1)  // sentinel: no pattern
+                }
                 nd_set(nodes, arm, NF.B, pnode(PM.Cond, src, path, toks, st, nodes, kids, sk, sk2))
                 vec_push(sk, arm)
                 p_ck(toks, st) == TokenKind.Comma ? {
@@ -1495,8 +1577,64 @@ ast_show src:str toks:vec[Token] nodes:vec[int] kids:vec[int] i:i64 ind:i64 : i6
             c1 = nd_get(nodes, i, NF.L1n)
             [j <- 0..c1] { print(str_cat(str_cat(pp, "PARAM "), tk_lex(src, toks, vec_get(kids, s1 + j)))) }
         }
+        k == AstKind.Match ? {
+            print(str_cat(pd, "MATCH"))
+            ast_show(src, toks, nodes, kids, nd_get(nodes, i, NF.A), ind + 1)
+            s1 = nd_get(nodes, i, NF.L1s)
+            c1 = nd_get(nodes, i, NF.L1n)
+            [j <- 0..c1] { ast_show(src, toks, nodes, kids, vec_get(kids, s1 + j), ind + 1) }
+        }
+        k == AstKind.MatchArm ? {
+            print(str_cat(pd, "ARM"))
+            pat_kind = nd_get(nodes, i, NF.F1)
+            pat_kind != -1 ? {
+                pat_kind == PatKind.Wildcard ? {
+                    print(str_cat(pp, "WILDCARD"))
+                }
+                pat_kind == PatKind.Literal ? {
+                    lit_idx = nd_get(nodes, i, NF.A)
+                    lit_idx != -1 ? {
+                        lt = nd_get(nodes, lit_idx, NF.Op)
+                        lx = tk_lex(src, toks, nd_get(nodes, lit_idx, NF.Tok))
+                        lt == TokenKind.Int ? {
+                            print(str_cat(str_cat(pp, "PAT_INT "), lx))
+                        }
+                        lt == TokenKind.Float ? {
+                            print(str_cat(str_cat(pp, "PAT_FLOAT "), lx))
+                        }
+                        lt == TokenKind.String ? {
+                            print(str_cat(str_cat(pp, "PAT_STR "), lx))
+                        }
+                        lt == TokenKind.True ? {
+                            print(str_cat(pp, "PAT_TRUE"))
+                        }
+                        lt == TokenKind.False ? {
+                            print(str_cat(pp, "PAT_FALSE"))
+                        }
+                        lt == TokenKind.None ? {
+                            print(str_cat(pp, "PAT_NONE"))
+                        }
+                    }
+                }
+                pat_kind == PatKind.Binding ? {
+                    print(str_cat(str_cat(pp, "PAT_BIND "), tk_lex(src, toks, nd_get(nodes, i, NF.Name))))
+                }
+                pat_kind == PatKind.Constructor ? {
+                    print(str_cat(str_cat(pp, "PAT_CTOR "), tk_lex(src, toks, nd_get(nodes, i, NF.Name))))
+                    s1 = nd_get(nodes, i, NF.L1s)
+                    c1 = nd_get(nodes, i, NF.L1n)
+                    [j <- 0..c1] { ast_show(src, toks, nodes, kids, vec_get(kids, s1 + j), ind + 2) }
+                }
+                pat_kind == PatKind.EnumVariant ? {
+                    tn = tk_lex(src, toks, nd_get(nodes, i, NF.Name))
+                    vn = tk_lex(src, toks, nd_get(nodes, i, NF.F2))
+                    print(str_cat(str_cat(str_cat(str_cat(pp, "PAT_ENUM "), tn), "."), vn))
+                }
+            }
+            ast_show(src, toks, nodes, kids, nd_get(nodes, i, NF.B), ind + 1)
+        }
         // default: everything the C switch does not name.
-        k == AstKind.ArrayFill || k == AstKind.StructDef || k == AstKind.RecordLit || k == AstKind.Match || k == AstKind.Spawn || k == AstKind.Chan || k == AstKind.MatchArm ? {
+        k == AstKind.ArrayFill || k == AstKind.StructDef || k == AstKind.RecordLit || k == AstKind.Spawn || k == AstKind.Chan ? {
             print(str_cat(pd, "UNKNOWN"))
         }
     }

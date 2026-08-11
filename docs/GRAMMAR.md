@@ -81,8 +81,15 @@ stream_gen    = "[", expression, { ",", expression }, ",", "...", [ stream_binde
 stream_binder = "(", identifier, [ ",", identifier ], [ ";", identifier ], ")" ; (* ✅ — window binders + optional index binder *)
 stream_bound  = ("while" | "until"), expression ;                  (* 🔴 — semantic E07 bounded unsupported *)
 array_fill    = "[", expression, ";", expression, "]" ;            (* ✅ — length must be integer literal *)
-match_expr    = "match", expression, "{", { match_arm, [ "," ] }, "}" ; (* 🟡 — requires wildcard arm *)
-match_arm     = expression, "=>", expression ;                     (* 🟡 — "_ =>" wildcard required *)
+match_expr    = "match", expression, "{", { match_arm, [ "," ] }, "}" ; (* ✅ — requires wildcard arm *)
+match_arm     = pattern, "=>", expression ;                     (* ✅ — "_ =>" wildcard required *)
+pattern       = wildcard_pattern | literal_pattern | binding_pattern
+              | constructor_pattern | enum_pattern ;            (* ✅ — M17.1 pattern matching *)
+wildcard_pattern    = "_" ;                                     (* ✅ *)
+literal_pattern     = literal ;                                 (* ✅ *)
+binding_pattern     = identifier ;                              (* ✅ — fresh immutable binding *)
+constructor_pattern = identifier, "(", pattern, { ",", pattern }, ")" ; (* ✅ — some/ok/err *)
+enum_pattern        = identifier, ".", identifier ;             (* ✅ — Enum.Variant *)
 literal       = integer | float | string | "true" | "false" | "none" ; (* ✅ — i64 range checked; none = absent Option *)
 
 type          = type_postfix ;                                     (* ✅ — M12.4/M12.6/M8 *)

@@ -793,17 +793,100 @@ ec_expr src:str toks:vec[Token] nodes:vec[int] kids:vec[int] hs:vec[int] his:vec
         ec_put(b, " }"); done <- 1
     }
     done == 0 && k == AstKind.Match ? {
-        s = nd_get(nodes, ni, NF.L1s); n = nd_get(nodes, ni, NF.L1n); j <- 0
+        // Statement expression: __extension__({ type _t = expr; type _r; if (...) { _r = body; } ... _r; })
+        scrutinee <- nd_get(nodes, ni, NF.A)
+        scrutinee_type <- ec_type(tp, tpn, types, scrutinee)
+        result_type <- ec_type(tp, tpn, types, ni)
+        ec_put(b, "__extension__({ ")
+        ec_put(b, scrutinee_type); ec_put(b, " _t = ")
+        ec_expr(src, toks, nodes, kids, hs, his, hem, types, tp, tpn, b, scrutinee)
+        ec_put(b, "; "); ec_put(b, result_type); ec_put(b, " _r;\n")
+        
+        s = nd_get(nodes, ni, NF.L1s); n = nd_get(nodes, ni, NF.L1n); j <- 0; first <- 1
         [j < n] {
             arm = vec_get(kids, s + j)
-            nd_get(nodes, arm, NF.F1) == 1 ? { ec_expr(src, toks, nodes, kids, hs, his, hem, types, tp, tpn, b, nd_get(nodes, arm, NF.B)) }
-            nd_get(nodes, arm, NF.F1) == 0 ? {
-                ec_put(b, "("); ec_expr(src, toks, nodes, kids, hs, his, hem, types, tp, tpn, b, nd_get(nodes, ni, NF.A)); ec_put(b, " == ")
-                ec_expr(src, toks, nodes, kids, hs, his, hem, types, tp, tpn, b, nd_get(nodes, arm, NF.A)); ec_put(b, ") ? ")
-                ec_expr(src, toks, nodes, kids, hs, his, hem, types, tp, tpn, b, nd_get(nodes, arm, NF.B)); ec_put(b, " : ")
+            pat_kind <- nd_get(nodes, arm, NF.F1)
+            
+            // Emit condition
+            first == 0 ? { ec_put(b, "else ") }
+            first <- 0
+            
+            pat_kind == 0 ? {
+                // Wildcard: unconditional
+                ec_put(b, "{ ")
             }
+            pat_kind == 1 ? {
+                // Literal pattern
+                pat_data <- nd_get(nodes, arm, NF.A)
+                pat_data != -1 ? {
+                    lt <- nd_get(nodes, pat_data, NF.Op)
+                    lt == TokenKind.None ? {
+                        // Check scrutinee type to determine Option vs Result
+                        scr_t <- vec_get(types, scrutinee)
+                        scr_k <- scr_t != 0 - 1 ? vec_get(tp, scr_t * 8 + TF.Kind) : 0 - 1
+                        scr_k == TY.Option ? { ec_put(b, "if (!(_t.has_value)) { ") }
+                        scr_k == TY.Result ? { ec_put(b, "if (!(_t.is_ok)) { ") }
+                    }
+                    lt != TokenKind.None ? {
+                        ec_put(b, "if (_t == ")
+                        ec_expr(src, toks, nodes, kids, hs, his, hem, types, tp, tpn, b, pat_data)
+                        ec_put(b, ") { ")
+                    }
+                }
+            }
+            pat_kind == 2 ? {
+                // Binding: unconditional with binding
+                nm <- tk_lex(src, toks, nd_get(nodes, arm, NF.Name))
+                binding_type <- scrutinee_type
+                ec_put(b, "{ "); ec_put(b, binding_type); ec_put(b, " "); ec_put(b, nm); ec_put(b, " = _t; ")
+            }
+            pat_kind == 3 ? {
+                // Constructor: some/ok/err
+                cname <- tk_lex(src, toks, nd_get(nodes, arm, NF.Name))
+                str_eq(cname, "some") ? { ec_put(b, "if (_t.has_value) { ") }
+                str_eq(cname, "ok") ? { ec_put(b, "if (_t.is_ok) { ") }
+                str_eq(cname, "err") ? { ec_put(b, "if (!(_t.is_ok)) { ") }
+                // Emit sub-pattern bindings
+                sub_s <- nd_get(nodes, arm, NF.L1s); sub_n <- nd_get(nodes, arm, NF.L1n)
+                sub_j <- 0
+                [sub_j < sub_n] {
+                    sub_pat <- vec_get(kids, sub_s + sub_j)
+                    sub_pat != -1 ? {
+                        sub_kind <- nd_get(nodes, sub_pat, NF.F1)
+                        sub_kind == 2 ? {
+                            // Binding sub-pattern
+                            sub_nm <- tk_lex(src, toks, nd_get(nodes, sub_pat, NF.Name))
+                            str_eq(cname, "some") ? {
+                                inner_t <- scrutinee_type
+                                ec_put(b, inner_t); ec_put(b, " "); ec_put(b, sub_nm); ec_put(b, " = _t.value; ")
+                            }
+                            str_eq(cname, "ok") ? {
+                                inner_t <- scrutinee_type
+                                ec_put(b, inner_t); ec_put(b, " "); ec_put(b, sub_nm); ec_put(b, " = _t.value; ")
+                            }
+                            str_eq(cname, "err") ? {
+                                ec_put(b, "int64_t "); ec_put(b, sub_nm); ec_put(b, " = _t.error; ")
+                            }
+                        }
+                    }
+                    sub_j <- sub_j + 1
+                }
+            }
+            pat_kind == 4 ? {
+                // Enum variant
+                tn <- tk_lex(src, toks, nd_get(nodes, arm, NF.Name))
+                vn <- tk_lex(src, toks, nd_get(nodes, arm, NF.F2))
+                ec_put(b, "if (_t == tiq_enum_"); ec_put(b, tn); ec_put(b, "_"); ec_put(b, vn); ec_put(b, ") { ")
+            }
+            
+            // Emit body
+            ec_put(b, "_r = ")
+            ec_expr(src, toks, nodes, kids, hs, his, hem, types, tp, tpn, b, nd_get(nodes, arm, NF.B))
+            ec_put(b, "; }\n")
+            
             j <- j + 1
         }
+        ec_put(b, "_r; })")
         done <- 1
     }
     // Exhaustive preflight rejects unsupported AST families before output.

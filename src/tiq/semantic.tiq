@@ -1252,9 +1252,9 @@ check_node src:str path:str toks:vec[Token] nodes:vec[int] kids:vec[int] types:v
     // --- MATCH ---
     done == 0 && k == AstKind.Match ? {
         s1 <- nd_get(nodes, ni, NF.L1s); c1 <- nd_get(nodes, ni, NF.L1n)
-        // Check for wildcard
+        // Check for wildcard (PatKind.Wildcard = 0)
         has_wc <- 0; j <- 0
-        [j < c1 && has_wc == 0] { ai <- vec_get(kids, s1 + j); ai != -1 && nd_get(nodes, ai, NF.F1) == 1 ? { has_wc <- 1; break }; j <- j + 1 }
+        [j < c1 && has_wc == 0] { ai <- vec_get(kids, s1 + j); ai != -1 && nd_get(nodes, ai, NF.F1) == 0 ? { has_wc <- 1; break }; j <- j + 1 }
         has_wc == 0 ? { s_diag(ctx, path, ln, 7, "match must have a wildcard arm ('_ => ...')") }
         // Check expr
         mi <- nd_get(nodes, ni, NF.A)
@@ -1264,14 +1264,19 @@ check_node src:str path:str toks:vec[Token] nodes:vec[int] kids:vec[int] types:v
         [j < c1] {
             arm <- vec_get(kids, s1 + j)
             arm != -1 ? {
-                is_wc <- nd_get(nodes, arm, NF.F1)
-                is_wc == 0 ? { pi <- nd_get(nodes, arm, NF.A); check_node(src, path, toks, nodes, kids, types, en, ed, sc, st_reg, st_data, st_names, st_meta, en_reg, en_data, fn_reg, fn_data, fpts, frks, tp, tpn, ctx, pi) }
+                pat_kind <- nd_get(nodes, arm, NF.F1)
+                // Check pattern if not wildcard (PatKind != 0)
+                pat_kind != 0 ? {
+                    pat_data <- nd_get(nodes, arm, NF.A)
+                    pat_kind == 1 ? { pat_data != -1 ? { check_node(src, path, toks, nodes, kids, types, en, ed, sc, st_reg, st_data, st_names, st_meta, en_reg, en_data, fn_reg, fn_data, fpts, frks, tp, tpn, ctx, pat_data) } }
+                }
                 bi2 <- nd_get(nodes, arm, NF.B)
                 check_node(src, path, toks, nodes, kids, types, en, ed, sc, st_reg, st_data, st_names, st_meta, en_reg, en_data, fn_reg, fn_data, fpts, frks, tp, tpn, ctx, bi2)
                 bi2 != -1 ? {
                     bt <- vec_get(types, bi2)
                     u <- unify(ctx, path, bi2 != -1 ? tk_line(toks, nd_get(nodes, bi2, NF.Tok)) : ln, tp, tpn, result, bt, "match arms must have the same type")
-                    u != -1 ? { result <- u }                }
+                    u != -1 ? { result <- u }
+                }
             }
             j <- j + 1
         }
@@ -1415,6 +1420,62 @@ typed_ast_show src:str toks:vec[Token] nodes:vec[int] kids:vec[int] types:vec[in
                 print(str_cat(str_cat(pad(indent + 1), "PARAM "), pn))
                 j <- j + 1
             }
+            d2 <- 1
+        }
+        // --- MATCH ---
+        d2 == 0 && k == AstKind.Match ? {
+            print(str_cat(pd, str_cat("MATCH", ts)))
+            typed_ast_show(src, toks, nodes, kids, types, tp, tpn, nd_get(nodes, ni, NF.A), indent + 1)
+            s1 <- nd_get(nodes, ni, NF.L1s); c1 <- nd_get(nodes, ni, NF.L1n)
+            j <- 0
+            [j < c1] {
+                arm <- vec_get(kids, s1 + j)
+                arm != -1 ? { typed_ast_show(src, toks, nodes, kids, types, tp, tpn, arm, indent + 1) }
+                j <- j + 1
+            }
+            d2 <- 1
+        }
+        // --- MATCH_ARM ---
+        d2 == 0 && k == AstKind.MatchArm ? {
+            print(str_cat(pd, "ARM"))
+            pat_kind <- nd_get(nodes, ni, NF.F1)
+            pat_kind == 0 ? {
+                print(str_cat(pad(indent + 1), "WILDCARD"))
+            }
+            pat_kind == 1 ? {
+                pat_data <- nd_get(nodes, ni, NF.A)
+                pat_data != -1 ? {
+                    lt <- nd_get(nodes, pat_data, NF.Op)
+                    lx <- tk_lex(src, toks, nd_get(nodes, pat_data, NF.Tok))
+                    lt == TokenKind.Int ? { print(str_cat(str_cat(pad(indent + 1), "PAT_INT "), lx)) }
+                    lt == TokenKind.Float ? { print(str_cat(str_cat(pad(indent + 1), "PAT_FLOAT "), lx)) }
+                    lt == TokenKind.String ? { print(str_cat(str_cat(pad(indent + 1), "PAT_STR "), lx)) }
+                    lt == TokenKind.True ? { print(str_cat(pad(indent + 1), "PAT_TRUE")) }
+                    lt == TokenKind.False ? { print(str_cat(pad(indent + 1), "PAT_FALSE")) }
+                    lt == TokenKind.None ? { print(str_cat(pad(indent + 1), "PAT_NONE")) }
+                }
+            }
+            pat_kind == 2 ? {
+                nm <- tk_lex(src, toks, nd_get(nodes, ni, NF.Name))
+                print(str_cat(str_cat(pad(indent + 1), "BINDING "), nm))
+            }
+            pat_kind == 3 ? {
+                nm <- tk_lex(src, toks, nd_get(nodes, ni, NF.Name))
+                print(str_cat(str_cat(pad(indent + 1), "CTOR "), nm))
+                s1 <- nd_get(nodes, ni, NF.L1s); c1 <- nd_get(nodes, ni, NF.L1n)
+                j <- 0
+                [j < c1] {
+                    sub <- vec_get(kids, s1 + j)
+                    sub != -1 ? { typed_ast_show(src, toks, nodes, kids, types, tp, tpn, sub, indent + 2) }
+                    j <- j + 1
+                }
+            }
+            pat_kind == 4 ? {
+                tn <- tk_lex(src, toks, nd_get(nodes, ni, NF.Name))
+                vn <- tk_lex(src, toks, nd_get(nodes, ni, NF.F2))
+                print(str_cat(str_cat(str_cat(str_cat(pad(indent + 1), "ENUM_PAT "), tn), "."), vn))
+            }
+            typed_ast_show(src, toks, nodes, kids, types, tp, tpn, nd_get(nodes, ni, NF.B), indent + 1)
             d2 <- 1
         }
         // --- BRACKET_LOOP ---

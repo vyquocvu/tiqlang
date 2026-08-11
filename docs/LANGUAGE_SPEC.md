@@ -632,18 +632,60 @@ This section is normative for the bootstrap compiler's observable boundary. Ever
 
 The bootstrap compiler must reject anything that is not **Implemented** or **Provisional** before code generation, producing a non-zero exit code and a diagnostic with source location.
 
-### 17.1 Match expressions (provisional)
+### 17.1 Match expressions and pattern matching (implemented)
 
-`match` selects the first arm whose pattern compares equal to the scrutinee:
+`match` selects the first arm whose pattern matches the scrutinee:
 
 ```tiq
 x = 10
 res = match x { 10 => 100, 20 => 200, _ => 0 }
 ```
 
-Patterns are equality-compared expressions; there are no binding or destructuring patterns in v0.1. All arm bodies must have the same type. The wildcard pattern `_` matches any value and must be present as the last arm (E07: "match must have a wildcard arm ('_ => ...')"). Unmatched scrutinees without a wildcard are rejected at semantic analysis.
+Patterns are a first-class syntactic category (not arbitrary expressions). The following pattern forms are supported:
 
-Status: provisional — full pattern matching (guards, destructuring, exhaustiveness for non-wildcard arms) is deferred to M12.6 and M8.
+**Wildcard pattern** (`_`): Matches any value. Must be present as the last arm (E07: "match must have a wildcard arm").
+
+**Literal pattern** (`10`, `"hello"`, `true`, `none`): Matches when the scrutinee equals the literal value. For `none`, the scrutinee must be an Option or Result type.
+
+**Binding pattern** (`x`): A bare identifier creates a fresh immutable binding scoped to the arm body. The binding's type is the scrutinee type.
+
+```tiq
+res = match x {
+    0 => 10,
+    v => v * 2  // v binds to x
+}
+```
+
+**Constructor pattern** (`some(v)`, `ok(v)`, `err(e)`): Matches Option or Result types and destructures the inner value:
+- `some(v)` requires an Option scrutinee, binds the inner value to `v`
+- `ok(v)` requires a Result scrutinee, binds the success value to `v`
+- `err(e)` requires a Result scrutinee, binds the error value to `e`
+
+```tiq
+opt = some(42)
+res = match opt {
+    some(v) => v,
+    none => 0,
+    _ => -1
+}
+```
+
+**Enum variant pattern** (`Color.Red`): Matches when the scrutinee equals the enum variant constant. The scrutinee must be an integer type (enum variants are i64 constants).
+
+```tiq
+enum Color { Red, Green, Blue }
+c = Color.Red
+name = match c {
+    Color.Red => "red",
+    Color.Green => "green",
+    Color.Blue => "blue",
+    _ => "unknown"
+}
+```
+
+All arm bodies must have the same type. Pattern bindings are immutable (E11 on assignment). Duplicate binding names within a single pattern are rejected. Shadowing follows existing binding rules.
+
+Status: implemented in M17.1. Guards and exhaustiveness checking beyond wildcard requirement are deferred.
 
 ### 17.2 Struct types and field access (implemented)
 
