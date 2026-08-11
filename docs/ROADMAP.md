@@ -506,6 +506,120 @@ tests `width_mixing_i32_i64`, `width_mixing_u8_f64` reject with E09; `dump-typed
 shows `TYPE_ARRAY[3]:TYPE_INT`, `TYPE_SLICE:TYPE_INT` nested forms; ASan/UBSan green.
 
 
+## Pre-M13 — Core stabilization and vertical completion gate
+
+Status: active
+
+This gate takes priority over new syntax, additional backends, platform expansion, and
+post-bootstrap tooling. Its purpose is to make the existing language boundary coherent
+before M13 self-hosting is treated as complete. Work in this gate is corrective: an item
+is not complete until the C bootstrap, self-hosted implementation, specification, and
+deterministic tests agree.
+
+### S1 — Match-pattern correctness (P0)
+
+- [ ] Define the supported v0.1 pattern set in `LANGUAGE_SPEC.md` and `GRAMMAR.md` before
+  extending implementation behavior. Until a pattern kind is implemented end to end,
+  reject it with a located Tiq diagnostic before C emission.
+- [ ] Require every irrefutable arm (`_` or a bare binding) to be the final arm; reject
+  unreachable later arms deterministically. Reconcile this with the existing wildcard
+  requirement so every semantically accepted match has a valid emission path.
+- [ ] Lower constructor patterns recursively. `some(p)`, `ok(p)`, and `err(p)` must test
+  the payload pattern rather than only the outer tag; nested unsupported patterns fail
+  closed.
+- [ ] Implement value equality for string patterns. Never use C pointer equality for
+  Tiq `str` values.
+- [ ] Type-check enum variants and every other pattern against the scrutinee type.
+- [ ] Generate collision-free internal names for the scrutinee, result, and pattern
+  temporaries; user identifiers must not capture compiler-generated bindings.
+- [ ] Add failing-first parser, semantic, diagnostic, C-emission, and runtime tests for
+  wildcard ordering, binding arms, nested constructor patterns, string values, enum
+  mismatches, duplicate bindings, and generated-name collisions.
+
+### S2 — Bootstrap/self-host parity (P0)
+
+- [ ] Update `src/tiq/semantic.tiq` and `src/tiq/emit_c.tiq` for the first-class pattern
+  representation introduced in `src/tiq/ast.tiq` and `src/tiq/parser.tiq`.
+- [ ] Define one documented AST compatibility contract for node kinds, field offsets,
+  pattern kinds, and child spans. Changing that contract requires updating all consumers
+  in the same package.
+- [ ] Make parser, semantic, diagnostic, and emitter differential tests compare the C
+  bootstrap with the self-hosted implementation on the same valid and invalid corpus.
+- [ ] Add generated grammar-based cases to the differential corpus, with a fixed seed
+  and minimized regression fixtures checked into `tests/`.
+- [ ] Treat `tests/selfhost_parser.sh`, `tests/selfhost_semantic.sh`, and
+  `tests/selfhost_emit_c.sh` as required merge gates for any AST or language behavior
+  change.
+
+### S3 — One canonical compilation path (P1)
+
+- [ ] Keep `source -> lexer -> parser -> semantic -> typed IR -> C11 -> executable` as
+  the release-blocking path until this gate closes.
+- [ ] Pause feature expansion in QBE, WebAssembly, integrated assemblers, and integrated
+  linkers unless it is required to preserve an already documented behavior. These paths
+  remain experimental and must not weaken the C11 path's exit criteria.
+- [ ] Lower match, conditional result joins, pattern-local bindings, cleanup, and early
+  exits into structured typed IR instead of reimplementing their semantics independently
+  in each backend.
+- [ ] Remove backend dependence on GNU statement expressions from the canonical C output;
+  emitted programs must build as documented ISO C11 without compiler extensions.
+
+### S4 — Type and value-semantics hardening (P1)
+
+- [ ] Preserve full nested and nominal types across match joins, conditional joins,
+  function returns, and container operations; do not collapse a resolved type to its
+  top-level kind.
+- [ ] Specify equality separately for numeric values, bool, enums, strings, structs, and
+  containers. Unsupported equality must fail closed instead of inheriting C behavior.
+- [ ] Complete `Option<T>` and `Result<T, E>` payload representation so supported payloads
+  are not forced through `int64_t`.
+- [ ] Implement the documented control-flow semantics of propagation, or mark propagation
+  fail-closed until early return and cleanup are correct. A plain `.value` extraction is
+  not sufficient.
+- [ ] Add representation and ownership tests for non-integer Option/Result payloads,
+  nested composites, propagation on both branches, and cleanup on early exit.
+
+### S5 — Fast, isolated, and diagnostic test tiers (P1)
+
+- [ ] Add `make test-fast` for unit, lexer, parser, semantic, and deterministic diagnostic
+  tests. It must avoid sockets, network access, background processes, and platform linkers.
+- [ ] Add separate `test-backend`, `test-selfhost`, and `test-platform` targets; keep
+  `make test` as the aggregate required check.
+- [ ] Give socket and HTTP fixtures bounded startup/exit timeouts and capture server-side
+  diagnostics. Report environment/setup failures separately from compiler assertions.
+- [ ] Run the fast tier with ASan/UBSan for parser, arena, semantic, and emitter changes.
+- [ ] Ensure build configurations cannot reuse incompatible object files when `CFLAGS`,
+  sanitizer settings, or the selected compiler changes.
+
+### S6 — Specification and repository governance (P1)
+
+- [ ] Keep `LANGUAGE_SPEC.md` limited to the current normative language, `GRAMMAR.md`
+  synchronized with the accepted parser surface, and `IMPLEMENTATION_STATUS.md` backed by
+  reproducible test evidence. Move superseded decisions to an ADR or history document.
+- [ ] Add an automated surface audit that detects contradictions between feature status,
+  grammar annotations, roadmap state, and implementation status.
+- [ ] Require `git diff --check`, a clean generated-file policy, and absence of accidental
+  binaries in CI.
+- [ ] Use one vertical completion checklist for every behavior change: failing test,
+  lexer, parser/AST, semantic checks, diagnostics, typed IR, C backend, self-host parity,
+  specification, grammar, implementation status, and roadmap evidence.
+- [ ] Do not mark provisional behavior as implemented or a milestone as done while any
+  required vertical slice or merge gate is failing.
+
+### Exit criteria
+
+- [ ] Every accepted match pattern has correct value semantics and every unsupported
+  pattern fails before backend invocation with a located, tested diagnostic.
+- [ ] C bootstrap and self-host parser, semantic checker, diagnostics, and C emitter pass
+  the differential corpus byte-for-byte where output is specified and behavior-for-
+  behavior otherwise.
+- [ ] The canonical backend emits portable ISO C11 for the full supported language.
+- [ ] `make test-fast`, `make test-selfhost`, `make test-backend`, `make test-platform`,
+  aggregate `make test`, and the documented sanitizer run all pass from a clean checkout.
+- [ ] `LANGUAGE_SPEC.md`, `GRAMMAR.md`, `IMPLEMENTATION_STATUS.md`, and both roadmaps agree
+  on the supported surface and the boundary of M13.
+
+
 ## Explicitly deferred
 
 - macros;
@@ -513,5 +627,4 @@ shows `TYPE_ARRAY[3]:TYPE_INT`, `TYPE_SLICE:TYPE_INT` nested forms; ASan/UBSan g
 - garbage-collected mode;
 - dynamic linking ABI stability;
 - arbitrary operator overloading.
-
 
