@@ -133,6 +133,7 @@ int link_pe_exec(const PeObject *objs, int nobj, const char *entry,
     // Collect external symbols that need importing.
     int n_imports = 1; // ExitProcess always
     int total_ext = next_syms;
+    if (total_ext < 0) total_ext = 0;
     n_imports += total_ext;
 
     // Import Directory Table: 20 bytes per entry + null terminator.
