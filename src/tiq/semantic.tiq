@@ -1252,7 +1252,22 @@ check_node src:str path:str toks:vec[Token] nodes:vec[int] kids:vec[int] types:v
     // --- MATCH ---
     done == 0 && k == AstKind.Match ? {
         s1 <- nd_get(nodes, ni, NF.L1s); c1 <- nd_get(nodes, ni, NF.L1n)
-        // Check for wildcard (PatKind.Wildcard = 0)
+        // Pre-M13 S1: irrefutable arms (wildcard or bare binding) must be
+        // the final arm. Earlier irrefutable arms make every later arm
+        // unreachable and are rejected with E07 before code generation.
+        j <- 0
+        [j < c1 - 1] {
+            ai <- vec_get(kids, s1 + j)
+            ai != -1 ? {
+                pk <- nd_get(nodes, ai, NF.F1)
+                pk == 0 || pk == 2 ? {
+                    s_diag(ctx, path, ln, 7, "irrefutable pattern must be the last arm")
+                    j <- c1 - 1
+                }
+            }
+            j <- j + 1
+        }
+        // Wildcard requirement preserved for compatibility with M12.7.2.
         has_wc <- 0; j <- 0
         [j < c1 && has_wc == 0] { ai <- vec_get(kids, s1 + j); ai != -1 && nd_get(nodes, ai, NF.F1) == 0 ? { has_wc <- 1; break }; j <- j + 1 }
         has_wc == 0 ? { s_diag(ctx, path, ln, 7, "match must have a wildcard arm ('_ => ...')") }

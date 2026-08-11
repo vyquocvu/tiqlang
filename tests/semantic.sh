@@ -331,6 +331,51 @@ assert_semantic "match_no_wildcard" 'x = 10
 res = match x { 10 => 100 }
 ' "$TMP_DIR/match_no_wildcard.tiq:2: error[E07]: match must have a wildcard arm ('_ => ...')"
 
+# Pre-M13 S1: bare-binding arms are also irrefutable and must be last, just
+# like wildcard. `v => v` matches every value, so a later arm would be
+# unreachable (LANGUAGE_SPEC §17.1).
+assert_semantic "match_binding_not_last" 'x = 10
+res = match x { v => v, _ => 0 }
+' "$TMP_DIR/match_binding_not_last.tiq:2: error[E07]: irrefutable pattern must be the last arm"
+
+assert_semantic "match_two_bindings" 'x = 10
+res = match x { v => v, w => w, _ => 0 }
+' "$TMP_DIR/match_two_bindings.tiq:2: error[E07]: irrefutable pattern must be the last arm"
+
+# Pre-M13 S1: enum variant patterns require an integer scrutinee (enums
+# are i64 constants; comparing against a non-integer scrutinee never
+# fires and is rejected before code generation).
+assert_semantic "match_enum_on_string_scrutinee" 'enum E { A, B }
+x = "foo"
+res = match x { E.A => 1, _ => 2 }
+' "$TMP_DIR/match_enum_on_string_scrutinee.tiq:3: error[E09]: enum variant pattern requires integer scrutinee, found str"
+
+# Pre-M13 S1: string patterns use value equality (str_eq), so they must
+# type-check against str scrutinees; non-str scrutinees are rejected.
+assert_semantic "match_str_pattern_on_int_scrutinee" 'x = 5
+res = match x { "foo" => 1, _ => 2 }
+' "$TMP_DIR/match_str_pattern_on_int_scrutinee.tiq:2: error[E09]: pattern type mismatch: expected int, found str"
+
+# Pre-M13 S1: constructor patterns test the payload pattern recursively,
+# so `some(0)` only matches some(0), not some(5). A literal sub-pattern
+# in a constructor is well-formed; this golden pins the type check.
+assert_semantic_ast "typed_match_nested_ctor_literal" 'x = some(0)
+res = match x { some(0) => 1, _ => 2 }
+' 'BINDING x <TYPE_OPTION<TYPE_INT>>
+  CALL <TYPE_OPTION<TYPE_INT>>
+    IDENT some
+    INT 0 <TYPE_INT>
+BINDING res <TYPE_INT>
+  MATCH <TYPE_INT>
+    IDENT x <TYPE_OPTION<TYPE_INT>>
+    ARM
+      PAT_CTOR some
+        PAT_INT 0
+      INT 1 <TYPE_INT>
+    ARM
+      WILDCARD
+      INT 2 <TYPE_INT>'
+
 # M12.7.2: range expressions are only valid inside loop or slice contexts
 assert_semantic "range_outside_context" 'x = 0..10
 ' "$TMP_DIR/range_outside_context.tiq:1: error[E07]: range expressions 'a..b' are only valid inside loop or slice contexts"

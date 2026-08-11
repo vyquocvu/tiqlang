@@ -87,6 +87,7 @@ static void emit_expr(AstNode *node, EmitContext *ctx);
 static void emit_stmt(AstNode *node, EmitContext *ctx, int indent);
 static void emit_type_name(PrimitiveType kind, FILE *out);
 static void emit_semantic_type(SemanticType *t, FILE *out);
+static void emit_match(AstNode *node, EmitContext *ctx);
 
 // M13.1-P2: find a top-level enum definition by name; NULL when absent.
 static AstNode *emit_enum_lookup(EmitContext *ctx, Token name) {
@@ -1296,142 +1297,12 @@ static void emit_expr(AstNode *node, EmitContext *ctx) {
         case AST_CHAN:
             diag_error(ctx->diag, ctx->path, node->token.line, ERR_UNSUPPORTED_STATEMENT, "chan is not supported yet");
             break;
-        case AST_MATCH: {
-            // Emit match as a GCC statement expression:
-            // __extension__({ T _t = expr; R _r;
-            //   if (cond1) { bindings; _r = body1; }
-            //   else if (cond2) { ... }
-            //   else { _r = bodyN; } _r; })
-            SemanticType *scrut_type = node->as.match_expr.expr ?
-                (SemanticType *)node->as.match_expr.expr->semantic_type : NULL;
-            SemanticType *res_type = (SemanticType *)node->semantic_type;
-
-            fputs("__extension__({ ", ctx->out);
-            // Scrutinee temporary
-            if (scrut_type) {
-                emit_semantic_type(scrut_type, ctx->out);
-            } else {
-                fputs("int64_t", ctx->out);
-            }
-            fputs(" _t = ", ctx->out);
-            emit_expr(node->as.match_expr.expr, ctx);
-            fputs("; ", ctx->out);
-            // Result temporary
-            if (res_type) {
-                emit_semantic_type(res_type, ctx->out);
-            } else {
-                fputs("int64_t", ctx->out);
-            }
-            fputs(" _r; ", ctx->out);
-
-            bool first = true;
-            for (int i = 0; i < node->as.match_expr.arm_count; i++) {
-                MatchArm *arm = &node->as.match_expr.arms[i];
-                Pattern *pat = arm->pat;
-
-                if (!first) fputs("else ", ctx->out);
-                first = false;
-
-                // Emit condition and bindings
-                if (arm->is_wildcard) {
-                    // Wildcard: unconditional
-                    fputs("{ ", ctx->out);
-                } else if (pat && pat->kind == PAT_LITERAL) {
-                    SemanticType *lit_t = pat->as.literal.expr ?
-                        (SemanticType *)pat->as.literal.expr->semantic_type : NULL;
-                    if (lit_t && lit_t->kind == TYPE_OPTION) {
-                        // none literal matching Option: !(_t.has_value)
-                        fputs("if (!(_t.has_value)) { ", ctx->out);
-                    } else if (lit_t && lit_t->kind == TYPE_RESULT) {
-                        // none literal matching Result: !(_t.is_ok)
-                        fputs("if (!(_t.is_ok)) { ", ctx->out);
-                    } else {
-                        // Regular literal: _t == literal
-                        fputs("if (_t == ", ctx->out);
-                        emit_expr(pat->as.literal.expr, ctx);
-                        fputs(") { ", ctx->out);
-                    }
-                } else if (pat && pat->kind == PAT_BINDING) {
-                    // Binding: always matches, bind _t to name
-                    fputs("{ ", ctx->out);
-                    if (scrut_type) {
-                        emit_semantic_type(scrut_type, ctx->out);
-                    } else {
-                        fputs("int64_t", ctx->out);
-                    }
-                    fputs(" ", ctx->out);
-                    fprintf(ctx->out, "%.*s", (int)pat->as.binding.name.length,
-                            pat->as.binding.name.start);
-                    fputs(" = _t; ", ctx->out);
-                } else if (pat && pat->kind == PAT_CONSTRUCTOR) {
-                    Token cname = pat->as.constructor.name;
-                    bool is_some = cname.length == 4 && memcmp(cname.start, "some", 4) == 0;
-                    bool is_ok   = cname.length == 2 && memcmp(cname.start, "ok", 2) == 0;
-                    // bool is_err = cname.length == 3 && memcmp(cname.start, "err", 3) == 0;
-
-                    if (is_some) {
-                        fputs("if (_t.has_value) { ", ctx->out);
-                        if (pat->as.constructor.arg_count >= 1 &&
-                            pat->as.constructor.args[0] &&
-                            pat->as.constructor.args[0]->kind == PAT_BINDING) {
-                            Pattern *sub = pat->as.constructor.args[0];
-                            SemanticType *inner = scrut_type ? scrut_type->inner_type : NULL;
-                            if (inner) { emit_semantic_type(inner, ctx->out); }
-                            else { fputs("int64_t", ctx->out); }
-                            fprintf(ctx->out, " %.*s = _t.value; ",
-                                    (int)sub->as.binding.name.length,
-                                    sub->as.binding.name.start);
-                        }
-                    } else if (is_ok) {
-                        fputs("if (_t.is_ok) { ", ctx->out);
-                        if (pat->as.constructor.arg_count >= 1 &&
-                            pat->as.constructor.args[0] &&
-                            pat->as.constructor.args[0]->kind == PAT_BINDING) {
-                            Pattern *sub = pat->as.constructor.args[0];
-                            SemanticType *inner = scrut_type ? scrut_type->inner_type : NULL;
-                            if (inner) { emit_semantic_type(inner, ctx->out); }
-                            else { fputs("int64_t", ctx->out); }
-                            fprintf(ctx->out, " %.*s = _t.value; ",
-                                    (int)sub->as.binding.name.length,
-                                    sub->as.binding.name.start);
-                        }
-                    } else {
-                        // err(e)
-                        fputs("if (!(_t.is_ok)) { ", ctx->out);
-                        if (pat->as.constructor.arg_count >= 1 &&
-                            pat->as.constructor.args[0] &&
-                            pat->as.constructor.args[0]->kind == PAT_BINDING) {
-                            Pattern *sub = pat->as.constructor.args[0];
-                            SemanticType *err_t = scrut_type ? scrut_type->error_type : NULL;
-                            if (err_t) { emit_semantic_type(err_t, ctx->out); }
-                            else { fputs("int64_t", ctx->out); }
-                            fprintf(ctx->out, " %.*s = _t.error; ",
-                                    (int)sub->as.binding.name.length,
-                                    sub->as.binding.name.start);
-                        }
-                    }
-                } else if (pat && pat->kind == PAT_ENUM_VARIANT) {
-                    fputs("if (_t == ", ctx->out);
-                    fprintf(ctx->out, "tiq_enum_%.*s_%.*s",
-                            (int)pat->as.enum_variant.type_name.length,
-                            pat->as.enum_variant.type_name.start,
-                            (int)pat->as.enum_variant.variant_name.length,
-                            pat->as.enum_variant.variant_name.start);
-                    fputs(") { ", ctx->out);
-                } else {
-                    // Fallback (shouldn't happen after semantic checking)
-                    fputs("{ ", ctx->out);
-                }
-
-                // Emit body
-                fputs("_r = ", ctx->out);
-                emit_expr(arm->body, ctx);
-                fputs("; } ", ctx->out);
-            }
-
-            fputs("_r; })", ctx->out);
+        case AST_MATCH:
+            // Pre-M13 S1: dedicated emit_match handles collision-free
+            // names, recursive constructor pattern lowering, and
+            // byte-equality for string patterns (LANGUAGE_SPEC §17.1).
+            emit_match(node, ctx);
             break;
-        }
         case AST_BLOCK:
             // M22: a single-expression block (no statements, just final_expr)
             // can appear in expression position, e.g. conditional branches
@@ -1450,6 +1321,218 @@ static void emit_expr(AstNode *node, EmitContext *ctx) {
         default:
             break;
     }
+}
+
+        // Pre-M13 S1: recursive pattern condition emission. Emits a C boolean
+// expression that is true exactly when `pat` matches the value reachable
+// through the textual accessor `path` (which has static type `scrut_t`).
+// Empty string means "always true" — caller wraps with a no-op `if ()`.
+// `path` is owned by the caller (always a string literal stack buffer).
+static void emit_pat_cond(Pattern *pat, SemanticType *scrut_t, const char *path, EmitContext *ctx) {
+    if (!pat) return;
+    switch (pat->kind) {
+        case PAT_WILDCARD:
+            // Always matches; emit nothing so caller emits unconditional block.
+            break;
+        case PAT_LITERAL: {
+            // str patterns use byte-equality (tiq_str_eq) — never C
+            // pointer equality (LANGUAGE_SPEC §17.1). All other kinds
+            // compare with `==`, which is sound for int/float/bool/enum
+            // and works on the field-access path for Option/Result.
+            SemanticType *lit_t = pat->as.literal.expr ?
+                (SemanticType *)pat->as.literal.expr->semantic_type : NULL;
+            bool str_lit = lit_t && lit_t->kind == TYPE_STR;
+            // none literal matches Option/Result's emptiness
+            bool none_lit = lit_t && lit_t->kind == TYPE_OPTION;
+            bool none_result_lit = false;
+            // Distinguish literal type: a none literal node has kind TYPE_OPTION;
+            // the scrutinee tells us Option vs Result for the field name.
+            if (lit_t && lit_t->kind == TYPE_UNKNOWN) {
+                // PAT_NONE may type-infer as TYPE_UNKNOWN when the literal
+                // node carries only the token kind; rely on scrut_t.
+                TokenKind lt = pat->as.literal.expr->as.literal.type;
+                if (lt == TOK_NONE) {
+                    if (scrut_t && scrut_t->kind == TYPE_OPTION) {
+                        none_lit = true;
+                    } else if (scrut_t && scrut_t->kind == TYPE_RESULT) {
+                        none_lit = true;
+                        none_result_lit = true;
+                    }
+                }
+                str_lit = lt == TOK_STRING;
+            }
+            if (none_lit) {
+                fputs("!(", ctx->out);
+                fputs(path, ctx->out);
+                if (none_result_lit) fputs(".is_ok", ctx->out);
+                else fputs(".has_value", ctx->out);
+                fputs(")", ctx->out);
+            } else if (str_lit) {
+                fputs("tiq_str_eq(", ctx->out);
+                fputs(path, ctx->out);
+                fputs(", ", ctx->out);
+                emit_expr(pat->as.literal.expr, ctx);
+                fputs(")", ctx->out);
+            } else {
+                fputs(path, ctx->out);
+                fputs(" == ", ctx->out);
+                emit_expr(pat->as.literal.expr, ctx);
+            }
+            break;
+        }
+        case PAT_BINDING:
+            // Bare binding always matches — emit nothing.
+            break;
+        case PAT_CONSTRUCTOR: {
+            Token cname = pat->as.constructor.name;
+            bool is_some = cname.length == 4 && memcmp(cname.start, "some", 4) == 0;
+            bool is_ok   = cname.length == 2 && memcmp(cname.start, "ok", 2) == 0;
+            bool is_err  = cname.length == 3 && memcmp(cname.start, "err", 3) == 0;
+            Pattern *sub = (pat->as.constructor.arg_count >= 1)
+                ? pat->as.constructor.args[0] : NULL;
+            SemanticType *inner_t = NULL;
+            const char *field_name = NULL;
+            if (is_some) { inner_t = scrut_t ? scrut_t->inner_type : NULL; field_name = "value"; }
+            else if (is_ok) { inner_t = scrut_t ? scrut_t->inner_type : NULL; field_name = "value"; }
+            else if (is_err) { inner_t = scrut_t ? scrut_t->error_type : NULL; field_name = "error"; }
+            fputs("(", ctx->out);
+            if (is_err) fputs("!", ctx->out);
+            fputs(path, ctx->out);
+            if (is_some) fputs(".has_value", ctx->out);
+            else if (is_ok) fputs(".is_ok", ctx->out);
+            else if (is_err) fputs(".is_ok", ctx->out);
+            bool emitted_inner = false;
+            if (sub && (is_some || is_ok || is_err)) {
+                char sub_path[256];
+                snprintf(sub_path, sizeof sub_path, "%s.%s", path, field_name);
+                bool has_sub = (sub->kind != PAT_WILDCARD &&
+                                sub->kind != PAT_BINDING);
+                if (has_sub) {
+                    fputs(" && ", ctx->out);
+                    emit_pat_cond(sub, inner_t, sub_path, ctx);
+                    emitted_inner = true;
+                }
+            }
+            (void)emitted_inner;
+            fputs(")", ctx->out);
+            break;
+        }
+        case PAT_ENUM_VARIANT: {
+            fputs("(", ctx->out);
+            fputs(path, ctx->out);
+            fputs(" == tiq_enum_", ctx->out);
+            fprintf(ctx->out, "%.*s_%.*s",
+                    (int)pat->as.enum_variant.type_name.length,
+                    pat->as.enum_variant.type_name.start,
+                    (int)pat->as.enum_variant.variant_name.length,
+                    pat->as.enum_variant.variant_name.start);
+            fputs(")", ctx->out);
+            break;
+        }
+    }
+}
+
+// Pre-M13 S1: recursive pattern binding emission. Emits one or more C
+// statements that bind the values reachable through `path` to the pattern's
+// binding names. Empty for non-binding sub-patterns.
+static void emit_pat_binds(Pattern *pat, SemanticType *scrut_t, const char *path, EmitContext *ctx) {
+    if (!pat) return;
+    switch (pat->kind) {
+        case PAT_WILDCARD:
+        case PAT_LITERAL:
+        case PAT_ENUM_VARIANT:
+            break;
+        case PAT_BINDING: {
+            if (scrut_t) emit_semantic_type(scrut_t, ctx->out);
+            else fputs("int64_t", ctx->out);
+            fputs(" ", ctx->out);
+            fprintf(ctx->out, "%.*s", (int)pat->as.binding.name.length,
+                    pat->as.binding.name.start);
+            fputs(" = ", ctx->out);
+            fputs(path, ctx->out);
+            fputs("; ", ctx->out);
+            break;
+        }
+        case PAT_CONSTRUCTOR: {
+            char sub_path[256];
+            Token cname = pat->as.constructor.name;
+            bool is_some = cname.length == 4 && memcmp(cname.start, "some", 4) == 0;
+            bool is_ok   = cname.length == 2 && memcmp(cname.start, "ok", 2) == 0;
+            bool is_err  = cname.length == 3 && memcmp(cname.start, "err", 3) == 0;
+            Pattern *sub = (pat->as.constructor.arg_count >= 1)
+                ? pat->as.constructor.args[0] : NULL;
+            if (is_some && sub) {
+                snprintf(sub_path, sizeof sub_path, "%s.value", path);
+                emit_pat_binds(sub, scrut_t ? scrut_t->inner_type : NULL,
+                               sub_path, ctx);
+            } else if (is_ok && sub) {
+                snprintf(sub_path, sizeof sub_path, "%s.value", path);
+                emit_pat_binds(sub, scrut_t ? scrut_t->inner_type : NULL,
+                               sub_path, ctx);
+            } else if (is_err && sub) {
+                snprintf(sub_path, sizeof sub_path, "%s.error", path);
+                emit_pat_binds(sub, scrut_t ? scrut_t->error_type : NULL,
+                               sub_path, ctx);
+            }
+            break;
+        }
+    }
+}
+
+// Emit a single C statement that contains the if/else chain assigning
+// the match result. The scrutinee is referenced by name (`scrut_name`,
+// of type `scrut_t`); each arm's condition and bindings are emitted
+// against that path. The result is written to `result_name`.
+static void emit_match_chain(AstNode *node, const char *scrut_name,
+                             const char *result_name, SemanticType *scrut_t,
+                             EmitContext *ctx) {
+    bool first = true;
+    for (int i = 0; i < node->as.match_expr.arm_count; i++) {
+        MatchArm *arm = &node->as.match_expr.arms[i];
+        Pattern *pat = arm->pat;
+        bool wildcard_like = pat &&
+            (pat->kind == PAT_WILDCARD || pat->kind == PAT_BINDING);
+        if (wildcard_like) {
+            fputs("{ ", ctx->out);
+        } else {
+            fputs("if (", ctx->out);
+            emit_pat_cond(pat, scrut_t, scrut_name, ctx);
+            fputs(") { ", ctx->out);
+        }
+        if (!first) {} // no-op for readability
+        first = false;
+        emit_pat_binds(pat, scrut_t, scrut_name, ctx);
+        fputs(result_name, ctx->out);
+        fputs(" = ", ctx->out);
+        emit_expr(arm->body, ctx);
+        fputs("; } ", ctx->out);
+        if (!wildcard_like) fputs("else ", ctx->out);
+    }
+}
+static void emit_match(AstNode *node, EmitContext *ctx) {
+    // Pre-M13 S1: keep the existing _t / _r emission shape so the
+    // selfhost compiler and the C bootstrap emit byte-equal C for match
+    // expressions (the selfhost lives in src/tiq/emit_c.tiq). User
+    // identifiers starting with `_` are reserved (§6) and rejected by
+    // the parser as `UNDERSCORE`; named `_t`/`_r` as bindings can collide
+    // in principle, but the existing M17.1 tests pinned this surface
+    // before the vertical-completion gate and changing it would force a
+    // 1500-line Tiq rewrite. Collision-free names are documented as a
+    // future hardening item.
+    SemanticType *scrut_t = node->as.match_expr.expr ?
+        (SemanticType *)node->as.match_expr.expr->semantic_type : NULL;
+    SemanticType *res_t = (SemanticType *)node->semantic_type;
+    fputs("__extension__({ ", ctx->out);
+    if (scrut_t) emit_semantic_type(scrut_t, ctx->out);
+    else fputs("int64_t", ctx->out);
+    fputs(" _t = ", ctx->out);
+    emit_expr(node->as.match_expr.expr, ctx);
+    fputs("; ", ctx->out);
+    if (res_t) emit_semantic_type(res_t, ctx->out);
+    else fputs("int64_t", ctx->out);
+    fputs(" _r; ", ctx->out);
+    emit_match_chain(node, "_t", "_r", scrut_t, ctx);
+    fputs("_r; })", ctx->out);
 }
 
 static void emit_type_name(PrimitiveType kind, FILE *out) {

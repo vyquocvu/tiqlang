@@ -2064,7 +2064,25 @@ static void check_node(SemanticContext *ctx, AstNode *node) {
             // paths like dump-typed-ast) is inert.
             break;
         case AST_MATCH: {
-            // Check for wildcard arm
+            // Pre-M13 S1: every irrefutable arm (`_` wildcard or bare
+            // binding) must be the final arm. Earlier irrefutable arms
+            // make every later arm unreachable and are rejected with
+            // E07 before code generation.
+            for (int i = 0; i < node->as.match_expr.arm_count - 1; i++) {
+                Pattern *p = node->as.match_expr.arms[i].pat;
+                if (p && (p->kind == PAT_WILDCARD || p->kind == PAT_BINDING)) {
+                    diag_error(ctx->diag, ctx->path, p->token.line,
+                               ERR_UNSUPPORTED_STATEMENT,
+                               "irrefutable pattern must be the last arm");
+                    break;
+                }
+            }
+            // Wildcard requirement preserved for compatibility with the
+            // M12.7.2 contract — every match must end with at least one
+            // wildcard, so the irrefutable-last rule above subsumes it
+            // (an early wildcard is also caught).  When the last arm is
+            // a bare binding (no wildcard follows) we still require an
+            // explicit `_` somewhere — keep the legacy message.
             bool has_wildcard = false;
             for (int i = 0; i < node->as.match_expr.arm_count; i++) {
                 if (node->as.match_expr.arms[i].is_wildcard) {
@@ -2255,6 +2273,21 @@ static void check_node(SemanticContext *ctx, AstNode *node) {
     }
 }
 
+// Pre-M13 S1: enum variant patterns require an integer scrutinee
+// (enums emit i64 constants; matching them against a non-integer
+// scrutinee can never succeed and is rejected before code generation).
+static bool is_integer_scrutinee_kind(SemanticType *t) {
+    if (!t) return false;
+    switch (t->kind) {
+        case TYPE_INT:
+        case TYPE_I8: case TYPE_I16: case TYPE_I32:
+        case TYPE_U8: case TYPE_U16: case TYPE_U32: case TYPE_U64:
+            return true;
+        default:
+            return false;
+    }
+}
+
 // Validate a match-arm pattern against the scrutinee type.  Bindings are
 // defined in `arm_env` (the arm-local scope).  Recursive for constructor
 // sub-patterns.
@@ -2378,6 +2411,20 @@ static void check_pattern(SemanticContext *ctx, Pattern *pat, SemanticType *scru
                          pat->as.enum_variant.type_name.start);
                 diag_error(ctx->diag, ctx->path, pat->token.line,
                            ERR_UNKNOWN_VARIANT, msg);
+            }
+            // Pre-M13 S1: enum variants are i64 constants, so the
+            // scrutinee must be an integer kind — matching against str
+            // (or any non-integer type) is unreachable and rejected.
+            if (scrutinee_type && scrutinee_type->kind != TYPE_UNKNOWN &&
+                !is_integer_scrutinee_kind(scrutinee_type)) {
+                char tbuf[64];
+                type_display(scrutinee_type, tbuf, sizeof tbuf);
+                char msg[200];
+                snprintf(msg, sizeof msg,
+                         "enum variant pattern requires integer scrutinee, found %s",
+                         tbuf);
+                diag_error(ctx->diag, ctx->path, pat->token.line,
+                           ERR_TYPE_MISMATCH, msg);
             }
             break;
         }

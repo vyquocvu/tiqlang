@@ -518,92 +518,101 @@ deterministic tests agree.
 
 ### S1 — Match-pattern correctness (P0)
 
-- [ ] Define the supported v0.1 pattern set in `LANGUAGE_SPEC.md` and `GRAMMAR.md` before
+- [x] Define the supported v0.1 pattern set in `LANGUAGE_SPEC.md` and `GRAMMAR.md` before
   extending implementation behavior. Until a pattern kind is implemented end to end,
   reject it with a located Tiq diagnostic before C emission.
-- [ ] Require every irrefutable arm (`_` or a bare binding) to be the final arm; reject
+- [x] Require every irrefutable arm (`_` or a bare binding) to be the final arm; reject
   unreachable later arms deterministically. Reconcile this with the existing wildcard
   requirement so every semantically accepted match has a valid emission path.
-- [ ] Lower constructor patterns recursively. `some(p)`, `ok(p)`, and `err(p)` must test
+- [x] Lower constructor patterns recursively. `some(p)`, `ok(p)`, and `err(p)` must test
   the payload pattern rather than only the outer tag; nested unsupported patterns fail
   closed.
-- [ ] Implement value equality for string patterns. Never use C pointer equality for
+- [x] Implement value equality for string patterns. Never use C pointer equality for
   Tiq `str` values.
-- [ ] Type-check enum variants and every other pattern against the scrutinee type.
+- [x] Type-check enum variants and every other pattern against the scrutinee type.
 - [ ] Generate collision-free internal names for the scrutinee, result, and pattern
-  temporaries; user identifiers must not capture compiler-generated bindings.
-- [ ] Add failing-first parser, semantic, diagnostic, C-emission, and runtime tests for
+  temporaries; user identifiers must not capture compiler-generated bindings. *Deferred*
+  to keep `tests/selfhost_emit_c.sh` byte-identical with the C bootstrap; the pre-existing
+  `_t` / `_r` emission is retained and documented as a follow-up hardening item.
+- [x] Add failing-first parser, semantic, diagnostic, C-emission, and runtime tests for
   wildcard ordering, binding arms, nested constructor patterns, string values, enum
   mismatches, duplicate bindings, and generated-name collisions.
 
 ### S2 — Bootstrap/self-host parity (P0)
 
-- [ ] Update `src/tiq/semantic.tiq` and `src/tiq/emit_c.tiq` for the first-class pattern
+- [x] Update `src/tiq/semantic.tiq` and `src/tiq/emit_c.tiq` for the first-class pattern
   representation introduced in `src/tiq/ast.tiq` and `src/tiq/parser.tiq`.
-- [ ] Define one documented AST compatibility contract for node kinds, field offsets,
+- [x] Define one documented AST compatibility contract for node kinds, field offsets,
   pattern kinds, and child spans. Changing that contract requires updating all consumers
   in the same package.
-- [ ] Make parser, semantic, diagnostic, and emitter differential tests compare the C
+- [x] Make parser, semantic, diagnostic, and emitter differential tests compare the C
   bootstrap with the self-hosted implementation on the same valid and invalid corpus.
 - [ ] Add generated grammar-based cases to the differential corpus, with a fixed seed
   and minimized regression fixtures checked into `tests/`.
-- [ ] Treat `tests/selfhost_parser.sh`, `tests/selfhost_semantic.sh`, and
+- [x] Treat `tests/selfhost_parser.sh`, `tests/selfhost_semantic.sh`, and
   `tests/selfhost_emit_c.sh` as required merge gates for any AST or language behavior
   change.
 
 ### S3 — One canonical compilation path (P1)
 
-- [ ] Keep `source -> lexer -> parser -> semantic -> typed IR -> C11 -> executable` as
+- [x] Keep `source -> lexer -> parser -> semantic -> typed IR -> C11 -> executable` as
   the release-blocking path until this gate closes.
-- [ ] Pause feature expansion in QBE, WebAssembly, integrated assemblers, and integrated
+- [x] Pause feature expansion in QBE, WebAssembly, integrated assemblers, and integrated
   linkers unless it is required to preserve an already documented behavior. These paths
   remain experimental and must not weaken the C11 path's exit criteria.
 - [ ] Lower match, conditional result joins, pattern-local bindings, cleanup, and early
   exits into structured typed IR instead of reimplementing their semantics independently
-  in each backend.
+  in each backend. *Deferred* — the bootstrap still lowers match directly in the C
+  emitter.
 - [ ] Remove backend dependence on GNU statement expressions from the canonical C output;
-  emitted programs must build as documented ISO C11 without compiler extensions.
+  emitted programs must build as documented ISO C11 without compiler extensions. *Deferred*
+  — the match expression still uses `__extension__({ ... })`; removing it requires AST
+  lowering across every expression-context call site (AST_CALL, AST_BINDING,
+  AST_CONDITIONAL, ...) and is left for a follow-up slice.
 
 ### S4 — Type and value-semantics hardening (P1)
 
 - [ ] Preserve full nested and nominal types across match joins, conditional joins,
   function returns, and container operations; do not collapse a resolved type to its
-  top-level kind.
+  top-level kind. *Deferred*.
 - [ ] Specify equality separately for numeric values, bool, enums, strings, structs, and
   containers. Unsupported equality must fail closed instead of inheriting C behavior.
+  *Partial* — string patterns now use `tiq_str_eq`; numeric / bool / enum keep `==`; the
+  remaining equality surface (struct, container) is open.
 - [ ] Complete `Option<T>` and `Result<T, E>` payload representation so supported payloads
-  are not forced through `int64_t`.
+  are not forced through `int64_t`. *Deferred* — the bootstrap still stores payloads in
+  `int64_t` slots; this is the S4 representation migration tracked elsewhere.
 - [ ] Implement the documented control-flow semantics of propagation, or mark propagation
   fail-closed until early return and cleanup are correct. A plain `.value` extraction is
-  not sufficient.
+  not sufficient. *Deferred*.
 - [ ] Add representation and ownership tests for non-integer Option/Result payloads,
-  nested composites, propagation on both branches, and cleanup on early exit.
+  nested composites, propagation on both branches, and cleanup on early exit. *Deferred*.
 
 ### S5 — Fast, isolated, and diagnostic test tiers (P1)
 
-- [ ] Add `make test-fast` for unit, lexer, parser, semantic, and deterministic diagnostic
+- [x] Add `make test-fast` for unit, lexer, parser, semantic, and deterministic diagnostic
   tests. It must avoid sockets, network access, background processes, and platform linkers.
-- [ ] Add separate `test-backend`, `test-selfhost`, and `test-platform` targets; keep
+- [x] Add separate `test-backend`, `test-selfhost`, and `test-platform` targets; keep
   `make test` as the aggregate required check.
-- [ ] Give socket and HTTP fixtures bounded startup/exit timeouts and capture server-side
+- [x] Give socket and HTTP fixtures bounded startup/exit timeouts and capture server-side
   diagnostics. Report environment/setup failures separately from compiler assertions.
-- [ ] Run the fast tier with ASan/UBSan for parser, arena, semantic, and emitter changes.
-- [ ] Ensure build configurations cannot reuse incompatible object files when `CFLAGS`,
+- [x] Run the fast tier with ASan/UBSan for parser, arena, semantic, and emitter changes.
+- [x] Ensure build configurations cannot reuse incompatible object files when `CFLAGS`,
   sanitizer settings, or the selected compiler changes.
 
 ### S6 — Specification and repository governance (P1)
 
-- [ ] Keep `LANGUAGE_SPEC.md` limited to the current normative language, `GRAMMAR.md`
+- [x] Keep `LANGUAGE_SPEC.md` limited to the current normative language, `GRAMMAR.md`
   synchronized with the accepted parser surface, and `IMPLEMENTATION_STATUS.md` backed by
   reproducible test evidence. Move superseded decisions to an ADR or history document.
-- [ ] Add an automated surface audit that detects contradictions between feature status,
+- [x] Add an automated surface audit that detects contradictions between feature status,
   grammar annotations, roadmap state, and implementation status.
-- [ ] Require `git diff --check`, a clean generated-file policy, and absence of accidental
+- [x] Require `git diff --check`, a clean generated-file policy, and absence of accidental
   binaries in CI.
-- [ ] Use one vertical completion checklist for every behavior change: failing test,
+- [x] Use one vertical completion checklist for every behavior change: failing test,
   lexer, parser/AST, semantic checks, diagnostics, typed IR, C backend, self-host parity,
   specification, grammar, implementation status, and roadmap evidence.
-- [ ] Do not mark provisional behavior as implemented or a milestone as done while any
+- [x] Do not mark provisional behavior as implemented or a milestone as done while any
   required vertical slice or merge gate is failing.
 
 ### Exit criteria

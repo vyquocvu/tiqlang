@@ -645,7 +645,9 @@ Patterns are a first-class syntactic category (not arbitrary expressions). The f
 
 **Wildcard pattern** (`_`): Matches any value. Must be present as the last arm (E07: "match must have a wildcard arm").
 
-**Literal pattern** (`10`, `"hello"`, `true`, `none`): Matches when the scrutinee equals the literal value. For `none`, the scrutinee must be an Option or Result type.
+**Irrefutable-last rule (Pre-M13 S1)**: A bare binding pattern (`x`) is also irrefutable — it matches every value — and must likewise be the last arm. Earlier irrefutable arms (wildcard or bare binding) make every later arm unreachable and are rejected with E07 ("irrefutable pattern must be the last arm").
+
+**Literal pattern** (`10`, `"hello"`, `true`, `none`): Matches when the scrutinee equals the literal value. For `none`, the scrutinee must be an Option or Result type. String literal patterns use byte-equality (`tiq_str_eq`) on the value bytes — never C pointer equality — so heap-allocated strings (the result of `str_cat`, `fs_read`, etc.) compare correctly across allocations.
 
 **Binding pattern** (`x`): A bare identifier creates a fresh immutable binding scoped to the arm body. The binding's type is the scrutinee type.
 
@@ -661,6 +663,8 @@ res = match x {
 - `ok(v)` requires a Result scrutinee, binds the success value to `v`
 - `err(e)` requires a Result scrutinee, binds the error value to `e`
 
+The payload pattern `p` is lowered recursively: the constructor's outer tag is tested first, then `p` is tested against the inner value at the corresponding field path (`_t.value` for `some`/`ok`, `_t.error` for `err`). Nested constructors (`some(some(v))`, `ok(0)`) therefore test the full payload structure, not just the outer tag.
+
 ```tiq
 opt = some(42)
 res = match opt {
@@ -670,7 +674,7 @@ res = match opt {
 }
 ```
 
-**Enum variant pattern** (`Color.Red`): Matches when the scrutinee equals the enum variant constant. The scrutinee must be an integer type (enum variants are i64 constants).
+**Enum variant pattern** (`Color.Red`): Matches when the scrutinee equals the enum variant constant. The scrutinee must be an integer type (enum variants are i64 constants). An enum variant pattern against a non-integer scrutinee is rejected with E09 ("enum variant pattern requires integer scrutinee, found str") before code generation.
 
 ```tiq
 enum Color { Red, Green, Blue }

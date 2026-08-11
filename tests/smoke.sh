@@ -211,6 +211,42 @@ printf 'x = 10\nres = match x { 10 => 100, _ => 0 }\nprint(res)\n' > "$TMP_DIR/m
 [ -x "$TMP_DIR/m8_match" ]
 [ "$("$TMP_DIR/m8_match")" = "100" ]
 
+# Pre-M13 S1: match on string scrutinee uses byte equality (str_eq),
+# never C pointer equality. A literal that does not match must hit
+# the wildcard arm.
+printf 'x = "foo"\ny = "bar"\nprint(match x { "foo" => 1, _ => 2 })\nprint(match y { "foo" => 1, _ => 2 })\n' > "$TMP_DIR/match_str_eq.tiq"
+./build/tiq build "$TMP_DIR/match_str_eq.tiq" -o "$TMP_DIR/match_str_eq" 2>"$TMP_DIR/match_str_eq.err"
+[ "$("$TMP_DIR/match_str_eq")" = "1
+2" ]
+
+# Pre-M13 S1: constructor patterns with literal payloads test the
+# payload by value (recursive lowering), not just the outer tag. This
+# pins the bug where the previous implementation matched some(0)
+# against some(5). The constructor emission now compiles `<path>.value`
+# against the literal, which means some(N) only matches some(N).
+# (Nested Option/Result constructors still hit the pre-M13 S4 limit
+# where Option<T> = int64_t in the C ABI, so recursive tests stay at
+# a single layer until the representation migration lands.)
+printf 'a = some(0)\nb = some(5)\nprint(match a { some(0) => 1, _ => 2 })\nprint(match b { some(0) => 1, _ => 2 })\n' > "$TMP_DIR/match_nested_some.tiq"
+./build/tiq build "$TMP_DIR/match_nested_some.tiq" -o "$TMP_DIR/match_nested_some" 2>"$TMP_DIR/match_nested_some.err"
+[ "$("$TMP_DIR/match_nested_some")" = "1
+2" ]
+
+# Result constructor with a literal payload: ok(7) only matches ok(7).
+printf 'r1 = ok(7)\nr2 = err(7)\nprint(match r1 { ok(0) => 0, err(_) => -1, _ => 1 })\nprint(match r2 { ok(0) => 0, err(_) => -1, _ => 1 })\n' > "$TMP_DIR/match_nested_some_none.tiq"
+./build/tiq build "$TMP_DIR/match_nested_some_none.tiq" -o "$TMP_DIR/match_nested_some_none" 2>"$TMP_DIR/match_nested_some_none.err"
+[ "$("$TMP_DIR/match_nested_some_none")" = "1
+-1" ]
+
+# Pre-M13 S1: compiler-generated scrutinee and result temporaries must not
+# collide with user bindings — each match in a single translation unit
+# gets a unique counter so neither scrutinee nor result names can bind in
+# user-visible source (LANGUAGE_SPEC §6). Two nested matches exercise the
+# counter; a binding arm at the end verifies the result reaches the caller.
+printf 'a <- 0\nb <- 0\nx = 1\ny = 2\nres = match x { 1 => match y { 2 => 42, _ => 0 }, _ => -1 }\nprint(res)\n' > "$TMP_DIR/match_no_collision.tiq"
+./build/tiq build "$TMP_DIR/match_no_collision.tiq" -o "$TMP_DIR/match_no_collision" 2>"$TMP_DIR/match_no_collision.err"
+[ "$("$TMP_DIR/match_no_collision")" = "42" ]
+
 # M9.1: borrows outside call arguments still fail closed (no stored borrows).
 printf 'x <- 42\nb = &x\n' > "$TMP_DIR/m9_borrow.tiq"
 if ./build/tiq build "$TMP_DIR/m9_borrow.tiq" -o "$TMP_DIR/m9_borrow" 2>"$TMP_DIR/m9_borrow.err"; then

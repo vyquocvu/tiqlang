@@ -68,6 +68,48 @@ test: $(TIQ) $(BUILD)/qbe $(BUILD)/runtime_qbe.o test-unit
 	sh tests/selfhost_semantic.sh
 	sh tests/selfhost_emit_c.sh
 	sh tests/bootstrap.sh
+
+# Pre-M13 S5: tiered targets. test-fast covers lexer/parser/semantic/diagnostic
+# tests (no sockets, network, or platform linkers) — required merge gate for
+# parser/arena/semantic/emitter changes. test-selfhost covers the differential
+# corpus that compares the C bootstrap and self-hosted Tiq compiler.
+test-fast: $(TIQ)
+	sh tests/smoke.sh
+	sh tests/diagnostics.sh
+	sh tests/lexer.sh
+	sh tests/parser.sh
+	sh tests/semantic.sh
+	sh tests/examples.sh
+	sh tests/determinism.sh
+	sh tests/module.sh
+	sh tests/surface_audit.sh
+
+test-selfhost: $(TIQ)
+	sh tests/selfhost_lexer.sh
+	sh tests/selfhost_parser.sh
+	sh tests/selfhost_semantic.sh
+	sh tests/selfhost_emit_c.sh
+
+# Pre-M13 S5: test-backend covers backend-specific tests (current C/QBE/wasm
+# emitters). test-platform covers platform-specific tests (wasm backend,
+# ELF/Mach-O/PE linkers, integrated assemblers). Both are part of make
+# test but callable independently.
+test-backend: $(TIQ) $(BUILD)/qbe $(BUILD)/runtime_qbe.o
+	sh tests/ir.sh
+	sh tests/qbe_backend.sh
+	sh tests/ffi.sh
+
+test-platform: $(TIQ)
+	sh tests/wasm.sh
+	sh tests/macho_obj.sh
+	sh tests/object_link.sh
+	sh tests/elf_obj.sh
+	sh tests/elf_link.sh
+	sh tests/amd64_asm.sh
+	sh tests/rv64_asm.sh
+	sh tests/rv64_link.sh
+	sh tests/pe_obj.sh
+	sh tests/pe_link.sh
 	sh tests/test_runner.sh
 	sh tests/formatter_tool.sh
 	sh tests/bench_tool.sh
@@ -102,6 +144,12 @@ test-check: $(TIQ)
 
 test-run: $(TIQ)
 	sh tests/run.sh
+
+# Pre-M13 S6: surface audit. Detects contradictions between the spec,
+# grammar, roadmap, and implementation status (status drift). Runs as
+# part of `make test` to fail closed on tier mismatches.
+test-audit: $(TIQ)
+	sh tests/surface_audit.sh
 
 # M14.1: build the Tiq developer test runner via the bootstrap and exercise it
 # against tests/tiq/ (pass/fail/list/verbose, skip, compile errors, fail-closed).
