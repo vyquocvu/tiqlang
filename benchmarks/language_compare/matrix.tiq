@@ -6,13 +6,9 @@ b <- [0; 4096]
     b[i] <- (i * 29 + 7) % 103
 }
 checksum <- 0
-[rep <- 0..20] {
-    [i <- 0..64] {
-        [j <- 0..64] {
-            cell <- 0
-            [k <- 0..64] { cell += a[i * 64 + k] * b[k * 64 + j] }
-            checksum <- (checksum + cell % 1000003) % 1000000007
-        }
-    }
+[rep <- 0..20, i <- 0..64, j <- 0..64] {
+    cell <- 0
+    [k <- 0..64] { cell += a[i * 64 + k] * b[k * 64 + j] }
+    checksum <- (checksum + cell % 1000003) % 1000000007
 }
 print(checksum)
