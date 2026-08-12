@@ -337,9 +337,9 @@ if ! cmp -s "$TMP_DIR/loop_domain_expr.expected" "$TMP_DIR/loop_domain_expr.out"
   exit 1
 fi
 
-# Named loop binders: [j <- 0..5] iterates j over the range; nested
-# loops can pick distinct names and see enclosing binders.
-printf 'total <- 0\n[j <- 0..5] { total += j }\nprint(total)\nnested <- 0\n[j <- 0..3] { [k <- 0..2] { nested += j * 10 + k } }\nprint(nested)\n' > "$TMP_DIR/loop_binder.tiq"
+# Named loop binders: [j <- 0..5] iterates j over the range; a
+# multi-binder header replaces directly nested range loops.
+printf 'total <- 0\n[j <- 0..5] { total += j }\nprint(total)\nnested <- 0\n[j <- 0..3, k <- 0..2] { nested += j * 10 + k }\nprint(nested)\n' > "$TMP_DIR/loop_binder.tiq"
 ./build/tiq build "$TMP_DIR/loop_binder.tiq" -o "$TMP_DIR/loop_binder" 2>"$TMP_DIR/loop_binder.err"
 [ -x "$TMP_DIR/loop_binder" ]
 "$TMP_DIR/loop_binder" > "$TMP_DIR/loop_binder.out"
