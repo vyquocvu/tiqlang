@@ -37,7 +37,9 @@ static void b_need(Buf *b, size_t n) {
     if (b->len + n > b->cap) {
         size_t nc = b->cap ? b->cap * 2 : 256;
         while (nc < b->len + n) nc *= 2;
-        b->d = realloc(b->d, nc);
+        void *tmp = realloc(b->d, nc);
+        if (!tmp) { fprintf(stderr, "emit_wasm: out of memory\n"); exit(1); }
+        b->d = tmp;
         b->cap = nc;
     }
 }
@@ -139,7 +141,9 @@ static int pool_add_bytes(StrPool *p, const uint8_t *data, size_t n) {
         if (p->e[i].len == n && memcmp(p->e[i].data, data, n) == 0) return i;
     if (p->count >= p->cap) {
         p->cap = p->cap ? p->cap * 2 : 8;
-        p->e = realloc(p->e, p->cap * sizeof(StrEnt));
+        void *tmp = realloc(p->e, p->cap * sizeof(StrEnt));
+        if (!tmp) { fprintf(stderr, "emit_wasm: out of memory\n"); exit(1); }
+        p->e = tmp;
     }
     uint8_t *copy = malloc(n ? n : 1);
     if (n) memcpy(copy, data, n);
@@ -206,7 +210,9 @@ static int sig_add(TypeTable *t, const uint8_t *params, int nparams,
     }
     if (t->count >= t->cap) {
         t->cap = t->cap ? t->cap * 2 : 8;
-        t->s = realloc(t->s, t->cap * sizeof(Sig));
+        void *tmp = realloc(t->s, t->cap * sizeof(Sig));
+        if (!tmp) { fprintf(stderr, "emit_wasm: out of memory\n"); exit(1); }
+        t->s = tmp;
     }
     Sig *s = &t->s[t->count++];
     memset(s, 0, sizeof(*s));
@@ -226,7 +232,9 @@ typedef struct { FuncEnt *e; int count, cap; } FuncTable;
 static int ft_add(FuncTable *ft, const IrFunction *fn, int sig_idx) {
     if (ft->count >= ft->cap) {
         ft->cap = ft->cap ? ft->cap * 2 : 8;
-        ft->e = realloc(ft->e, ft->cap * sizeof(FuncEnt));
+        void *tmp = realloc(ft->e, ft->cap * sizeof(FuncEnt));
+        if (!tmp) { fprintf(stderr, "emit_wasm: out of memory\n"); exit(1); }
+        ft->e = tmp;
     }
     ft->e[ft->count] = (FuncEnt){fn->name, fn->name_len, fn, sig_idx};
     return ft->count++;

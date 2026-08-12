@@ -74,11 +74,14 @@ void asm_unit_free(AsmUnit *u) {
 }
 
 static void sec_put(Ctx *c, const void *bytes, size_t n) {
+    if (c->failed) return;
     AsmSectionOut *s = &c->u->sec[c->cur];
     if (s->len + n > s->cap) {
         size_t cap = s->cap ? s->cap : 256;
         while (cap < s->len + n) cap *= 2;
-        s->bytes = realloc(s->bytes, cap);
+        void *tmp = realloc(s->bytes, cap);
+        if (!tmp) { err(c, "out of memory"); return; }
+        s->bytes = tmp;
         s->cap = cap;
     }
     memcpy(s->bytes + s->len, bytes, n);
@@ -102,10 +105,13 @@ static void sec_align(Ctx *c, size_t align) {
 
 static void add_reloc(Ctx *c, int section, int32_t address, int sym,
                       unsigned pcrel, unsigned length, unsigned type) {
+    if (c->failed) return;
     AsmSectionOut *s = &c->u->sec[section];
     if (s->nreloc >= s->reloc_cap) {
         size_t cap = s->reloc_cap ? s->reloc_cap * 2 : 8;
-        s->relocs = realloc(s->relocs, cap * sizeof(AsmReloc));
+        void *tmp = realloc(s->relocs, cap * sizeof(AsmReloc));
+        if (!tmp) { err(c, "out of memory"); return; }
+        s->relocs = tmp;
         s->reloc_cap = cap;
     }
     s->relocs[s->nreloc].address = address;
@@ -131,10 +137,13 @@ static int sym_find(AsmUnit *u, const char *name, size_t len) {
 static int sym_intern(Ctx *c, const char *name, size_t len) {
     int idx = sym_find(c->u, name, len);
     if (idx >= 0) return idx;
+    if (c->failed) return -1;
     AsmUnit *u = c->u;
     if (u->nsym >= u->sym_cap) {
         size_t cap = u->sym_cap ? u->sym_cap * 2 : 16;
-        u->syms = realloc(u->syms, cap * sizeof(AsmSymbol));
+        void *tmp = realloc(u->syms, cap * sizeof(AsmSymbol));
+        if (!tmp) { err(c, "out of memory"); return -1; }
+        u->syms = tmp;
         u->sym_cap = cap;
     }
     char *copy = malloc(len + 1);
@@ -162,9 +171,12 @@ static Label *label_find(Ctx *c, const char *name, size_t len) {
 }
 
 static void label_add(Ctx *c, const char *name, size_t len, int section, int64_t offset) {
+    if (c->failed) return;
     if (c->nlabel >= c->label_cap) {
         size_t cap = c->label_cap ? c->label_cap * 2 : 32;
-        c->labels = realloc(c->labels, cap * sizeof(Label));
+        void *tmp = realloc(c->labels, cap * sizeof(Label));
+        if (!tmp) { err(c, "out of memory"); return; }
+        c->labels = tmp;
         c->label_cap = cap;
     }
     char *copy = malloc(len + 1);
@@ -177,9 +189,12 @@ static void label_add(Ctx *c, const char *name, size_t len, int section, int64_t
 }
 
 static void fixup_add(Ctx *c, int64_t offset, int cond, const char *label, size_t len) {
+    if (c->failed) return;
     if (c->nfixup >= c->fixup_cap) {
         size_t cap = c->fixup_cap ? c->fixup_cap * 2 : 32;
-        c->fixups = realloc(c->fixups, cap * sizeof(Fixup));
+        void *tmp = realloc(c->fixups, cap * sizeof(Fixup));
+        if (!tmp) { err(c, "out of memory"); return; }
+        c->fixups = tmp;
         c->fixup_cap = cap;
     }
     char *copy = malloc(len + 1);

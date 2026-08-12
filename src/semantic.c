@@ -1995,7 +1995,23 @@ static void check_node(SemanticContext *ctx, AstNode *node) {
             int fill_len = 0;
             if (node->as.array_fill.length && node->as.array_fill.length->kind == AST_LITERAL &&
                 node->as.array_fill.length->as.literal.type == TOK_INT) {
-                fill_len = atoi(node->as.array_fill.length->token.start);
+                // Strip underscore digit separators before parsing (lexer allows 1_000).
+                const char *ls = node->as.array_fill.length->token.start;
+                size_t ll = node->as.array_fill.length->token.length;
+                char ltmp[64];
+                size_t tl = 0;
+                for (size_t i = 0; i < ll && tl < sizeof(ltmp) - 1; i++)
+                    if (ls[i] != '_') ltmp[tl++] = ls[i];
+                ltmp[tl] = '\0';
+                errno = 0;
+                char *lend = NULL;
+                long long lv = strtoll(ltmp, &lend, 10);
+                if (errno == ERANGE || lv < 0 || lv > 1000000) {
+                    diag_error(ctx->diag, ctx->path, node->token.line, ERR_LITERAL_RANGE,
+                               "array fill length out of range");
+                } else {
+                    fill_len = (int)lv;
+                }
             }
             node->semantic_type = type_get_array(ctx->pool, ty(ctx, vt ? vt->kind : TYPE_UNKNOWN),
                                                  fill_len);

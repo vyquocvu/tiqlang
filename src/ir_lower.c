@@ -2,6 +2,7 @@
 // Converts typed AST to SSA-based IR.
 #include <stdlib.h>
 #include <string.h>
+#include <errno.h>
 #include "../include/ir.h"
 #include "../include/ast.h"
 
@@ -65,6 +66,11 @@ static void set_var(LowerCtx *ctx, const char *name, size_t len, int reg, IrType
         ctx->vars[idx].reg = reg;
         ctx->vars[idx].type = type;
     } else {
+        if (ctx->var_count >= MAX_VARS) {
+            diag_error(ctx->diag, ctx->path, 0, ERR_UNSUPPORTED_STATEMENT,
+                       "too many local variables (limit 256)");
+            return;
+        }
         ctx->vars[ctx->var_count++] = (VarEntry){name, len, reg, type, ctx->scope_level};
     }
 }
@@ -147,11 +153,24 @@ static int lower_expr(LowerCtx *ctx, AstNode *node) {
             int dst = ir_new_reg(ctx->func);
             IrType type = ir_type_from_semantic(node->semantic_type);
             if (node->as.literal.type == TOK_INT) {
-                long long val = strtoll(node->token.start, NULL, 10);
+                // Lexer allows underscore digit separators (1_000); strip them
+                // before parsing because strtoll stops at '_'.
+                char tmp[64];
+                size_t tl = 0;
+                for (size_t i = 0; i < node->token.length && tl < sizeof(tmp) - 1; i++)
+                    if (node->token.start[i] != '_') tmp[tl++] = node->token.start[i];
+                tmp[tl] = '\0';
+                long long val = strtoll(tmp, NULL, 10);
                 IrOperand ops[] = {(IrOperand){IR_OP_IMM, .imm = val}};
                 ir_emit_into_block(ctx->func, ctx->current_block, IR_CONST_INT, dst, type, ops, 1, node->token.line);
             } else if (node->as.literal.type == TOK_FLOAT) {
-                double val = strtod(node->token.start, NULL);
+                // Strip underscore digit separators before strtod.
+                char tmp[64];
+                size_t tl = 0;
+                for (size_t i = 0; i < node->token.length && tl < sizeof(tmp) - 1; i++)
+                    if (node->token.start[i] != '_') tmp[tl++] = node->token.start[i];
+                tmp[tl] = '\0';
+                double val = strtod(tmp, NULL);
                 long long bits;
                 memcpy(&bits, &val, sizeof(bits));
                 IrOperand ops[] = {(IrOperand){IR_OP_IMM, .imm = bits}};
@@ -419,7 +438,12 @@ static void lower_stmt(LowerCtx *ctx, AstNode *node) {
                 IrOperand cbr_ops[] = {reg_op(cond_reg), block_op(body_block), block_op(exit_block)};
                 ir_emit_into_block(ctx->func, header_block, IR_CBR, -1, void_type(), cbr_ops, 3, node->token.line);
 
-                ctx->loop_stack[ctx->loop_depth++] = (LoopEntry){header_block, inc_block, exit_block};
+                if (ctx->loop_depth >= MAX_LOOPS) {
+                    diag_error(ctx->diag, ctx->path, node->token.line, ERR_UNSUPPORTED_STATEMENT,
+                               "loops nested too deeply (limit 16)");
+                } else {
+                    ctx->loop_stack[ctx->loop_depth++] = (LoopEntry){header_block, inc_block, exit_block};
+                }
 
                 ctx->current_block = body_block;
                 lower_block_stmts(ctx, node->as.bracket_loop.body_stmts, node->as.bracket_loop.body_count);
@@ -482,7 +506,9 @@ static void lower_stmt(LowerCtx *ctx, AstNode *node) {
             // Save current function index (not pointer — realloc may move the array)
             int saved_func_idx = (int)(ctx->func - ctx->module->funcs);
             int saved_block = ctx->current_block;
-            ctx->module->funcs = realloc(ctx->module->funcs, (ctx->module->func_count + 1) * sizeof(IrFunction));
+            void *tmp_funcs = realloc(ctx->module->funcs, (ctx->module->func_count + 1) * sizeof(IrFunction));
+            if (!tmp_funcs) { diag_error(ctx->diag, ctx->path, node->token.line, ERR_UNSUPPORTED_STATEMENT, "out of memory"); return; }
+            ctx->module->funcs = tmp_funcs;
             IrFunction *fn = &ctx->module->funcs[ctx->module->func_count++];
             // Create a null-terminated copy of the function name
             char *name_copy = malloc(node->as.function.name.length + 1);
@@ -567,7 +593,9 @@ static void lower_stream_gen(LowerCtx *ctx, StreamGenEntry *gen) {
         return;
     }
 
-    m->funcs = realloc(m->funcs, (m->func_count + 1) * sizeof(IrFunction));
+    void *tmp_funcs = realloc(m->funcs, (m->func_count + 1) * sizeof(IrFunction));
+    if (!tmp_funcs) { diag_error(ctx->diag, ctx->path, node->token.line, ERR_UNSUPPORTED_STATEMENT, "out of memory"); return; }
+    m->funcs = tmp_funcs;
     fn = &m->funcs[m->func_count++];
     ir_func_init(fn, gen->name, gen->name_len);
     fn->owns_name = true;
@@ -793,7 +821,9 @@ bool ir_lower(AstNode **stmts, int count, IrModule *module, DiagContext *diag, c
         }
     }
 
-    module->funcs = realloc(module->funcs, sizeof(IrFunction));
+    void *tmp_main = realloc(module->funcs, sizeof(IrFunction));
+    if (!tmp_main) { diag_error(ctx.diag, ctx.path, 0, ERR_UNSUPPORTED_STATEMENT, "out of memory"); return NULL; }
+    module->funcs = tmp_main;
     module->func_count = 1;
     ir_func_init(&module->funcs[0], "main", 4);
     module->funcs[0].is_main = true;

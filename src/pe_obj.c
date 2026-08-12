@@ -19,7 +19,9 @@ static void buf_put(Buf *b, const void *p, size_t n) {
     if (b->len + n > b->cap) {
         size_t cap = b->cap ? b->cap : 512;
         while (cap < b->len + n) cap *= 2;
-        b->bytes = realloc(b->bytes, cap);
+        void *tmp = realloc(b->bytes, cap);
+        if (!tmp) { fprintf(stderr, "pe_obj: out of memory\n"); exit(1); }
+        b->bytes = tmp;
         b->cap = cap;
     }
     memcpy(b->bytes + b->len, p, n);
