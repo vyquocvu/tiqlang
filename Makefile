@@ -3,8 +3,9 @@ CFLAGS ?= -std=c11 -Wall -Wextra -Wpedantic -Werror -O2
 
 BUILD := build
 TIQ := $(BUILD)/tiq
+TEST_JOBS ?= 5
 
-.PHONY: all clean test test-unit test-fuzz example test-check test-run test-qbe test-wasm tool-test tool-fmt tool-bench tool-init tool-cache tool-lsp tool-install tool-registry tool-publish tool-audit tool-proxy tool-std perf-record perf-check
+.PHONY: all clean test test-heavy test-unit test-fuzz test-selfhost test-selfhost-lexer test-selfhost-parser test-selfhost-semantic test-selfhost-emit-c test-bootstrap example benchmark-compare test-check test-run test-qbe test-wasm tool-test tool-fmt tool-bench tool-init tool-cache tool-lsp tool-install tool-registry tool-publish tool-audit tool-proxy tool-std perf-record perf-check
 
 # Build the unit runner with the same flags as the compiler. Besides keeping
 # `make` useful as a complete build gate, this preserves sanitizer link flags
@@ -50,11 +51,14 @@ perf-record: $(TIQ)
 perf-check: $(TIQ)
 	sh tests/perf_suite.sh check
 
+benchmark-compare: $(TIQ)
+	python3 benchmarks/language_compare/run.py
+
 example: $(TIQ)
 	$(TIQ) build examples/hello.tiq -o $(BUILD)/hello
 	$(BUILD)/hello
 
-test: $(TIQ) $(BUILD)/qbe $(BUILD)/runtime_qbe.o test-unit
+test: $(TIQ) $(BUILD)/qbe $(BUILD)/runtime_qbe.o test-unit test-heavy
 	sh tests/smoke.sh
 	sh tests/diagnostics.sh
 	sh tests/lexer.sh
@@ -63,10 +67,27 @@ test: $(TIQ) $(BUILD)/qbe $(BUILD)/runtime_qbe.o test-unit
 	sh tests/examples.sh
 	sh tests/determinism.sh
 	sh tests/module.sh
+	sh tests/makefile_parallel.sh
+	sh tests/language_benchmark.sh
+
+# These suites dominate sanitizer test time and use disjoint output paths.
+# Bound the default fan-out; smaller hosts can use `make TEST_JOBS=2 test`.
+test-heavy: $(TIQ)
+	+$(MAKE) -j$(TEST_JOBS) test-selfhost-lexer test-selfhost-parser test-selfhost-semantic test-selfhost-emit-c test-bootstrap
+
+test-selfhost-lexer: $(TIQ)
 	sh tests/selfhost_lexer.sh
+
+test-selfhost-parser: $(TIQ)
 	sh tests/selfhost_parser.sh
+
+test-selfhost-semantic: $(TIQ)
 	sh tests/selfhost_semantic.sh
+
+test-selfhost-emit-c: $(TIQ)
 	sh tests/selfhost_emit_c.sh
+
+test-bootstrap: $(TIQ)
 	sh tests/bootstrap.sh
 
 # Pre-M13 S5: tiered targets. test-fast covers lexer/parser/semantic/diagnostic
@@ -85,10 +106,7 @@ test-fast: $(TIQ)
 	sh tests/surface_audit.sh
 
 test-selfhost: $(TIQ)
-	sh tests/selfhost_lexer.sh
-	sh tests/selfhost_parser.sh
-	sh tests/selfhost_semantic.sh
-	sh tests/selfhost_emit_c.sh
+	+$(MAKE) -j$(TEST_JOBS) test-selfhost-lexer test-selfhost-parser test-selfhost-semantic test-selfhost-emit-c
 
 # Pre-M13 S5: test-backend covers backend-specific tests (current C/QBE/wasm
 # emitters). test-platform covers platform-specific tests (wasm backend,

@@ -1,5 +1,16 @@
 # Tiq Roadmap
 
+Benchmark evidence (2026-08-12): M21 now includes the opt-in
+`make benchmark-compare` harness for five checksum-verified runtime comparisons
+(arithmetic, arrays, branches, function calls, and matrix multiplication)
+against C, Go, Rust, and Python. Results are
+informational and host-dependent;
+the deterministic source/expected-output contract is covered by
+`tests/language_benchmark.sh`. The first result identified a profile mismatch:
+Tiq used `-Os` while C/Rust used level-3 optimization. The implemented
+`tiq build --release` C profile uses `-O3`; on the same host and workload this
+reduced Tiq's median from 68.8 ms to 40.4 ms, matching optimized C (41.5 ms).
+
 Status labels: `done`, `active`, `queued`, `blocked`.
 
 ## M0 — Repository and language baseline
@@ -636,4 +647,3 @@ deterministic tests agree.
 - garbage-collected mode;
 - dynamic linking ABI stability;
 - arbitrary operator overloading.
-

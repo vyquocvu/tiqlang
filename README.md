@@ -110,6 +110,21 @@ make CFLAGS='-std=c11 -Wall -Wextra -Wpedantic -Werror -O1 -g -fsanitize=address
 make test
 ```
 
+## Cross-language benchmark
+
+An opt-in deterministic CPU benchmark compares Tiq with optimized C, Go,
+Rust, and Python across checksum-verified arithmetic, array-access,
+branch-heavy, function-call, and matrix workloads:
+
+```sh
+make
+make benchmark-compare
+```
+
+It requires `python3`, `cc`, `go`, and `rustc`. See
+[`benchmarks/language_compare/README.md`](benchmarks/language_compare/README.md)
+for methodology, configuration, and interpretation limits.
+
 ## Repository map
 
 ```text
@@ -117,6 +132,7 @@ src/                         bootstrap compiler in C
 include/                     compiler headers
 examples/                    Tiq programs
 tests/                       compiler tests
+benchmarks/language_compare/ cross-language runtime comparison
 tests/tiq/                   fixtures for the future Tiq test runner
 docs/LANGUAGE_SPEC.md        normative language definition
 docs/GRAMMAR.md              lexical and syntactic grammar

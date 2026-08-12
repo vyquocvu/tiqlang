@@ -74,7 +74,8 @@ static int emit_file(const char *input, const char *output, DiagContext *diag, i
 }
 
 static int run_host_compiler(const char *cc, const char *source_path, const char *output_path,
-                             const char *target, char **link_opts, int link_count) {
+                             const char *target, const char *optimization,
+                             char **link_opts, int link_count) {
     pid_t pid = fork();
     int status;
     if (pid < 0) { fprintf(stderr, "tiq: cannot start host C compiler: %s\n", strerror(errno)); return 1; }
@@ -84,7 +85,7 @@ static int run_host_compiler(const char *cc, const char *source_path, const char
         int idx = 0;
         args[idx++] = (char *)cc;
         args[idx++] = (char *)"-std=c11";
-        args[idx++] = (char *)"-Os";
+        args[idx++] = (char *)optimization;
         args[idx++] = (char *)"-x";
         args[idx++] = (char *)"c";
         if (target && *target) {
@@ -682,7 +683,8 @@ static int build_qbe(const char *input, const char *output, DiagContext *diag) {
 }
 
 static int build_target(const char *input, const char *output, const char *target,
-                        char **link_opts, int link_count, DiagContext *diag) {
+                        const char *optimization, char **link_opts, int link_count,
+                        DiagContext *diag) {
     const char *cc = getenv("CC");
     char *temp_name = temporary_c_template();
     int fd, result;
@@ -695,14 +697,15 @@ static int build_target(const char *input, const char *output, const char *targe
     result = compile_file_to_c_stream(input, temp_file, diag, TIQ_EMIT_PROGRAM);
     if (fclose(temp_file) != 0) { remove(temp_name); fprintf(stderr, "tiq: cannot close temporary C file: %s\n", strerror(errno)); free(temp_name); return 1; }
     if (result != 0) { remove(temp_name); free(temp_name); return 1; }
-    result = run_host_compiler(cc, temp_name, output, target, link_opts, link_count);
+    result = run_host_compiler(cc, temp_name, output, target, optimization,
+                               link_opts, link_count);
     if (remove(temp_name) != 0) { fprintf(stderr, "tiq: cannot remove temporary C file %s: %s\n", temp_name, strerror(errno)); free(temp_name); return 1; }
     free(temp_name);
     return result;
 }
 
 static int build(const char *input, const char *output, char **link_opts, int link_count, DiagContext *diag) {
-    return build_target(input, output, NULL, link_opts, link_count, diag);
+    return build_target(input, output, NULL, "-Os", link_opts, link_count, diag);
 }
 
 // M17.4.2: build via the wasm32-wasi backend.
@@ -1014,7 +1017,7 @@ static void usage(FILE *out) {
     fputs("usage:\n", out);
     fputs("  tiq --version\n", out);
     fputs("  tiq run <file.tiq> [-l lib] [-L dir]\n", out);
-    fputs("  tiq build <file.tiq> [-o output] [--backend qbe] [--target <triple>] [-l lib] [-L dir]\n", out);
+    fputs("  tiq build [--release] <file.tiq> [-o output] [--backend qbe] [--target <triple>] [-l lib] [-L dir]\n", out);
     fputs("  tiq emit-c [--lib] <file.tiq>\n", out);
     fputs("  tiq emit-header <file.tiq> [-o output]\n", out);
     fputs("  tiq emit-obj <file.s> -o <file.o>\n", out);
@@ -1187,6 +1190,7 @@ int main(int argc, char **argv) {
         const char *target = NULL;
         const char *input = NULL;
         const char *backend = NULL;
+        const char *optimization = "-Os";
         char *link_buf[TIQ_MAX_LINK_OPTS * 2];
         int link_count = 0;
         for (int i = 2; i < argc; i++) {
@@ -1196,6 +1200,8 @@ int main(int argc, char **argv) {
                 target = argv[++i];
             } else if (strcmp(argv[i], "--backend") == 0 && i + 1 < argc) {
                 backend = argv[++i];
+            } else if (strcmp(argv[i], "--release") == 0) {
+                optimization = "-O3";
             } else if (strcmp(argv[i], "-l") == 0 || strcmp(argv[i], "-L") == 0) {
                 if (i + 1 >= argc) { usage(stderr); return 2; }
                 if (link_count + 2 > TIQ_MAX_LINK_OPTS * 2)
@@ -1219,7 +1225,8 @@ int main(int argc, char **argv) {
             }
             return build_wasm(input, output, &diag);
         }
-        return build_target(input, output, target, link_buf, link_count, &diag);
+        return build_target(input, output, target, optimization,
+                            link_buf, link_count, &diag);
     }
     usage(stderr);
     return 2;

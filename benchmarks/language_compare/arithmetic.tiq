@@ -1,0 +1,8 @@
+// BENCH_ITERATIONS=5000000 BENCH_EXPECTED=497907426
+state <- 1
+checksum <- 0
+[i <- 0..5000000] {
+    state <- (state * 48271) % 2147483647
+    checksum <- (checksum + state % 1000) % 1000000007
+}
+print(checksum)

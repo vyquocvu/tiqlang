@@ -55,6 +55,18 @@ end by ~10x over semantic analysis, and parser time is negligible. Baseline upda
 must record the flattened size and exact `-i` as above; future Phase 4 items cite
 before/after on the same file and iteration count.
 
+### Cross-language runtime evidence (recorded 2026-08-12)
+
+The checksum-verified five-million-step Park–Miller workload in
+`benchmarks/language_compare/` initially measured Tiq at 68.8 ms median versus
+C at 44.8 ms. Inspection showed `tiq build` deliberately used `-Os`, while the
+comparison compiled C and Rust at optimization level 3. Adding the explicit
+`tiq build --release` C profile and using it in the comparison reduced Tiq to
+40.4 ms median (39.0 ms minimum), versus C at 41.5 ms median (39.3 ms minimum)
+on the same host. This closes the measured gap without changing default
+tiny-binary behavior; broader workloads are required before backend-level
+optimization work is justified.
+
 ## Phase 1 — Correctness and fail-closed gaps (highest impact)
 
 ### 1.1 — Formatter must not destroy comments (data loss)
