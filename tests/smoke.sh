@@ -9,6 +9,18 @@ trap 'rm -rf "$TMP_DIR"' EXIT INT TERM
 ./build/tiq emit-c examples/hello.tiq > "$TMP_DIR/hello.c"
 ./build/tiq build examples/hello.tiq -o "$TMP_DIR/hello"
 
+# Release builds must ask the host compiler for runtime-speed optimization.
+cat > "$TMP_DIR/cc-log" <<'EOF'
+#!/bin/sh
+printf '%s\n' "$@" > "$TIQ_CC_LOG"
+exec cc "$@"
+EOF
+chmod +x "$TMP_DIR/cc-log"
+TIQ_CC_LOG="$TMP_DIR/release.args" CC="$TMP_DIR/cc-log" \
+  ./build/tiq build --release examples/hello.tiq -o "$TMP_DIR/hello-release"
+grep -Fx -- '-O3' "$TMP_DIR/release.args" >/dev/null
+[ -x "$TMP_DIR/hello-release" ]
+
 # Runtime helpers must use int64_t in an i64 world (plan 1.3)
 printf 'import "std/json.tiq"\nfs_write("p", "d")\nx = json_parse_int("42")\nprint(x)\n' > "$TMP_DIR/rt_i64.tiq"
 ./build/tiq emit-c "$TMP_DIR/rt_i64.tiq" > "$TMP_DIR/rt_i64.c"

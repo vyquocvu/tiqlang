@@ -133,6 +133,7 @@ The formatter re-emits the token stream with the repository's canonical layout, 
 
 ## Option notes
 
+- `tiq build --release`: requests `-O3` from the host C compiler for runtime-speed optimization. The default C profile remains `-Os` for Tiq's tiny-binary goal. `--release` currently affects the C backend only.
 - `tiq build`: `--target wasm32-wasi` selects the wasm32-wasi backend (M17.4.2): emits a WebAssembly MVP module with in-module runtime helpers (string pooling, `print` for all types); imports are limited to `wasi_snapshot_preview1` `fd_write` and `proc_exit`. Any other `--target` value is forwarded to the host C compiler (cross-compilation targets are planned but not tested, M11).
 - `tiq build`: `--backend c|qbe` selects the code generation backend. The default `c` backend generates C code and uses the host C compiler for compilation. The `qbe` backend generates native code via QBE (Quick Backend Engine), producing native executables without generating intermediate C code (M17.2). On the Darwin arm64 host, `build --backend qbe` also uses the integrated Mach-O assembler + linker; on Linux aarch64 and x86_64 hosts it uses the integrated ELF64 assembler + linker — so the whole native pipeline is external-toolchain-free on supported hosts, and produced executables terminate via an explicit `exit(0)` runtime entry (never a `ret` that would pop the linker-supplied argc and crash). Setting `TIQ_QBE_LINK=<cmd>` (e.g. `TIQ_QBE_LINK=cc`) falls back to linking through that external toolchain. The QBE backend is experimental and may not support all Tiq features (e.g., structs, field access, and Option/Result are not yet supported by IR lowering).
 - `tiq build` / `tiq run`: repeatable `-l <lib>` and `-L <dir>` options are forwarded to the host C compiler after the generated source, for linking external libraries declared with `extern "C"` (LANGUAGE_SPEC §7.1). Both options require an argument; any other trailing token, or more than 16 `-l`/`-L` pairs, fails closed with a usage error (exit 1) before compilation. Libraries loaded at runtime through `std/dl.tiq` (LANGUAGE_SPEC §19.11) need no `-l` flags — `dlopen` resolves them from the path given to `dl_open`.
@@ -142,7 +143,6 @@ The formatter re-emits the token stream with the repository's canonical layout, 
 
 ```text
 tiq run <file.tiq> [-- program-args]
-tiq build <package> --release
 ```
 
 Developer tooling is implemented as Tiq programs (`src/tiq/tools/*.tiq`) after self-hosting (POST_BOOTSTRAP_ROADMAP M14); see "Developer tooling" above. Planned:
@@ -165,11 +165,11 @@ Diagnostics go to stderr. Generated program output goes to stdout. Commands must
 
 ## Build profiles
 
-Planned profiles:
+Build profiles:
 
 ```text
 dev      fast compiler feedback and debug information
-release  balanced runtime speed and size
+release  maximum runtime speed (`-O3`, C backend)
 tiny     optimize size, strip optional metadata
 ```
 

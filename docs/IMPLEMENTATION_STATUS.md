@@ -2,6 +2,25 @@
 
 Updated: 2026-08-12
 
+M21 comparison benchmark (2026-08-12):
+`benchmarks/language_compare/` provides checksum-identical Tiq, C, Go, Rust,
+and Python implementations of arithmetic, indexed-array, branch-heavy,
+recursive GCD function-call, and matrix-multiplication workloads. The
+opt-in `make benchmark-compare` runner fails closed on missing tools or output
+drift and reports build time, median/minimum runtime, and executable size.
+`tests/language_benchmark.sh` pins the five-source benchmark contract without
+adding machine-dependent timing assertions to `make test`.
+The benchmark exposed that the default tiny-binary `-Os` profile was being
+compared with optimized competitors. `tiq build --release` now selects `-O3`
+for the C backend, and the comparison runner uses that like-for-like profile;
+the default remains `-Os`.
+
+Test infrastructure note (2026-08-11): `make test` runs the four independent
+self-host differential suites and the bootstrap convergence gate concurrently,
+with bounded fan-out controlled by `TEST_JOBS` (default 5). Front-end suites
+that share fixture paths remain serial; `tests/makefile_parallel.sh` pins the
+parallel arrangement.
+
 ## Current milestone
 
 Pre-M13 vertical-completion gate: S1 (match-pattern correctness) and S5 (test tiers) and S6 (surface audit) partially closed 2026-08-12. S2 (bootstrap/self-host parity) preserved: `tests/selfhost_emit_c.sh` still byte-compares 52 core cases against the C bootstrap. S3 (ISO C11 emission without GNU extensions) and S4 (full Option<T> representation) are deferred — the bootstrap retains the pre-existing `__extension__({...})` match shape and `Option<T> = int64_t` storage so the differential corpus stays stable while the correctness fixes ship.
