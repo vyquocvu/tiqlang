@@ -1,0 +1,47 @@
+// Epic 1: explicit allocator surface for systems programming.
+//
+// Import with:
+//   import "std/alloc.tiq"
+//
+// Allocator handles are opaque u64 values at the bootstrap ABI boundary.
+// Public constructors wrap fallible creation in Result: ok(handle) or err(code).
+// Raw tiq_* functions stay prefixed so user code normally calls the wrappers.
+//
+// Error codes:
+//   1 = allocation / allocator creation failed
+//   2 = invalid allocator, size, alignment, or pointer
+
+extern "C" tiq_allocator_general : u64
+extern "C" tiq_arena_create capacity:u64 : u64
+extern "C" tiq_pool_create block_size:u64 block_count:u64 : u64
+extern "C" tiq_allocator_alloc allocator:u64 size:u64 align:u64 : u64
+extern "C" tiq_allocator_dealloc allocator:u64 ptr:u64 size:u64 align:u64 : i64
+extern "C" tiq_allocator_reset allocator:u64 : i64
+extern "C" tiq_allocator_destroy allocator:u64 : i64
+
+arena capacity:u64 -> {
+    handle = tiq_arena_create(capacity)
+    handle == 0 ? err(1) : ok(handle)
+}
+
+pool block_size:u64 block_count:u64 -> {
+    handle = tiq_pool_create(block_size, block_count)
+    handle == 0 ? err(1) : ok(handle)
+}
+
+allocator_alloc allocator:u64 size:u64 align:u64 -> {
+    ptr = tiq_allocator_alloc(allocator, size, align)
+    ptr == 0 ? err(2) : ok(ptr)
+}
+
+allocator_dealloc allocator:u64 ptr:u64 size:u64 align:u64 : i64 -> {
+    tiq_allocator_dealloc(allocator, ptr, size, align)
+}
+
+allocator_reset allocator:u64 : i64 -> {
+    tiq_allocator_reset(allocator)
+}
+
+allocator_destroy allocator:u64 : i64 -> {
+    tiq_allocator_destroy(allocator)
+}
