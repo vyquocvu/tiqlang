@@ -188,7 +188,7 @@ static TokenKind identifier_type(Lexer *lexer, const char *start) {
         case 't': return check_keyword(lexer, start, 1, 3, "rue", TOK_TRUE);
         case 'u': return check_keyword(lexer, start, 1, 4, "ntil", TOK_UNTIL);
         case 'w': return check_keyword(lexer, start, 1, 4, "hile", TOK_WHILE);
-        case '_': return TOK_UNDERSCORE;
+        case '_': return (lexer->current - start == 1) ? TOK_UNDERSCORE : TOK_IDENT;
     }
     return TOK_IDENT;
 }

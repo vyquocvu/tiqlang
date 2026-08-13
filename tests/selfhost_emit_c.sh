@@ -363,6 +363,51 @@ extern "C" strlen s:str : i64
 print(llabs(0 - 5))
 print(strlen("tiq"))
 print(getpid() > 0)'
+# S2 grammar-based: additional emission coverage.
+case_run "match_literal" 'v = 2
+x = match v { 1 => 10, 2 => 20, _ => 30 }
+print(x)'
+case_run "complex_arith" 'x = (7 + 5) * 3 - 4 / 2 % 3
+print(x)'
+case_run "bool_chain" 'a = true
+b = false
+c = true
+print(a && b || c)
+print(!a && !b)'
+case_run "bit_ops" 'x = 5 | 3
+y = 7 ^ 2
+z = 6 & 4
+print(x)
+print(y)
+print(z)'
+case_run "shift_ops" 'x = 8 << 2
+y = 32 >> 3
+print(x)
+print(y)'
+case_run "nested_conditional" 'a = 5
+b = 10
+x = a > 0 ? b > 5 ? 1 : 2 : 3
+print(x)'
+case_run "multi_param_fn" 'add a:i64 b:i64 c:i64 : i64 -> a + b + c
+print(add(1, 2, 3))'
+case_run "struct_multi_field" 'struct Point { x: i64, y: i64, z: i64 }
+p = Point { x: 1, y: 2, z: 3 }
+print(p.x + p.y + p.z)'
+case_run "string_concat" 'a = "hello"
+b = " world"
+c = str_cat(a, b)
+print(c)
+print(len(c))'
+case_run "array_ops" 'a = [10, 20, 30, 40, 50]
+print(a[0])
+print(a[2])
+print(len(a))
+s = a[1..3]
+print(s[0])
+print(len(s))'
+case_run "loop_accum" 'sum <- 0
+[i <- 1..6] { sum += i * i }
+print(sum)'
 
 # Module graph coverage: deterministic post-order flattening and normalized
 # relative-path dedupe must produce one definition and executable C.

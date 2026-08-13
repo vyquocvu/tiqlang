@@ -314,4 +314,9 @@ assert_parse_error "extern_missing_return" 'extern "C" f x:i64 :' \
 assert_parse_error "legacy_typed_return" 'f x:i64 -> i64 -> x' \
   "$TMP_DIR/legacy_typed_return.tiq:1: error[E04]: return type annotations use ':': write ': Type -> body'"
 
+# Pre-M13 S1: identifiers starting with '_' are reserved for compiler
+# temporaries; using one as a match binding pattern is a parse error.
+assert_parse_error "reserved_uscore_bind" 'x = match v { _t => 1 }' \
+  "$TMP_DIR/reserved_uscore_bind.tiq:1: error[E04]: identifiers starting with '_' are reserved"
+
 echo "parser: ok"

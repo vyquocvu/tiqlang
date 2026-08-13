@@ -133,6 +133,21 @@ corpus "extern_no_abi" 'extern llabs x:i64 -> i64'
 corpus "extern_body_attempt" 'extern "C" f x:i64 : i64 -> x'
 corpus "extern_missing_return" 'extern "C" f x:i64 :'
 corpus "extern_missing_name" 'extern "C" : i64'
+# Pre-M13 S1: identifiers starting with '_' are reserved.
+corpus "reserved_uscore_bind" 'x = match v { _t => 1 }'
+# S2 grammar-based: function definition and binding errors.
+corpus "func_no_body" 'f a:i64 ->'
+corpus "func_no_params_no_body" 'f : i64 ->'
+corpus "binding_no_expr" 'x ='
+corpus "mutable_no_expr" 'x <-'
+# S2 grammar-based: expression and literal edge cases.
+corpus "trailing_dot_float" 'x = 1.'
+corpus "bad_record_field_val" 'p = P { x: }'
+corpus "match_empty_arm" 'match x { => 1, _ => 2 }'
+corpus "array_missing_elem" 'a = [1, , 2]'
+corpus "nested_block_no_rbrace" '{ { 1 }'
+corpus "double_semicolon" 'x = 1;; y = 2'
+corpus "match_no_expr" 'match { _ => 1 }'
 
 # Positive-construct corpus: the fixture set above never reaches SLICE,
 # OMITTED, or DEFER, and covers only a few of the productions in
@@ -211,6 +226,19 @@ construct "extern_zero_param" 'extern "C" getpid : i64'
 construct "extern_multi_param" 'extern "C" memcmp a:str b:str n:i64 : i64'
 construct "extern_vec_ret" 'extern "C" f x:i64 : vec[i64]'
 construct "extern_borrow_param" 'extern "C" f x:&i64 : i64'
+# S2 grammar-based: additional positive-construct coverage.
+construct "string_escape" 'x = "hello\nworld"'
+construct "neg_literal" 'x = -1'
+construct "nested_blocks" 'x = { { 1 } }'
+construct "multi_param_fn" 'f a:i64 b:str c:bool : i64 -> 1'
+construct "nested_conditional" 'x = a ? b ? 1 : 2 : 3'
+construct "match_binding" 'x = match v { n => n, _ => 0 }'
+construct "match_constructor" 'x = match v { some(n) => n, _ => 0 }'
+construct "chained_index" 'x = a[b[0]]'
+construct "conditional_block" 'x = c ? { 1 } : { 2 }'
+construct "complex_expr" 'x = (a + b) * (c - d) / (e % f)'
+construct "none_literal" 'x = none'
+construct "fallback_chain" 'x = a ?? b ?? c ?? d'
 
 if [ "$fixture_count" -eq 0 ]; then
   echo "selfhost_parser: FAIL (no fixtures found)" >&2

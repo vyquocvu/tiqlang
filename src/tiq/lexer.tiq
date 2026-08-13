@@ -170,12 +170,13 @@ lex_scan source:str path:str toks:vec[Token] : i64 -> {
 
             // '\n' produces a NEWLINE token; line increments afterwards.
             k == -1 && str_eq(c0, "\n") ? { k <- TokenKind.Newline }
-            // identifier(): [A-Za-z_][A-Za-z0-9_]*. Any identifier whose
-            // FIRST character is '_' is TOK_UNDERSCORE regardless of length
-            // (identifier_type's case '_'), otherwise keyword table or IDENT.
+            // identifier(): [A-Za-z_][A-Za-z0-9_]*. A BARE '_' (length 1)
+            // is TOK_UNDERSCORE; longer identifiers starting with '_' are
+            // TOK_IDENT (Pre-M13 S1: reserved for compiler temporaries).
             k == -1 && map_has(al, c0) ? {
                 [map_has(al, str_sub(source, pos, pos + 1)) || map_has(dig, str_sub(source, pos, pos + 1))] { pos += 1 }
-                str_eq(c0, "_") ? { k <- TokenKind.Underscore }                k == -1 ? {
+                str_eq(c0, "_") && pos - start == 1 ? { k <- TokenKind.Underscore }
+                k == -1 ? {
                     kk = map_get(kw, str_sub(source, start, pos))
                     k <- kk == -1 ? TokenKind.Ident : kk
                 }
