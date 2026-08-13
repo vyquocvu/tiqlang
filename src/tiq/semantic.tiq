@@ -701,7 +701,9 @@ check_node src:str path:str toks:vec[Token] nodes:vec[int] kids:vec[int] types:v
         j <- 0; [j < c2] { si <- vec_get(kids, s2 + j); check_node(src, path, toks, nodes, kids, types, en, ed, sc, st_reg, st_data, st_names, st_meta, en_reg, en_data, fn_reg, fn_data, fpts, frks, tp, tpn, ctx, si); j <- j + 1 }
         fi != -1 ? { check_node(src, path, toks, nodes, kids, types, en, ed, sc, st_reg, st_data, st_names, st_meta, en_reg, en_data, fn_reg, fn_data, fpts, frks, tp, tpn, ctx, fi) }
         env_pop_scope(sc, en, ed)
-        vec_set(types, ni, ty_get(tp, tpn, TY.Unknown)); done <- 1
+        // Block type follows final expression (parity with C bootstrap).
+        fi != -1 && fi >= 0 ? { vec_set(types, ni, vec_get(types, fi)); done <- 1 }
+        done == 0 ? { vec_set(types, ni, ty_get(tp, tpn, TY.Unknown)); done <- 1 }
     }
     // --- BINDING ---
     done == 0 && k == AstKind.Binding ? {

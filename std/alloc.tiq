@@ -3,9 +3,13 @@
 // Import with:
 //   import "std/alloc.tiq"
 //
-// Allocator handles are opaque u64 values at the bootstrap ABI boundary.
-// Public constructors wrap fallible creation in Result: ok(handle) or err(code).
-// Raw tiq_* functions stay prefixed so user code normally calls the wrappers.
+// Allocator handles are opaque i64 values at the Tiq level (backed by u64
+// at the C ABI boundary). Public constructors wrap fallible creation in
+// Result: ok(handle) or err(code). Raw tiq_* externs stay prefixed so
+// user code normally calls the wrappers.
+//
+// The i64 handle representation ensures ok()/err() produce compatible
+// Result<i64,i64> types in conditional expressions (Pre-M13 S4).
 //
 // Error codes:
 //   1 = allocation / allocator creation failed
@@ -19,29 +23,29 @@ extern "C" tiq_allocator_dealloc allocator:u64 ptr:u64 size:u64 align:u64 : i64
 extern "C" tiq_allocator_reset allocator:u64 : i64
 extern "C" tiq_allocator_destroy allocator:u64 : i64
 
-arena capacity:u64 -> {
-    handle = tiq_arena_create(capacity)
-    handle == 0 ? err(1) : ok(handle)
+arena capacity:i64 -> {
+    handle = tiq_arena_create(u64(capacity))
+    handle == u64(0) ? err(1) : ok(i64(handle))
 }
 
-pool block_size:u64 block_count:u64 -> {
-    handle = tiq_pool_create(block_size, block_count)
-    handle == 0 ? err(1) : ok(handle)
+pool block_size:i64 block_count:i64 -> {
+    handle = tiq_pool_create(u64(block_size), u64(block_count))
+    handle == u64(0) ? err(1) : ok(i64(handle))
 }
 
-allocator_alloc allocator:u64 size:u64 align:u64 -> {
-    ptr = tiq_allocator_alloc(allocator, size, align)
-    ptr == 0 ? err(2) : ok(ptr)
+allocator_alloc allocator:i64 size:i64 align:i64 -> {
+    ptr = tiq_allocator_alloc(u64(allocator), u64(size), u64(align))
+    ptr == u64(0) ? err(2) : ok(i64(ptr))
 }
 
-allocator_dealloc allocator:u64 ptr:u64 size:u64 align:u64 : i64 -> {
-    tiq_allocator_dealloc(allocator, ptr, size, align)
+allocator_dealloc allocator:i64 ptr:i64 size:i64 align:i64 : i64 -> {
+    tiq_allocator_dealloc(u64(allocator), u64(ptr), u64(size), u64(align))
 }
 
-allocator_reset allocator:u64 : i64 -> {
-    tiq_allocator_reset(allocator)
+allocator_reset allocator:i64 : i64 -> {
+    tiq_allocator_reset(u64(allocator))
 }
 
-allocator_destroy allocator:u64 : i64 -> {
-    tiq_allocator_destroy(allocator)
+allocator_destroy allocator:i64 : i64 -> {
+    tiq_allocator_destroy(u64(allocator))
 }

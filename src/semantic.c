@@ -260,7 +260,10 @@ static void func_register(SemanticContext *ctx, Token name, AstNode *node) {
 
 // The single kind-level compatibility rule (OPTIMIZATION_PLAN 3.1).
 // Unknown unifies with anything and takes the known side; otherwise the
-// kinds must match exactly. On mismatch this emits
+// kinds must match exactly. For Option/Result types, inner (and error)
+// types must also unify so that e.g. Result<u64,i64> and Result<i64,i64>
+// are not silently treated as interchangeable (Pre-M13 S4).
+// On mismatch this emits
 // "<context>: expected <T>, found <U>" and returns NULL.
 static SemanticType *unify(SemanticContext *ctx, int line,
                            SemanticType *expected, SemanticType *found,
@@ -269,15 +272,49 @@ static SemanticType *unify(SemanticContext *ctx, int line,
     if (!found) return expected;
     if (expected->kind == TYPE_UNKNOWN) return found;
     if (found->kind == TYPE_UNKNOWN) return expected;
-    if (expected->kind == found->kind) return expected;
-    char want[96];
-    char got[96];
-    char msg[320];
-    type_display(expected, want, sizeof want);
-    type_display(found, got, sizeof got);
-    snprintf(msg, sizeof msg, "%s: expected %s, found %s", context, want, got);
-    diag_error(ctx->diag, ctx->path, line, ERR_TYPE_MISMATCH, msg);
-    return NULL;
+    if (expected->kind != found->kind) {
+        char want[96];
+        char got[96];
+        char msg[320];
+        type_display(expected, want, sizeof want);
+        type_display(found, got, sizeof got);
+        snprintf(msg, sizeof msg, "%s: expected %s, found %s", context, want, got);
+        diag_error(ctx->diag, ctx->path, line, ERR_TYPE_MISMATCH, msg);
+        return NULL;
+    }
+    // Same kind. For Option/Result, check inner types match.
+    if (expected->kind == TYPE_OPTION) {
+        SemanticType *ei = expected->inner_type;
+        SemanticType *fi = found->inner_type;
+        if (ei && fi && ei->kind != TYPE_UNKNOWN && fi->kind != TYPE_UNKNOWN
+            && ei->kind != fi->kind) {
+            char want[96], got[96], msg[320];
+            type_display(expected, want, sizeof want);
+            type_display(found, got, sizeof got);
+            snprintf(msg, sizeof msg, "%s: expected %s, found %s", context, want, got);
+            diag_error(ctx->diag, ctx->path, line, ERR_TYPE_MISMATCH, msg);
+            return NULL;
+        }
+        return expected;
+    }
+    if (expected->kind == TYPE_RESULT) {
+        SemanticType *ei = expected->inner_type;
+        SemanticType *fi = found->inner_type;
+        SemanticType *ee = expected->error_type;
+        SemanticType *fe = found->error_type;
+        bool inner_ok = !ei || !fi || ei->kind == TYPE_UNKNOWN || fi->kind == TYPE_UNKNOWN || ei->kind == fi->kind;
+        bool error_ok = !ee || !fe || ee->kind == TYPE_UNKNOWN || fe->kind == TYPE_UNKNOWN || ee->kind == fe->kind;
+        if (!inner_ok || !error_ok) {
+            char want[96], got[96], msg[320];
+            type_display(expected, want, sizeof want);
+            type_display(found, got, sizeof got);
+            snprintf(msg, sizeof msg, "%s: expected %s, found %s", context, want, got);
+            diag_error(ctx->diag, ctx->path, line, ERR_TYPE_MISMATCH, msg);
+            return NULL;
+        }
+        return expected;
+    }
+    return expected;
 }
 
 // Pre-M13 S4: types whose values support == / != without inheriting
@@ -1455,7 +1492,11 @@ static void check_node(SemanticContext *ctx, AstNode *node) {
             }
             ctx->current_env = block_env.parent;
             env_free(&block_env);
-            node->semantic_type = ty(ctx, TYPE_UNKNOWN);
+            if (node->as.block.final_expr && node->as.block.final_expr->semantic_type) {
+                node->semantic_type = node->as.block.final_expr->semantic_type;
+            } else {
+                node->semantic_type = ty(ctx, TYPE_UNKNOWN);
+            }
             break;
         }
         case AST_BINDING:
@@ -1844,8 +1885,21 @@ static void check_node(SemanticContext *ctx, AstNode *node) {
                         // arity is checked at the definition site.
                         // M13.1-P8: vec returns keep the full vec<T> the same way
                         // (arity comes from the recorded definition at call sites).
+                        // Pre-M13 S4: Option/Result returns preserve inner and
+                        // error types so callers see the full parameterised type.
                         if (ret_type && (ret_type->kind == TYPE_STRUCT || ret_type->kind == TYPE_VEC)) {
                             sym->type = ret_type;
+                        } else if ((ret_kind == TYPE_OPTION || ret_kind == TYPE_RESULT)
+                                   && node->as.function.body
+                                   && node->as.function.body->semantic_type) {
+                            SemanticType *bt = (SemanticType *)node->as.function.body->semantic_type;
+                            SemanticType *ft = calloc(1, sizeof(SemanticType));
+                            if (!ft) die_oom();
+                            ft->kind = (PrimitiveType)ret_kind;
+                            ft->inner_type = bt->inner_type;
+                            ft->error_type = bt->error_type;
+                            ft->param_count = node->as.function.param_count;
+                            sym->type = ft;
                         } else {
                             sym->type = type_get_func(ctx->pool, u->kind, node->as.function.param_count);
                         }

@@ -39,7 +39,7 @@ static const char TIQ_CORE_RUNTIME_PRELUDE[] =
     "typedef struct { int kind; unsigned char *buf,*used; size_t cap,pos,block,count; } TiqAllocator;\n\n"
 
     "static void *tiq_alloc(size_t n){void*p=malloc(n);if(!p){fprintf(stderr,\"tiq: out of memory\\n\");exit(1);}return p;}\n"
-    "static int tiq_aa(size_t a){return a&&!(a&(a-1));}\n"
+    "static int64_t tiq_aa(size_t a){return a&&!(a&(a-1));}\n"
     "uint64_t tiq_allocator_general(void){static TiqAllocator a={1,0,0,0,0,0,0};return(uint64_t)(uintptr_t)&a;}\n"
     "uint64_t tiq_arena_create(uint64_t c){if(!c||c>SIZE_MAX)return 0;TiqAllocator*a=calloc(1,sizeof*a);if(!a)return 0;a->buf=malloc((size_t)c);if(!a->buf){free(a);return 0;}a->kind=2;a->cap=(size_t)c;return(uint64_t)(uintptr_t)a;}\n"
     "uint64_t tiq_pool_create(uint64_t b,uint64_t c){size_t m=_Alignof(max_align_t);if(!b||!c||b>SIZE_MAX||c>SIZE_MAX||b%m||(size_t)c>SIZE_MAX/(size_t)b)return 0;TiqAllocator*a=calloc(1,sizeof*a);if(!a)return 0;a->buf=malloc((size_t)b*(size_t)c);a->used=calloc((size_t)c,1);if(!a->buf||!a->used){free(a->used);free(a->buf);free(a);return 0;}a->kind=3;a->block=(size_t)b;a->count=(size_t)c;return(uint64_t)(uintptr_t)a;}\n"

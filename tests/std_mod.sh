@@ -151,28 +151,28 @@ cat > "$TMP_DIR/allocator.tiq" <<'EOF'
 import "std/alloc.tiq"
 
 general = tiq_allocator_general()
-gp = allocator_alloc(general, 32, 8) ?? 0
-print(gp != 0)
-print(allocator_dealloc(general, gp, 32, 8))
+gp = allocator_alloc(i64(general), 32, 8) ?? i64(0)
+print(gp != i64(0))
+print(allocator_dealloc(i64(general), gp, 32, 8))
 
-arena_handle = arena(64) ?? 0
-ap = allocator_alloc(arena_handle, 16, 8) ?? 0
-print(ap != 0)
+arena_handle = arena(128) ?? i64(0)
+ap = allocator_alloc(arena_handle, 16, 8) ?? i64(0)
+print(ap != i64(0))
 print(allocator_reset(arena_handle))
-ap2 = allocator_alloc(arena_handle, 64, 8) ?? 0
-print(ap2 != 0)
+ap2 = allocator_alloc(arena_handle, 64, 8) ?? i64(0)
+print(ap2 != i64(0))
 print(allocator_destroy(arena_handle))
 
-pool_handle = pool(16, 2) ?? 0
-p1 = allocator_alloc(pool_handle, 8, 8) ?? 0
-p2 = allocator_alloc(pool_handle, 8, 8) ?? 0
-p3 = allocator_alloc(pool_handle, 8, 8) ?? 0
-print(p1 != 0)
-print(p2 != 0)
-print(p3 == 0)
-print(allocator_dealloc(pool_handle, p1, 8, 8))
-p4 = allocator_alloc(pool_handle, 8, 8) ?? 0
-print(p4 != 0)
+pool_handle = pool(16, 2) ?? i64(0)
+p1 = allocator_alloc(pool_handle, 16, 8) ?? i64(0)
+p2 = allocator_alloc(pool_handle, 16, 8) ?? i64(0)
+p3 = allocator_alloc(pool_handle, 16, 8) ?? i64(0)
+print(p1 != i64(0))
+print(p2 != i64(0))
+print(p3 == i64(0))
+print(allocator_dealloc(pool_handle, p1, 16, 8))
+p4 = allocator_alloc(pool_handle, 16, 8) ?? i64(0)
+print(p4 != i64(0))
 print(allocator_destroy(pool_handle))
 EOF
 assert_runs "allocator_results" "$TMP_DIR/allocator.tiq" "true
