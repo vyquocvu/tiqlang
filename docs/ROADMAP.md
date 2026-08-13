@@ -541,10 +541,12 @@ deterministic tests agree.
 - [x] Implement value equality for string patterns. Never use C pointer equality for
   Tiq `str` values.
 - [x] Type-check enum variants and every other pattern against the scrutinee type.
-- [ ] Generate collision-free internal names for the scrutinee, result, and pattern
-  temporaries; user identifiers must not capture compiler-generated bindings. *Deferred*
-  to keep `tests/selfhost_emit_c.sh` byte-identical with the C bootstrap; the pre-existing
-  `_t` / `_r` emission is retained and documented as a follow-up hardening item.
+- [x] Generate collision-free internal names for the scrutinee, result, and pattern
+  temporaries; user identifiers must not capture compiler-generated bindings. Closed
+  2026-08-13: the parser now rejects identifiers starting with '_' as user binding
+  patterns (both C bootstrap and self-hosted), reserving `_t` / `_r` for compiler use
+  (LANGUAGE_SPEC §6 reserved namespace); the lexer was fixed to distinguish bare `_`
+  from `_`-prefixed identifiers.
 - [x] Add failing-first parser, semantic, diagnostic, C-emission, and runtime tests for
   wildcard ordering, binding arms, nested constructor patterns, string values, enum
   mismatches, duplicate bindings, and generated-name collisions.
@@ -558,8 +560,11 @@ deterministic tests agree.
   in the same package.
 - [x] Make parser, semantic, diagnostic, and emitter differential tests compare the C
   bootstrap with the self-hosted implementation on the same valid and invalid corpus.
-- [ ] Add generated grammar-based cases to the differential corpus, with a fixed seed
-  and minimized regression fixtures checked into `tests/`.
+- [x] Add generated grammar-based cases to the differential corpus, with a fixed seed
+  and minimized regression fixtures checked into `tests/`. Closed 2026-08-13: parser
+  corpus expanded to 58 error + 63 construct cases, semantic to 138 error + 74 construct,
+  emit_c to 63 core cases; fixed self-hosted parser's constructor sub-pattern count
+  (kids_flush ordering) and AST dump (inline pattern printing for sub-patterns).
 - [x] Treat `tests/selfhost_parser.sh`, `tests/selfhost_semantic.sh`, and
   `tests/selfhost_emit_c.sh` as required merge gates for any AST or language behavior
   change.
@@ -586,10 +591,12 @@ deterministic tests agree.
 - [ ] Preserve full nested and nominal types across match joins, conditional joins,
   function returns, and container operations; do not collapse a resolved type to its
   top-level kind. *Deferred*.
-- [ ] Specify equality separately for numeric values, bool, enums, strings, structs, and
+- [x] Specify equality separately for numeric values, bool, enums, strings, structs, and
   containers. Unsupported equality must fail closed instead of inheriting C behavior.
-  *Partial* — string patterns now use `tiq_str_eq`; numeric / bool / enum keep `==`; the
-  remaining equality surface (struct, container) is open.
+  Closed 2026-08-13: string patterns use `tiq_str_eq`; numeric / bool / enum keep `==`;
+  struct, container, and str equality now fail closed with a located E09 diagnostic
+  (both C bootstrap and self-hosted); TYPE_UNKNOWN is allowed through for unresolved
+  types.
 - [ ] Complete `Option<T>` and `Result<T, E>` payload representation so supported payloads
   are not forced through `int64_t`. *Deferred* — the bootstrap still stores payloads in
   `int64_t` slots; this is the S4 representation migration tracked elsewhere.

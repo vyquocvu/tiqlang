@@ -5,7 +5,7 @@ BUILD := build
 TIQ := $(BUILD)/tiq
 TEST_JOBS ?= 5
 
-.PHONY: all clean test test-heavy test-unit test-fuzz test-selfhost test-selfhost-lexer test-selfhost-parser test-selfhost-semantic test-selfhost-emit-c test-bootstrap example benchmark-compare test-check test-run test-qbe test-wasm tool-test tool-fmt tool-bench tool-init tool-cache tool-lsp tool-install tool-registry tool-publish tool-audit tool-proxy tool-std perf-record perf-check
+.PHONY: all clean test test-heavy test-unit test-fuzz test-selfhost test-selfhost-lexer test-selfhost-parser test-selfhost-semantic test-selfhost-emit-c test-bootstrap example benchmark-compare test-check test-run test-qbe test-wasm tool-test tool-fmt tool-bench tool-init tool-cache tool-lsp tool-install tool-registry tool-publish tool-audit tool-proxy tool-router tool-std perf-record perf-check
 
 # Build the unit runner with the same flags as the compiler. Besides keeping
 # `make` useful as a complete build gate, this preserves sanitizer link flags
@@ -144,6 +144,7 @@ test-platform: $(TIQ)
 	sh tests/audit_tool.sh
 	sh tests/perf_suite_test.sh
 	sh tests/proxy_tool.sh
+	sh tests/router_tool.sh
 	sh tests/ir.sh
 	sh tests/qbe_backend.sh
 	sh tests/wasm.sh
@@ -227,6 +228,11 @@ tool-audit: $(TIQ)
 # passthrough, 502 fail-closed, usage errors, and ASan/UBSan.
 tool-proxy: $(TIQ)
 	sh tests/proxy_tool.sh
+
+# M21.3: build the routed Tiq HTTP service and verify route dispatch,
+# bounded request parsing, fail-closed status codes, and ASan/UBSan.
+tool-router: $(TIQ)
+	sh tests/router_tool.sh
 
 # M15: verify std/ module gating — domain builtins require import, core
 # builtins remain always available, cwd fallback, wrapper correctness, ASan.

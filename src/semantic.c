@@ -280,6 +280,19 @@ static SemanticType *unify(SemanticContext *ctx, int line,
     return NULL;
 }
 
+// Pre-M13 S4: types whose values support == / != without inheriting
+// ambiguous C behaviour.  Numeric kinds, bool, and enum variants
+// (represented as i64) compare by value; everything else — str (pointer
+// vs content), struct (no C ==), array/slice/vec/strbuf/map (handles or
+// address decay), option/result (opaque int64_t slots), stream, chan,
+// ref — must fail closed (LANGUAGE_SPEC §17.1 equality surface).
+static bool eq_comparable_kind(PrimitiveType k) {
+    return k == TYPE_INT || k == TYPE_FLOAT || k == TYPE_BOOL ||
+           k == TYPE_I8  || k == TYPE_I16 || k == TYPE_I32 ||
+           k == TYPE_U8  || k == TYPE_U16 || k == TYPE_U32 || k == TYPE_U64 ||
+           k == TYPE_F32;
+}
+
 // M16.2: FFI-safe kinds per the C ABI mapping table (LANGUAGE_SPEC §7.1).
 // Everything else fails closed at the extern declaration site (E29).
 static bool ffi_safe_kind(PrimitiveType k) {
@@ -687,7 +700,23 @@ static void check_node(SemanticContext *ctx, AstNode *node) {
                     if (node->as.binary.op == TOK_EQ_EQ || node->as.binary.op == TOK_BANG_EQ ||
                         node->as.binary.op == TOK_LT || node->as.binary.op == TOK_LTE ||
                         node->as.binary.op == TOK_GT || node->as.binary.op == TOK_GTE) {
-                        node->semantic_type = ty(ctx, TYPE_BOOL);
+                        // Pre-M13 S4: unsupported equality must fail closed
+                        // instead of inheriting C behaviour (LANGUAGE_SPEC §17.1).
+                        // TYPE_UNKNOWN is allowed through (unresolved; not a
+                        // non-comparable type).
+                        if (u->kind != TYPE_UNKNOWN && !eq_comparable_kind(u->kind)) {
+                            char tbuf[64];
+                            char msg[200];
+                            type_display(u, tbuf, sizeof tbuf);
+                            snprintf(msg, sizeof msg,
+                                     "type '%s' does not support equality comparison",
+                                     tbuf);
+                            diag_error(ctx->diag, ctx->path, node->token.line,
+                                       ERR_TYPE_MISMATCH, msg);
+                            node->semantic_type = ty(ctx, TYPE_UNKNOWN);
+                        } else {
+                            node->semantic_type = ty(ctx, TYPE_BOOL);
+                        }
                     } else {
                         node->semantic_type = ty(ctx, u->kind);
                     }
