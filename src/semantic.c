@@ -577,10 +577,17 @@ static void check_node(SemanticContext *ctx, AstNode *node) {
                 p = TYPE_INT;
                 // Integer literals default to i64 (LANGUAGE_SPEC §11);
                 // out-of-range literals are rejected at compile time.
+                // Lexer allows underscore digit separators (1_000); strip them
+                // before parsing because strtoll stops at '_'.
+                char tmp[64];
+                size_t tl = 0;
+                for (size_t i = 0; i < node->token.length && tl < sizeof(tmp) - 1; i++)
+                    if (node->token.start[i] != '_') tmp[tl++] = node->token.start[i];
+                tmp[tl] = '\0';
                 errno = 0;
                 char *end = NULL;
-                (void)strtoll(node->token.start, &end, 10);
-                if (errno == ERANGE || end != node->token.start + node->token.length) {
+                (void)strtoll(tmp, &end, 10);
+                if (errno == ERANGE || end != tmp + tl) {
                     diag_error(ctx->diag, ctx->path, node->token.line, ERR_LITERAL_RANGE,
                                "integer literal out of range for i64");
                 }

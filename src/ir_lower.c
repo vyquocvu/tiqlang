@@ -820,6 +820,20 @@ bool ir_lower(AstNode **stmts, int count, IrModule *module, DiagContext *diag, c
             ctx.stream_gen_count++;
         }
     }
+    // Fail closed if there are more stream generators than the limit allows.
+    if (ctx.stream_gen_count >= MAX_STREAM_GENS) {
+        for (int i = 0; i < count; i++) {
+            AstNode *st = stmts[i];
+            if ((st && st->kind == AST_BINDING &&
+                 st->as.binding.expr && st->as.binding.expr->kind == AST_STREAM_GEN) ||
+                (st && st->kind == AST_FUNCTION &&
+                 st->as.function.body && st->as.function.body->kind == AST_STREAM_GEN)) {
+                diag_error(diag, path, st->token.line, ERR_UNSUPPORTED_STATEMENT,
+                           "too many stream generators (limit 64)");
+                break;
+            }
+        }
+    }
 
     void *tmp_main = realloc(module->funcs, sizeof(IrFunction));
     if (!tmp_main) { diag_error(ctx.diag, ctx.path, 0, ERR_UNSUPPORTED_STATEMENT, "out of memory"); return NULL; }
