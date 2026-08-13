@@ -52,6 +52,7 @@ tiq publish [--registry <url>]
 tiq yank [--registry <url>] <name> <version>
 tiq audit
 tiq proxy <listen-port> <upstream-port>
+tiq router <port>
 tiq cache clear
 tiq cache <path>
 ```
@@ -85,6 +86,8 @@ tiq cache <path>
 - `tiq audit` reads the package manifest (`tiq.toml`) and lockfile (`tiq.lock`) from the current directory and verifies dependency integrity. Checks: (1) lockfile exists, (2) every manifest dep has a lockfile entry, (3) every lockfile entry has a manifest dep (no stale entries), (4) each installed dep's FNV-1a content hash matches the lockfile hash. Prints `tiq audit: ok (N dependencies verified)` when all checks pass (exit 0). Integrity issues are reported to stderr with specific diagnostics (hash mismatch, missing install, stale entry) and exit 1. A missing manifest exits 2; a missing lockfile exits 1.
 
 - `tiq proxy <listen-port> <upstream-port>` runs a loopback HTTP reverse proxy (M21.3 dogfooding). It accepts one connection at a time on `<listen-port>`, reads the request headers plus the `Content-Length`-declared body (capped at 256 KiB), forwards the request verbatim to the upstream on `<upstream-port>` (127.0.0.1 only), and streams the upstream response back — honoring the response `Content-Length` when present, otherwise forwarding until the upstream closes. Fail-closed responses: `400` when request headers never complete, `413` for bodies beyond the cap, `502` when the upstream is unreachable. Missing or non-numeric port arguments exit 2 with a usage message; an unbindable listen port exits 1.
+
+- `tiq router <port>` runs the sequential loopback routed-service dogfood artifact. Routes are `GET /health`, `GET /hello/<name>`, and `POST /echo`. Requests are capped at 64 KiB including headers and body; the service returns `400` for incomplete headers, `413` for oversized or incomplete declared bodies, `404` for unknown routes, and `405` for known routes with the wrong method. Every response declares `Content-Length` and closes the connection. Missing or invalid ports exit 2; an unbindable port exits 1. This is an application built by the bootstrap (`src/tiq/tools/router.tiq`), not a subcommand embedded in the C compiler.
 
 - `tiq cache clear` removes all cached entries from the compiler's artifact cache directory (`/tmp/.tiq-cache`). Exits 0 on success, 1 if the removal fails.
 - `tiq cache <path>` prints the cache entry path for a source file when the file has a valid cache entry (exit 0), or prints `not cached: <path>` to stderr and exits 1 when the file is not cached or the cache entry is stale (source content changed). The cache uses an FNV-1a content hash of the source file for validation; a cache entry is valid only when the stored hash matches the current source content. Unknown options and extra arguments exit 2.

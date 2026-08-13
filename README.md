@@ -141,6 +141,7 @@ docs/MEMORY_MODEL.md         ownership and allocation direction
 docs/COMPILER_ARCHITECTURE.md compiler pipeline and invariants
 docs/ROADMAP.md              milestone plan
 docs/POST_BOOTSTRAP_ROADMAP.md post-bootstrap plan (incl. tooling in Tiq)
+docs/DOGFOODING.md           real-product validation and pre-beta evidence gates
 docs/IMPLEMENTATION_STATUS.md evidence-backed implementation state
 ```
 
