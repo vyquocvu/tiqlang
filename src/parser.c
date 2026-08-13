@@ -372,6 +372,15 @@ static Pattern *parse_pattern(Parser *parser) {
             return pat;
         }
 
+        // Pre-M13 S1: identifiers starting with '_' are reserved for
+        // compiler-generated bindings (match temporaries, loop indices).
+        // Reject them as user binding patterns to prevent capture.
+        if (ident_tok.start[0] == '_') {
+            diag_error(parser->diag, parser->lexer.path, ident_tok.line,
+                       ERR_UNEXPECTED_TOKEN,
+                       "identifiers starting with '_' are reserved");
+        }
+
         // Binding pattern: bare identifier creates a fresh immutable binding
         pat->kind = PAT_BINDING;
         pat->token = ident_tok;

@@ -1,0 +1,163 @@
+// M21.3-T3: small routed HTTP service written in Tiq.
+//
+// Routes:
+//   GET  /health       -> "ok"
+//   GET  /hello/<name> -> "hello, <name>"
+//   POST /echo         -> request body
+//
+// The server is deliberately sequential until the M19 event loop is ready.
+// Requests are bounded to 64 KiB and every response closes the connection.
+
+import "std/net.tiq"
+
+parse_port s:str : i64 -> {
+    p <- 0
+    valid <- len(s) > 0 ? 1 : 0
+    i <- 0
+    [i < len(s)] {
+        c <- str_sub_code(s, i)
+        c >= 48 && c <= 57 ? { p <- p * 10 + c - 48 }
+        c < 48 || c > 57 ? { valid <- 0 }
+        i <- i + 1
+    }
+    valid == 0 || p < 1 || p > 65535 ? { p <- 0 }
+    p
+}
+
+header_end s:str : i64 -> {
+    r <- -1
+    i <- 0
+    [i + 3 < len(s) && r < 0] {
+        str_sub_code(s, i) == 13 && str_sub_code(s, i + 1) == 10 && str_sub_code(s, i + 2) == 13 && str_sub_code(s, i + 3) == 10 ? {
+            r <- i + 4
+        }
+        i <- i + 1
+    }
+    r
+}
+
+decimal s:str : i64 -> {
+    value <- 0
+    valid <- len(s) > 0 ? 1 : 0
+    i <- 0
+    [i < len(s)] {
+        c <- str_sub_code(s, i)
+        c >= 48 && c <= 57 ? { value <- value * 10 + c - 48 }
+        c < 48 || c > 57 ? { valid <- 0 }
+        i <- i + 1
+    }
+    valid == 0 ? { value <- -1 }
+    value
+}
+
+reason status:i64 : str -> {
+    text <- "Internal Server Error"
+    status == 200 ? { text <- "OK" }
+    status == 400 ? { text <- "Bad Request" }
+    status == 404 ? { text <- "Not Found" }
+    status == 405 ? { text <- "Method Not Allowed" }
+    status == 413 ? { text <- "Payload Too Large" }
+    text
+}
+
+response status:i64 body:str : str -> {
+    b <- str_buf_new()
+    str_buf_append(b, "HTTP/1.1 ")
+    str_buf_append(b, int_str(status))
+    str_buf_append(b, " ")
+    str_buf_append(b, reason(status))
+    str_buf_append(b, "\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Length: ")
+    str_buf_append(b, int_str(len(body)))
+    status == 405 ? { str_buf_append(b, "\r\nAllow: GET") }
+    str_buf_append(b, "\r\nConnection: close\r\n\r\n")
+    str_buf_append(b, body)
+    str_buf_to_str(b)
+}
+
+read_request conn:i64 : str -> {
+    b <- str_buf_new()
+    total <- 0
+    end <- -1
+    need <- -1
+    stopped <- 0
+    [stopped == 0 && total < 65536] {
+        chunk <- net_recv(conn)
+        len(chunk) == 0 ? { stopped <- 1 }
+        len(chunk) > 0 ? {
+            str_buf_append(b, chunk)
+            total <- total + len(chunk)
+            snapshot <- str_buf_to_str(b)
+            end < 0 ? { end <- header_end(snapshot) }
+            end >= 0 && need < 0 ? {
+                length_text <- http_header(snapshot, "Content-Length")
+                len(length_text) == 0 ? { need <- end }
+                len(length_text) > 0 ? {
+                    content_length <- decimal(length_text)
+                    content_length < 0 || content_length > 65536 - end ? { need <- 65537 }
+                    content_length >= 0 && content_length <= 65536 - end ? { need <- end + content_length }
+                }
+            }
+            need >= 0 && total >= need ? { stopped <- 1 }
+        }
+    }
+    str_buf_to_str(b)
+}
+
+route req:str : str -> {
+    end <- header_end(req)
+    result <- response(400, "bad request")
+    end >= 0 ? {
+        length_text <- http_header(req, "Content-Length")
+        content_length <- 0
+        len(length_text) > 0 ? { content_length <- decimal(length_text) }
+        content_length < 0 || content_length > 65536 - end || len(req) < end + content_length ? {
+            result <- response(413, "payload too large or incomplete")
+        }
+        content_length >= 0 && content_length <= 65536 - end && len(req) >= end + content_length ? {
+            method <- http_method(req)
+            path <- http_path(req)
+            known <- str_eq(path, "/health") || str_eq(path, "/echo") || len(path) >= 7 && str_eq(str_sub(path, 0, 7), "/hello/")
+            result <- response(404, "not found")
+            known && !str_eq(method, "GET") && !str_eq(path, "/echo") ? { result <- response(405, "method not allowed") }
+            str_eq(path, "/echo") && !str_eq(method, "POST") ? { result <- response(405, "method not allowed") }
+            str_eq(method, "GET") && str_eq(path, "/health") ? { result <- response(200, "ok") }
+            str_eq(method, "GET") && len(path) >= 7 && str_eq(str_sub(path, 0, 7), "/hello/") ? {
+                name <- str_sub(path, 7, len(path))
+                len(name) == 0 ? { result <- response(404, "not found") }
+                len(name) > 0 ? { result <- response(200, str_cat("hello, ", name)) }
+            }
+            str_eq(method, "POST") && str_eq(path, "/echo") ? {
+                body <- str_sub(req, end, end + content_length)
+                result <- response(200, body)
+            }
+        }
+    }
+    result
+}
+
+nargs <- cli_arg_count()
+nargs != 1 ? {
+    eprint("tiq router: usage: tiq router <port>")
+    proc_exit(2)
+}
+port <- parse_port(cli_arg(0))
+port == 0 ? {
+    eprint("tiq router: port must be an integer in 1..65535")
+    proc_exit(2)
+}
+server <- net_listen(port)
+server < 0 ? {
+    eprint(str_cat("tiq router: cannot listen on port ", int_str(port)))
+    proc_exit(1)
+}
+print(str_cat("tiq router: listening on ", int_str(port)))
+[1 == 1] {
+    conn <- net_accept(server)
+    conn < 0 ? { break }
+    req <- read_request(conn)
+    len(req) >= 65536 && header_end(req) < 0 ? { net_send(conn, response(413, "payload too large")) }
+    len(req) < 65536 || header_end(req) >= 0 ? { net_send(conn, route(req)) }
+    net_close(conn)
+}
+net_close(server)
+0

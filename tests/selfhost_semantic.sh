@@ -123,6 +123,17 @@ corpus "e09_width_i32" 'a = i32(1)
 x = a + 2'
 corpus "e09_width_u8_f64" 'a = u8(1)
 x = a + 1.0'
+# Pre-M13 S4: unsupported equality fails closed (struct, str, vec).
+corpus "e09_eq_struct" 'struct Point { x: i64 }
+a = Point { x: 1 }
+b = Point { x: 1 }
+r = a == b'
+corpus "e09_eq_str" 'a = "hello"
+b = "world"
+r = a == b'
+corpus "e09_neq_vec" 'v = vec_new()
+vec_push(v, 1)
+r = v != v'
 # E14/E15/E16 conditions and loops.
 corpus "e14_cond" 'x = 1 ? 2 : 3'
 corpus "e14_loop" 'a = 1
@@ -346,6 +357,17 @@ corpus "extern_arity" 'extern "C" llabs x:i64 : i64
 y = llabs()'
 corpus "extern_arg_type" 'extern "C" llabs x:i64 : i64
 y = llabs("a")'
+# S2 grammar-based: additional semantic error coverage.
+corpus "e09_nested_field" 'struct P { x: i64 }
+p = P { x: 1 }
+y = p.x.z'
+corpus "e09_conv_chain" 'a = i32(1)
+b = f64(a)
+c = i8(b)'
+corpus "e11_compound_immutable" 'x = 1
+x *= 2'
+corpus "e09_cond_type_mismatch" 'c = true
+x = c ? 1 : true'
 
 # Positive-construct corpus: well-formed sources exercising the types and
 # checker paths the fixture set never reaches (strbuf/map/vec-of-struct in
@@ -501,6 +523,56 @@ r = sqrt(4.0)'
 construct "extern_struct_by_value" 'struct Point { x: i64 }
 extern "C" px p:Point : i64
 q = Point { x: 1 }'
+# S2 grammar-based: additional positive-construct coverage.
+construct "nested_struct" 'struct Inner { v: i64 }
+struct Outer { inner: Inner }
+o = Outer { inner: Inner { v: 42 } }
+x = o.inner.v'
+construct "complex_arith" 'x = (1 + 2) * 3 - 4 / 2 % 3'
+construct "bool_chain" 'x = true && false || !true'
+construct "bit_ops" 'x = 1 | 2 ^ 3 & 4'
+construct "shift_ops" 'x = 8 << 2 >> 1'
+construct "conv_chain" 'a = i32(1)
+b = i64(a)
+c = f64(b)'
+construct "multi_borrow" 'f a:&i64 b:&i64 -> a + b
+x = 1
+y = 2
+z = f(&x, &y)'
+construct "nested_conditional" 'x = true
+y = x ? 1 : 0
+z = x ? y + 1 : y - 1'
+construct "array_of_struct" 'struct P { x: i64 }
+p1 = P { x: 1 }
+p2 = P { x: 2 }
+a = [p1, p2]'
+construct "fallback_option" 'o = some(10)
+x = o ?? 0'
+construct "string_ops" 'a = "hello"
+b = "world"
+c = str_cat(a, b)
+d = str_sub(c, 0, 5)
+e = int_str(42)'
+construct "vec_operations" 'v = vec_new()
+vec_push(v, 1)
+vec_push(v, 2)
+vec_set(v, 0, 10)
+x = vec_get(v, 0)
+n = vec_len(v)
+p = vec_pop(v)'
+construct "map_operations" 'm = map_new()
+map_set(m, "a", 1)
+map_set(m, "b", 2)
+x = map_get(m, "a")
+h = map_has(m, "b")
+n = map_len(m)'
+construct "strbuf_ops" 'b = str_buf_new()
+str_buf_append(b, "hello")
+str_buf_append(b, " world")
+s = str_buf_to_str(b)
+n = str_buf_len(b)'
+construct "nested_blocks" 'x = { y = { 1 }; y + 1 }'
+construct "loop_with_binder" '[i <- 0..5] { [j <- 0..i] { print(int_str(j)) } }'
 
 if [ "$fixture_count" -eq 0 ]; then
   echo "selfhost_semantic: FAIL (no fixtures found)" >&2

@@ -526,6 +526,7 @@ pnode mode:i64 src:str path:str toks:vec[Token] st:vec[int] nodes:vec[int] kids:
                                 nd_set(nodes, sub_pat, NF.F1, PatKind.Wildcard)
                             }
                             p_ck(toks, st) == TokenKind.Ident && sub_pat == -1 ? {
+                                str_sub_code(tk_lex(src, toks, p_ci(st)), 0) == 95 ? { p_diag(st, path, tk_line(toks, p_ci(st)), 4, "identifiers starting with '_' are reserved") }
                                 sub_pat <- nd_new(nodes, AstKind.MatchArm, p_ci(st))
                                 nd_set(nodes, sub_pat, NF.F1, PatKind.Binding)
                                 nd_set(nodes, sub_pat, NF.Name, p_ci(st))
@@ -537,8 +538,8 @@ pnode mode:i64 src:str path:str toks:vec[Token] st:vec[int] nodes:vec[int] kids:
                             }
                         }
                         p_expect(toks, st, path, TokenKind.Rparen, 4, "expected ')' after constructor pattern")
-                        pat_subs_base <- kids_flush(sk, kids, sub_base)
                         pat_subs_n <- vec_len(sk) - sub_base
+                        pat_subs_base <- kids_flush(sk, kids, sub_base)
                     }
                     // Enum variant: ident.ident
                     p_ck(toks, st) == TokenKind.Dot && pat_kind == PatKind.Wildcard ? {
@@ -552,6 +553,7 @@ pnode mode:i64 src:str path:str toks:vec[Token] st:vec[int] nodes:vec[int] kids:
                     }
                     // Binding: bare ident
                     pat_kind == PatKind.Wildcard && pat_data == -1 ? {
+                        str_sub_code(tk_lex(src, toks, ident_tok), 0) == 95 ? { p_diag(st, path, tk_line(toks, ident_tok), 4, "identifiers starting with '_' are reserved") }
                         pat_kind <- PatKind.Binding
                         pat_name <- ident_tok
                     }
@@ -1623,7 +1625,32 @@ ast_show src:str toks:vec[Token] nodes:vec[int] kids:vec[int] i:i64 ind:i64 : i6
                     print(str_cat(str_cat(pp, "PAT_CTOR "), tk_lex(src, toks, nd_get(nodes, i, NF.Name))))
                     s1 = nd_get(nodes, i, NF.L1s)
                     c1 = nd_get(nodes, i, NF.L1n)
-                    [j <- 0..c1] { ast_show(src, toks, nodes, kids, vec_get(kids, s1 + j), ind + 2) }
+                    [j <- 0..c1] {
+                        sub_i = vec_get(kids, s1 + j)
+                        sub_k = nd_get(nodes, sub_i, NF.F1)
+                        sub_pp = pad(ind + 2)
+                        sub_k == 0 ? { print(str_cat(sub_pp, "WILDCARD")) }
+                        sub_k == 1 ? {
+                            sub_lit = nd_get(nodes, sub_i, NF.A)
+                            sub_lit != -1 ? {
+                                sub_lt = nd_get(nodes, sub_lit, NF.Op)
+                                sub_lx = tk_lex(src, toks, nd_get(nodes, sub_lit, NF.Tok))
+                                sub_lt == TokenKind.Int ? { print(str_cat(str_cat(sub_pp, "PAT_INT "), sub_lx)) }
+                                sub_lt == TokenKind.Float ? { print(str_cat(str_cat(sub_pp, "PAT_FLOAT "), sub_lx)) }
+                                sub_lt == TokenKind.String ? { print(str_cat(str_cat(sub_pp, "PAT_STR "), sub_lx)) }
+                                sub_lt == TokenKind.True ? { print(str_cat(sub_pp, "PAT_TRUE")) }
+                                sub_lt == TokenKind.False ? { print(str_cat(sub_pp, "PAT_FALSE")) }
+                                sub_lt == TokenKind.None ? { print(str_cat(sub_pp, "PAT_NONE")) }
+                            }
+                        }
+                        sub_k == 2 ? { print(str_cat(str_cat(sub_pp, "PAT_BIND "), tk_lex(src, toks, nd_get(nodes, sub_i, NF.Name)))) }
+                        sub_k == 3 ? { print(str_cat(str_cat(sub_pp, "PAT_CTOR "), tk_lex(src, toks, nd_get(nodes, sub_i, NF.Name)))) }
+                        sub_k == 4 ? {
+                            sub_tn = tk_lex(src, toks, nd_get(nodes, sub_i, NF.Name))
+                            sub_vn = tk_lex(src, toks, nd_get(nodes, sub_i, NF.F2))
+                            print(str_cat(str_cat(str_cat(str_cat(sub_pp, "PAT_ENUM "), sub_tn), "."), sub_vn))
+                        }
+                    }
                 }
                 pat_kind == PatKind.EnumVariant ? {
                     tn = tk_lex(src, toks, nd_get(nodes, i, NF.Name))

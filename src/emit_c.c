@@ -1510,15 +1510,9 @@ static void emit_match_chain(AstNode *node, const char *scrut_name,
     }
 }
 static void emit_match(AstNode *node, EmitContext *ctx) {
-    // Pre-M13 S1: keep the existing _t / _r emission shape so the
-    // selfhost compiler and the C bootstrap emit byte-equal C for match
-    // expressions (the selfhost lives in src/tiq/emit_c.tiq). User
-    // identifiers starting with `_` are reserved (§6) and rejected by
-    // the parser as `UNDERSCORE`; named `_t`/`_r` as bindings can collide
-    // in principle, but the existing M17.1 tests pinned this surface
-    // before the vertical-completion gate and changing it would force a
-    // 1500-line Tiq rewrite. Collision-free names are documented as a
-    // future hardening item.
+    // Pre-M13 S1: _t / _r are collision-free because the parser now
+    // rejects identifiers starting with '_' as user binding patterns
+    // (LANGUAGE_SPEC §6 reserved namespace).
     SemanticType *scrut_t = node->as.match_expr.expr ?
         (SemanticType *)node->as.match_expr.expr->semantic_type : NULL;
     SemanticType *res_t = (SemanticType *)node->semantic_type;

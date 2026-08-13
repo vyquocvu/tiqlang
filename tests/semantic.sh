@@ -620,6 +620,25 @@ assert_semantic "width_mixing_u8_f64" 'a = u8(1)
 x = a + 1.0
 ' "$TMP_DIR/width_mixing_u8_f64.tiq:2: error[E09]: type mismatch: expected u8, found float"
 
+# Pre-M13 S4: unsupported equality must fail closed instead of inheriting
+# C behaviour (LANGUAGE_SPEC §17.1 equality surface).  Struct, str, vec,
+# option, and result types cannot be compared with == or !=.
+assert_semantic "eq_struct" 'struct Point { x: i64 }
+a = Point { x: 1 }
+b = Point { x: 1 }
+r = a == b
+' "$TMP_DIR/eq_struct.tiq:4: error[E09]: type 'Point' does not support equality comparison"
+
+assert_semantic "eq_str" 'a = "hello"
+b = "world"
+r = a == b
+' "$TMP_DIR/eq_str.tiq:3: error[E09]: type 'str' does not support equality comparison"
+
+assert_semantic "neq_vec" 'v = vec_new()
+vec_push(v, 1)
+r = v != v
+' "$TMP_DIR/neq_vec.tiq:3: error[E09]: type 'vec<int>' does not support equality comparison"
+
 # Sized types are printable (typed AST).
 assert_semantic_ast "typed_print_i32" 'x = i32(42)
 print(x)
