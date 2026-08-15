@@ -1,0 +1,79 @@
+// JSON validator and compact generator authored in Tiq (no std/json builtins).
+// state: current byte, first error byte, nesting depth
+skip_ws s:str st:vec[i64] : i64 -> { i <- vec_get(st,0); [i < len(s) && (str_sub_code(s,i)==32 || str_sub_code(s,i)==9 || str_sub_code(s,i)==10 || str_sub_code(s,i)==13)] { i <- i+1 }; vec_set(st,0,i); i }
+fail st:vec[i64] i:i64 : i64 -> { vec_get(st,1)<0 ? { vec_set(st,1,i) }; 0 }
+is_hex c:i64 : bool -> c>=48&&c<=57 || c>=65&&c<=70 || c>=97&&c<=102
+utf8 s:str i:i64 : i64 -> {
+ c <- str_sub_code(s,i); n <- 0
+ c>=194&&c<=223 ? { n<-2 }; c>=224&&c<=239 ? { n<-3 }; c>=240&&c<=244 ? { n<-4 }
+ valid <- n; i+n>len(s) ? { valid<-0 }; j<-1
+ [valid>0 && j<n] { d<-str_sub_code(s,i+j); d<128||d>191 ? { valid<-0 }; j<-j+1 }
+ valid>0&&n==3&&c==224&&str_sub_code(s,i+1)<160 ? { valid<-0 }
+ valid>0&&n==3&&c==237&&str_sub_code(s,i+1)>159 ? { valid<-0 }
+ valid>0&&n==4&&c==240&&str_sub_code(s,i+1)<144 ? { valid<-0 }
+ valid>0&&n==4&&c==244&&str_sub_code(s,i+1)>143 ? { valid<-0 }
+ valid
+}
+parse_string s:str st:vec[i64] out:strbuf : i64 -> {
+ start<-vec_get(st,0); i<-start+1; valid<-1; done<-0
+ [i<len(s)&&valid==1&&done==0] {
+  c<-str_sub_code(s,i)
+  c==34 ? { done<-1; i<-i+1 }
+  c<32 ? { valid<-0 }
+  c==92&&valid==1 ? {
+   i<-i+1; i>=len(s) ? { valid<-0 }
+   i<len(s) ? { e<-str_sub_code(s,i); simple<-e==34||e==92||e==47||e==98||e==102||e==110||e==114||e==116
+    e==117 ? { i+4>=len(s) ? { valid<-0 }; j<-1; [valid==1&&j<=4] { !is_hex(str_sub_code(s,i+j)) ? { valid<-0 }; j<-j+1 }; i<-i+4 }
+    !simple&&e!=117 ? { valid<-0 }
+   }
+  }
+  c>=128&&c!=92&&valid==1 ? { n<-utf8(s,i); n==0 ? { valid<-0 }; n>0 ? { i<-i+n-1 } }
+  done==0 ? { i<-i+1 }
+ }
+ done==0 ? { valid<-0 }; valid==0 ? { fail(st,i<len(s)?i:len(s)) }
+ valid==1 ? { str_buf_append(out,str_sub(s,start,i)); vec_set(st,0,i) }
+ valid
+}
+word s:str st:vec[i64] out:strbuf w:str : i64 -> { i<-vec_get(st,0); valid<-(i+len(w)<=len(s)&&str_eq(str_sub(s,i,i+len(w)),w)?1:0); valid==1 ? { str_buf_append(out,w); vec_set(st,0,i+len(w)) }; valid==0 ? { fail(st,i) }; valid }
+parse_number s:str st:vec[i64] out:strbuf : i64 -> {
+ start<-vec_get(st,0); i<-start; i<len(s)&&str_sub_code(s,i)==45 ? { i<-i+1 }; valid<-(i<len(s)?1:0)
+ valid==1&&str_sub_code(s,i)==48 ? { i<-i+1; i<len(s)&&str_sub_code(s,i)>=48&&str_sub_code(s,i)<=57 ? { valid<-0 } }
+ valid==1&&i<len(s)&&str_sub_code(s,i)>=49&&str_sub_code(s,i)<=57 ? { i<-i+1; [i<len(s)&&str_sub_code(s,i)>=48&&str_sub_code(s,i)<=57] { i<-i+1 } }
+ valid==1&&i<len(s)&&str_sub_code(s,i)==46 ? { i<-i+1; i>=len(s)||str_sub_code(s,i)<48||str_sub_code(s,i)>57 ? { valid<-0 }; [valid==1&&i<len(s)&&str_sub_code(s,i)>=48&&str_sub_code(s,i)<=57] { i<-i+1 } }
+ valid==1&&i<len(s)&&(str_sub_code(s,i)==101||str_sub_code(s,i)==69) ? { i<-i+1; i<len(s)&&(str_sub_code(s,i)==43||str_sub_code(s,i)==45) ? { i<-i+1 }; i>=len(s)||str_sub_code(s,i)<48||str_sub_code(s,i)>57 ? { valid<-0 }; [valid==1&&i<len(s)&&str_sub_code(s,i)>=48&&str_sub_code(s,i)<=57] { i<-i+1 } }
+ i==start||i==start+1&&str_sub_code(s,start)==45 ? { valid<-0 }; valid==1 ? { str_buf_append(out,str_sub(s,start,i)); vec_set(st,0,i) }; valid==0 ? { fail(st,i) }; valid
+}
+parse_value s:str st:vec[i64] out:strbuf : i64 -> {
+ skip_ws(s,st); i<-vec_get(st,0); valid<-(i<len(s)?1:0); valid==0 ? { fail(st,i) }
+ valid==1 ? { c<-str_sub_code(s,i)
+  c==34 ? { valid<-parse_string(s,st,out) }; c==116 ? { valid<-word(s,st,out,"true") }; c==102 ? { valid<-word(s,st,out,"false") }; c==110 ? { valid<-word(s,st,out,"null") }; c==45||c>=48&&c<=57 ? { valid<-parse_number(s,st,out) }
+  c==91||c==123 ? {
+   depth<-vec_get(st,2)+1; depth>128 ? { fail(st,i); valid<-0 }
+   depth<=128 ? { vec_set(st,2,depth); close<-c==91?93:125; str_buf_append(out,c==91?"[":"{"); vec_set(st,0,i+1); skip_ws(s,st); first<-1; done<-0
+    vec_get(st,0)<len(s)&&str_sub_code(s,vec_get(st,0))==close ? { done<-1; vec_set(st,0,vec_get(st,0)+1) }
+    [done==0&&valid==1] {
+     first==0 ? { str_buf_append(out,",") }
+     c==123 ? { skip_ws(s,st); vec_get(st,0)>=len(s)||str_sub_code(s,vec_get(st,0))!=34 ? { fail(st,vec_get(st,0)); valid<-0 }; valid==1 ? { valid<-parse_string(s,st,out) }; skip_ws(s,st); valid==1&&(vec_get(st,0)>=len(s)||str_sub_code(s,vec_get(st,0))!=58) ? { fail(st,vec_get(st,0)); valid<-0 }; valid==1 ? { str_buf_append(out,":"); vec_set(st,0,vec_get(st,0)+1) } }
+     valid==1 ? { valid<-parse_value(s,st,out) }; skip_ws(s,st)
+     valid==1 ? { p<-vec_get(st,0); p<len(s)&&str_sub_code(s,p)==close ? { done<-1; vec_set(st,0,p+1) }; done==0&&p<len(s)&&str_sub_code(s,p)==44 ? { vec_set(st,0,p+1); first<-0 }; done==0&&(p>=len(s)||str_sub_code(s,p)!=44) ? { fail(st,p); valid<-0 } }
+    }
+    valid==1 ? { str_buf_append(out,c==91?"]":"}") }; vec_set(st,2,depth-1)
+   }
+  }
+  c!=34&&c!=116&&c!=102&&c!=110&&c!=91&&c!=123&&c!=45&&(c<48||c>57) ? { fail(st,i); valid<-0 }
+ }
+ valid
+}
+location s:str at:i64 lc:vec[i64] : i64 -> { line<-1; col<-1; i<-0; [i<at&&i<len(s)] { str_sub_code(s,i)==10 ? { line<-line+1; col<-1 }; str_sub_code(s,i)!=10 ? { col<-col+1 }; i<-i+1 }; vec_push(lc,line); vec_push(lc,col); 0 }
+cli_arg_count()!=1 ? { eprint("usage: tiq-json <file>"); proc_exit(2) }
+src <- fs_read(cli_arg(0))
+st <- vec_new()
+vec_push(st,0)
+vec_push(st,-1)
+vec_push(st,0)
+out <- str_buf_new()
+valid <- parse_value(src,st,out)
+skip_ws(src,st)
+valid==1&&vec_get(st,0)!=len(src) ? { fail(st,vec_get(st,0)); valid<-0 }
+valid==0 ? { lc<-vec_new(); location(src,vec_get(st,1),lc); eprint(str_cat(str_cat(str_cat(str_cat("invalid JSON at byte ",int_str(vec_get(st,1))),", line "),int_str(vec_get(lc,0))),str_cat(", column ",int_str(vec_get(lc,1))))); proc_exit(1) }
+print(str_buf_to_str(out))
