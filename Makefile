@@ -69,6 +69,7 @@ test: $(TIQ) $(BUILD)/qbe $(BUILD)/runtime_qbe.o test-unit test-heavy
 	sh tests/module.sh
 	sh tests/makefile_parallel.sh
 	sh tests/language_benchmark.sh
+	sh tests/sqlite.sh
 
 # These suites dominate sanitizer test time and use disjoint output paths.
 # Bound the default fan-out; smaller hosts can use `make TEST_JOBS=2 test`.

@@ -1104,6 +1104,10 @@ static const char TIQ_RUNTIME_PRELUDE_AUX11B[] =
     "    int64_t (*fn)(int64_t, int64_t, int64_t, int64_t, int64_t, int64_t) =\n"
     "        (int64_t (*)(int64_t, int64_t, int64_t, int64_t, int64_t, int64_t))(uintptr_t)sym;\n"
     "    return fn(a, b, c, d, e, f);\n"
+    "}\n\n"
+
+    "static uint64_t tiq_ptr_read_u64(uint64_t addr) {\n"
+    "    return addr ? *(const uint64_t *)(uintptr_t)addr : 0;\n"
     "}\n";
 
 #endif

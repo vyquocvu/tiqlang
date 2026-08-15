@@ -10,6 +10,7 @@
 #define MAX_SCOPES 32
 #define MAX_LOOPS 16
 #define MAX_STREAM_GENS 64
+#define MAX_ENUMS 64
 
 typedef struct {
     const char *name;
@@ -24,6 +25,13 @@ typedef struct {
     int inc_block;
     int exit_block;
 } LoopEntry;
+
+typedef struct {
+    char *name;
+    size_t name_len;
+    Token *variants;
+    int variant_count;
+} EnumEntryLower;
 
 // M17.4.3: top-level stream generators ([... a + b]) lower into ordinary
 // IR functions named by the user symbol, with signature (params..., n) -> i64
@@ -49,6 +57,8 @@ typedef struct {
     int loop_depth;
     StreamGenEntry stream_gens[MAX_STREAM_GENS];
     int stream_gen_count;
+    EnumEntryLower enums[MAX_ENUMS];
+    int enum_count;
 } LowerCtx;
 
 static int find_var(LowerCtx *ctx, const char *name, size_t len) {
@@ -367,6 +377,61 @@ static int lower_expr(LowerCtx *ctx, AstNode *node) {
             return dst;
         }
 
+        case AST_RECORD_LIT: {
+            int fc = node->as.record_lit.field_count;
+            int *elem_regs = malloc(fc * sizeof(int));
+            for (int i = 0; i < fc; i++) {
+                elem_regs[i] = lower_expr(ctx, node->as.record_lit.field_values[i]);
+            }
+            int dst = ir_new_reg(ctx->func);
+            IrType type = ir_type_from_semantic(node->semantic_type);
+            IrOperand *ops = malloc(fc * sizeof(IrOperand));
+            for (int i = 0; i < fc; i++) {
+                ops[i] = reg_op(elem_regs[i]);
+            }
+            ir_emit_into_block(ctx->func, ctx->current_block, IR_STRUCT_INIT, dst, type, ops, fc, node->token.line);
+            free(elem_regs);
+            free(ops);
+            return dst;
+        }
+
+        case AST_FIELD_ACCESS: {
+            AstNode *target = node->as.field_access.target;
+            if (target && target->kind == AST_IDENTIFIER) {
+                for (int e = 0; e < ctx->enum_count; e++) {
+                    if (ctx->enums[e].name_len == target->as.identifier.name.length &&
+                        memcmp(ctx->enums[e].name, target->as.identifier.name.start, ctx->enums[e].name_len) == 0) {
+                        for (int v = 0; v < ctx->enums[e].variant_count; v++) {
+                            if (ctx->enums[e].variants[v].length == node->as.field_access.field.length &&
+                                memcmp(ctx->enums[e].variants[v].start, node->as.field_access.field.start, node->as.field_access.field.length) == 0) {
+                                return emit_const_i64(ctx, ctx->current_block, v, node->token.line);
+                            }
+                        }
+                    }
+                }
+            }
+            SemanticType *target_sem = target ? (SemanticType *)target->semantic_type : NULL;
+            if (target_sem && target_sem->kind == TYPE_STRUCT) {
+                int target_reg = lower_expr(ctx, target);
+                int field_idx = -1;
+                for (int i = 0; i < target_sem->field_count; i++) {
+                    if ((int)node->as.field_access.field.length == (int)strlen(target_sem->field_names[i]) &&
+                        memcmp(node->as.field_access.field.start, target_sem->field_names[i], node->as.field_access.field.length) == 0) {
+                        field_idx = i;
+                        break;
+                    }
+                }
+                if (field_idx >= 0) {
+                    int dst = ir_new_reg(ctx->func);
+                    IrType type = ir_type_from_semantic(node->semantic_type);
+                    IrOperand ops[] = {reg_op(target_reg), (IrOperand){IR_OP_IMM, .imm = field_idx}};
+                    ir_emit_into_block(ctx->func, ctx->current_block, IR_FIELD_PTR, dst, type, ops, 2, node->token.line);
+                    return dst;
+                }
+            }
+            return lower_unsupported(ctx, node, "unsupported field access in IR lowering");
+        }
+
         case AST_BLOCK: {
             enter_scope(ctx);
             int result = -1;
@@ -558,6 +623,11 @@ static void lower_stmt(LowerCtx *ctx, AstNode *node) {
             ctx->current_block = saved_block;
             break;
         }
+
+        case AST_STRUCT_DEF:
+        case AST_ENUM_DEF:
+            // Type-level definitions require no statement runtime code in IR.
+            break;
 
         default: {
             // Expression statement (e.g. a bare `print(...)` call) or an
@@ -796,6 +866,19 @@ bool ir_lower(AstNode **stmts, int count, IrModule *module, DiagContext *diag, c
     ctx.scope_level = 0;
     ctx.loop_depth = 0;
     ctx.stream_gen_count = 0;
+    ctx.enum_count = 0;
+
+    // Discovery pass for enums and top-level stream generators.
+    for (int i = 0; i < count; i++) {
+        AstNode *st = stmts[i];
+        if (st && st->kind == AST_ENUM_DEF && ctx.enum_count < MAX_ENUMS) {
+            Token n = st->as.enum_def.name;
+            char *ename = malloc(n.length + 1);
+            memcpy(ename, n.start, n.length);
+            ename[n.length] = '\0';
+            ctx.enums[ctx.enum_count++] = (EnumEntryLower){ename, n.length, st->as.enum_def.variants, st->as.enum_def.variant_count};
+        }
+    }
 
     // M17.4.3: discovery pass for top-level stream generators. Both shapes are
     // collected before lowering so bracket call sites can resolve them.
@@ -872,6 +955,10 @@ bool ir_lower(AstNode **stmts, int count, IrModule *module, DiagContext *diag, c
     // wasm start section keeps calling the main slot (FUNC_USER_BASE + 0).
     for (int g = 0; g < ctx.stream_gen_count; g++) {
         lower_stream_gen(&ctx, &ctx.stream_gens[g]);
+    }
+
+    for (int e = 0; e < ctx.enum_count; e++) {
+        free(ctx.enums[e].name);
     }
 
     return !diag->has_error;

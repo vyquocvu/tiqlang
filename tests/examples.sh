@@ -14,7 +14,8 @@ fail=0
 for src in examples/*.tiq examples/leetcode/*.tiq; do
   name=$(basename "$src" .tiq)
   bin="$TMP_DIR/$name"
-  if ! ./build/tiq build "$src" -o "$bin" 2>"$TMP_DIR/$name.err"; then
+  link_flags=$(grep '^//! link:' "$src" | head -n 1 | sed 's/^\/\/! link:[[:space:]]*//' || true)
+  if ! ./build/tiq build "$src" $link_flags -o "$bin" 2>"$TMP_DIR/$name.err"; then
     echo "examples: FAIL $src (build error)" >&2
     cat "$TMP_DIR/$name.err" >&2
     fail=1

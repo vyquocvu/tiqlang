@@ -148,9 +148,18 @@ y = -7
 assert_ir_contains "str_lit" 'msg = "hello"
 ' "const_str"
 
-# Test 16: Examples the IR supports lower cleanly; unsupported constructs
-# (structs, field access) fail closed with a located diagnostic rather than
-# silently emitting garbage registers.
+# Test 16: Struct and field access lowering
+assert_ir_contains "struct_record" 'struct Point { x: i64, y: i64 }
+p = Point { x: 1, y: 2 }
+print(p.x)
+' "struct_init"
+
+assert_ir_contains "field_access" 'struct Point { x: i64, y: i64 }
+p = Point { x: 1, y: 2 }
+print(p.y)
+' "field_ptr"
+
+# Test 17: Supported examples lower cleanly into IR
 supported_examples="examples/arithmetic.tiq
 examples/break_early.tiq
 examples/continue_skip.tiq
@@ -162,25 +171,12 @@ examples/gcd.tiq
 examples/hello.tiq
 examples/max.tiq
 examples/option_result.tiq
-examples/primes.tiq"
+examples/primes.tiq
+examples/structs.tiq"
 
 for ex in $supported_examples; do
   if ! $TIQ dump-ir "$ex" > /dev/null 2>&1; then
     echo "example $ex failed to lower" >&2
-    exit 1
-  fi
-done
-
-unsupported_examples="examples/structs.tiq"
-
-for ex in $unsupported_examples; do
-  if $TIQ dump-ir "$ex" > /dev/null 2>&1; then
-    echo "example $ex must fail closed (E07) but lowered" >&2
-    exit 1
-  fi
-  if ! $TIQ dump-ir "$ex" 2>&1 >/dev/null | grep -q ':[0-9][0-9]*: error\[E07\]'; then
-    echo "example $ex must emit located E07 diagnostic" >&2
-    $TIQ dump-ir "$ex" 2>&1 >/dev/null >&2
     exit 1
   fi
 done

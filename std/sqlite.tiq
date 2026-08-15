@@ -1,0 +1,91 @@
+// std/sqlite.tiq: SQLite3 Database connector using C FFI
+//
+// Link with `-l sqlite3` (e.g. `tiq run app.tiq -l sqlite3`)
+
+extern "C" sqlite3_open filename:str ppDb:u64 : i64
+extern "C" sqlite3_close db:u64 : i64
+extern "C" sqlite3_exec db:u64 sql:str callback:u64 arg:u64 errmsg:u64 : i64
+extern "C" sqlite3_errmsg db:u64 : str
+extern "C" sqlite3_prepare_v2 db:u64 zSql:str nByte:i64 ppStmt:u64 pzTail:u64 : i64
+extern "C" sqlite3_step stmt:u64 : i64
+extern "C" sqlite3_finalize stmt:u64 : i64
+extern "C" sqlite3_column_int64 stmt:u64 iCol:i64 : i64
+extern "C" sqlite3_column_text stmt:u64 iCol:i64 : str
+extern "C" sqlite3_column_count stmt:u64 : i64
+extern "C" sqlite3_changes db:u64 : i64
+extern "C" sqlite3_last_insert_rowid db:u64 : i64
+
+extern "C" tiq_ptr_read_u64 addr:u64 : u64
+extern "C" tiq_allocator_alloc h:u64 n:u64 al:u64 : u64
+extern "C" tiq_allocator_general : u64
+
+// SQLite3 status code helpers
+sqlite_is_ok rc:i64 : bool -> { rc == 0 }
+sqlite_is_row rc:i64 : bool -> { rc == 100 }
+sqlite_is_done rc:i64 : bool -> { rc == 101 }
+
+// sqlite_open: opens a database by path (e.g. ":memory:" or "app.db"), returns db handle as u64 (0 on error)
+sqlite_open path:str -> {
+    gen = tiq_allocator_general()
+    buf = tiq_allocator_alloc(gen, u64(8), u64(8))
+    rc = sqlite3_open(path, buf)
+    rc == 0 ? tiq_ptr_read_u64(buf) : u64(0)
+}
+
+// sqlite_close: closes the open database handle
+sqlite_close db:u64 : i64 -> {
+    sqlite3_close(db)
+}
+
+// sqlite_exec: runs a SQL statement (DDL / INSERT / UPDATE / DELETE), returns return code (0 == OK)
+sqlite_exec db:u64 sql:str : i64 -> {
+    sqlite3_exec(db, sql, u64(0), u64(0), u64(0))
+}
+
+// sqlite_prepare: prepares a SQL statement for stepped execution, returns stmt handle (0 on error)
+sqlite_prepare db:u64 sql:str -> {
+    gen = tiq_allocator_general()
+    buf = tiq_allocator_alloc(gen, u64(8), u64(8))
+    rc = sqlite3_prepare_v2(db, sql, -1, buf, u64(0))
+    rc == 0 ? tiq_ptr_read_u64(buf) : u64(0)
+}
+
+// sqlite_step: executes one step of a prepared statement (returns 100 for SQLITE_ROW, 101 for SQLITE_DONE)
+sqlite_step stmt:u64 : i64 -> {
+    sqlite3_step(stmt)
+}
+
+// sqlite_finalize: destroys a prepared statement handle
+sqlite_finalize stmt:u64 : i64 -> {
+    sqlite3_finalize(stmt)
+}
+
+// sqlite_col_int: retrieves an integer column value (0-indexed)
+sqlite_col_int stmt:u64 col:i64 : i64 -> {
+    sqlite3_column_int64(stmt, col)
+}
+
+// sqlite_col_str: retrieves a string column value (0-indexed)
+sqlite_col_str stmt:u64 col:i64 : str -> {
+    sqlite3_column_text(stmt, col)
+}
+
+// sqlite_col_count: retrieves number of columns in the result set
+sqlite_col_count stmt:u64 : i64 -> {
+    sqlite3_column_count(stmt)
+}
+
+// sqlite_changes: retrieves rows modified by the last INSERT/UPDATE/DELETE
+sqlite_changes db:u64 : i64 -> {
+    sqlite3_changes(db)
+}
+
+// sqlite_last_insert_rowid: retrieves rowid of the last inserted row
+sqlite_last_insert_rowid db:u64 : i64 -> {
+    sqlite3_last_insert_rowid(db)
+}
+
+// sqlite_errmsg: retrieves human-readable error description from db handle
+sqlite_errmsg db:u64 : str -> {
+    sqlite3_errmsg(db)
+}

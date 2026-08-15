@@ -1,6 +1,12 @@
 # Tiq Implementation Status
 
-Updated: 2026-08-15
+Updated: 2026-08-16
+
+M19.6 — Standard Database Connectors (SQLite via FFI) (closed 2026-08-16):
+`std/sqlite.tiq` provides high-level and raw C FFI bindings for SQLite3 (`sqlite_open`, `sqlite_close`, `sqlite_exec`, `sqlite_prepare`, `sqlite_step`, `sqlite_col_int`, `sqlite_col_str`, `sqlite_finalize`, `sqlite_changes`, `sqlite_last_insert_rowid`). Supported in standalone binaries via `-l sqlite3` (e.g. `tiq run app.tiq -l sqlite3`). Verified by `examples/sqlite_demo.tiq` and `tests/sqlite.sh`.
+
+M17.4.4 — Struct definition, record literal, and field access IR lowering (closed 2026-08-16):
+`src/ir_lower.c` lowers `AST_RECORD_LIT` to `IR_STRUCT_INIT` and `AST_FIELD_ACCESS` to `IR_FIELD_PTR` or immediate enum constants. `examples/structs.tiq` lowers cleanly into SSA IR without external tools. Verified by `tests/ir.sh` and `make test-fast`.
 
 Epic 1 — System Programming Foundation & Allocator-Aware Containers (closed 2026-08-15):
 Foundation stdlib module `std/alloc.tiq` exposes explicit allocators (General, Arena, Pool) with deterministic lifetime and zero exception unwinding. Extended with allocator-aware container constructors (`vec_with_allocator`, `str_buf_with_allocator`, `map_with_allocator`) across bootstrap C compiler and self-hosted Tiq compiler:

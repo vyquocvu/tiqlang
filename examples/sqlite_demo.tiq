@@ -1,0 +1,54 @@
+//! link: -l sqlite3
+//! expected: 1
+//! expected: 1
+//! expected: 1
+//! expected: 1
+//! expected: 1
+//! expected: Alice
+//! expected: 95
+//! expected: 3
+//! expected: Charlie
+//! expected: 91
+//! expected: 2
+//! expected: Bob
+//! expected: 82
+
+import "std/sqlite.tiq"
+
+print_row stmt:u64 -> {
+    id = sqlite_col_int(stmt, 0)
+    name = sqlite_col_str(stmt, 1)
+    score = sqlite_col_int(stmt, 2)
+    print(id)
+    print(name)
+    print(score)
+    0
+}
+
+// 1. Open an in-memory SQLite database
+db = sqlite_open(":memory:")
+print(db != u64(0) ? 1 : 0)
+
+// 2. Create a table
+rc1 = sqlite_exec(db, "CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT, score INTEGER);")
+print(sqlite_is_ok(rc1) ? 1 : 0)
+
+// 3. Insert rows
+rc2 = sqlite_exec(db, "INSERT INTO users (name, score) VALUES ('Alice', 95);")
+rc3 = sqlite_exec(db, "INSERT INTO users (name, score) VALUES ('Bob', 82);")
+rc4 = sqlite_exec(db, "INSERT INTO users (name, score) VALUES ('Charlie', 91);")
+print(sqlite_changes(db))
+
+// 4. Query with prepared statement
+stmt = sqlite_prepare(db, "SELECT id, name, score FROM users ORDER BY score DESC;")
+print(stmt != u64(0) ? 1 : 0)
+
+// 5. Iterate through rows
+[step_rc <- 0..3] {
+    st = sqlite_step(stmt)
+    sqlite_is_row(st) ? print_row(stmt) : 0
+}
+
+// 6. Cleanup statement and database
+sqlite_finalize(stmt)
+sqlite_close(db)
