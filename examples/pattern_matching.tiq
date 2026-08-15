@@ -1,0 +1,63 @@
+//! expected: red light: stop
+//! expected: count is zero
+//! expected: found value: 42
+//! expected: option was empty
+//! expected: success with 100
+//! expected: error occurred
+
+enum TrafficLight {
+    Red,
+    Yellow,
+    Green
+}
+
+action light:i64 -> match light {
+    TrafficLight.Red => "red light: stop",
+    TrafficLight.Yellow => "yellow light: caution",
+    TrafficLight.Green => "green light: go",
+    _ => "unknown light"
+}
+
+print(action(TrafficLight.Red))
+
+// 1. Literal patterns
+check_number n:i64 -> match n {
+    0 => "count is zero",
+    1 => "count is one",
+    _ => "count is other"
+}
+
+print(check_number(0))
+
+// 2. Destructuring Option and Result at top-level
+opt1 = some(42)
+msg1 = match opt1 {
+    some(val) => "found value: 42",
+    none => "option was empty",
+    _ => "unreachable"
+}
+print(msg1)
+
+opt2 = none
+msg2 = match opt2 {
+    some(val) => "found value: 42",
+    none => "option was empty",
+    _ => "unreachable"
+}
+print(msg2)
+
+res1 = ok(100)
+msg3 = match res1 {
+    ok(v) => "success with 100",
+    err(e) => "error occurred",
+    _ => "unreachable"
+}
+print(msg3)
+
+res2 = err(99)
+msg4 = match res2 {
+    ok(v) => "success with 100",
+    err(e) => "error occurred",
+    _ => "unreachable"
+}
+print(msg4)

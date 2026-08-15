@@ -1,0 +1,37 @@
+//! expected: arena created successfully
+//! expected: vec length in arena: 10
+//! expected: element at 3: 30
+//! expected: strbuf length: 11
+//! expected: map foo value: 42
+//! expected: arena reset complete
+
+import "std/alloc.tiq"
+
+// 1. Allocate an Arena with 16KB capacity
+ar = arena(16 * 1024) ?? i64(0)
+print(ar != i64(0) ? "arena created successfully" : "arena failed")
+
+// 2. Create allocator-backed containers
+v = vec_with_allocator(ar)
+[i <- 0..10] {
+    vec_push(v, i * 10)
+}
+
+print(vec_len(v) == 10 ? "vec length in arena: 10" : "vec len mismatch")
+print(vec_get(v, 3) == 30 ? "element at 3: 30" : "vec get mismatch")
+
+sb = str_buf_with_allocator(ar)
+str_buf_append(sb, "hello ")
+str_buf_append(sb, "arena")
+print(str_buf_len(sb) == 11 ? "strbuf length: 11" : "strbuf len mismatch")
+
+m = map_with_allocator(ar)
+map_set(m, "foo", 42)
+print(map_get(m, "foo") == 42 ? "map foo value: 42" : "map get mismatch")
+
+// 3. Reset the arena (reclaims memory instantly)
+allocator_reset(ar)
+print("arena reset complete")
+
+// 4. Destroy the arena handle
+allocator_destroy(ar)

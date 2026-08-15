@@ -1,0 +1,12 @@
+//! expected: absolute value: 42
+//! expected: string length: 7
+
+// 1. Foreign C Function Declarations
+extern "C" llabs x:i64 : i64
+extern "C" strlen s:str : i64
+
+val = llabs(-42)
+print(val == 42 ? "absolute value: 42" : "llabs mismatch")
+
+s_len = strlen("tiqlang")
+print(s_len == 7 ? "string length: 7" : "strlen mismatch")

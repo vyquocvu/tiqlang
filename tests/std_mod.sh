@@ -188,6 +188,46 @@ true
 true
 0"
 
+# Epic 1 Follow-up: Containers with allocators (arena-backed vec, strbuf, map)
+cat > "$TMP_DIR/alloc_containers.tiq" <<'EOF'
+import "std/alloc.tiq"
+
+a = arena(16 * 1024) ?? i64(0)
+v = vec_with_allocator(a)
+[i <- 0..10] {
+    vec_push(v, i * 10)
+}
+print(vec_len(v))
+print(vec_get(v, 3))
+print(vec_get(v, 9))
+
+sb = str_buf_with_allocator(a)
+str_buf_append(sb, "hello ")
+str_buf_append(sb, "arena")
+print(str_buf_len(sb))
+print(str_buf_to_str(sb))
+
+m = map_with_allocator(a)
+map_set(m, "foo", 42)
+map_set(m, "bar", 100)
+print(map_len(m))
+print(map_get(m, "foo"))
+print(map_has(m, "bar"))
+
+print(allocator_reset(a))
+print(allocator_destroy(a))
+EOF
+assert_runs "alloc_containers" "$TMP_DIR/alloc_containers.tiq" "10
+30
+90
+11
+hello arena
+2
+42
+true
+0
+0"
+
 # M16.4: std/dl.tiq wrappers load a real dynamic library and call
 # through the generic integer ABI.
 cat > "$TMP_DIR/dltest.c" <<'EOF'

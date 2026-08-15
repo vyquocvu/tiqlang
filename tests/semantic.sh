@@ -1226,4 +1226,47 @@ extern "C" px p:Point : i64
 EXTERN px <TYPE_INT>
   PARAM p'
 
+# Epic 1 Follow-up: Allocator-aware container builtins
+assert_semantic "vec_with_allocator_bad_arity_0" 'v = vec_with_allocator()
+' "$TMP_DIR/vec_with_allocator_bad_arity_0.tiq:1: error[E12]: vec_with_allocator expects exactly 1 argument"
+
+assert_semantic "vec_with_allocator_bad_arity_2" 'v = vec_with_allocator(1, 2)
+' "$TMP_DIR/vec_with_allocator_bad_arity_2.tiq:1: error[E12]: vec_with_allocator expects exactly 1 argument"
+
+assert_semantic "vec_with_allocator_bad_type" 'v = vec_with_allocator("a")
+' "$TMP_DIR/vec_with_allocator_bad_type.tiq:1: error[E09]: vec_with_allocator argument: expected int, found str"
+
+assert_semantic "strbuf_with_allocator_bad_arity_0" 'sb = str_buf_with_allocator()
+' "$TMP_DIR/strbuf_with_allocator_bad_arity_0.tiq:1: error[E12]: str_buf_with_allocator expects exactly 1 argument"
+
+assert_semantic "strbuf_with_allocator_bad_type" 'sb = str_buf_with_allocator("a")
+' "$TMP_DIR/strbuf_with_allocator_bad_type.tiq:1: error[E09]: str_buf_with_allocator argument: expected int, found str"
+
+assert_semantic "map_with_allocator_bad_arity_0" 'm = map_with_allocator()
+' "$TMP_DIR/map_with_allocator_bad_arity_0.tiq:1: error[E12]: map_with_allocator expects exactly 1 argument"
+
+assert_semantic "map_with_allocator_bad_type" 'm = map_with_allocator("a")
+' "$TMP_DIR/map_with_allocator_bad_type.tiq:1: error[E09]: map_with_allocator argument: expected int, found str"
+
+assert_semantic_ast "typed_vec_with_allocator" 'v = vec_with_allocator(1)
+n = vec_push(v, 7)' 'BINDING v <TYPE_VEC>
+  CALL <TYPE_VEC>
+    IDENT vec_with_allocator
+    INT 1 <TYPE_INT>
+BINDING n <TYPE_INT>
+  CALL <TYPE_INT>
+    IDENT vec_push
+    IDENT v <TYPE_VEC:TYPE_INT>
+    INT 7 <TYPE_INT>'
+
+assert_semantic_ast "typed_strbuf_with_allocator" 'sb = str_buf_with_allocator(1)' 'BINDING sb <TYPE_STRBUF>
+  CALL <TYPE_STRBUF>
+    IDENT str_buf_with_allocator
+    INT 1 <TYPE_INT>'
+
+assert_semantic_ast "typed_map_with_allocator" 'm = map_with_allocator(1)' 'BINDING m <TYPE_MAP>
+  CALL <TYPE_MAP>
+    IDENT map_with_allocator
+    INT 1 <TYPE_INT>'
+
 echo "semantic: ok"

@@ -225,15 +225,15 @@ static bool is_safe_builtin_callee(AstNode *callee) {
         {"str_sub", 7}, {"str_eq", 6}, {"eprint", 6}, {"fs_list", 7},
         // M13.1-P3: vec builtins copy str elements on push/set (§19.7),
         // so they never retain a caller's string.
-        {"vec_new", 7}, {"vec_push", 8}, {"vec_get", 7},
+        {"vec_new", 7}, {"vec_with_allocator", 18}, {"vec_push", 8}, {"vec_get", 7},
         {"vec_set", 7}, {"vec_len", 7}, {"vec_pop", 7},
         // M13.1-P4: str_buf_append copies its str argument's bytes into the
         // buffer (§19.8), so no strbuf builtin ever retains a caller's string.
-        {"str_buf_new", 11}, {"str_buf_append", 14},
+        {"str_buf_new", 11}, {"str_buf_with_allocator", 22}, {"str_buf_append", 14},
         {"str_buf_to_str", 14}, {"str_buf_len", 11},
         // M13.1-P5: map_set duplicates its key and map_get/map_has only read
         // theirs (§19.9), so no map builtin ever retains a caller's string.
-        {"map_new", 7}, {"map_set", 7}, {"map_get", 7}, {"map_has", 7},
+        {"map_new", 7}, {"map_with_allocator", 18}, {"map_set", 7}, {"map_get", 7}, {"map_has", 7},
         {"map_len", 7}, {"map_key_at", 10}, {"map_val_at", 10},
     };
     if (!callee || callee->kind != AST_IDENTIFIER) return false;
@@ -854,6 +854,7 @@ static void emit_expr(AstNode *node, EmitContext *ctx) {
                 // the semantic checker rejected everything else.
                 {
                     bool vnew  = name.length == 7 && memcmp(name.start, "vec_new", 7) == 0;
+                    bool vwa   = name.length == 18 && memcmp(name.start, "vec_with_allocator", 18) == 0;
                     bool vpush = name.length == 8 && memcmp(name.start, "vec_push", 8) == 0;
                     bool vget  = name.length == 7 && memcmp(name.start, "vec_get", 7) == 0;
                     bool vset  = name.length == 7 && memcmp(name.start, "vec_set", 7) == 0;
@@ -861,6 +862,12 @@ static void emit_expr(AstNode *node, EmitContext *ctx) {
                     bool vpop  = name.length == 7 && memcmp(name.start, "vec_pop", 7) == 0;
                     if (vnew && node->as.call.arg_count == 0) {
                         fputs("tiq_vec_new()", ctx->out);
+                        break;
+                    }
+                    if (vwa && node->as.call.arg_count == 1 && node->as.call.args[0]) {
+                        fputs("tiq_vec_with_allocator((uint64_t)(", ctx->out);
+                        emit_expr(node->as.call.args[0], ctx);
+                        fputs("))", ctx->out);
                         break;
                     }
                     if ((vpush || vget || vset || vlen || vpop) &&
@@ -983,6 +990,7 @@ static void emit_expr(AstNode *node, EmitContext *ctx) {
                     // M13.1-P4: StrBuf builtins (LANGUAGE_SPEC §19.8); every
                     // signature is homogeneous, so the generic mapping fits.
                     {"str_buf_new", 11, "tiq_str_buf_new", 0},
+                    {"str_buf_with_allocator", 22, "tiq_str_buf_with_allocator", 0},
                     {"str_buf_append", 14, "tiq_str_buf_append", 0},
                     {"str_buf_to_str", 14, "tiq_str_buf_to_str", 0},
                     {"str_buf_len", 11, "tiq_str_buf_len", 0},
@@ -992,6 +1000,7 @@ static void emit_expr(AstNode *node, EmitContext *ctx) {
                     // the heterogeneous map_set, whose checking alone needed
                     // the dedicated per-builtin path.
                     {"map_new", 7, "tiq_map_new", 0},
+                    {"map_with_allocator", 18, "tiq_map_with_allocator", 0},
                     {"map_set", 7, "tiq_map_set", 0},
                     {"map_get", 7, "tiq_map_get", 0},
                     {"map_has", 7, "tiq_map_has", 0},
@@ -2275,6 +2284,7 @@ void compile_modules_to_c(SemanticModule *mods, int mod_count, const char *root_
     fputs(TIQ_RUNTIME_PRELUDE_AUX9, ctx->out);
     fputs(TIQ_RUNTIME_PRELUDE_AUX10, ctx->out);
     fputs(TIQ_RUNTIME_PRELUDE_AUX11, ctx->out);
+    fputs(TIQ_RUNTIME_PRELUDE_AUX11B, ctx->out);
 
     // M12.6: Emit struct definitions (before function declarations so types are visible)
     emit_struct_defs(ctx, stmts, count);

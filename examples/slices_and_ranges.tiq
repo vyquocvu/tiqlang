@@ -1,0 +1,35 @@
+//! expected: array slice len: 3
+//! expected: array fill len: 4
+//! expected: first char byte: 116
+//! expected: grid 0 0
+//! expected: grid 0 1
+//! expected: grid 1 0
+//! expected: grid 1 1
+//! expected: condition met: active
+
+// 1. Array slicing & fills
+arr = [10, 20, 30, 40, 50]
+sub_arr = arr[1..4]
+print(len(sub_arr) == 3 ? "array slice len: 3" : "slice len mismatch")
+
+fill_arr = [0; 4]
+print(len(fill_arr) == 4 ? "array fill len: 4" : "fill len mismatch")
+
+// 2. String byte indexing
+s = "tiqlang"
+b0 = s[0] // ASCII 't' = 116
+print(b0 == 116 ? "first char byte: 116" : "byte mismatch")
+
+// 3. Multi-binder Cartesian product loop
+[i <- 0..2, j <- 0..2] {
+    (i == 0 && j == 0) ? print("grid 0 0") : 0
+    (i == 0 && j == 1) ? print("grid 0 1") : 0
+    (i == 1 && j == 0) ? print("grid 1 0") : 0
+    (i == 1 && j == 1) ? print("grid 1 1") : 0
+}
+
+// 4. Block conditional execution
+active <- true
+active ? {
+    print("condition met: active")
+} : 0

@@ -302,10 +302,10 @@ ec_fn_fresh src:str toks:vec[Token] nodes:vec[int] kids:vec[int] types:vec[int] 
 
 ec_safe_name n:str : bool ->
     ec_runtime_builtin(n) || str_eq(n, "print") || str_eq(n, "len") ||
-    str_eq(n, "vec_new") || str_eq(n, "vec_push") || str_eq(n, "vec_get") ||
+    str_eq(n, "vec_new") || str_eq(n, "vec_with_allocator") || str_eq(n, "vec_push") || str_eq(n, "vec_get") ||
     str_eq(n, "vec_set") || str_eq(n, "vec_len") || str_eq(n, "vec_pop") ||
-    str_eq(n, "str_buf_new") || str_eq(n, "str_buf_append") || str_eq(n, "str_buf_to_str") || str_eq(n, "str_buf_len") ||
-    str_eq(n, "map_new") || str_eq(n, "map_set") || str_eq(n, "map_get") || str_eq(n, "map_has") ||
+    str_eq(n, "str_buf_new") || str_eq(n, "str_buf_with_allocator") || str_eq(n, "str_buf_append") || str_eq(n, "str_buf_to_str") || str_eq(n, "str_buf_len") ||
+    str_eq(n, "map_new") || str_eq(n, "map_with_allocator") || str_eq(n, "map_set") || str_eq(n, "map_get") || str_eq(n, "map_has") ||
     str_eq(n, "map_len") || str_eq(n, "map_key_at") || str_eq(n, "map_val_at")
 
 ec_mut_ok src:str toks:vec[Token] nodes:vec[int] kids:vec[int] fresh:vec[str] ni:i64 name:str : bool -> {
@@ -554,6 +554,9 @@ ec_expr src:str toks:vec[Token] nodes:vec[int] kids:vec[int] hs:vec[int] his:vec
             ec_put(b, "((TiqResult){ .value = 0, .error = (int64_t)("); ec_expr(src, toks, nodes, kids, hs, his, hem, types, tp, tpn, b, vec_get(kids, s)); ec_put(b, "), .is_ok = 0 })"); done <- 1
         }
         done == 0 && is_bracket == 0 && str_eq(cname, "vec_new") ? { ec_put(b, "tiq_vec_new() "); done <- 1 }
+        done == 0 && is_bracket == 0 && str_eq(cname, "vec_with_allocator") && n == 1 ? {
+            ec_put(b, "tiq_vec_with_allocator((uint64_t)("); ec_expr(src, toks, nodes, kids, hs, his, hem, types, tp, tpn, b, vec_get(kids, s)); ec_put(b, "))"); done <- 1
+        }
         done == 0 && is_bracket == 0 && str_eq(cname, "vec_len") ? {
             ec_put(b, "tiq_vec_len("); ec_expr(src, toks, nodes, kids, hs, his, hem, types, tp, tpn, b, vec_get(kids, s)); ec_put(b, ")"); done <- 1
         }
@@ -589,13 +592,13 @@ ec_expr src:str toks:vec[Token] nodes:vec[int] kids:vec[int] hs:vec[int] his:vec
             ec_put(b, "))"); done <- 1
         }
         done == 0 && is_bracket == 0 && str_eq(cname, "str_buf_new") ? { ec_put(b, "tiq_str_buf_new()"); done <- 1 }
-        done == 0 && is_bracket == 0 && (str_eq(cname, "str_buf_append") || str_eq(cname, "str_buf_len") || str_eq(cname, "str_buf_to_str")) ? {
+        done == 0 && is_bracket == 0 && (str_eq(cname, "str_buf_with_allocator") || str_eq(cname, "str_buf_append") || str_eq(cname, "str_buf_len") || str_eq(cname, "str_buf_to_str")) ? {
             ec_put(b, "tiq_"); ec_put(b, cname); ec_put(b, "("); j <- 0
             [j < n] { j > 0 ? { ec_put(b, ", ") }; ec_expr(src, toks, nodes, kids, hs, his, hem, types, tp, tpn, b, vec_get(kids, s + j)); j <- j + 1 }
             ec_put(b, ")"); done <- 1
         }
         done == 0 && is_bracket == 0 && str_eq(cname, "map_new") ? { ec_put(b, "tiq_map_new()"); done <- 1 }
-        done == 0 && is_bracket == 0 && (str_eq(cname, "map_set") || str_eq(cname, "map_get") || str_eq(cname, "map_has") || str_eq(cname, "map_len") || str_eq(cname, "map_key_at") || str_eq(cname, "map_val_at")) ? {
+        done == 0 && is_bracket == 0 && (str_eq(cname, "map_with_allocator") || str_eq(cname, "map_set") || str_eq(cname, "map_get") || str_eq(cname, "map_has") || str_eq(cname, "map_len") || str_eq(cname, "map_key_at") || str_eq(cname, "map_val_at")) ? {
             ec_put(b, "tiq_"); ec_put(b, cname); ec_put(b, "("); j <- 0
             [j < n] { j > 0 ? { ec_put(b, ", ") }; ec_expr(src, toks, nodes, kids, hs, his, hem, types, tp, tpn, b, vec_get(kids, s + j)); j <- j + 1 }
             ec_put(b, ")"); done <- 1

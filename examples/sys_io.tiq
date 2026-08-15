@@ -1,0 +1,27 @@
+//! expected: file exists: true
+//! expected: file content: Hello from Tiq I/O!
+//! expected: command exit code: 0
+//! expected: timer is monotonic: true
+
+path = "build/io_test.txt"
+content = "Hello from Tiq I/O!"
+
+// 1. Write and verify file
+fs_write(path, content)
+exists = fs_exists(path)
+print(exists ? "file exists: true" : "file exists: false")
+
+// 2. Read file back
+read_data = fs_read(path)
+print(str_eq(read_data, content) ? "file content: Hello from Tiq I/O!" : "read mismatch")
+
+// 3. Execute external command
+code = proc_exec("true")
+print(code == 0 ? "command exit code: 0" : "exec mismatch")
+
+// 4. Monotonic clock and stderr
+t0 = clock_ms()
+t1 = clock_ms()
+print(t1 >= t0 ? "timer is monotonic: true" : "timer error")
+
+eprint("info: I/O demonstration finished")

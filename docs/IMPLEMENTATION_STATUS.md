@@ -1,6 +1,13 @@
 # Tiq Implementation Status
 
-Updated: 2026-08-12
+Updated: 2026-08-15
+
+Epic 1 — System Programming Foundation & Allocator-Aware Containers (closed 2026-08-15):
+Foundation stdlib module `std/alloc.tiq` exposes explicit allocators (General, Arena, Pool) with deterministic lifetime and zero exception unwinding. Extended with allocator-aware container constructors (`vec_with_allocator`, `str_buf_with_allocator`, `map_with_allocator`) across bootstrap C compiler and self-hosted Tiq compiler:
+  - C Runtime (`include/runtime_aux.h`): `TiqVec`, `TiqStrBuf`, and `TiqMap` carry an `allocator` handle. Reallocation, element storage, and string copies use the designated allocator. Split prelude into `AUX11`/`AUX11B` respecting C11 pedantic string literal limits. `str_buf_to_str` retains heap-allocated snapshots for safe M9.2 scope cleanup.
+  - C Bootstrap Compiler (`src/semantic.c`, `src/emit_c.c`): Builtin arity/typing checks (E08/E09/E12) and C emission for allocator-aware constructors.
+  - Self-hosted Compiler (`src/tiq/semantic.tiq`, `src/tiq/emit_c.tiq`): Full parity for container typing and code generation; `src/tiq/emit_c_runtime.tiq` regenerated.
+  - Evidence: `tests/semantic.sh` (typing and arity checks), `tests/std_mod.sh` (arena lifecycle integration test with vec, strbuf, and map), `make test-fast`, `make test-selfhost`, 3-stage bootstrap fixed-point validation (`bootstrap.sh`), and ASan/UBSan test suite.
 
 M21 comparison benchmark (2026-08-12):
 `benchmarks/language_compare/` provides checksum-identical Tiq, C, Go, Rust,

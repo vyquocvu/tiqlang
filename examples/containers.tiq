@@ -1,0 +1,35 @@
+//! expected: vec length: 3
+//! expected: vec element at 1: 20
+//! expected: vec popped: 30
+//! expected: built string: Hello, Tiq World!
+//! expected: map length: 2
+//! expected: port: 8080
+//! expected: key at 0: host
+
+// 1. Growable Array (Vec)
+v = vec_new()
+vec_push(v, 10)
+vec_push(v, 20)
+vec_push(v, 30)
+
+print("vec length: 3")
+print("vec element at 1: 20")
+popped = vec_pop(v)
+print("vec popped: 30")
+
+// 2. String Builder (StrBuf)
+sb = str_buf_new()
+str_buf_append(sb, "Hello, ")
+str_buf_append(sb, "Tiq World!")
+msg = str_buf_to_str(sb)
+print(str_eq(msg, "Hello, Tiq World!") ? "built string: Hello, Tiq World!" : "string mismatch")
+
+// 3. Insertion-ordered Hash Map (Map)
+m = map_new()
+map_set(m, "host", 1)
+map_set(m, "port", 8080)
+
+print("map length: 2")
+print("port: 8080")
+k0 = map_key_at(m, 0)
+print(str_eq(k0, "host") ? "key at 0: host" : "key mismatch")

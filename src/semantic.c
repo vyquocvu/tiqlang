@@ -416,17 +416,18 @@ static SemanticType *resolve_container_annot(SemanticContext *ctx, Token tok, To
 // a binding; vec_get/vec_set/vec_pop on a vec with no established element
 // type is a fail-closed E09 error (LANGUAGE_SPEC §19.7).
 static void check_vec_builtin(SemanticContext *ctx, AstNode *node, Token name) {
-    char nbuf[16];
-    int nlen = (int)name.length < 15 ? (int)name.length : 15;
+    char nbuf[32];
+    int nlen = (int)name.length < 31 ? (int)name.length : 31;
     memcpy(nbuf, name.start, (size_t)nlen);
     nbuf[nlen] = '\0';
     bool is_new = strcmp(nbuf, "vec_new") == 0;
+    bool is_with_alloc = strcmp(nbuf, "vec_with_allocator") == 0;
     bool is_push = strcmp(nbuf, "vec_push") == 0;
     bool is_get = strcmp(nbuf, "vec_get") == 0;
     bool is_set = strcmp(nbuf, "vec_set") == 0;
     bool is_len = strcmp(nbuf, "vec_len") == 0;
     bool is_pop = strcmp(nbuf, "vec_pop") == 0;
-    int arity = is_new ? 0 : (is_push || is_get) ? 2 : is_set ? 3 : 1;
+    int arity = is_new ? 0 : (is_with_alloc || is_len || is_pop) ? 1 : (is_push || is_get) ? 2 : 3;
     for (int ai = 0; ai < node->as.call.arg_count; ai++) {
         if (node->as.call.args[ai]) check_node(ctx, node->as.call.args[ai]);
     }
@@ -439,11 +440,17 @@ static void check_vec_builtin(SemanticContext *ctx, AstNode *node, Token name) {
                      nbuf, arity, arity == 1 ? "" : "s");
         }
         diag_error(ctx->diag, ctx->path, node->token.line, ERR_ARITY_MISMATCH, msg);
-        node->semantic_type = is_new ? type_get_vec(ctx->pool, NULL)
-                                     : ty(ctx, (is_get || is_pop) ? TYPE_UNKNOWN : TYPE_INT);
+        node->semantic_type = (is_new || is_with_alloc) ? type_get_vec(ctx->pool, NULL)
+                                                         : ty(ctx, (is_get || is_pop) ? TYPE_UNKNOWN : TYPE_INT);
         return;
     }
     if (is_new) {
+        node->semantic_type = type_get_vec(ctx->pool, NULL);
+        return;
+    }
+    if (is_with_alloc) {
+        SemanticType *at = node->as.call.args[0] ? node->as.call.args[0]->semantic_type : NULL;
+        unify(ctx, node->token.line, ty(ctx, TYPE_INT), at, "vec_with_allocator argument");
         node->semantic_type = type_get_vec(ctx->pool, NULL);
         return;
     }
@@ -509,17 +516,18 @@ static void check_vec_builtin(SemanticContext *ctx, AstNode *node, Token name) {
     node->semantic_type = elem; // vec_get / vec_pop return T
 }
 
-// M13.1-P4: Per-builtin checker for the four StrBuf builtins (LANGUAGE_SPEC
+// M13.1-P4: Per-builtin checker for the StrBuf builtins (LANGUAGE_SPEC
 // §19.8). str_buf_append's (strbuf, str) signature does not fit the generic
-// Builtin table in AST_CALL, so all four are handled explicitly here, cloned
+// Builtin table in AST_CALL, so all are handled explicitly here, cloned
 // from check_vec_builtin. TYPE_STRBUF is not parametrized, so there is no
 // element-type establishment step.
 static void check_strbuf_builtin(SemanticContext *ctx, AstNode *node, Token name) {
-    char nbuf[16];
-    int nlen = (int)name.length < 15 ? (int)name.length : 15;
+    char nbuf[32];
+    int nlen = (int)name.length < 31 ? (int)name.length : 31;
     memcpy(nbuf, name.start, (size_t)nlen);
     nbuf[nlen] = '\0';
     bool is_new = strcmp(nbuf, "str_buf_new") == 0;
+    bool is_with_alloc = strcmp(nbuf, "str_buf_with_allocator") == 0;
     bool is_append = strcmp(nbuf, "str_buf_append") == 0;
     bool is_to_str = strcmp(nbuf, "str_buf_to_str") == 0;
     int arity = is_new ? 0 : is_append ? 2 : 1;
@@ -535,10 +543,16 @@ static void check_strbuf_builtin(SemanticContext *ctx, AstNode *node, Token name
                      nbuf, arity, arity == 1 ? "" : "s");
         }
         diag_error(ctx->diag, ctx->path, node->token.line, ERR_ARITY_MISMATCH, msg);
-        node->semantic_type = ty(ctx, is_new ? TYPE_STRBUF : is_to_str ? TYPE_STR : TYPE_INT);
+        node->semantic_type = ty(ctx, (is_new || is_with_alloc) ? TYPE_STRBUF : is_to_str ? TYPE_STR : TYPE_INT);
         return;
     }
     if (is_new) {
+        node->semantic_type = ty(ctx, TYPE_STRBUF);
+        return;
+    }
+    if (is_with_alloc) {
+        SemanticType *at = node->as.call.args[0] ? node->as.call.args[0]->semantic_type : NULL;
+        unify(ctx, node->token.line, ty(ctx, TYPE_INT), at, "str_buf_with_allocator argument");
         node->semantic_type = ty(ctx, TYPE_STRBUF);
         return;
     }
@@ -555,17 +569,18 @@ static void check_strbuf_builtin(SemanticContext *ctx, AstNode *node, Token name
     node->semantic_type = ty(ctx, is_to_str ? TYPE_STR : TYPE_INT);
 }
 
-// M13.1-P5: Per-builtin checker for the seven Map builtins (LANGUAGE_SPEC
+// M13.1-P5: Per-builtin checker for the Map builtins (LANGUAGE_SPEC
 // §19.9). map_set's (map, str, int) signature does not fit the generic
-// Builtin table in AST_CALL, so all seven are handled explicitly here,
+// Builtin table in AST_CALL, so all are handled explicitly here,
 // cloned from check_strbuf_builtin. TYPE_MAP is not parametrized — keys
 // are always str and values always int.
 static void check_map_builtin(SemanticContext *ctx, AstNode *node, Token name) {
-    char nbuf[16];
-    int nlen = (int)name.length < 15 ? (int)name.length : 15;
+    char nbuf[32];
+    int nlen = (int)name.length < 31 ? (int)name.length : 31;
     memcpy(nbuf, name.start, (size_t)nlen);
     nbuf[nlen] = '\0';
     bool is_new = strcmp(nbuf, "map_new") == 0;
+    bool is_with_alloc = strcmp(nbuf, "map_with_allocator") == 0;
     bool is_set = strcmp(nbuf, "map_set") == 0;
     bool is_get = strcmp(nbuf, "map_get") == 0;
     bool is_has = strcmp(nbuf, "map_has") == 0;
@@ -575,7 +590,7 @@ static void check_map_builtin(SemanticContext *ctx, AstNode *node, Token name) {
     for (int ai = 0; ai < node->as.call.arg_count; ai++) {
         if (node->as.call.args[ai]) check_node(ctx, node->as.call.args[ai]);
     }
-    PrimitiveType ret = is_new ? TYPE_MAP : is_has ? TYPE_BOOL : is_key_at ? TYPE_STR : TYPE_INT;
+    PrimitiveType ret = (is_new || is_with_alloc) ? TYPE_MAP : is_has ? TYPE_BOOL : is_key_at ? TYPE_STR : TYPE_INT;
     if (node->as.call.arg_count != arity) {
         char msg[128];
         if (arity == 0) {
@@ -589,6 +604,12 @@ static void check_map_builtin(SemanticContext *ctx, AstNode *node, Token name) {
         return;
     }
     if (is_new) {
+        node->semantic_type = ty(ctx, TYPE_MAP);
+        return;
+    }
+    if (is_with_alloc) {
+        SemanticType *at = node->as.call.args[0] ? node->as.call.args[0]->semantic_type : NULL;
+        unify(ctx, node->token.line, ty(ctx, TYPE_INT), at, "map_with_allocator argument");
         node->semantic_type = ty(ctx, TYPE_MAP);
         return;
     }
@@ -960,6 +981,7 @@ static void check_node(SemanticContext *ctx, AstNode *node) {
                 // vec_set have heterogeneous signatures the table below
                 // cannot express, so each is checked in check_vec_builtin.
                 if ((name.length == 7 && memcmp(name.start, "vec_new", 7) == 0) ||
+                    (name.length == 18 && memcmp(name.start, "vec_with_allocator", 18) == 0) ||
                     (name.length == 8 && memcmp(name.start, "vec_push", 8) == 0) ||
                     (name.length == 7 && memcmp(name.start, "vec_get", 7) == 0) ||
                     (name.length == 7 && memcmp(name.start, "vec_set", 7) == 0) ||
@@ -970,8 +992,9 @@ static void check_node(SemanticContext *ctx, AstNode *node) {
                 }
                 // M13.1-P4: StrBuf builtins (LANGUAGE_SPEC §19.8).
                 // str_buf_append's (strbuf, str) signature does not fit the
-                // table below, so all four go through check_strbuf_builtin.
+                // table below, so all go through check_strbuf_builtin.
                 if ((name.length == 11 && memcmp(name.start, "str_buf_new", 11) == 0) ||
+                    (name.length == 22 && memcmp(name.start, "str_buf_with_allocator", 22) == 0) ||
                     (name.length == 14 && memcmp(name.start, "str_buf_append", 14) == 0) ||
                     (name.length == 14 && memcmp(name.start, "str_buf_to_str", 14) == 0) ||
                     (name.length == 11 && memcmp(name.start, "str_buf_len", 11) == 0)) {
@@ -980,8 +1003,9 @@ static void check_node(SemanticContext *ctx, AstNode *node) {
                 }
                 // M13.1-P5: Map builtins (LANGUAGE_SPEC §19.9). map_set's
                 // (map, str, int) signature does not fit the table below,
-                // so all seven go through check_map_builtin.
+                // so all go through check_map_builtin.
                 if ((name.length == 7 && memcmp(name.start, "map_new", 7) == 0) ||
+                    (name.length == 18 && memcmp(name.start, "map_with_allocator", 18) == 0) ||
                     (name.length == 7 && memcmp(name.start, "map_set", 7) == 0) ||
                     (name.length == 7 && memcmp(name.start, "map_get", 7) == 0) ||
                     (name.length == 7 && memcmp(name.start, "map_has", 7) == 0) ||

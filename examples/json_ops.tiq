@@ -1,0 +1,34 @@
+//! expected: name: Tiq
+//! expected: version: 1
+//! expected: has license: true
+//! expected: first dependency: std
+//! expected: updated version: 2
+//! expected: deleted license exists: false
+
+import "std/json.tiq"
+
+raw_json = "{\"name\":\"Tiq\",\"version\":1,\"license\":\"MIT\",\"deps\":[\"std\",\"alloc\"]}"
+
+// 1. Extract values
+name = json_get(raw_json, "name")
+print(str_eq(name, "Tiq") ? "name: Tiq" : "name mismatch")
+
+ver_str = json_get(raw_json, "version")
+ver = json_parse_int(ver_str)
+print(ver == 1 ? "version: 1" : "version mismatch")
+
+has_lic = json_has(raw_json, "license")
+print(has_lic ? "has license: true" : "has license: false")
+
+// 2. Array inspection
+deps = json_get(raw_json, "deps")
+first_dep = json_arr_get(deps, 0)
+print(str_eq(first_dep, "std") ? "first dependency: std" : "dep mismatch")
+
+// 3. JSON mutation
+mod_json = json_set(raw_json, "version", "2")
+v2_str = json_get(mod_json, "version")
+print(str_eq(v2_str, "2") ? "updated version: 2" : "update mismatch")
+
+mod_json2 = json_del(mod_json, "license")
+print(json_has(mod_json2, "license") ? "deleted license exists: true" : "deleted license exists: false")

@@ -109,18 +109,17 @@ Alignment must be a non-zero power of two. The bootstrap general/pool allocators
 
 Allocator handles and returned addresses are represented as `u64` because v0.1 intentionally does not expose first-class raw pointers. They must be treated as opaque values. Pointer arithmetic remains outside the safe core language.
 
-## Container integration boundary
+## Container integration
 
-This PR establishes the allocator ABI and stdlib contract without silently changing existing container ownership. Current `vec[T]` and `map` builtins retain their existing allocation behavior.
-
-The next allocator package should add explicit allocator-aware constructors, for example:
+Allocator-aware container constructors are implemented across bootstrap and self-hosted compilers:
 
 ```tiq
-items = vec_with_allocator[int](arena_handle)
+items = vec_with_allocator(arena_handle)
+buf = str_buf_with_allocator(arena_handle)
 index = map_with_allocator(arena_handle)
 ```
 
-or an equivalent surface approved by the syntax budget. Existing constructors should keep a General allocator default for source compatibility, while the allocator-aware path remains explicit at the call site. Container migration must include destruction semantics and backend parity before being marked complete.
+Existing zero-argument constructors (`vec_new()`, `str_buf_new()`, `map_new()`) continue to use the default general allocator for source compatibility. When built with a custom allocator, handle allocation, buffer reallocation, and internal string copies use the specified allocator, enabling deterministic bulk deallocation via `allocator_reset` or `allocator_destroy`.
 
 ## Design invariants
 

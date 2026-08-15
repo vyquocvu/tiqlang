@@ -1,0 +1,33 @@
+//! expected: some value unwrap fallback: 42
+//! expected: none fallback: 99
+//! expected: ok value unwrap fallback: 100
+//! expected: err fallback: 500
+//! expected: propagated option: 7
+//! expected: propagated result: 13
+
+// 1. Option handling with fallback (??)
+x = some(42)
+val_x = x ?? 0
+print(val_x == 42 ? "some value unwrap fallback: 42" : "mismatch")
+
+n = none
+val_n = n ?? 99
+print(val_n == 99 ? "none fallback: 99" : "mismatch")
+
+// 2. Result handling with fallback (??)
+r = ok(100)
+val_r = r ?? 0
+print(val_r == 100 ? "ok value unwrap fallback: 100" : "mismatch")
+
+e = err(1)
+val_e = e ?? 500
+print(val_e == 500 ? "err fallback: 500" : "mismatch")
+
+// 3. Propagation operator (?)
+opt_val = some(7)
+unwrapped_opt = ?opt_val
+print(unwrapped_opt == 7 ? "propagated option: 7" : "mismatch")
+
+res_val = ok(13)
+unwrapped_res = ?res_val
+print(unwrapped_res == 13 ? "propagated result: 13" : "mismatch")

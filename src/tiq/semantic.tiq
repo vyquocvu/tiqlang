@@ -171,19 +171,26 @@ check_int_range src:str toks:vec[Token] ctx:vec[int] path:str tidx:i64 : i64 -> 
 // vec/strbuf/map builtin checkers (args already checked by caller).
 chk_vec src:str toks:vec[Token] ctx:vec[int] path:str nodes:vec[int] kids:vec[int] types:vec[int] en:vec[str] ed:vec[int] tp:vec[int] tpn:vec[str] ni:i64 nm:str : i64 -> {
     s1 <- nd_get(nodes, ni, NF.L1s); c1 <- nd_get(nodes, ni, NF.L1n)
-    isn <- str_eq(nm, "vec_new") ? 1 : 0; isp <- str_eq(nm, "vec_push") ? 1 : 0
+    isn <- str_eq(nm, "vec_new") ? 1 : 0; iswa <- str_eq(nm, "vec_with_allocator") ? 1 : 0
+    isp <- str_eq(nm, "vec_push") ? 1 : 0
     isg <- str_eq(nm, "vec_get") ? 1 : 0; iss <- str_eq(nm, "vec_set") ? 1 : 0
     isl <- str_eq(nm, "vec_len") ? 1 : 0; iso <- str_eq(nm, "vec_pop") ? 1 : 0
-    ar <- isn == 1 ? 0 : (isp == 1 || isg == 1) ? 2 : iss == 1 ? 3 : 1
+    ar <- isn == 1 ? 0 : (iswa == 1 || isl == 1 || iso == 1) ? 1 : (isp == 1 || isg == 1) ? 2 : 3
     c1 != ar ? {
         msg <- ar == 0 ? str_cat(nm, " expects no arguments") : str_cat(str_cat(str_cat(nm, " expects exactly "), int_str(ar)), ar == 1 ? " argument" : " arguments")
         s_diag(ctx, path, tk_line(toks, nd_get(nodes, ni, NF.Tok)), 12, msg)
-        vec_set(types, ni, isn == 1 ? ty_vec(tp, tpn, 0 - 1) : (isg == 1 || iso == 1) ? ty_get(tp, tpn, TY.Unknown) : ty_get(tp, tpn, TY.Int))
+        vec_set(types, ni, (isn == 1 || iswa == 1) ? ty_vec(tp, tpn, 0 - 1) : (isg == 1 || iso == 1) ? ty_get(tp, tpn, TY.Unknown) : ty_get(tp, tpn, TY.Int))
     }
     c1 == ar && isn == 1 ? {
         vec_set(types, ni, ty_vec(tp, tpn, 0 - 1))
     }
-    c1 == ar && isn == 0 ? {
+    c1 == ar && iswa == 1 ? {
+        ai0 <- c1 > 0 ? vec_get(kids, s1) : 0 - 1
+        at <- ai0 != 0 - 1 ? vec_get(types, ai0) : 0 - 1
+        unify(ctx, path, tk_line(toks, nd_get(nodes, ni, NF.Tok)), tp, tpn, ty_get(tp, tpn, TY.Int), at, "vec_with_allocator argument")
+        vec_set(types, ni, ty_vec(tp, tpn, 0 - 1))
+    }
+    c1 == ar && isn == 0 && iswa == 0 ? {
         ai0 <- c1 > 0 ? vec_get(kids, s1) : 0 - 1
         vt <- ai0 != 0 - 1 ? vec_get(types, ai0) : 0 - 1
         unify(ctx, path, tk_line(toks, nd_get(nodes, ni, NF.Tok)), tp, tpn, ty_get(tp, tpn, TY.Vec), vt, str_cat(nm, " argument"))
@@ -241,17 +248,24 @@ chk_vec src:str toks:vec[Token] ctx:vec[int] path:str nodes:vec[int] kids:vec[in
 }
 chk_sb ctx:vec[int] path:str toks:vec[Token] nodes:vec[int] kids:vec[int] types:vec[int] tp:vec[int] tpn:vec[str] ni:i64 nm:str : i64 -> {
     s1 <- nd_get(nodes, ni, NF.L1s); c1 <- nd_get(nodes, ni, NF.L1n)
-    isn <- str_eq(nm, "str_buf_new") ? 1 : 0; isa <- str_eq(nm, "str_buf_append") ? 1 : 0; ist <- str_eq(nm, "str_buf_to_str") ? 1 : 0
+    isn <- str_eq(nm, "str_buf_new") ? 1 : 0; iswa <- str_eq(nm, "str_buf_with_allocator") ? 1 : 0
+    isa <- str_eq(nm, "str_buf_append") ? 1 : 0; ist <- str_eq(nm, "str_buf_to_str") ? 1 : 0
     ar <- isn == 1 ? 0 : isa == 1 ? 2 : 1
     c1 != ar ? {
         msg <- ar == 0 ? str_cat(nm, " expects no arguments") : str_cat(str_cat(str_cat(nm, " expects exactly "), int_str(ar)), ar == 1 ? " argument" : " arguments")
         s_diag(ctx, path, tk_line(toks, nd_get(nodes, ni, NF.Tok)), 12, msg)
-        vec_set(types, ni, isn == 1 ? ty_get(tp, tpn, TY.Strbuf) : ist == 1 ? ty_get(tp, tpn, TY.Str) : ty_get(tp, tpn, TY.Int))
+        vec_set(types, ni, (isn == 1 || iswa == 1) ? ty_get(tp, tpn, TY.Strbuf) : ist == 1 ? ty_get(tp, tpn, TY.Str) : ty_get(tp, tpn, TY.Int))
     }
     c1 == ar && isn == 1 ? {
         vec_set(types, ni, ty_get(tp, tpn, TY.Strbuf))
     }
-    c1 == ar && isn == 0 ? {
+    c1 == ar && iswa == 1 ? {
+        ai0 <- c1 > 0 ? vec_get(kids, s1) : 0 - 1
+        at <- ai0 != 0 - 1 ? vec_get(types, ai0) : 0 - 1
+        unify(ctx, path, tk_line(toks, nd_get(nodes, ni, NF.Tok)), tp, tpn, ty_get(tp, tpn, TY.Int), at, "str_buf_with_allocator argument")
+        vec_set(types, ni, ty_get(tp, tpn, TY.Strbuf))
+    }
+    c1 == ar && isn == 0 && iswa == 0 ? {
         ai0 <- c1 > 0 ? vec_get(kids, s1) : 0 - 1
         bt <- ai0 != 0 - 1 ? vec_get(types, ai0) : 0 - 1
         unify(ctx, path, tk_line(toks, nd_get(nodes, ni, NF.Tok)), tp, tpn, ty_get(tp, tpn, TY.Strbuf), bt, str_cat(nm, " argument"))
@@ -266,9 +280,10 @@ chk_sb ctx:vec[int] path:str toks:vec[Token] nodes:vec[int] kids:vec[int] types:
 }
 chk_map ctx:vec[int] path:str toks:vec[Token] nodes:vec[int] kids:vec[int] types:vec[int] tp:vec[int] tpn:vec[str] ni:i64 nm:str : i64 -> {
     s1 <- nd_get(nodes, ni, NF.L1s); c1 <- nd_get(nodes, ni, NF.L1n)
-    isn <- str_eq(nm, "map_new") ? 1 : 0; iss <- str_eq(nm, "map_set") ? 1 : 0; isg <- str_eq(nm, "map_get") ? 1 : 0; ish <- str_eq(nm, "map_has") ? 1 : 0; isk <- str_eq(nm, "map_key_at") ? 1 : 0; isv <- str_eq(nm, "map_val_at") ? 1 : 0
+    isn <- str_eq(nm, "map_new") ? 1 : 0; iswa <- str_eq(nm, "map_with_allocator") ? 1 : 0
+    iss <- str_eq(nm, "map_set") ? 1 : 0; isg <- str_eq(nm, "map_get") ? 1 : 0; ish <- str_eq(nm, "map_has") ? 1 : 0; isk <- str_eq(nm, "map_key_at") ? 1 : 0; isv <- str_eq(nm, "map_val_at") ? 1 : 0
     ar <- isn == 1 ? 0 : iss == 1 ? 3 : (isg == 1 || ish == 1 || isk == 1 || isv == 1) ? 2 : 1
-    ret <- isn == 1 ? TY.Map : ish == 1 ? TY.Bool : isk == 1 ? TY.Str : TY.Int
+    ret <- (isn == 1 || iswa == 1) ? TY.Map : ish == 1 ? TY.Bool : isk == 1 ? TY.Str : TY.Int
     c1 != ar ? {
         msg <- ar == 0 ? str_cat(nm, " expects no arguments") : str_cat(str_cat(str_cat(nm, " expects exactly "), int_str(ar)), ar == 1 ? " argument" : " arguments")
         s_diag(ctx, path, tk_line(toks, nd_get(nodes, ni, NF.Tok)), 12, msg)
@@ -277,7 +292,13 @@ chk_map ctx:vec[int] path:str toks:vec[Token] nodes:vec[int] kids:vec[int] types
     c1 == ar && isn == 1 ? {
         vec_set(types, ni, ty_get(tp, tpn, TY.Map))
     }
-    c1 == ar && isn == 0 ? {
+    c1 == ar && iswa == 1 ? {
+        ai0 <- c1 > 0 ? vec_get(kids, s1) : 0 - 1
+        at <- ai0 != 0 - 1 ? vec_get(types, ai0) : 0 - 1
+        unify(ctx, path, tk_line(toks, nd_get(nodes, ni, NF.Tok)), tp, tpn, ty_get(tp, tpn, TY.Int), at, "map_with_allocator argument")
+        vec_set(types, ni, ty_get(tp, tpn, TY.Map))
+    }
+    c1 == ar && isn == 0 && iswa == 0 ? {
         ai0 <- c1 > 0 ? vec_get(kids, s1) : 0 - 1
         mt <- ai0 != 0 - 1 ? vec_get(types, ai0) : 0 - 1
         unify(ctx, path, tk_line(toks, nd_get(nodes, ni, NF.Tok)), tp, tpn, ty_get(tp, tpn, TY.Map), mt, str_cat(nm, " argument"))
@@ -538,15 +559,15 @@ check_node src:str path:str toks:vec[Token] nodes:vec[int] kids:vec[int] types:v
                 }
                 handled <- 1
             }
-            str_eq(cnm, "vec_new") || str_eq(cnm, "vec_push") || str_eq(cnm, "vec_get") || str_eq(cnm, "vec_set") || str_eq(cnm, "vec_len") || str_eq(cnm, "vec_pop") ? {
+            str_eq(cnm, "vec_new") || str_eq(cnm, "vec_with_allocator") || str_eq(cnm, "vec_push") || str_eq(cnm, "vec_get") || str_eq(cnm, "vec_set") || str_eq(cnm, "vec_len") || str_eq(cnm, "vec_pop") ? {
                 j <- 0; [j < c1] { ai <- vec_get(kids, s1 + j); ai != 0 - 1 ? { check_node(src, path, toks, nodes, kids, types, en, ed, sc, st_reg, st_data, st_names, st_meta, en_reg, en_data, fn_reg, fn_data, fpts, frks, tp, tpn, ctx, ai) }; j <- j + 1 }
                 chk_vec(src, toks, ctx, path, nodes, kids, types, en, ed, tp, tpn, ni, cnm); handled <- 1
             }
-            str_eq(cnm, "str_buf_new") || str_eq(cnm, "str_buf_append") || str_eq(cnm, "str_buf_to_str") || str_eq(cnm, "str_buf_len") ? {
+            str_eq(cnm, "str_buf_new") || str_eq(cnm, "str_buf_with_allocator") || str_eq(cnm, "str_buf_append") || str_eq(cnm, "str_buf_to_str") || str_eq(cnm, "str_buf_len") ? {
                 j <- 0; [j < c1] { ai <- vec_get(kids, s1 + j); ai != 0 - 1 ? { check_node(src, path, toks, nodes, kids, types, en, ed, sc, st_reg, st_data, st_names, st_meta, en_reg, en_data, fn_reg, fn_data, fpts, frks, tp, tpn, ctx, ai) }; j <- j + 1 }
                 chk_sb(ctx, path, toks, nodes, kids, types, tp, tpn, ni, cnm); handled <- 1
             }
-            str_eq(cnm, "map_new") || str_eq(cnm, "map_set") || str_eq(cnm, "map_get") || str_eq(cnm, "map_has") || str_eq(cnm, "map_len") || str_eq(cnm, "map_key_at") || str_eq(cnm, "map_val_at") ? {
+            str_eq(cnm, "map_new") || str_eq(cnm, "map_with_allocator") || str_eq(cnm, "map_set") || str_eq(cnm, "map_get") || str_eq(cnm, "map_has") || str_eq(cnm, "map_len") || str_eq(cnm, "map_key_at") || str_eq(cnm, "map_val_at") ? {
                 j <- 0; [j < c1] { ai <- vec_get(kids, s1 + j); ai != 0 - 1 ? { check_node(src, path, toks, nodes, kids, types, en, ed, sc, st_reg, st_data, st_names, st_meta, en_reg, en_data, fn_reg, fn_data, fpts, frks, tp, tpn, ctx, ai) }; j <- j + 1 }
                 chk_map(ctx, path, toks, nodes, kids, types, tp, tpn, ni, cnm); handled <- 1
             }

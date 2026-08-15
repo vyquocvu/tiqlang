@@ -1,0 +1,33 @@
+//! expected: parsed http method: GET
+//! expected: parsed http path: /index.html
+//! expected: parsed http header: localhost
+//! expected: server listening on port: true
+//! expected: server received: ping
+
+import "std/net.tiq"
+
+// 1. HTTP Request line & header parsing
+req = "GET /index.html HTTP/1.1\r\nHost: localhost\r\n\r\n"
+method = http_method(req)
+path = http_path(req)
+host = http_header(req, "Host")
+
+print(str_eq(method, "GET") ? "parsed http method: GET" : "method mismatch")
+print(str_eq(path, "/index.html") ? "parsed http path: /index.html" : "path mismatch")
+print(str_eq(host, "localhost") ? "parsed http header: localhost" : "header mismatch")
+
+// 2. Ephemeral loopback socket round-trip
+server_fd = net_listen(0)
+port = net_port(server_fd)
+print(port > 0 ? "server listening on port: true" : "listen failed")
+
+client_fd = net_connect(port)
+net_send(client_fd, "ping")
+
+conn_fd = net_accept(server_fd)
+msg = net_recv(conn_fd)
+print(str_eq(msg, "ping") ? "server received: ping" : "recv mismatch")
+
+net_close(client_fd)
+net_close(conn_fd)
+net_close(server_fd)
