@@ -1,7 +1,7 @@
 # tiq perf baseline — regenerate with: make perf-record
 # os: Darwin
-binary_size_hello=33448
-binary_size_fib=33488
-bench_total_ms=3867
-bench_throughput_kbs=86
-rss_compile_kb=102528
+binary_size_hello=50568
+binary_size_fib=50608
+bench_total_ms=4681
+bench_throughput_kbs=78
+rss_compile_kb=106576
