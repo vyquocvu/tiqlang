@@ -490,10 +490,12 @@ ec_expr src:str toks:vec[Token] nodes:vec[int] kids:vec[int] hs:vec[int] his:vec
         op = nd_get(nodes, ni, NF.Op)
         op == TokenKind.QuestionQuestion ? {
             li = nd_get(nodes, ni, NF.A); lk = ec_kind(types, tp, li)
-            ec_put(b, "("); ec_expr(src, toks, nodes, kids, hs, his, hem, types, tp, tpn, b, li)
-            ec_put(b, lk == TY.Result ? ".is_ok ? " : ".has_value ? ")
-            ec_expr(src, toks, nodes, kids, hs, his, hem, types, tp, tpn, b, li); ec_put(b, ".value : ")
-            ec_expr(src, toks, nodes, kids, hs, his, hem, types, tp, tpn, b, nd_get(nodes, ni, NF.B)); ec_put(b, ")")
+            ct = lk == TY.Result ? "TiqResult" : "TiqOption"
+            fl = lk == TY.Result ? ".is_ok" : ".has_value"
+            ec_put(b, "__extension__({ "); ec_put(b, ct); ec_put(b, " _fb = ")
+            ec_expr(src, toks, nodes, kids, hs, his, hem, types, tp, tpn, b, li)
+            ec_put(b, "; _fb"); ec_put(b, fl); ec_put(b, " ? _fb.value : (")
+            ec_expr(src, toks, nodes, kids, hs, his, hem, types, tp, tpn, b, nd_get(nodes, ni, NF.B)); ec_put(b, "); })")
         }
         op != TokenKind.QuestionQuestion ? {
             ec_put(b, "(")

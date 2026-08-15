@@ -695,15 +695,20 @@ static void emit_expr(AstNode *node, EmitContext *ctx) {
             // M8: Fallback operator ?? for Option/Result types.
             if (node->as.binary.op == TOK_QUESTION_QUESTION) {
                 SemanticType *lt = node->as.binary.left ? node->as.binary.left->semantic_type : NULL;
+                const char *ctype = (lt && lt->kind == TYPE_RESULT) ? "TiqResult" : "TiqOption";
                 const char *flag_field = (lt && lt->kind == TYPE_RESULT) ? ".is_ok" : ".has_value";
-                fputs("(", ctx->out);
+                // Evaluate left side once into a temporary to avoid
+                // double-evaluation of side-effectful expressions (e.g.
+                // allocator calls that would allocate twice).
+                fputs("__extension__({ ", ctx->out);
+                fputs(ctype, ctx->out);
+                fputs(" _fb = ", ctx->out);
                 emit_expr(node->as.binary.left, ctx);
+                fputs("; _fb", ctx->out);
                 fputs(flag_field, ctx->out);
-                fputs(" ? ", ctx->out);
-                emit_expr(node->as.binary.left, ctx);
-                fputs(".value : ", ctx->out);
+                fputs(" ? _fb.value : (", ctx->out);
                 emit_expr(node->as.binary.right, ctx);
-                fputs(")", ctx->out);
+                fputs("); })", ctx->out);
                 break;
             }
             fputs("(", ctx->out);

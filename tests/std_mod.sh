@@ -144,6 +144,50 @@ false
 3
 20"
 
+# Epic 1: allocator stdlib uses the existing C FFI boundary. Creation and
+# allocation are fallible Results; reset/dealloc/destroy are deterministic
+# status returns. General, arena, and pool strategies all share one handle API.
+cat > "$TMP_DIR/allocator.tiq" <<'EOF'
+import "std/alloc.tiq"
+
+general = tiq_allocator_general()
+gp = allocator_alloc(i64(general), 32, 8) ?? i64(0)
+print(gp != i64(0))
+print(allocator_dealloc(i64(general), gp, 32, 8))
+
+arena_handle = arena(128) ?? i64(0)
+ap = allocator_alloc(arena_handle, 16, 8) ?? i64(0)
+print(ap != i64(0))
+print(allocator_reset(arena_handle))
+ap2 = allocator_alloc(arena_handle, 64, 8) ?? i64(0)
+print(ap2 != i64(0))
+print(allocator_destroy(arena_handle))
+
+pool_handle = pool(16, 2) ?? i64(0)
+p1 = allocator_alloc(pool_handle, 16, 8) ?? i64(0)
+p2 = allocator_alloc(pool_handle, 16, 8) ?? i64(0)
+p3 = allocator_alloc(pool_handle, 16, 8) ?? i64(0)
+print(p1 != i64(0))
+print(p2 != i64(0))
+print(p3 == i64(0))
+print(allocator_dealloc(pool_handle, p1, 16, 8))
+p4 = allocator_alloc(pool_handle, 16, 8) ?? i64(0)
+print(p4 != i64(0))
+print(allocator_destroy(pool_handle))
+EOF
+assert_runs "allocator_results" "$TMP_DIR/allocator.tiq" "true
+0
+true
+0
+true
+0
+true
+true
+true
+0
+true
+0"
+
 # M16.4: std/dl.tiq wrappers load a real dynamic library and call
 # through the generic integer ABI.
 cat > "$TMP_DIR/dltest.c" <<'EOF'
