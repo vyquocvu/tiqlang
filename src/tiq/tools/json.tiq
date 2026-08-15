@@ -1,0 +1,237 @@
+// JSON validator and compact generator authored in Tiq (no std/json builtins).
+// state: current byte, first error byte, nesting depth
+skip_ws s:str st:vec[i64] : i64 -> { i <- vec_get(st,0); [i < len(s) && (str_sub_code(s,i)==32 || str_sub_code(s,i)==9 || str_sub_code(s,i)==10 || str_sub_code(s,i)==13)] { i <- i+1 }; vec_set(st,0,i); i }
+fail st:vec[i64] i:i64 : i64 -> { vec_get(st,1)<0 ? { vec_set(st,1,i) }; 0 }
+is_hex c:i64 : bool -> c>=48&&c<=57 || c>=65&&c<=70 || c>=97&&c<=102
+utf8 s:str i:i64 : i64 -> {
+ c <- str_sub_code(s,i); n <- 0
+ c>=194&&c<=223 ? { n<-2 }; c>=224&&c<=239 ? { n<-3 }; c>=240&&c<=244 ? { n<-4 }
+ valid <- n; i+n>len(s) ? { valid<-0 }; j<-1
+ [valid>0 && j<n] { d<-str_sub_code(s,i+j); d<128||d>191 ? { valid<-0 }; j<-j+1 }
+ valid>0&&n==3&&c==224&&str_sub_code(s,i+1)<160 ? { valid<-0 }
+ valid>0&&n==3&&c==237&&str_sub_code(s,i+1)>159 ? { valid<-0 }
+ valid>0&&n==4&&c==240&&str_sub_code(s,i+1)<144 ? { valid<-0 }
+ valid>0&&n==4&&c==244&&str_sub_code(s,i+1)>143 ? { valid<-0 }
+ valid
+}
+parse_string s:str st:vec[i64] out:strbuf : i64 -> {
+ start<-vec_get(st,0); i<-start+1; valid<-1; done<-0
+ [i<len(s)&&valid==1&&done==0] {
+  c<-str_sub_code(s,i)
+  c==34 ? { done<-1; i<-i+1 }
+  c<32 ? { valid<-0 }
+  c==92&&valid==1 ? {
+   i<-i+1; i>=len(s) ? { valid<-0 }
+   i<len(s) ? { e<-str_sub_code(s,i); simple<-e==34||e==92||e==47||e==98||e==102||e==110||e==114||e==116
+    e==117 ? { i+4>=len(s) ? { valid<-0 }; j<-1; [valid==1&&j<=4] { !is_hex(str_sub_code(s,i+j)) ? { valid<-0 }; j<-j+1 }; i<-i+4 }
+    !simple&&e!=117 ? { valid<-0 }
+   }
+  }
+  c>=128&&c!=92&&valid==1 ? { n<-utf8(s,i); n==0 ? { valid<-0 }; n>0 ? { i<-i+n-1 } }
+  done==0 ? { i<-i+1 }
+ }
+ done==0 ? { valid<-0 }; valid==0 ? { fail(st,i<len(s)?i:len(s)) }
+ valid==1 ? { str_buf_append(out,str_sub(s,start,i)); vec_set(st,0,i) }
+ valid
+}
+word s:str st:vec[i64] out:strbuf w:str : i64 -> { i<-vec_get(st,0); valid<-(i+len(w)<=len(s)&&str_eq(str_sub(s,i,i+len(w)),w)?1:0); valid==1 ? { str_buf_append(out,w); vec_set(st,0,i+len(w)) }; valid==0 ? { fail(st,i) }; valid }
+parse_number s:str st:vec[i64] out:strbuf : i64 -> {
+ start<-vec_get(st,0); i<-start; i<len(s)&&str_sub_code(s,i)==45 ? { i<-i+1 }; valid<-(i<len(s)?1:0)
+ valid==1&&str_sub_code(s,i)==48 ? { i<-i+1; i<len(s)&&str_sub_code(s,i)>=48&&str_sub_code(s,i)<=57 ? { valid<-0 } }
+ valid==1&&i<len(s)&&str_sub_code(s,i)>=49&&str_sub_code(s,i)<=57 ? { i<-i+1; [i<len(s)&&str_sub_code(s,i)>=48&&str_sub_code(s,i)<=57] { i<-i+1 } }
+ valid==1&&i<len(s)&&str_sub_code(s,i)==46 ? { i<-i+1; i>=len(s)||str_sub_code(s,i)<48||str_sub_code(s,i)>57 ? { valid<-0 }; [valid==1&&i<len(s)&&str_sub_code(s,i)>=48&&str_sub_code(s,i)<=57] { i<-i+1 } }
+ valid==1&&i<len(s)&&(str_sub_code(s,i)==101||str_sub_code(s,i)==69) ? { i<-i+1; i<len(s)&&(str_sub_code(s,i)==43||str_sub_code(s,i)==45) ? { i<-i+1 }; i>=len(s)||str_sub_code(s,i)<48||str_sub_code(s,i)>57 ? { valid<-0 }; [valid==1&&i<len(s)&&str_sub_code(s,i)>=48&&str_sub_code(s,i)<=57] { i<-i+1 } }
+ i==start||i==start+1&&str_sub_code(s,start)==45 ? { valid<-0 }; valid==1 ? { str_buf_append(out,str_sub(s,start,i)); vec_set(st,0,i) }; valid==0 ? { fail(st,i) }; valid
+}
+parse_value s:str st:vec[i64] out:strbuf : i64 -> {
+ skip_ws(s,st); i<-vec_get(st,0); valid<-(i<len(s)?1:0); valid==0 ? { fail(st,i) }
+ valid==1 ? { c<-str_sub_code(s,i)
+  c==34 ? { valid<-parse_string(s,st,out) }; c==116 ? { valid<-word(s,st,out,"true") }; c==102 ? { valid<-word(s,st,out,"false") }; c==110 ? { valid<-word(s,st,out,"null") }; c==45||c>=48&&c<=57 ? { valid<-parse_number(s,st,out) }
+  c==91||c==123 ? {
+   depth<-vec_get(st,2)+1; depth>128 ? { fail(st,i); valid<-0 }
+   depth<=128 ? { vec_set(st,2,depth); close<-c==91?93:125; str_buf_append(out,c==91?"[":"{"); vec_set(st,0,i+1); skip_ws(s,st); first<-1; done<-0
+    vec_get(st,0)<len(s)&&str_sub_code(s,vec_get(st,0))==close ? { done<-1; vec_set(st,0,vec_get(st,0)+1) }
+    [done==0&&valid==1] {
+     first==0 ? { str_buf_append(out,",") }
+     c==123 ? { skip_ws(s,st); vec_get(st,0)>=len(s)||str_sub_code(s,vec_get(st,0))!=34 ? { fail(st,vec_get(st,0)); valid<-0 }; valid==1 ? { valid<-parse_string(s,st,out) }; skip_ws(s,st); valid==1&&(vec_get(st,0)>=len(s)||str_sub_code(s,vec_get(st,0))!=58) ? { fail(st,vec_get(st,0)); valid<-0 }; valid==1 ? { str_buf_append(out,":"); vec_set(st,0,vec_get(st,0)+1) } }
+     valid==1 ? { valid<-parse_value(s,st,out) }; skip_ws(s,st)
+     valid==1 ? { p<-vec_get(st,0); p<len(s)&&str_sub_code(s,p)==close ? { done<-1; vec_set(st,0,p+1) }; done==0&&p<len(s)&&str_sub_code(s,p)==44 ? { vec_set(st,0,p+1); first<-0 }; done==0&&(p>=len(s)||str_sub_code(s,p)!=44) ? { fail(st,p); valid<-0 } }
+    }
+    valid==1 ? { str_buf_append(out,c==91?"]":"}") }; vec_set(st,2,depth-1)
+   }
+  }
+  c!=34&&c!=116&&c!=102&&c!=110&&c!=91&&c!=123&&c!=45&&(c<48||c>57) ? { fail(st,i); valid<-0 }
+ }
+ valid
+}
+location s:str at:i64 lc:vec[i64] : i64 -> { line<-1; col<-1; i<-0; [i<at&&i<len(s)] { str_sub_code(s,i)==10 ? { line<-line+1; col<-1 }; str_sub_code(s,i)!=10 ? { col<-col+1 }; i<-i+1 }; vec_push(lc,line); vec_push(lc,col); 0 }
+// Flat value arena used for traversal, mutation, and generation.  Children
+// identify their parent; scanning the arena preserves source member order.
+struct JsonNode {
+    kind: i64,
+    start: i64,
+    end: i64,
+    parent: i64,
+    key: str,
+    replacement: str,
+    active: i64
+}
+
+node_kind nodes:vec[JsonNode] i:i64 : i64 -> vec_get(nodes, i).kind
+node_start nodes:vec[JsonNode] i:i64 : i64 -> vec_get(nodes, i).start
+node_end nodes:vec[JsonNode] i:i64 : i64 -> vec_get(nodes, i).end
+node_parent nodes:vec[JsonNode] i:i64 : i64 -> vec_get(nodes, i).parent
+node_key nodes:vec[JsonNode] i:i64 : str -> vec_get(nodes, i).key
+node_replacement nodes:vec[JsonNode] i:i64 : str -> vec_get(nodes, i).replacement
+node_active nodes:vec[JsonNode] i:i64 : i64 -> vec_get(nodes, i).active
+
+model_string_end s:str pos:i64 : i64 -> {
+    i <- pos + 1
+    done <- 0
+    [done == 0] {
+        c <- str_sub_code(s, i)
+        c == 92 ? { i <- i + 2 }
+        c != 92 && c != 34 ? { i <- i + 1 }
+        c == 34 ? { done <- 1; i <- i + 1 }
+    }
+    i
+}
+
+model_value s:str pos:i64 parent:i64 key:str nodes:vec[JsonNode] : i64 -> {
+    c <- str_sub_code(s, pos)
+    kind <- 0
+    c == 123 ? { kind <- 1 }
+    c == 91 ? { kind <- 2 }
+    c == 34 ? { kind <- 3 }
+    c == 116 || c == 102 ? { kind <- 4 }
+    c == 110 ? { kind <- 5 }
+    kind == 0 ? { kind <- 6 }
+    idx <- vec_len(nodes)
+    vec_push(nodes, JsonNode { kind: kind, start: pos, end: 0, parent: parent, key: key, replacement: "", active: 1 })
+    i <- pos
+    kind == 3 ? { i <- model_string_end(s, pos) }
+    kind == 4 ? { i <- str_sub_code(s, pos) == 116 ? pos + 4 : pos + 5 }
+    kind == 5 ? { i <- pos + 4 }
+    kind == 6 ? { [i < len(s) && str_sub_code(s, i) != 44 && str_sub_code(s, i) != 93 && str_sub_code(s, i) != 125] { i <- i + 1 } }
+    kind == 1 || kind == 2 ? {
+        close <- kind == 1 ? 125 : 93
+        i <- pos + 1
+        [str_sub_code(s, i) != close] {
+            child_key <- ""
+            kind == 1 ? {
+                key_end <- model_string_end(s, i)
+                child_key <- str_sub(s, i, key_end)
+                i <- key_end + 1
+            }
+            i <- model_value(s, i, idx, child_key, nodes)
+            str_sub_code(s, i) == 44 ? { i <- i + 1 }
+        }
+        i <- i + 1
+    }
+    vec_set(nodes, idx, JsonNode { kind: kind, start: pos, end: i, parent: parent, key: key, replacement: "", active: 1 })
+    i
+}
+
+emit_node source:str nodes:vec[JsonNode] idx:i64 out:strbuf : i64 -> {
+    kind <- node_kind(nodes, idx)
+    replacement <- node_replacement(nodes, idx)
+    len(replacement) > 0 ? { str_buf_append(out, replacement) }
+    len(replacement) == 0 && kind >= 3 ? { str_buf_append(out, str_sub(source, node_start(nodes, idx), node_end(nodes, idx))) }
+    len(replacement) == 0 && (kind == 1 || kind == 2) ? {
+        str_buf_append(out, kind == 1 ? "{" : "[")
+        first <- 1
+        i <- 0
+        [i < vec_len(nodes)] {
+            node_parent(nodes, i) == idx && node_active(nodes, i) == 1 ? {
+                first == 0 ? { str_buf_append(out, ",") }
+                kind == 1 ? { str_buf_append(out, node_key(nodes, i)); str_buf_append(out, ":") }
+                emit_node(source, nodes, i, out)
+                first <- 0
+            }
+            i <- i + 1
+        }
+        str_buf_append(out, kind == 1 ? "}" : "]")
+    }
+    0
+}
+
+hex_digit n:i64 : str -> {
+    result <- "0"
+    n == 1 ? { result <- "1" }; n == 2 ? { result <- "2" }; n == 3 ? { result <- "3" }; n == 4 ? { result <- "4" }; n == 5 ? { result <- "5" }; n == 6 ? { result <- "6" }; n == 7 ? { result <- "7" }; n == 8 ? { result <- "8" }; n == 9 ? { result <- "9" }; n == 10 ? { result <- "a" }; n == 11 ? { result <- "b" }; n == 12 ? { result <- "c" }; n == 13 ? { result <- "d" }; n == 14 ? { result <- "e" }; n == 15 ? { result <- "f" }
+    result
+}
+
+quote_string value:str : str -> {
+    out <- str_buf_new()
+    str_buf_append(out, "\"")
+    i <- 0
+    [i < len(value)] {
+        c <- str_sub_code(value, i)
+        c == 34 ? { str_buf_append(out, "\\\"") }
+        c == 92 ? { str_buf_append(out, "\\\\") }
+        c == 8 ? { str_buf_append(out, "\\b") }
+        c == 9 ? { str_buf_append(out, "\\t") }
+        c == 10 ? { str_buf_append(out, "\\n") }
+        c == 12 ? { str_buf_append(out, "\\f") }
+        c == 13 ? { str_buf_append(out, "\\r") }
+        c < 32 && c != 8 && c != 9 && c != 10 && c != 12 && c != 13 ? { str_buf_append(out, "\\u00"); str_buf_append(out, hex_digit(c / 16)); str_buf_append(out, hex_digit(c % 16)) }
+        c >= 32 && c != 34 && c != 92 ? { str_buf_append(out, str_sub(value, i, i + 1)) }
+        i <- i + 1
+    }
+    str_buf_append(out, "\"")
+    str_buf_to_str(out)
+}
+
+root_find nodes:vec[JsonNode] encoded_key:str : i64 -> {
+    found <- -1
+    i <- 0
+    [i < vec_len(nodes)] {
+        node_parent(nodes, i) == 0 && node_active(nodes, i) == 1 && str_eq(node_key(nodes, i), encoded_key) ? { found <- i }
+        i <- i + 1
+    }
+    found
+}
+
+root_set_string nodes:vec[JsonNode] encoded_key:str encoded_value:str : i64 -> {
+    old <- root_find(nodes, encoded_key)
+    old >= 0 ? { vec_set(nodes, old, JsonNode { kind: node_kind(nodes, old), start: node_start(nodes, old), end: node_end(nodes, old), parent: 0, key: node_key(nodes, old), replacement: node_replacement(nodes, old), active: 0 }) }
+    vec_push(nodes, JsonNode { kind: 3, start: 0, end: 0, parent: 0, key: encoded_key, replacement: encoded_value, active: 1 })
+    0
+}
+
+arg_count <- cli_arg_count()
+arg_count != 1 && arg_count != 3 && arg_count != 4 ? { eprint("usage: tiq-json <file> [--get key | --set-string key value]"); proc_exit(2) }
+source <- fs_read(cli_arg(0))
+st <- vec_new()
+vec_push(st, 0)
+vec_push(st, -1)
+vec_push(st, 0)
+validated_out <- str_buf_new()
+valid <- parse_value(source, st, validated_out)
+skip_ws(source, st)
+valid == 1 && vec_get(st, 0) != len(source) ? { fail(st, vec_get(st, 0)); valid <- 0 }
+valid == 0 ? {
+    lc <- vec_new()
+    location(source, vec_get(st, 1), lc)
+    eprint(str_cat(str_cat(str_cat(str_cat("invalid JSON at byte ", int_str(vec_get(st, 1))), ", line "), int_str(vec_get(lc, 0))), str_cat(", column ", int_str(vec_get(lc, 1)))))
+    proc_exit(1)
+}
+canonical <- str_buf_to_str(validated_out)
+nodes <- vec_new()
+model_value(canonical, 0, -1, "", nodes)
+arg_count > 1 && node_kind(nodes, 0) != 1 ? { eprint("json mutation requires an object root"); proc_exit(1) }
+arg_count == 3 && !str_eq(cli_arg(1), "--get") ? { eprint("usage: tiq-json <file> [--get key | --set-string key value]"); proc_exit(2) }
+arg_count == 4 && !str_eq(cli_arg(1), "--set-string") ? { eprint("usage: tiq-json <file> [--get key | --set-string key value]"); proc_exit(2) }
+arg_count == 3 ? {
+    found <- root_find(nodes, quote_string(cli_arg(2)))
+    found < 0 ? { eprint("JSON object key not found"); proc_exit(1) }
+    selected <- str_buf_new()
+    emit_node(canonical, nodes, found, selected)
+    print(str_buf_to_str(selected))
+}
+arg_count == 4 ? { root_set_string(nodes, quote_string(cli_arg(2)), quote_string(cli_arg(3))) }
+arg_count != 3 ? {
+    generated <- str_buf_new()
+    emit_node(canonical, nodes, 0, generated)
+    print(str_buf_to_str(generated))
+}

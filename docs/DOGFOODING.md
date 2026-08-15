@@ -27,6 +27,8 @@ evidence before the v1.0 syntax and compatibility lock.
 
 ## Task 3.1 — JSON parser and generator
 
+Status: correctness artifact implemented in `src/tiq/tools/json.tiq`. It builds a flat in-memory value arena, supports root-object traversal and string mutation, regenerates JSON from the arena, validates a checked-in corpus against an independent implementation, reports byte/line/column failures, validates UTF-8, and enforces a 128-level nesting limit. Allocation-lifecycle and comparative benchmark evidence remain beta-gate follow-up work; see `JSON_DOGFOODING.md`.
+
 Build a JSON implementation whose parser, in-memory representation, traversal,
 mutation, and generator are authored in Tiq. The existing `std/json.tiq` wrappers
 over runtime builtins are useful application primitives, but using them as the
