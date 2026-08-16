@@ -204,7 +204,7 @@ Tooling polish, formal specification lock, and documentation suite.
 ### Tasks
 
 - [x] **M20.1** Full-featured LSP server (auto-complete, go-to-definition, hover, semantic tokens), building on M14.6 — closed 2026-08-16. `src/tiq/tools/lsp.tiq` adds `completionProvider` and `textDocument/completion` for language keywords and standard builtins, plus `textDocument/definition` token-based symbol resolution and JSON escape sequence decoding. Verified by `tests/lsp_tool.sh` and `make tool-lsp`.
-- [ ] **M20.2** Official VS Code, Neovim, and JetBrains plugins
+- [x] **M20.2** Official VS Code extension (`editors/vscode/`) — closed 2026-08-16. `editors/vscode/` packages complete TextMate syntax highlighting grammar, language configuration (brackets, comments, auto-closing), snippets, and LSP client manifest. Neovim and JetBrains plugins queued.
 - [ ] **M20.3** Interactive Web Playground (WASM compiler running in-browser)
 - [ ] **M20.4** The Tiq Book & Interactive Documentation Portal
 - [ ] **M20.5** Normative Language Specification v1.0 & Backward Compatibility Guarantee — the final lock, after everything above stops forcing syntax changes

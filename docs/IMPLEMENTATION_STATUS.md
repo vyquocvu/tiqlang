@@ -2,6 +2,12 @@
 
 Updated: 2026-08-16
 
+M20.2 — Official VS Code Extension (closed 2026-08-16):
+`editors/vscode/` provides the official extension package with rich TextMate syntax grammar (`syntaxes/tiq.tmLanguage.json`), bracket/delimiter configuration (`language-configuration.json`), code snippets (`snippets/tiq.code-snippets`), and LSP integration readiness.
+
+M17.4.5 — Option and Result SSA IR Lowering (closed 2026-08-16):
+`src/ir_lower.c` lowers `some`, `none`, `ok`, and `err` constructors to `IR_STRUCT_INIT`, `??` nullish coalescing to conditional branches with `phi`, and `?` unwrapping to `IR_FIELD_PTR`. Promoted `examples/option_result.tiq` to supported IR test set in `tests/ir.sh`.
+
 M20.1 — Full-featured LSP server: Completion & Go-to-Definition (closed 2026-08-16):
 `src/tiq/tools/lsp.tiq` adds `completionProvider` and `textDocument/completion` for language keywords and built-in functions, plus `textDocument/definition` token-based symbol resolution and JSON escape sequence decoding. Verified by `tests/lsp_tool.sh` and `make tool-lsp`.
 

@@ -188,6 +188,11 @@ static int lower_expr(LowerCtx *ctx, AstNode *node) {
             } else if (node->as.literal.type == TOK_TRUE || node->as.literal.type == TOK_FALSE) {
                 IrOperand ops[] = {(IrOperand){IR_OP_IMM, .imm = (node->as.literal.type == TOK_TRUE)}};
                 ir_emit_into_block(ctx->func, ctx->current_block, IR_CONST_BOOL, dst, type, ops, 1, node->token.line);
+            } else if (node->as.literal.type == TOK_NONE) {
+                int z0 = emit_const_i64(ctx, ctx->current_block, 0, node->token.line);
+                int z1 = emit_const_i64(ctx, ctx->current_block, 0, node->token.line);
+                IrOperand ops[] = {reg_op(z0), reg_op(z1)};
+                ir_emit_into_block(ctx->func, ctx->current_block, IR_STRUCT_INIT, dst, type, ops, 2, node->token.line);
             } else if (node->as.literal.type == TOK_STRING) {
                 IrOperand ops[] = {str_op(node->token.start, node->token.length)};
                 ir_emit_into_block(ctx->func, ctx->current_block, IR_CONST_STR, dst, type, ops, 1, node->token.line);
@@ -202,6 +207,45 @@ static int lower_expr(LowerCtx *ctx, AstNode *node) {
         }
 
         case AST_BINARY: {
+            if (node->as.binary.op == TOK_QUESTION_QUESTION) {
+                int left_reg = lower_expr(ctx, node->as.binary.left);
+                int right_reg = lower_expr(ctx, node->as.binary.right);
+                SemanticType *lt = node->as.binary.left ? (SemanticType *)node->as.binary.left->semantic_type : NULL;
+                int check_idx = (lt && lt->kind == TYPE_RESULT) ? 2 : 1;
+                int flag_reg = ir_new_reg(ctx->func);
+                IrOperand f_ops[] = {reg_op(left_reg), (IrOperand){IR_OP_IMM, .imm = check_idx}};
+                ir_emit_into_block(ctx->func, ctx->current_block, IR_FIELD_PTR, flag_reg, i64_type(), f_ops, 2, node->token.line);
+                int val_reg = ir_new_reg(ctx->func);
+                IrOperand v_ops[] = {reg_op(left_reg), (IrOperand){IR_OP_IMM, .imm = 0}};
+                ir_emit_into_block(ctx->func, ctx->current_block, IR_FIELD_PTR, val_reg, i64_type(), v_ops, 2, node->token.line);
+
+                int zero_reg = emit_const_i64(ctx, ctx->current_block, 0, node->token.line);
+                int cond_reg = ir_new_reg(ctx->func);
+                IrOperand cmp_ops[] = {reg_op(flag_reg), reg_op(zero_reg)};
+                ir_emit_into_block(ctx->func, ctx->current_block, IR_CMP_NE, cond_reg, bool_type(), cmp_ops, 2, node->token.line);
+
+                int then_block = ir_add_block(ctx->func, ctx->func->block_count);
+                int else_block = ir_add_block(ctx->func, ctx->func->block_count);
+                int merge_block = ir_add_block(ctx->func, ctx->func->block_count);
+
+                IrOperand cbr_ops[] = {reg_op(cond_reg), block_op(then_block), block_op(else_block)};
+                ir_emit_into_block(ctx->func, ctx->current_block, IR_CBR, -1, void_type(), cbr_ops, 3, node->token.line);
+
+                ctx->current_block = then_block;
+                IrOperand br_then[] = {block_op(merge_block)};
+                ir_emit_into_block(ctx->func, then_block, IR_BR, -1, void_type(), br_then, 1, node->token.line);
+
+                ctx->current_block = else_block;
+                IrOperand br_else[] = {block_op(merge_block)};
+                ir_emit_into_block(ctx->func, else_block, IR_BR, -1, void_type(), br_else, 1, node->token.line);
+
+                ctx->current_block = merge_block;
+                int dst = ir_new_reg(ctx->func);
+                IrType type = ir_type_from_semantic(node->semantic_type);
+                IrOperand phi_args[] = {reg_op(val_reg), block_op(then_block), reg_op(right_reg), block_op(else_block)};
+                ir_emit_phi(ctx->func, merge_block, dst, type, phi_args, 4);
+                return dst;
+            }
             int left = lower_expr(ctx, node->as.binary.left);
             int right = lower_expr(ctx, node->as.binary.right);
             int dst = ir_new_reg(ctx->func);
@@ -234,6 +278,14 @@ static int lower_expr(LowerCtx *ctx, AstNode *node) {
         }
 
         case AST_UNARY: {
+            if (node->as.unary.op == TOK_QUESTION) {
+                int right = lower_expr(ctx, node->as.unary.right);
+                int dst = ir_new_reg(ctx->func);
+                IrType type = ir_type_from_semantic(node->semantic_type);
+                IrOperand ops[] = {reg_op(right), (IrOperand){IR_OP_IMM, .imm = 0}};
+                ir_emit_into_block(ctx->func, ctx->current_block, IR_FIELD_PTR, dst, type, ops, 2, node->token.line);
+                return dst;
+            }
             int right = lower_expr(ctx, node->as.unary.right);
             int dst = ir_new_reg(ctx->func);
             IrType type = ir_type_from_semantic(node->semantic_type);
@@ -339,6 +391,44 @@ static int lower_expr(LowerCtx *ctx, AstNode *node) {
                 int dst = ir_new_reg(ctx->func);
                 IrOperand ops[] = {reg_op(arg)};
                 ir_emit_into_block(ctx->func, ctx->current_block, IR_LEN, dst, i64_type(), ops, 1, node->token.line);
+                return dst;
+            }
+            if (name_len == 4 && memcmp(name, "some", 4) == 0 && node->as.call.arg_count == 1) {
+                int arg = lower_expr(ctx, node->as.call.args[0]);
+                int one = emit_const_i64(ctx, ctx->current_block, 1, node->token.line);
+                int dst = ir_new_reg(ctx->func);
+                IrType type = ir_type_from_semantic(node->semantic_type);
+                IrOperand ops[] = {reg_op(arg), reg_op(one)};
+                ir_emit_into_block(ctx->func, ctx->current_block, IR_STRUCT_INIT, dst, type, ops, 2, node->token.line);
+                return dst;
+            }
+            if (name_len == 4 && memcmp(name, "none", 4) == 0 && node->as.call.arg_count == 0) {
+                int z0 = emit_const_i64(ctx, ctx->current_block, 0, node->token.line);
+                int z1 = emit_const_i64(ctx, ctx->current_block, 0, node->token.line);
+                int dst = ir_new_reg(ctx->func);
+                IrType type = ir_type_from_semantic(node->semantic_type);
+                IrOperand ops[] = {reg_op(z0), reg_op(z1)};
+                ir_emit_into_block(ctx->func, ctx->current_block, IR_STRUCT_INIT, dst, type, ops, 2, node->token.line);
+                return dst;
+            }
+            if (name_len == 2 && memcmp(name, "ok", 2) == 0 && node->as.call.arg_count == 1) {
+                int arg = lower_expr(ctx, node->as.call.args[0]);
+                int z = emit_const_i64(ctx, ctx->current_block, 0, node->token.line);
+                int one = emit_const_i64(ctx, ctx->current_block, 1, node->token.line);
+                int dst = ir_new_reg(ctx->func);
+                IrType type = ir_type_from_semantic(node->semantic_type);
+                IrOperand ops[] = {reg_op(arg), reg_op(z), reg_op(one)};
+                ir_emit_into_block(ctx->func, ctx->current_block, IR_STRUCT_INIT, dst, type, ops, 3, node->token.line);
+                return dst;
+            }
+            if (name_len == 3 && memcmp(name, "err", 3) == 0 && node->as.call.arg_count == 1) {
+                int arg = lower_expr(ctx, node->as.call.args[0]);
+                int z0 = emit_const_i64(ctx, ctx->current_block, 0, node->token.line);
+                int z1 = emit_const_i64(ctx, ctx->current_block, 0, node->token.line);
+                int dst = ir_new_reg(ctx->func);
+                IrType type = ir_type_from_semantic(node->semantic_type);
+                IrOperand ops[] = {reg_op(z0), reg_op(arg), reg_op(z1)};
+                ir_emit_into_block(ctx->func, ctx->current_block, IR_STRUCT_INIT, dst, type, ops, 3, node->token.line);
                 return dst;
             }
             // General function call

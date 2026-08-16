@@ -1,0 +1,164 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "Tiq",
+  "scopeName": "source.tiq",
+  "patterns": [
+    {
+      "include": "#comments"
+    },
+    {
+      "include": "#strings"
+    },
+    {
+      "include": "#keywords"
+    },
+    {
+      "include": "#constants"
+    },
+    {
+      "include": "#types"
+    },
+    {
+      "include": "#builtins"
+    },
+    {
+      "include": "#operators"
+    },
+    {
+      "include": "#functions"
+    },
+    {
+      "include": "#numbers"
+    }
+  ],
+  "repository": {
+    "comments": {
+      "patterns": [
+        {
+          "name": "comment.line.double-slash.tiq",
+          "match": "//.*$"
+        },
+        {
+          "name": "comment.block.tiq",
+          "begin": "/\\*",
+          "end": "\\*/"
+        }
+      ]
+    },
+    "strings": {
+      "patterns": [
+        {
+          "name": "string.quoted.double.tiq",
+          "begin": "\"",
+          "end": "\"",
+          "patterns": [
+            {
+              "name": "constant.character.escape.tiq",
+              "match": "\\\\([nrt\\\\\"'0]|x[0-9a-fA-F]{2}|u[0-9a-fA-F]{4})"
+            }
+          ]
+        }
+      ]
+    },
+    "keywords": {
+      "patterns": [
+        {
+          "name": "keyword.control.tiq",
+          "match": "\\b(match|while|until|break|skip|defer|spawn|import)\\b"
+        },
+        {
+          "name": "keyword.declaration.tiq",
+          "match": "\\b(struct|enum|chan|mut|move)\\b"
+        }
+      ]
+    },
+    "constants": {
+      "patterns": [
+        {
+          "name": "constant.language.tiq",
+          "match": "\\b(true|false|none)\\b"
+        }
+      ]
+    },
+    "types": {
+      "patterns": [
+        {
+          "name": "entity.name.type.tiq",
+          "match": "\\b(i8|i16|i32|i64|u8|u16|u32|u64|f32|f64|bool|str|void|vec|strbuf|map|chan|Option|Result)\\b"
+        }
+      ]
+    },
+    "builtins": {
+      "patterns": [
+        {
+          "name": "support.function.builtin.tiq",
+          "match": "\\b(print|len|some|ok|err|str_eq|str_sub|str_sub_code|str_cat|int_str|float_str|parse_int|parse_float|vec_new|vec_with_allocator|vec_push|vec_pop|vec_len|vec_get|vec_set|str_buf_new|str_buf_with_allocator|str_buf_append|str_buf_to_str|map_new|map_with_allocator|map_set|map_get|map_has|map_len|map_delete)\\b"
+        }
+      ]
+    },
+    "operators": {
+      "patterns": [
+        {
+          "name": "keyword.operator.assignment.tiq",
+          "match": "(<-|=)"
+        },
+        {
+          "name": "keyword.operator.arrow.tiq",
+          "match": "->"
+        },
+        {
+          "name": "keyword.operator.coalescing.tiq",
+          "match": "\\?\\?"
+        },
+        {
+          "name": "keyword.operator.conditional.tiq",
+          "match": "\\?"
+        },
+        {
+          "name": "keyword.operator.arithmetic.tiq",
+          "match": "(\\+|\\-|\\*|/|%)"
+        },
+        {
+          "name": "keyword.operator.comparison.tiq",
+          "match": "(==|!=|<=|>=|<|>)"
+        },
+        {
+          "name": "keyword.operator.logical.tiq",
+          "match": "(&&|\\|\\||!)"
+        },
+        {
+          "name": "keyword.operator.bitwise.tiq",
+          "match": "(&|\\||\\^|<<|>>)"
+        }
+      ]
+    },
+    "functions": {
+      "patterns": [
+        {
+          "name": "entity.name.function.tiq",
+          "match": "\\b([a-zA-Z_][a-zA-Z0-9_]*)\\s*(?=[a-zA-Z_][a-zA-Z0-9_]*\\s*:\\s*|[a-zA-Z0-9_]*\\s*:\\s*[a-zA-Z0-9_\\[\\]]*\\s*->)"
+        }
+      ]
+    },
+    "numbers": {
+      "patterns": [
+        {
+          "name": "constant.numeric.float.tiq",
+          "match": "\\b[0-9][0-9_]*\\.[0-9][0-9_]*([eE][+-]?[0-9]+)?\\b"
+        },
+        {
+          "name": "constant.numeric.hex.tiq",
+          "match": "\\b0x[0-9a-fA-F][0-9a-fA-F_]*\\b"
+        },
+        {
+          "name": "constant.numeric.binary.tiq",
+          "match": "\\b0b[01][01_]*\\b"
+        },
+        {
+          "name": "constant.numeric.decimal.tiq",
+          "match": "\\b[0-9][0-9_]*\\b"
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,65 @@
+{
+  "Function Definition": {
+    "prefix": "fn",
+    "body": [
+      "${1:name} ${2:arg}:${3:type} : ${4:ret_type} -> {",
+      "\t$0",
+      "}"
+    ],
+    "description": "Define a Tiq function"
+  },
+  "Struct Definition": {
+    "prefix": "struct",
+    "body": [
+      "struct ${1:Name} {",
+      "\t${2:field}: ${3:type}",
+      "}"
+    ],
+    "description": "Define a struct"
+  },
+  "Enum Definition": {
+    "prefix": "enum",
+    "body": [
+      "enum ${1:Name} {",
+      "\t${2:Variant1},",
+      "\t${3:Variant2}",
+      "}"
+    ],
+    "description": "Define an enum"
+  },
+  "Match Statement": {
+    "prefix": "match",
+    "body": [
+      "match ${1:expr} {",
+      "\t${2:Pattern} => { $3 }",
+      "}"
+    ],
+    "description": "Pattern match expression"
+  },
+  "Loop Statement": {
+    "prefix": "loop",
+    "body": [
+      "[${1:condition}] {",
+      "\t$0",
+      "}"
+    ],
+    "description": "While loop condition block"
+  },
+  "Import Statement": {
+    "prefix": "import",
+    "body": [
+      "import \"${1:std/sqlite.tiq}\""
+    ],
+    "description": "Import a module file"
+  },
+  "Main Function": {
+    "prefix": "main",
+    "body": [
+      "main : i64 -> {",
+      "\t$0",
+      "\t0",
+      "}"
+    ],
+    "description": "Tiq program entry point"
+  }
+}

@@ -159,6 +159,20 @@ p = Point { x: 1, y: 2 }
 print(p.y)
 ' "field_ptr"
 
+# Test 17: Option and Result lowering
+assert_ir_contains "option_some" 'x = some(42)
+' "struct_init"
+
+assert_ir_contains "option_coalesce" 'x = some(42)
+y = x ?? 0
+print(y)
+' "phi"
+
+assert_ir_contains "option_unwrap" 'x = some(42)
+y = ?x
+print(y)
+' "field_ptr"
+
 # Test 17: Supported examples lower cleanly into IR
 supported_examples="examples/arithmetic.tiq
 examples/break_early.tiq

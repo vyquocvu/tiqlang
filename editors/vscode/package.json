@@ -1,0 +1,48 @@
+{
+  "name": "tiq-vscode",
+  "displayName": "Tiq Language Support",
+  "description": "Official Visual Studio Code extension for Tiq — deterministic systems programming language",
+  "version": "0.1.0",
+  "publisher": "tiqlang",
+  "engines": {
+    "vscode": "^1.75.0"
+  },
+  "categories": [
+    "Programming Languages",
+    "Snippets"
+  ],
+  "keywords": [
+    "tiq",
+    "tiqlang",
+    "systems",
+    "compiler"
+  ],
+  "contributes": {
+    "languages": [
+      {
+        "id": "tiq",
+        "aliases": [
+          "Tiq",
+          "tiq"
+        ],
+        "extensions": [
+          ".tiq"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "tiq",
+        "scopeName": "source.tiq",
+        "path": "./syntaxes/tiq.tmLanguage.json"
+      }
+    ],
+    "snippets": [
+      {
+        "language": "tiq",
+        "path": "./snippets/tiq.code-snippets"
+      }
+    ]
+  }
+}
