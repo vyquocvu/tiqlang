@@ -72,19 +72,34 @@ json_after_key json:str key:str : str -> {
 
 // Unescape a JSON string value starting at the given position.
 // Returns the unescaped string, or "" on failure.
-// Simplified: finds the closing quote and returns the substring.
-// Does NOT handle escape sequences (not needed for LSP method names).
 json_unescape src:str : str -> {
     r <- ""
     len(src) > 0 && str_sub_code(src, 0) == 34 ? {
-        end <- 1
+        buf <- str_buf_new()
+        i <- 1
         n <- len(src)
-        [end < n && str_sub_code(src, end) != 34] {
-            end <- end + 1
+        escaped <- 0
+        [i < n && escaped == 0] {
+            c <- str_sub_code(src, i)
+            c == 34 ? { escaped <- 1; break }
+            c == 92 && i + 1 < n ? {  // '\'
+                ec <- str_sub_code(src, i + 1)
+                ec == 110 ? { str_buf_append(buf, "\n"); i <- i + 2 }
+                ec == 114 ? { str_buf_append(buf, "\r"); i <- i + 2 }
+                ec == 116 ? { str_buf_append(buf, "\t"); i <- i + 2 }
+                ec == 34 ? { str_buf_append(buf, "\""); i <- i + 2 }
+                ec == 92 ? { str_buf_append(buf, "\\"); i <- i + 2 }
+                ec != 110 && ec != 114 && ec != 116 && ec != 34 && ec != 92 ? {
+                    str_buf_append(buf, str_sub(src, i, i + 1))
+                    i <- i + 1
+                }
+            }
+            c != 92 ? {
+                str_buf_append(buf, str_sub(src, i, i + 1))
+                i <- i + 1
+            }
         }
-        end < n && str_sub_code(src, end) == 34 ? {
-            r <- str_sub(src, 1, end)
-        }
+        escaped == 1 ? { r <- str_buf_to_str(buf) }
     }
     r
 }
@@ -350,7 +365,7 @@ pos <- 0
     id <- parse_id(content)
 
     str_eq_safe(method, "initialize") == 1 ? {
-        caps <- "{\"capabilities\":{\"textDocumentSync\":1,\"hoverProvider\":true,\"definitionProvider\":true,\"semanticTokensProvider\":{\"legend\":{\"tokenTypes\":[\"keyword\",\"variable\",\"number\",\"string\",\"operator\"],\"tokenModifiers\":[]},\"full\":true}},\"serverInfo\":{\"name\":\"tiq\",\"version\":\"0.1.0\"}}"
+        caps <- "{\"capabilities\":{\"textDocumentSync\":1,\"hoverProvider\":true,\"definitionProvider\":true,\"completionProvider\":{\"triggerCharacters\":[\".\"]},\"semanticTokensProvider\":{\"legend\":{\"tokenTypes\":[\"keyword\",\"variable\",\"number\",\"string\",\"operator\"],\"tokenModifiers\":[]},\"full\":true}},\"serverInfo\":{\"name\":\"tiq\",\"version\":\"0.1.0\"}}"
         out <- lsp_send_response(out, id, caps)
         initialized <- 1
     }
@@ -401,8 +416,71 @@ pos <- 0
             out <- lsp_send_response(out, id, result)
         }
     }
+    initialized == 1 && str_eq_safe(method, "textDocument/completion") == 1 ? {
+        items <- "[{\"label\":\"print\",\"kind\":3,\"detail\":\"builtin function\"},{\"label\":\"len\",\"kind\":3,\"detail\":\"builtin function\"},{\"label\":\"match\",\"kind\":14,\"detail\":\"keyword\"},{\"label\":\"struct\",\"kind\":14,\"detail\":\"keyword\"},{\"label\":\"enum\",\"kind\":14,\"detail\":\"keyword\"},{\"label\":\"defer\",\"kind\":14,\"detail\":\"keyword\"},{\"label\":\"import\",\"kind\":14,\"detail\":\"keyword\"},{\"label\":\"while\",\"kind\":14,\"detail\":\"keyword\"},{\"label\":\"until\",\"kind\":14,\"detail\":\"keyword\"},{\"label\":\"spawn\",\"kind\":14,\"detail\":\"keyword\"},{\"label\":\"chan\",\"kind\":14,\"detail\":\"keyword\"},{\"label\":\"mut\",\"kind\":14,\"detail\":\"keyword\"},{\"label\":\"move\",\"kind\":14,\"detail\":\"keyword\"}]"
+        result <- str_cat("{\"isIncomplete\":false,\"items\":", str_cat(items, "}"))
+        out <- lsp_send_response(out, id, result)
+    }
     initialized == 1 && str_eq_safe(method, "textDocument/definition") == 1 ? {
-        out <- lsp_send_response(out, id, "null")
+        uri <- json_get_string(content, "uri")
+        line <- json_get_long(content, "line")
+        character <- json_get_long(content, "character")
+        doc_text <- doc_find(uris, texts, uri)
+        str_eq_safe(doc_text, "") == 1 ? {
+            out <- lsp_send_response(out, id, "null")
+        }
+        str_eq_safe(doc_text, "") == 0 ? {
+            toks <- vec_new()
+            lex_err <- lex_scan(doc_text, uri, toks)
+            target_name <- ""
+            ti <- 0
+            [ti < vec_len(toks)] {
+                tline <- vec_get(toks, ti).line - 1
+                tstart <- vec_get(toks, ti).start
+                tcol <- token_col(doc_text, tstart)
+                tlen <- vec_get(toks, ti).length
+                tkind <- vec_get(toks, ti).kind
+                tline == line && character >= tcol && character <= tcol + tlen && tkind == TokenKind.Ident ? {
+                    target_name <- str_sub(doc_text, tstart, tstart + tlen)
+                    break
+                }
+                ti <- ti + 1
+            }
+            str_eq_safe(target_name, "") == 1 ? {
+                out <- lsp_send_response(out, id, "null")
+            }
+            str_eq_safe(target_name, "") == 0 ? {
+                def_line <- 0 - 1
+                def_col <- 0
+                def_len <- 0
+                di <- 0
+                [di < vec_len(toks)] {
+                    dkind <- vec_get(toks, di).kind
+                    dstart <- vec_get(toks, di).start
+                    dlen <- vec_get(toks, di).length
+                    dkind == TokenKind.Ident ? {
+                        tname <- str_sub(doc_text, dstart, dstart + dlen)
+                        str_eq_safe(tname, target_name) == 1 ? {
+                            def_line <- vec_get(toks, di).line - 1
+                            def_col <- token_col(doc_text, dstart)
+                            def_len <- dlen
+                            break
+                        }
+                    }
+                    di <- di + 1
+                }
+                def_line == 0 - 1 ? {
+                    out <- lsp_send_response(out, id, "null")
+                }
+                def_line != 0 - 1 ? {
+                    r_start <- str_cat("{\"line\":", str_cat(int_str(def_line), str_cat(",\"character\":", str_cat(int_str(def_col), "}"))))
+                    r_end <- str_cat("{\"line\":", str_cat(int_str(def_line), str_cat(",\"character\":", str_cat(int_str(def_col + def_len), "}"))))
+                    loc_range <- str_cat("{\"start\":", str_cat(r_start, str_cat(",\"end\":", str_cat(r_end, "}"))))
+                    loc <- str_cat("{\"uri\":\"", str_cat(uri, str_cat("\",\"range\":", str_cat(loc_range, "}"))))
+                    out <- lsp_send_response(out, id, loc)
+                }
+            }
+        }
     }
     initialized == 1 && str_eq_safe(method, "textDocument/semanticTokens/full") == 1 ? {
         uri <- json_get_string(content, "uri")

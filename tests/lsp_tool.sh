@@ -73,6 +73,7 @@ expect_out init '"jsonrpc":"2.0","id":1'
 expect_out init '"capabilities"'
 expect_out init '"hoverProvider":true'
 expect_out init '"definitionProvider":true'
+expect_out init '"completionProvider"'
 expect_out init '"semanticTokensProvider"'
 expect_out init '"serverInfo":{"name":"tiq","version":"0.1.0"}'
 
@@ -110,15 +111,35 @@ lsp_send semtok \
 expect_exit 0 semtok "$LSP" < "$TMP_DIR/semtok.input"
 expect_out semtok '"id":2,"result":{"data":['
 
-# 7. Definition returns null (stub).
+# 7. Initialize + didOpen + textDocument/completion.
+lsp_send comp \
+  '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}' \
+  '{"jsonrpc":"2.0","method":"textDocument/didOpen","params":{"textDocument":{"uri":"file:///t.tiq","version":1,"text":"x <- 42"}}}' \
+  '{"jsonrpc":"2.0","id":2,"method":"textDocument/completion","params":{"textDocument":{"uri":"file:///t.tiq"},"position":{"line":0,"character":2}}}' \
+  '{"jsonrpc":"2.0","id":3,"method":"shutdown","params":{}}'
+expect_exit 0 comp "$LSP" < "$TMP_DIR/comp.input"
+expect_out comp '"id":2,"result":{"isIncomplete":false,"items":['
+expect_out comp '"label":"print"'
+expect_out comp '"label":"match"'
+
+# 8. Definition resolves identifier location.
 lsp_send defn \
   '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}' \
-  '{"jsonrpc":"2.0","id":2,"method":"textDocument/definition","params":{"textDocument":{"uri":"file:///t.tiq"},"position":{"line":0,"character":0}}}' \
+  '{"jsonrpc":"2.0","method":"textDocument/didOpen","params":{"textDocument":{"uri":"file:///t.tiq","version":1,"text":"x <- 42\ny <- x + 1"}}}' \
+  '{"jsonrpc":"2.0","id":2,"method":"textDocument/definition","params":{"textDocument":{"uri":"file:///t.tiq"},"position":{"line":1,"character":5}}}' \
   '{"jsonrpc":"2.0","id":3,"method":"shutdown","params":{}}'
 expect_exit 0 defn "$LSP" < "$TMP_DIR/defn.input"
-expect_out defn '"id":2,"result":null}'
+expect_out defn '"id":2,"result":{"uri":"file:///t.tiq","range":{"start":{"line":0,"character":0}'
 
-# 8. ASan/UBSan check on the emitted C.
+# 9. Definition on unknown document returns null.
+lsp_send defn_null \
+  '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}' \
+  '{"jsonrpc":"2.0","id":2,"method":"textDocument/definition","params":{"textDocument":{"uri":"file:///nope.tiq"},"position":{"line":0,"character":0}}}' \
+  '{"jsonrpc":"2.0","id":3,"method":"shutdown","params":{}}'
+expect_exit 0 defn_null "$LSP" < "$TMP_DIR/defn_null.input"
+expect_out defn_null '"id":2,"result":null}'
+
+# 10. ASan/UBSan check on the emitted C.
 if "$TIQ" emit-c src/tiq/tools/lsp.tiq >"$TMP_DIR/lsp.c" 2>"$TMP_DIR/lsp.emit.err"; then
   if "$CC_BIN" -std=c11 -g -fsanitize=address,undefined "$TMP_DIR/lsp.c" -o "$TMP_DIR/lsp.asan" 2>"$TMP_DIR/lsp.cc.err"; then
     lsp_send asan_init \

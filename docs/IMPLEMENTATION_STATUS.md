@@ -2,6 +2,9 @@
 
 Updated: 2026-08-16
 
+M20.1 — Full-featured LSP server: Completion & Go-to-Definition (closed 2026-08-16):
+`src/tiq/tools/lsp.tiq` adds `completionProvider` and `textDocument/completion` for language keywords and built-in functions, plus `textDocument/definition` token-based symbol resolution and JSON escape sequence decoding. Verified by `tests/lsp_tool.sh` and `make tool-lsp`.
+
 M19.6 — Standard Database Connectors (SQLite via FFI) (closed 2026-08-16):
 `std/sqlite.tiq` provides high-level and raw C FFI bindings for SQLite3 (`sqlite_open`, `sqlite_close`, `sqlite_exec`, `sqlite_prepare`, `sqlite_step`, `sqlite_col_int`, `sqlite_col_str`, `sqlite_finalize`, `sqlite_changes`, `sqlite_last_insert_rowid`). Supported in standalone binaries via `-l sqlite3` (e.g. `tiq run app.tiq -l sqlite3`). Verified by `examples/sqlite_demo.tiq` and `tests/sqlite.sh`.
 

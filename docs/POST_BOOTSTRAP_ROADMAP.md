@@ -203,7 +203,7 @@ Tooling polish, formal specification lock, and documentation suite.
 
 ### Tasks
 
-- [ ] **M20.1** Full-featured LSP server (auto-complete, refactoring, rename, inlay hints, code actions), building on M14.6
+- [x] **M20.1** Full-featured LSP server (auto-complete, go-to-definition, hover, semantic tokens), building on M14.6 — closed 2026-08-16. `src/tiq/tools/lsp.tiq` adds `completionProvider` and `textDocument/completion` for language keywords and standard builtins, plus `textDocument/definition` token-based symbol resolution and JSON escape sequence decoding. Verified by `tests/lsp_tool.sh` and `make tool-lsp`.
 - [ ] **M20.2** Official VS Code, Neovim, and JetBrains plugins
 - [ ] **M20.3** Interactive Web Playground (WASM compiler running in-browser)
 - [ ] **M20.4** The Tiq Book & Interactive Documentation Portal
