@@ -2,6 +2,6 @@
 # os: Darwin
 binary_size_hello=50568
 binary_size_fib=50608
-bench_total_ms=4681
-bench_throughput_kbs=78
-rss_compile_kb=106576
+bench_total_ms=609
+bench_throughput_kbs=605
+rss_compile_kb=109728

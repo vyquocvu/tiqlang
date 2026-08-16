@@ -1,16 +1,20 @@
 // M13.2-S1: self-hosted Tiq lexer — a faithful port of src/lexer.c.
 //
 // The C lexer walks the source with a char pointer; here the cursor is a
-// byte offset `pos` and single characters are read as 1-byte strings via
-// str_sub(source, pos, pos + 1). str_sub returns "" past the end, which
-// plays the role of C's '\0' sentinel, so every peek/peek_next comparison
-// maps 1:1. Character classes (is_alpha / is_digit) and the keyword table
-// (identifier_type's first-letter dispatch: exact whole-word matches only,
-// near-misses like `enums` stay IDENT) are literal-keyed maps because vec
-// and map element types do not cross function boundaries in the bootstrap,
-// all lexing state lives in this single function (there is also no early
-// return, so alternatives are `?[guard] { ... }` blocks sequenced
-// on a `k == -1` "kind not decided yet" sentinel, mirroring C's switch).
+// byte offset `pos` and single characters are read from a str_view slice
+// (`sv = source[0..n]`), so every read is an O(1) bounds-checked byte
+// access against the slice's carried length — no per-character strlen.
+// Reads past the end are guarded (`pos < n ? sv[pos] : 0`) so the 0 plays
+// the role of C's '\0' sentinel, mapping every peek/peek_next comparison
+// 1:1. Character classes (is_alpha / is_digit) are arithmetic code-point
+// comparisons (identical to the C lexer's byte ranges; non-ASCII bytes
+// never match), and the keyword table (identifier_type's first-letter
+// dispatch: exact whole-word matches only, near-misses like `enums` stay
+// IDENT) is a literal-keyed map because vec and map element types do not
+// cross function boundaries in the bootstrap. All lexing state lives in
+// this single function (there is also no early return, so alternatives
+// are `?[guard] { ... }` blocks sequenced on a `k == -1` "kind not
+// decided yet" sentinel, mirroring C's switch).
 //
 // lex_scan fills `toks` with the whole token stream and returns has_error
 // (0/1). It stops after the first EOF token, exactly where the C parser
@@ -58,76 +62,17 @@ lex_scan source:str path:str toks:vec[Token] : i64 -> {
     map_set(kw, "until", TokenKind.Until)
     map_set(kw, "while", TokenKind.While)
 
-    // is_digit: '0'..'9'
-    dig = map_new()
-    map_set(dig, "0", 0)
-    map_set(dig, "1", 0)
-    map_set(dig, "2", 0)
-    map_set(dig, "3", 0)
-    map_set(dig, "4", 0)
-    map_set(dig, "5", 0)
-    map_set(dig, "6", 0)
-    map_set(dig, "7", 0)
-    map_set(dig, "8", 0)
-    map_set(dig, "9", 0)
-
-    // is_alpha: 'a'..'z', 'A'..'Z', '_'
-    al = map_new()
-    map_set(al, "a", 0)
-    map_set(al, "b", 0)
-    map_set(al, "c", 0)
-    map_set(al, "d", 0)
-    map_set(al, "e", 0)
-    map_set(al, "f", 0)
-    map_set(al, "g", 0)
-    map_set(al, "h", 0)
-    map_set(al, "i", 0)
-    map_set(al, "j", 0)
-    map_set(al, "k", 0)
-    map_set(al, "l", 0)
-    map_set(al, "m", 0)
-    map_set(al, "n", 0)
-    map_set(al, "o", 0)
-    map_set(al, "p", 0)
-    map_set(al, "q", 0)
-    map_set(al, "r", 0)
-    map_set(al, "s", 0)
-    map_set(al, "t", 0)
-    map_set(al, "u", 0)
-    map_set(al, "v", 0)
-    map_set(al, "w", 0)
-    map_set(al, "x", 0)
-    map_set(al, "y", 0)
-    map_set(al, "z", 0)
-    map_set(al, "A", 0)
-    map_set(al, "B", 0)
-    map_set(al, "C", 0)
-    map_set(al, "D", 0)
-    map_set(al, "E", 0)
-    map_set(al, "F", 0)
-    map_set(al, "G", 0)
-    map_set(al, "H", 0)
-    map_set(al, "I", 0)
-    map_set(al, "J", 0)
-    map_set(al, "K", 0)
-    map_set(al, "L", 0)
-    map_set(al, "M", 0)
-    map_set(al, "N", 0)
-    map_set(al, "O", 0)
-    map_set(al, "P", 0)
-    map_set(al, "Q", 0)
-    map_set(al, "R", 0)
-    map_set(al, "S", 0)
-    map_set(al, "T", 0)
-    map_set(al, "U", 0)
-    map_set(al, "V", 0)
-    map_set(al, "W", 0)
-    map_set(al, "X", 0)
-    map_set(al, "Y", 0)
-    map_set(al, "Z", 0)
-    map_set(al, "_", 0)
+    // Character classes (src/lexer.c is_alpha / is_digit), as code-point
+    // ranges so no per-character allocation or map lookup is needed:
+    //   is_digit(c): '0'..'9' -> 48..57
+    //   is_alpha(c): 'a'..'z' (97..122), 'A'..'Z' (65..90), '_' (95)
 
     n = len(source)
+    // A non-owning view carrying the byte length: `sv[pos]` is an O(1)
+    // bounds-checked byte read (the length comes from the slice, not a
+    // per-read strlen). All reads are guarded with `pos < n ?` so an
+    // out-of-range probe yields 0 instead of the slice's abort path.
+    sv = source[0..n]
     pos <- 0
     line <- 1
     pend_c <- -1
@@ -140,19 +85,20 @@ lex_scan source:str path:str toks:vec[Token] : i64 -> {
         // before a token survives, exactly like the C lexer's overwrite).
         ws <- true
         [ws] {
-            wc = str_sub(source, pos, pos + 1)
+            wc <- pos < n ? sv[pos] : 0
             hit <- false
-            str_eq(wc, " ") || str_eq(wc, "\r") || str_eq(wc, "\t") ? {
+            wc == 32 || wc == 13 || wc == 9 ? {
                 pos += 1
                 hit <- true
             }
-            !hit && str_eq(wc, "/") && str_eq(str_sub(source, pos + 1, pos + 2), "/") ? {
+            !hit && wc == 47 && pos + 1 < n && sv[pos + 1] == 47 ? {
                 pend_c <- pos
-                [pos < n && !str_eq(str_sub(source, pos, pos + 1), "\n")] { pos += 1 }
+                [pos < n && sv[pos] != 10] { pos += 1 }
                 pend_l <- pos - pend_c
                 hit <- true
             }
-            !hit ? { ws <- false }        }
+            !hit ? { ws <- false }
+        }
 
         start = pos
         pos >= n ? {
@@ -164,18 +110,22 @@ lex_scan source:str path:str toks:vec[Token] : i64 -> {
             eof <- true
         }
         !eof ? {
-            c0 = str_sub(source, pos, pos + 1)
+            c0 <- sv[pos]
             pos += 1
             k <- -1
 
             // '\n' produces a NEWLINE token; line increments afterwards.
-            k == -1 && str_eq(c0, "\n") ? { k <- TokenKind.Newline }
+            k == -1 && c0 == 10 ? { k <- TokenKind.Newline }
             // identifier(): [A-Za-z_][A-Za-z0-9_]*. A BARE '_' (length 1)
             // is TOK_UNDERSCORE; longer identifiers starting with '_' are
             // TOK_IDENT (Pre-M13 S1: reserved for compiler temporaries).
-            k == -1 && map_has(al, c0) ? {
-                [map_has(al, str_sub(source, pos, pos + 1)) || map_has(dig, str_sub(source, pos, pos + 1))] { pos += 1 }
-                str_eq(c0, "_") && pos - start == 1 ? { k <- TokenKind.Underscore }
+            k == -1 && ((c0 >= 97 && c0 <= 122) || (c0 >= 65 && c0 <= 90) || c0 == 95) ? {
+                nxt <- pos < n ? sv[pos] : 0
+                [((nxt >= 97 && nxt <= 122) || (nxt >= 65 && nxt <= 90) || nxt == 95) || (nxt >= 48 && nxt <= 57)] {
+                    pos += 1
+                    nxt <- pos < n ? sv[pos] : 0
+                }
+                c0 == 95 && pos - start == 1 ? { k <- TokenKind.Underscore }
                 k == -1 ? {
                     kk = map_get(kw, str_sub(source, start, pos))
                     k <- kk == -1 ? TokenKind.Ident : kk
@@ -184,36 +134,46 @@ lex_scan source:str path:str toks:vec[Token] : i64 -> {
 
             // number(): digits/underscores; '.' starts a FLOAT only when
             // followed by a digit (peek_next), fraction also allows '_'.
-            k == -1 && map_has(dig, c0) ? {
-                [map_has(dig, str_sub(source, pos, pos + 1)) || str_eq(str_sub(source, pos, pos + 1), "_")] { pos += 1 }
-                str_eq(str_sub(source, pos, pos + 1), ".") && map_has(dig, str_sub(source, pos + 1, pos + 2)) ? {
+            k == -1 && c0 >= 48 && c0 <= 57 ? {
+                nxt <- pos < n ? sv[pos] : 0
+                [(nxt >= 48 && nxt <= 57) || nxt == 95] {
                     pos += 1
-                    [map_has(dig, str_sub(source, pos, pos + 1)) || str_eq(str_sub(source, pos, pos + 1), "_")] { pos += 1 }
+                    nxt <- pos < n ? sv[pos] : 0
+                }
+                nxt == 46 && pos + 1 < n && sv[pos + 1] >= 48 && sv[pos + 1] <= 57 ? {
+                    pos += 1
+                    nxt <- pos < n ? sv[pos] : 0
+                    [(nxt >= 48 && nxt <= 57) || nxt == 95] {
+                        pos += 1
+                        nxt <- pos < n ? sv[pos] : 0
+                    }
                     k <- TokenKind.Float
                 }
-                k == -1 ? { k <- TokenKind.Int }            }
+                k == -1 ? { k <- TokenKind.Int }
+            }
 
             // string(): scan to the closing quote. A raw newline inside is
             // E03 (line still counts up); '\' consumes the next char, and
             // only \\ \" \n \r \t \0 are valid escapes — anything else is
             // E01 at lex time. Running off the end is E02 + an EOF token.
-            k == -1 && str_eq(c0, "\"") ? {
+            k == -1 && c0 == 34 ? {
                 scanning <- true
                 [scanning] {
-                    sc = str_sub(source, pos, pos + 1)
-                    pos >= n || str_eq(sc, "\"") ? { scanning <- false }                    scanning ? {
-                        str_eq(sc, "\n") ? {
+                    sc <- pos < n ? sv[pos] : 0
+                    pos >= n || sc == 34 ? { scanning <- false }
+                    scanning ? {
+                        sc == 10 ? {
                             has_err <- 1
                             eprint(diag_line(path, line, 3, "newline in string literal"))
                             line += 1
                         }
-                        str_eq(sc, "\\") && pos + 1 < n ? {
+                        sc == 92 && pos + 1 < n ? {
                             pos += 1
-                            ec = str_sub(source, pos, pos + 1)
-                            valid_esc = str_eq(ec, "\\") || str_eq(ec, "\"") || str_eq(ec, "n") || str_eq(ec, "r") || str_eq(ec, "t") || str_eq(ec, "0")
+                            ec <- sv[pos]
+                            valid_esc = ec == 92 || ec == 34 || ec == 110 || ec == 114 || ec == 116 || ec == 48
                             !valid_esc ? {
                                 has_err <- 1
-                                eprint(diag_line(path, line, 1, str_cat(str_cat("unsupported escape sequence '\\", ec), "'")))
+                                eprint(diag_line(path, line, 1, str_cat(str_cat("unsupported escape sequence '\\", str_sub(source, pos, pos + 1)), "'")))
                             }
                         }
                         pos += 1
@@ -228,64 +188,87 @@ lex_scan source:str path:str toks:vec[Token] : i64 -> {
             }
 
             // Single-character punctuation.
-            k == -1 && str_eq(c0, "{") ? { k <- TokenKind.Lbrace }            k == -1 && str_eq(c0, "}") ? { k <- TokenKind.Rbrace }            k == -1 && str_eq(c0, "(") ? { k <- TokenKind.Lparen }            k == -1 && str_eq(c0, ")") ? { k <- TokenKind.Rparen }            k == -1 && str_eq(c0, "[") ? { k <- TokenKind.Lbracket }            k == -1 && str_eq(c0, "]") ? { k <- TokenKind.Rbracket }            k == -1 && str_eq(c0, ",") ? { k <- TokenKind.Comma }            k == -1 && str_eq(c0, ";") ? { k <- TokenKind.Semicolon }            k == -1 && str_eq(c0, "^") ? { k <- TokenKind.Caret }
+            k == -1 && c0 == 123 ? { k <- TokenKind.Lbrace }
+            k == -1 && c0 == 125 ? { k <- TokenKind.Rbrace }
+            k == -1 && c0 == 40 ? { k <- TokenKind.Lparen }
+            k == -1 && c0 == 41 ? { k <- TokenKind.Rparen }
+            k == -1 && c0 == 91 ? { k <- TokenKind.Lbracket }
+            k == -1 && c0 == 93 ? { k <- TokenKind.Rbracket }
+            k == -1 && c0 == 44 ? { k <- TokenKind.Comma }
+            k == -1 && c0 == 59 ? { k <- TokenKind.Semicolon }
+            k == -1 && c0 == 94 ? { k <- TokenKind.Caret }
             // Multi-character operators: each match() consumes on success.
-            k == -1 && str_eq(c0, "?") ? {
-                str_eq(str_sub(source, pos, pos + 1), "?") ? { pos += 1; k <- TokenKind.QuestionQuestion }
-                k == -1 ? { k <- TokenKind.Question }            }
-            k == -1 && str_eq(c0, ".") ? {
-                str_eq(str_sub(source, pos, pos + 1), ".") ? {
+            k == -1 && c0 == 63 ? {
+                (pos < n ? sv[pos] : 0) == 63 ? { pos += 1; k <- TokenKind.QuestionQuestion }
+                k == -1 ? { k <- TokenKind.Question }
+            }
+            k == -1 && c0 == 46 ? {
+                (pos < n ? sv[pos] : 0) == 46 ? {
                     pos += 1
-                    str_eq(str_sub(source, pos, pos + 1), ".") ? { pos += 1; k <- TokenKind.DotDotDot }
-                    k == -1 ? { k <- TokenKind.DotDot }                }
-                k == -1 ? { k <- TokenKind.Dot }            }
-            k == -1 && str_eq(c0, "+") ? {
-                str_eq(str_sub(source, pos, pos + 1), "=") ? { pos += 1; k <- TokenKind.PlusEq }
-                k == -1 ? { k <- TokenKind.Plus }            }
-            k == -1 && str_eq(c0, "-") ? {
-                str_eq(str_sub(source, pos, pos + 1), "=") ? { pos += 1; k <- TokenKind.MinusEq }
-                k == -1 && str_eq(str_sub(source, pos, pos + 1), ">") ? { pos += 1; k <- TokenKind.Rarrow }
-                k == -1 ? { k <- TokenKind.Minus }            }
-            k == -1 && str_eq(c0, "*") ? {
-                str_eq(str_sub(source, pos, pos + 1), "=") ? { pos += 1; k <- TokenKind.StarEq }
-                k == -1 ? { k <- TokenKind.Star }            }
-            k == -1 && str_eq(c0, "/") ? {
-                str_eq(str_sub(source, pos, pos + 1), "=") ? { pos += 1; k <- TokenKind.SlashEq }
-                k == -1 ? { k <- TokenKind.Slash }            }
-            k == -1 && str_eq(c0, "%") ? {
-                str_eq(str_sub(source, pos, pos + 1), "=") ? { pos += 1; k <- TokenKind.PercentEq }
-                k == -1 ? { k <- TokenKind.Percent }            }
-            k == -1 && str_eq(c0, "=") ? {
-                str_eq(str_sub(source, pos, pos + 1), "=") ? { pos += 1; k <- TokenKind.EqEq }
-                k == -1 && str_eq(str_sub(source, pos, pos + 1), ">") ? { pos += 1; k <- TokenKind.FatArrow }
-                k == -1 ? { k <- TokenKind.Eq }            }
-            k == -1 && str_eq(c0, "!") ? {
-                str_eq(str_sub(source, pos, pos + 1), "=") ? { pos += 1; k <- TokenKind.BangEq }
-                k == -1 ? { k <- TokenKind.Bang }            }
-            k == -1 && str_eq(c0, "<") ? {
-                str_eq(str_sub(source, pos, pos + 1), "=") ? { pos += 1; k <- TokenKind.Lte }
-                k == -1 && str_eq(str_sub(source, pos, pos + 1), "<") ? { pos += 1; k <- TokenKind.Lshift }
-                k == -1 && str_eq(str_sub(source, pos, pos + 1), "-") ? { pos += 1; k <- TokenKind.Larrow }
-                k == -1 ? { k <- TokenKind.Lt }            }
-            k == -1 && str_eq(c0, ">") ? {
-                str_eq(str_sub(source, pos, pos + 1), "=") ? { pos += 1; k <- TokenKind.Gte }
-                k == -1 && str_eq(str_sub(source, pos, pos + 1), ">") ? { pos += 1; k <- TokenKind.Rshift }
-                k == -1 ? { k <- TokenKind.Gt }            }
-            k == -1 && str_eq(c0, "&") ? {
-                str_eq(str_sub(source, pos, pos + 1), "&") ? { pos += 1; k <- TokenKind.AndAnd }
-                k == -1 ? { k <- TokenKind.Amp }            }
-            k == -1 && str_eq(c0, "|") ? {
-                str_eq(str_sub(source, pos, pos + 1), "|") ? { pos += 1; k <- TokenKind.OrOr }
-                k == -1 ? { k <- TokenKind.Pipe }            }
-            k == -1 && str_eq(c0, ":") ? {
-                str_eq(str_sub(source, pos, pos + 1), "=") ? { pos += 1; k <- TokenKind.ColonEq }
-                k == -1 ? { k <- TokenKind.Colon }            }
+                    (pos < n ? sv[pos] : 0) == 46 ? { pos += 1; k <- TokenKind.DotDotDot }
+                    k == -1 ? { k <- TokenKind.DotDot }
+                }
+                k == -1 ? { k <- TokenKind.Dot }
+            }
+            k == -1 && c0 == 43 ? {
+                (pos < n ? sv[pos] : 0) == 61 ? { pos += 1; k <- TokenKind.PlusEq }
+                k == -1 ? { k <- TokenKind.Plus }
+            }
+            k == -1 && c0 == 45 ? {
+                (pos < n ? sv[pos] : 0) == 61 ? { pos += 1; k <- TokenKind.MinusEq }
+                k == -1 && (pos < n ? sv[pos] : 0) == 62 ? { pos += 1; k <- TokenKind.Rarrow }
+                k == -1 ? { k <- TokenKind.Minus }
+            }
+            k == -1 && c0 == 42 ? {
+                (pos < n ? sv[pos] : 0) == 61 ? { pos += 1; k <- TokenKind.StarEq }
+                k == -1 ? { k <- TokenKind.Star }
+            }
+            k == -1 && c0 == 47 ? {
+                (pos < n ? sv[pos] : 0) == 61 ? { pos += 1; k <- TokenKind.SlashEq }
+                k == -1 ? { k <- TokenKind.Slash }
+            }
+            k == -1 && c0 == 37 ? {
+                (pos < n ? sv[pos] : 0) == 61 ? { pos += 1; k <- TokenKind.PercentEq }
+                k == -1 ? { k <- TokenKind.Percent }
+            }
+            k == -1 && c0 == 61 ? {
+                (pos < n ? sv[pos] : 0) == 61 ? { pos += 1; k <- TokenKind.EqEq }
+                k == -1 && (pos < n ? sv[pos] : 0) == 62 ? { pos += 1; k <- TokenKind.FatArrow }
+                k == -1 ? { k <- TokenKind.Eq }
+            }
+            k == -1 && c0 == 33 ? {
+                (pos < n ? sv[pos] : 0) == 61 ? { pos += 1; k <- TokenKind.BangEq }
+                k == -1 ? { k <- TokenKind.Bang }
+            }
+            k == -1 && c0 == 60 ? {
+                (pos < n ? sv[pos] : 0) == 61 ? { pos += 1; k <- TokenKind.Lte }
+                k == -1 && (pos < n ? sv[pos] : 0) == 60 ? { pos += 1; k <- TokenKind.Lshift }
+                k == -1 && (pos < n ? sv[pos] : 0) == 45 ? { pos += 1; k <- TokenKind.Larrow }
+                k == -1 ? { k <- TokenKind.Lt }
+            }
+            k == -1 && c0 == 62 ? {
+                (pos < n ? sv[pos] : 0) == 61 ? { pos += 1; k <- TokenKind.Gte }
+                k == -1 && (pos < n ? sv[pos] : 0) == 62 ? { pos += 1; k <- TokenKind.Rshift }
+                k == -1 ? { k <- TokenKind.Gt }
+            }
+            k == -1 && c0 == 38 ? {
+                (pos < n ? sv[pos] : 0) == 38 ? { pos += 1; k <- TokenKind.AndAnd }
+                k == -1 ? { k <- TokenKind.Amp }
+            }
+            k == -1 && c0 == 124 ? {
+                (pos < n ? sv[pos] : 0) == 124 ? { pos += 1; k <- TokenKind.OrOr }
+                k == -1 ? { k <- TokenKind.Pipe }
+            }
+            k == -1 && c0 == 58 ? {
+                (pos < n ? sv[pos] : 0) == 61 ? { pos += 1; k <- TokenKind.ColonEq }
+                k == -1 ? { k <- TokenKind.Colon }
+            }
 
             // Anything else is E01; lexer_next returns an EOF token, which
             // makes the dump loop stop right here.
             k == -1 ? {
                 has_err <- 1
-                eprint(diag_line(path, line, 1, str_cat(str_cat("unexpected character '", c0), "'")))
+                eprint(diag_line(path, line, 1, str_cat(str_cat("unexpected character '", str_sub(source, pos - 1, pos)), "'")))
                 k <- TokenKind.Eof
             }
 
@@ -296,7 +279,9 @@ lex_scan source:str path:str toks:vec[Token] : i64 -> {
 
             // The stream ends at the first EOF token; '\n' bumps the line
             // counter after its NEWLINE token was made, like make_token.
-            k == TokenKind.Eof ? { eof <- true }            k == TokenKind.Newline ? { line += 1 }        }
+            k == TokenKind.Eof ? { eof <- true }
+            k == TokenKind.Newline ? { line += 1 }
+        }
     }
     has_err
 }

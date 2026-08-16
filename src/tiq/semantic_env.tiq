@@ -1,0 +1,69 @@
+// M13.4-S3: environment, scope, and registry primitives for the
+// self-hosted semantic checker — split from semantic.tiq. The EF/CX
+// enums are defined here so the flattened module order puts them
+// before every use.
+import "lexer.tiq"
+
+// Env symbol: names in env_names:vec[str], data in env_data:vec[int]
+// with EW=4 slots per binding: mut, moved, type, line.
+enum EF { EMut, EMoved, EType, ELine }
+// Context: packed into ctx:vec[int].
+enum CX { HasErr, Fatal, LoopDepth, InRange, IsStd }
+
+
+// diag_error(): path:line: error[E%02d]: msg. E07 is fatal → suppresses later diag.
+s_diag ctx:vec[int] path:str ln:i64 code:i64 msg:str : i64 -> {
+    vec_get(ctx, CX.Fatal) == 0 ? {
+        vec_set(ctx, CX.HasErr, 1); eprint(diag_line(path, ln, code, msg))
+        code == 7 ? { vec_set(ctx, CX.Fatal, 1) }
+    }
+    0
+}
+
+env_lookup en:vec[str] ed:vec[int] name:str : i64 -> {
+    r <- 0 - 1; i <- vec_len(en) - 1
+    [i >= 0] { str_eq(vec_get(en, i), name) ? { r <- i; break }; i <- i - 1 }; r
+}
+env_define en:vec[str] ed:vec[int] sc:vec[int] name:str is_mut:i64 tp:i64 ln:i64 : i64 -> {
+    dup <- 0; ss <- vec_len(en)
+    vec_len(sc) > 0 ? { ss <- vec_get(sc, vec_len(sc) - 1) }    i <- vec_len(en) - 1
+    [i >= ss && dup == 0] { str_eq(vec_get(en, i), name) ? { dup <- 1; break }; i <- i - 1 }
+    dup == 0 ? { vec_push(en, name); vec_push(ed, is_mut); vec_push(ed, 0); vec_push(ed, tp); vec_push(ed, ln) }
+    dup == 0 ? 1 : 0
+}
+env_push_scope sc:vec[int] en:vec[str] : i64 -> { vec_push(sc, vec_len(en)); 0 }
+env_pop_scope sc:vec[int] en:vec[str] ed:vec[int] : i64 -> {
+    b <- 0; vec_len(sc) > 0 ? { b <- vec_get(sc, vec_len(sc) - 1); drop2 <- vec_pop(sc) }
+    [vec_len(en) > b] { d4 <- vec_pop(ed); d3 <- vec_pop(ed); d2 <- vec_pop(ed); d1 <- vec_pop(ed); dn <- vec_pop(en) }; 0
+}
+env_set_moved en:vec[str] ed:vec[int] name:str : i64 -> {
+    i <- vec_len(en) - 1
+    [i >= 0] { str_eq(vec_get(en, i), name) ? { vec_set(ed, i * 4 + 1, 1); break }; i <- i - 1 }; 0
+}
+env_set_type en:vec[str] ed:vec[int] name:str tp:i64 : i64 -> {
+    i <- vec_len(en) - 1
+    [i >= 0] { str_eq(vec_get(en, i), name) ? { vec_set(ed, i * 4 + 2, tp); break }; i <- i - 1 }; 0
+}
+
+// Struct name registry: names in st_names (flat), types in st_meta (flat,
+// parallel). Mirrors C's ctx->structs table: single-pass, forward-scan
+// (earliest definition wins for duplicates).
+struct_lookup st_names:vec[str] name:str : i64 -> {
+    r <- 0 - 1; i <- 0
+    [i < vec_len(st_names) && r == -1] { str_eq(vec_get(st_names, i), name) ? { r <- i; break }; i <- i + 1 }
+    r
+}
+
+// Enum registry: en_data holds three slots per enum —
+// [name_pos, var_base, var_count]. name_pos is the index in en_reg of the
+// enum-name pair, var_base the index of the first variant-name pair, and
+// var_count the number of variants. Variant pairs live in en_reg after the
+// name pair, so en_reg stays the single string store.
+enum_lookup en_reg:vec[str] en_data:vec[int] name:str : i64 -> {
+    r <- 0 - 1; i <- 0
+    [i < vec_len(en_data) / 3 && r == -1] {
+        str_eq(vec_get(en_reg, vec_get(en_data, i * 3)), name) ? { r <- i }        i <- i + 1
+    }
+    r
+}
+

@@ -1,0 +1,260 @@
+// M13.4-S3: builtin arity/type checking for the self-hosted semantic
+// checker — split from semantic.tiq. is_gated_name (M15) lives here.
+import "ast.tiq"
+import "type.tiq"
+import "semantic_env.tiq"
+import "semantic_types.tiq"
+
+// M15: gated domain builtins — only recognized inside std/ module wrappers.
+// json_view stays ungated: its str_view result cannot be wrapped in a
+// function; ev_loop and dl_error stay ungated: zero-parameter functions
+// cannot be defined in Tiq. All remain core builtins (same as the C
+// bootstrap).
+is_gated_name n:str : bool ->
+    str_eq(n, "json_parse_int") || str_eq(n, "json_encode_str") || str_eq(n, "json_get") ||
+    str_eq(n, "json_arr_len") || str_eq(n, "json_arr_get") ||
+    str_eq(n, "json_has") || str_eq(n, "json_set") || str_eq(n, "json_del") ||
+    str_eq(n, "net_fetch") || str_eq(n, "net_listen") || str_eq(n, "net_accept") ||
+    str_eq(n, "net_connect") || str_eq(n, "net_recv") || str_eq(n, "net_send") ||
+    str_eq(n, "net_close") || str_eq(n, "net_port") || str_eq(n, "net_shutdown") ||
+    str_eq(n, "http_method") || str_eq(n, "http_path") || str_eq(n, "http_header") ||
+    str_eq(n, "ev_add") || str_eq(n, "ev_wait") || str_eq(n, "ev_ready") ||
+    str_eq(n, "dl_open") || str_eq(n, "dl_sym") || str_eq(n, "dl_call")
+
+// vec/strbuf/map builtin checkers (args already checked by caller).
+chk_vec src:str toks:vec[Token] ctx:vec[int] path:str nodes:vec[int] kids:vec[int] types:vec[int] en:vec[str] ed:vec[int] tp:vec[int] tpn:vec[str] ni:i64 nm:str : i64 -> {
+    s1 <- nd_get(nodes, ni, NF.L1s); c1 <- nd_get(nodes, ni, NF.L1n)
+    isn <- str_eq(nm, "vec_new") ? 1 : 0; iswa <- str_eq(nm, "vec_with_allocator") ? 1 : 0
+    isp <- str_eq(nm, "vec_push") ? 1 : 0
+    isg <- str_eq(nm, "vec_get") ? 1 : 0; iss <- str_eq(nm, "vec_set") ? 1 : 0
+    isl <- str_eq(nm, "vec_len") ? 1 : 0; iso <- str_eq(nm, "vec_pop") ? 1 : 0
+    ar <- isn == 1 ? 0 : (iswa == 1 || isl == 1 || iso == 1) ? 1 : (isp == 1 || isg == 1) ? 2 : 3
+    c1 != ar ? {
+        msg <- ar == 0 ? str_cat(nm, " expects no arguments") : str_cat(str_cat(str_cat(nm, " expects exactly "), int_str(ar)), ar == 1 ? " argument" : " arguments")
+        s_diag(ctx, path, tk_line(toks, nd_get(nodes, ni, NF.Tok)), 12, msg)
+        vec_set(types, ni, (isn == 1 || iswa == 1) ? ty_vec(tp, tpn, 0 - 1) : (isg == 1 || iso == 1) ? ty_get(tp, tpn, TY.Unknown) : ty_get(tp, tpn, TY.Int))
+    }
+    c1 == ar && isn == 1 ? {
+        vec_set(types, ni, ty_vec(tp, tpn, 0 - 1))
+    }
+    c1 == ar && iswa == 1 ? {
+        ai0 <- c1 > 0 ? vec_get(kids, s1) : 0 - 1
+        at <- ai0 != 0 - 1 ? vec_get(types, ai0) : 0 - 1
+        unify(ctx, path, tk_line(toks, nd_get(nodes, ni, NF.Tok)), tp, tpn, ty_get(tp, tpn, TY.Int), at, "vec_with_allocator argument")
+        vec_set(types, ni, ty_vec(tp, tpn, 0 - 1))
+    }
+    c1 == ar && isn == 0 && iswa == 0 ? {
+        ai0 <- c1 > 0 ? vec_get(kids, s1) : 0 - 1
+        vt <- ai0 != 0 - 1 ? vec_get(types, ai0) : 0 - 1
+        unify(ctx, path, tk_line(toks, nd_get(nodes, ni, NF.Tok)), tp, tpn, ty_get(tp, tpn, TY.Vec), vt, str_cat(nm, " argument"))
+        isg == 1 || iss == 1 ? {
+            ai1 <- c1 > 1 ? vec_get(kids, s1 + 1) : 0 - 1
+            it <- ai1 != 0 - 1 ? vec_get(types, ai1) : 0 - 1
+            unify(ctx, path, tk_line(toks, nd_get(nodes, ni, NF.Tok)), tp, tpn, ty_get(tp, tpn, TY.Int), it, str_cat(nm, " index"))
+        }
+        el <- vt != 0 - 1 && vec_get(tp, vt * 8 + TF.Kind) == TY.Vec ? vec_get(tp, vt * 8 + TF.Elem) : 0 - 1
+        isp == 1 ? {
+            ai1 <- c1 > 1 ? vec_get(kids, s1 + 1) : 0 - 1
+            et <- ai1 != 0 - 1 ? vec_get(types, ai1) : 0 - 1
+            el == 0 - 1 ? {
+                et != 0 - 1 && vec_get(tp, et * 8 + TF.Kind) != TY.Unknown ? {
+                    vec_elem_ok(vec_get(tp, et * 8 + TF.Kind)) == 0 ? { s_diag(ctx, path, tk_line(toks, nd_get(nodes, ni, NF.Tok)), 9, "vec_push element must be int, str, or a struct") }
+                    vec_elem_ok(vec_get(tp, et * 8 + TF.Kind)) == 1 && vt != 0 - 1 && vec_get(tp, vt * 8 + TF.Kind) == TY.Vec ? {
+                        nv <- ty_vec(tp, tpn, et)
+                        ai0 != 0 - 1 && nd_get(nodes, ai0, NF.Kind) == AstKind.Identifier ? {
+                            sn <- env_lookup(en, ed, tk_lex(src, toks, nd_get(nodes, ai0, NF.Name)))
+                            sn != 0 - 1 && vec_get(ed, sn * 4 + 2) == vt ? { env_set_type(en, ed, tk_lex(src, toks, nd_get(nodes, ai0, NF.Name)), nv) }
+                            vec_set(types, ai0, nv)
+                        }
+                    }
+                }
+            }
+            el != 0 - 1 && et != 0 - 1 && vec_get(tp, et * 8 + TF.Kind) != TY.Unknown && vec_elem_same(tp, el, et) == 0 ? {
+                msg <- str_cat(str_cat("vec_push element: expected ", disp(tp, tpn, el)), str_cat(", found ", disp(tp, tpn, et)))
+                s_diag(ctx, path, tk_line(toks, nd_get(nodes, ni, NF.Tok)), 9, msg)
+            }
+            vec_set(types, ni, ty_get(tp, tpn, TY.Int))
+        }
+        isl == 1 ? {
+            vec_set(types, ni, ty_get(tp, tpn, TY.Int))
+        }
+        isp == 0 && isl == 0 && el == 0 - 1 ? {
+            vt == 0 - 1 || vec_get(tp, vt * 8 + TF.Kind) == TY.Vec || vec_get(tp, vt * 8 + TF.Kind) == TY.Unknown ? {
+                s_diag(ctx, path, tk_line(toks, nd_get(nodes, ni, NF.Tok)), 9, str_cat(nm, " on a vec with no established element type (no vec_push yet)"))
+            }
+            vec_set(types, ni, iss == 1 ? ty_get(tp, tpn, TY.Int) : ty_get(tp, tpn, TY.Unknown))
+        }
+        isp == 0 && isl == 0 && el != 0 - 1 && iss == 1 ? {
+            ai2 <- c1 > 2 ? vec_get(kids, s1 + 2) : 0 - 1
+            et <- ai2 != 0 - 1 ? vec_get(types, ai2) : 0 - 1
+            et != 0 - 1 && vec_get(tp, et * 8 + TF.Kind) != TY.Unknown && vec_elem_same(tp, el, et) == 0 ? {
+                msg <- str_cat(str_cat("vec_set element: expected ", disp(tp, tpn, el)), str_cat(", found ", disp(tp, tpn, et)))
+                s_diag(ctx, path, tk_line(toks, nd_get(nodes, ni, NF.Tok)), 9, msg)
+            }
+            vec_set(types, ni, ty_get(tp, tpn, TY.Int))
+        }
+        isp == 0 && isl == 0 && el != 0 - 1 && (isg == 1 || iso == 1) ? {
+            vec_set(types, ni, el)
+        }
+    }
+    0
+}
+chk_sb ctx:vec[int] path:str toks:vec[Token] nodes:vec[int] kids:vec[int] types:vec[int] tp:vec[int] tpn:vec[str] ni:i64 nm:str : i64 -> {
+    s1 <- nd_get(nodes, ni, NF.L1s); c1 <- nd_get(nodes, ni, NF.L1n)
+    isn <- str_eq(nm, "str_buf_new") ? 1 : 0; iswa <- str_eq(nm, "str_buf_with_allocator") ? 1 : 0
+    isa <- str_eq(nm, "str_buf_append") ? 1 : 0; ist <- str_eq(nm, "str_buf_to_str") ? 1 : 0
+    ar <- isn == 1 ? 0 : isa == 1 ? 2 : 1
+    c1 != ar ? {
+        msg <- ar == 0 ? str_cat(nm, " expects no arguments") : str_cat(str_cat(str_cat(nm, " expects exactly "), int_str(ar)), ar == 1 ? " argument" : " arguments")
+        s_diag(ctx, path, tk_line(toks, nd_get(nodes, ni, NF.Tok)), 12, msg)
+        vec_set(types, ni, (isn == 1 || iswa == 1) ? ty_get(tp, tpn, TY.Strbuf) : ist == 1 ? ty_get(tp, tpn, TY.Str) : ty_get(tp, tpn, TY.Int))
+    }
+    c1 == ar && isn == 1 ? {
+        vec_set(types, ni, ty_get(tp, tpn, TY.Strbuf))
+    }
+    c1 == ar && iswa == 1 ? {
+        ai0 <- c1 > 0 ? vec_get(kids, s1) : 0 - 1
+        at <- ai0 != 0 - 1 ? vec_get(types, ai0) : 0 - 1
+        unify(ctx, path, tk_line(toks, nd_get(nodes, ni, NF.Tok)), tp, tpn, ty_get(tp, tpn, TY.Int), at, "str_buf_with_allocator argument")
+        vec_set(types, ni, ty_get(tp, tpn, TY.Strbuf))
+    }
+    c1 == ar && isn == 0 && iswa == 0 ? {
+        ai0 <- c1 > 0 ? vec_get(kids, s1) : 0 - 1
+        bt <- ai0 != 0 - 1 ? vec_get(types, ai0) : 0 - 1
+        unify(ctx, path, tk_line(toks, nd_get(nodes, ni, NF.Tok)), tp, tpn, ty_get(tp, tpn, TY.Strbuf), bt, str_cat(nm, " argument"))
+        isa == 1 ? {
+            ai1 <- c1 > 1 ? vec_get(kids, s1 + 1) : 0 - 1
+            st <- ai1 != 0 - 1 ? vec_get(types, ai1) : 0 - 1
+            unify(ctx, path, tk_line(toks, nd_get(nodes, ni, NF.Tok)), tp, tpn, ty_get(tp, tpn, TY.Str), st, "str_buf_append value")
+        }
+        vec_set(types, ni, ist == 1 ? ty_get(tp, tpn, TY.Str) : ty_get(tp, tpn, TY.Int))
+    }
+    0
+}
+chk_map ctx:vec[int] path:str toks:vec[Token] nodes:vec[int] kids:vec[int] types:vec[int] tp:vec[int] tpn:vec[str] ni:i64 nm:str : i64 -> {
+    s1 <- nd_get(nodes, ni, NF.L1s); c1 <- nd_get(nodes, ni, NF.L1n)
+    isn <- str_eq(nm, "map_new") ? 1 : 0; iswa <- str_eq(nm, "map_with_allocator") ? 1 : 0
+    iss <- str_eq(nm, "map_set") ? 1 : 0; isg <- str_eq(nm, "map_get") ? 1 : 0; ish <- str_eq(nm, "map_has") ? 1 : 0; isk <- str_eq(nm, "map_key_at") ? 1 : 0; isv <- str_eq(nm, "map_val_at") ? 1 : 0
+    ar <- isn == 1 ? 0 : iss == 1 ? 3 : (isg == 1 || ish == 1 || isk == 1 || isv == 1) ? 2 : 1
+    ret <- (isn == 1 || iswa == 1) ? TY.Map : ish == 1 ? TY.Bool : isk == 1 ? TY.Str : TY.Int
+    c1 != ar ? {
+        msg <- ar == 0 ? str_cat(nm, " expects no arguments") : str_cat(str_cat(str_cat(nm, " expects exactly "), int_str(ar)), ar == 1 ? " argument" : " arguments")
+        s_diag(ctx, path, tk_line(toks, nd_get(nodes, ni, NF.Tok)), 12, msg)
+        vec_set(types, ni, ty_get(tp, tpn, ret))
+    }
+    c1 == ar && isn == 1 ? {
+        vec_set(types, ni, ty_get(tp, tpn, TY.Map))
+    }
+    c1 == ar && iswa == 1 ? {
+        ai0 <- c1 > 0 ? vec_get(kids, s1) : 0 - 1
+        at <- ai0 != 0 - 1 ? vec_get(types, ai0) : 0 - 1
+        unify(ctx, path, tk_line(toks, nd_get(nodes, ni, NF.Tok)), tp, tpn, ty_get(tp, tpn, TY.Int), at, "map_with_allocator argument")
+        vec_set(types, ni, ty_get(tp, tpn, TY.Map))
+    }
+    c1 == ar && isn == 0 && iswa == 0 ? {
+        ai0 <- c1 > 0 ? vec_get(kids, s1) : 0 - 1
+        mt <- ai0 != 0 - 1 ? vec_get(types, ai0) : 0 - 1
+        unify(ctx, path, tk_line(toks, nd_get(nodes, ni, NF.Tok)), tp, tpn, ty_get(tp, tpn, TY.Map), mt, str_cat(nm, " argument"))
+        iss == 1 || isg == 1 || ish == 1 ? {
+            ai1 <- c1 > 1 ? vec_get(kids, s1 + 1) : 0 - 1
+            kt <- ai1 != 0 - 1 ? vec_get(types, ai1) : 0 - 1
+            unify(ctx, path, tk_line(toks, nd_get(nodes, ni, NF.Tok)), tp, tpn, ty_get(tp, tpn, TY.Str), kt, str_cat(nm, " key"))
+        }
+        iss == 1 ? {
+            ai2 <- c1 > 2 ? vec_get(kids, s1 + 2) : 0 - 1
+            vt <- ai2 != 0 - 1 ? vec_get(types, ai2) : 0 - 1
+            unify(ctx, path, tk_line(toks, nd_get(nodes, ni, NF.Tok)), tp, tpn, ty_get(tp, tpn, TY.Int), vt, "map_set value")
+        }
+        isk == 1 || isv == 1 ? {
+            ai1 <- c1 > 1 ? vec_get(kids, s1 + 1) : 0 - 1
+            it <- ai1 != 0 - 1 ? vec_get(types, ai1) : 0 - 1
+            unify(ctx, path, tk_line(toks, nd_get(nodes, ni, NF.Tok)), tp, tpn, ty_get(tp, tpn, TY.Int), it, str_cat(nm, " index"))
+        }
+        vec_set(types, ni, ty_get(tp, tpn, ret))
+    }
+    0
+}
+
+chk_generic_arity nm:str : i64 -> {
+    ar <- 0 - 1
+    str_eq(nm, "str_cat") || str_eq(nm, "fs_write") || str_eq(nm, "str_eq") || str_eq(nm, "json_get") || str_eq(nm, "json_arr_get") || str_eq(nm, "json_view") || str_eq(nm, "json_has") || str_eq(nm, "json_del") || str_eq(nm, "net_send") || str_eq(nm, "http_header") || str_eq(nm, "ev_add") || str_eq(nm, "ev_wait") || str_eq(nm, "ev_ready") || str_eq(nm, "str_sub_code") ? { ar <- 2 }    str_eq(nm, "int_str") || str_eq(nm, "eprint") || str_eq(nm, "fs_read") || str_eq(nm, "fs_exists") || str_eq(nm, "fs_list") || str_eq(nm, "proc_exec") || str_eq(nm, "proc_exit") || str_eq(nm, "net_fetch") || str_eq(nm, "cli_arg") || str_eq(nm, "json_parse_int") || str_eq(nm, "json_encode_str") || str_eq(nm, "json_arr_len") || str_eq(nm, "net_listen") || str_eq(nm, "net_accept") || str_eq(nm, "net_connect") || str_eq(nm, "net_recv") || str_eq(nm, "net_close") || str_eq(nm, "net_port") || str_eq(nm, "net_shutdown") || str_eq(nm, "http_method") || str_eq(nm, "http_path") ? { ar <- 1 }    str_eq(nm, "str_sub") || str_eq(nm, "json_set") ? { ar <- 3 }    str_eq(nm, "cli_arg_count") || str_eq(nm, "ev_loop") || str_eq(nm, "clock_ms") || str_eq(nm, "dl_error") ? { ar <- 0 }    str_eq(nm, "dl_open") ? { ar <- 1 }    str_eq(nm, "dl_sym") ? { ar <- 2 }    str_eq(nm, "dl_call") ? { ar <- 7 }    ar
+}
+
+// Generic builtin checker: returns 1 if matched, 0 if not.
+chk_generic ctx:vec[int] path:str toks:vec[Token] nodes:vec[int] kids:vec[int] types:vec[int] tp:vec[int] tpn:vec[str] ni:i64 nm:str c1:i64 : i64 -> {
+    ln <- tk_line(toks, nd_get(nodes, ni, NF.Tok))
+    r <- 0; hit <- 0
+    ar <- 0; exp <- 0; ret <- 0; exp2 <- 0
+    // Try each known builtin
+    str_eq(nm, "str_cat") ? { ar <- 2; exp <- TY.Str; ret <- TY.Str; exp2 <- 0; hit <- 1 }
+    str_eq(nm, "int_str") ? { ar <- 1; exp <- TY.Int; ret <- TY.Str; exp2 <- 0; hit <- 1 }
+    str_eq(nm, "str_sub") ? { ar <- 3; exp <- TY.Str; ret <- TY.Str; exp2 <- TY.Int; hit <- 1 }
+    str_eq(nm, "str_eq") ? { ar <- 2; exp <- TY.Str; ret <- TY.Bool; exp2 <- 0; hit <- 1 }
+    str_eq(nm, "str_sub_code") ? { ar <- 2; exp <- TY.Str; ret <- TY.Int; exp2 <- TY.Int; hit <- 1 }
+    str_eq(nm, "eprint") ? { ar <- 1; exp <- TY.Str; ret <- TY.Int; exp2 <- 0; hit <- 1 }
+    str_eq(nm, "fs_read") ? { ar <- 1; exp <- TY.Str; ret <- TY.Str; exp2 <- 0; hit <- 1 }
+    str_eq(nm, "fs_write") ? { ar <- 2; exp <- TY.Str; ret <- TY.Int; exp2 <- 0; hit <- 1 }
+    str_eq(nm, "fs_exists") ? { ar <- 1; exp <- TY.Str; ret <- TY.Bool; exp2 <- 0; hit <- 1 }
+    str_eq(nm, "fs_list") ? { ar <- 1; exp <- TY.Str; ret <- TY.Str; exp2 <- 0; hit <- 1 }
+    str_eq(nm, "proc_exec") ? { ar <- 1; exp <- TY.Str; ret <- TY.Int; exp2 <- 0; hit <- 1 }
+    str_eq(nm, "proc_exit") ? { ar <- 1; exp <- TY.Int; ret <- TY.Int; exp2 <- 0; hit <- 1 }
+    str_eq(nm, "net_fetch") ? { ar <- 1; exp <- TY.Str; ret <- TY.Str; exp2 <- 0; hit <- 1 }
+    str_eq(nm, "cli_arg_count") ? { ar <- 0; exp <- TY.Int; ret <- TY.Int; exp2 <- 0; hit <- 1 }
+    str_eq(nm, "cli_arg") ? { ar <- 1; exp <- TY.Int; ret <- TY.Str; exp2 <- 0; hit <- 1 }
+    str_eq(nm, "json_parse_int") ? { ar <- 1; exp <- TY.Str; ret <- TY.Int; exp2 <- 0; hit <- 1 }
+    str_eq(nm, "json_encode_str") ? { ar <- 1; exp <- TY.Str; ret <- TY.Str; exp2 <- 0; hit <- 1 }
+    str_eq(nm, "json_get") ? { ar <- 2; exp <- TY.Str; ret <- TY.Str; exp2 <- 0; hit <- 1 }
+    str_eq(nm, "json_arr_len") ? { ar <- 1; exp <- TY.Str; ret <- TY.Int; exp2 <- 0; hit <- 1 }
+    str_eq(nm, "json_arr_get") ? { ar <- 2; exp <- TY.Str; ret <- TY.Str; exp2 <- TY.Int; hit <- 1 }
+    str_eq(nm, "json_view") ? { ar <- 2; exp <- TY.Str; ret <- TY.StrView; exp2 <- 0; hit <- 1 }
+    str_eq(nm, "json_has") ? { ar <- 2; exp <- TY.Str; ret <- TY.Bool; exp2 <- 0; hit <- 1 }
+    str_eq(nm, "json_set") ? { ar <- 3; exp <- TY.Str; ret <- TY.Str; exp2 <- 0; hit <- 1 }
+    str_eq(nm, "json_del") ? { ar <- 2; exp <- TY.Str; ret <- TY.Str; exp2 <- 0; hit <- 1 }
+    str_eq(nm, "net_listen") ? { ar <- 1; exp <- TY.Int; ret <- TY.Int; exp2 <- 0; hit <- 1 }
+    str_eq(nm, "net_accept") ? { ar <- 1; exp <- TY.Int; ret <- TY.Int; exp2 <- 0; hit <- 1 }
+    str_eq(nm, "net_connect") ? { ar <- 1; exp <- TY.Int; ret <- TY.Int; exp2 <- 0; hit <- 1 }
+    str_eq(nm, "net_recv") ? { ar <- 1; exp <- TY.Int; ret <- TY.Str; exp2 <- 0; hit <- 1 }
+    str_eq(nm, "net_send") ? { ar <- 2; exp <- TY.Int; ret <- TY.Int; exp2 <- TY.Str; hit <- 1 }
+    str_eq(nm, "net_close") ? { ar <- 1; exp <- TY.Int; ret <- TY.Int; exp2 <- 0; hit <- 1 }
+    str_eq(nm, "net_port") ? { ar <- 1; exp <- TY.Int; ret <- TY.Int; exp2 <- 0; hit <- 1 }
+    str_eq(nm, "net_shutdown") ? { ar <- 1; exp <- TY.Int; ret <- TY.Int; exp2 <- 0; hit <- 1 }
+    str_eq(nm, "http_method") ? { ar <- 1; exp <- TY.Str; ret <- TY.Str; exp2 <- 0; hit <- 1 }
+    str_eq(nm, "http_path") ? { ar <- 1; exp <- TY.Str; ret <- TY.Str; exp2 <- 0; hit <- 1 }
+    str_eq(nm, "http_header") ? { ar <- 2; exp <- TY.Str; ret <- TY.Str; exp2 <- 0; hit <- 1 }
+    str_eq(nm, "ev_loop") ? { ar <- 0; exp <- TY.Int; ret <- TY.Int; exp2 <- 0; hit <- 1 }
+    str_eq(nm, "ev_add") ? { ar <- 2; exp <- TY.Int; ret <- TY.Int; exp2 <- TY.Int; hit <- 1 }
+    str_eq(nm, "ev_wait") ? { ar <- 2; exp <- TY.Int; ret <- TY.Int; exp2 <- TY.Int; hit <- 1 }
+    str_eq(nm, "ev_ready") ? { ar <- 2; exp <- TY.Int; ret <- TY.Int; exp2 <- TY.Int; hit <- 1 }
+    str_eq(nm, "clock_ms") ? { ar <- 0; exp <- TY.Int; ret <- TY.Int; exp2 <- 0; hit <- 1 }
+    // M16.4: dynamic library loading (LANGUAGE_SPEC §19.11).
+    str_eq(nm, "dl_open") ? { ar <- 1; exp <- TY.Str; ret <- TY.U64; exp2 <- 0; hit <- 1 }
+    str_eq(nm, "dl_sym") ? { ar <- 2; exp <- TY.U64; ret <- TY.U64; exp2 <- TY.Str; hit <- 1 }
+    str_eq(nm, "dl_error") ? { ar <- 0; exp <- TY.Int; ret <- TY.Str; exp2 <- 0; hit <- 1 }
+    str_eq(nm, "dl_call") ? { ar <- 7; exp <- TY.U64; ret <- TY.Int; exp2 <- TY.Int; hit <- 1 }
+    // M15: gated domain builtins only match inside std/ wrapper functions.
+    hit == 1 && is_gated_name(nm) && vec_get(ctx, CX.IsStd) == 0 ? { hit <- 0; r <- 0 }
+    hit == 0 ? { r <- 0 }    // hit == 1: check arity + arg types
+    hit == 1 && c1 != ar ? { msg <- str_cat(str_cat(str_cat(nm, " expects exactly "), int_str(ar)), ar == 1 ? " argument" : " arguments"); s_diag(ctx, path, ln, 12, msg); vec_set(types, ni, ty_get(tp, tpn, ret)); r <- 1; hit <- 0 }
+    hit == 1 && c1 == ar ? {
+        s1 <- nd_get(nodes, ni, NF.L1s)
+        j <- 0
+        [j < c1] {
+            ai <- vec_get(kids, s1 + j)
+            ai != 0 - 1 ? {
+                at <- vec_get(types, ai)
+                at != 0 - 1 ? {
+                    want <- j >= 1 && exp2 != 0 ? exp2 : exp
+                    ak <- vec_get(tp, at * 8 + TF.Kind)
+                    want != TY.Str || ak != TY.StrView ? {
+                        unify(ctx, path, ln, tp, tpn, ty_get(tp, tpn, want), at, str_cat(nm, " argument"))
+                    }
+                }
+            }
+            j <- j + 1
+        }
+        vec_set(types, ni, ty_get(tp, tpn, ret))
+        r <- 1
+    }
+    r
+}
+

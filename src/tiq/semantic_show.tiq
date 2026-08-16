@@ -1,0 +1,280 @@
+// M13.4-S3: typed-AST printer for the self-hosted semantic checker —
+// split from semantic.tiq.
+import "ast.tiq"
+import "type.tiq"
+
+// --- typed_ast_show: mirrors C ast_print with type suffixes ---
+// indent_print: print `n` two-space indents
+indent_print n:i64 : i64 -> { j <- 0; [j < n] { print("  "); j <- j + 1 }; 0 }
+
+typed_ast_show src:str toks:vec[Token] nodes:vec[int] kids:vec[int] types:vec[int] tp:vec[int] tpn:vec[str] ni:i64 indent:i64 : i64 -> {
+    ni != -1 ? {
+        k <- nd_get(nodes, ni, NF.Kind)
+        ts <- fmt_type(tp, tpn, vec_get(types, ni))
+        pd <- pad(indent)
+        d2 <- 0
+
+        // --- LITERAL ---
+        d2 == 0 && k == AstKind.Literal ? {
+            op <- nd_get(nodes, ni, NF.Op)
+            op == TokenKind.String ? { lx <- tk_lex(src, toks, nd_get(nodes, ni, NF.Tok)); print(str_cat(str_cat(pd, "STRING "), str_cat(lx, ts))); d2 <- 1 }
+            op == TokenKind.Int ? { lx <- tk_lex(src, toks, nd_get(nodes, ni, NF.Tok)); print(str_cat(str_cat(pd, "INT "), str_cat(lx, ts))); d2 <- 1 }
+            op == TokenKind.None ? { print(str_cat(pd, str_cat("LITERAL none", ts))); d2 <- 1 }
+            d2 == 0 ? { print(str_cat(pd, str_cat("LITERAL", ts))); d2 <- 1 }
+        }
+        // --- IDENTIFIER ---
+        d2 == 0 && k == AstKind.Identifier ? {
+            nm <- tk_lex(src, toks, nd_get(nodes, ni, NF.Name))
+            print(str_cat(str_cat(str_cat(pd, "IDENT "), nm), ts))
+            d2 <- 1
+        }
+        // --- BINARY ---
+        d2 == 0 && k == AstKind.Binary ? {
+            op <- nd_get(nodes, ni, NF.Op)
+            print(str_cat(str_cat(str_cat(pd, "BINARY "), token_kind_name(op)), ts))
+            typed_ast_show(src, toks, nodes, kids, types, tp, tpn, nd_get(nodes, ni, NF.A), indent + 1)
+            typed_ast_show(src, toks, nodes, kids, types, tp, tpn, nd_get(nodes, ni, NF.B), indent + 1)
+            d2 <- 1
+        }
+        // --- UNARY ---
+        d2 == 0 && k == AstKind.Unary ? {
+            op <- nd_get(nodes, ni, NF.Op)
+            print(str_cat(str_cat(str_cat(pd, "UNARY "), token_kind_name(op)), ts))
+            typed_ast_show(src, toks, nodes, kids, types, tp, tpn, nd_get(nodes, ni, NF.A), indent + 1)
+            d2 <- 1
+        }
+        // --- CONDITIONAL ---
+        d2 == 0 && k == AstKind.Conditional ? {
+            print(str_cat(pd, str_cat("CONDITIONAL", ts)))
+            typed_ast_show(src, toks, nodes, kids, types, tp, tpn, nd_get(nodes, ni, NF.A), indent + 1)
+            typed_ast_show(src, toks, nodes, kids, types, tp, tpn, nd_get(nodes, ni, NF.B), indent + 1)
+            typed_ast_show(src, toks, nodes, kids, types, tp, tpn, nd_get(nodes, ni, NF.C), indent + 1)
+            d2 <- 1
+        }
+        // --- CALL ---
+        d2 == 0 && k == AstKind.Call ? {
+            is_slice <- nd_get(nodes, ni, NF.F2)
+            is_slice == 1 ? { print(str_cat(pd, str_cat("SLICE", ts))); d2 <- 1 }
+            d2 == 0 ? { print(str_cat(pd, str_cat("CALL", ts))) }
+            typed_ast_show(src, toks, nodes, kids, types, tp, tpn, nd_get(nodes, ni, NF.A), indent + 1)
+            s1 <- nd_get(nodes, ni, NF.L1s); c1 <- nd_get(nodes, ni, NF.L1n)
+            j <- 0
+            [j < c1] {
+                ai <- vec_get(kids, s1 + j)
+                ai != -1 ? { typed_ast_show(src, toks, nodes, kids, types, tp, tpn, ai, indent + 1); j <- j + 1 }
+                ai == -1 ? { print(str_cat(pad(indent + 1), "OMITTED")); j <- j + 1 }
+            }
+            d2 <- 1
+        }
+        // --- BLOCK ---
+        d2 == 0 && k == AstKind.Block ? {
+            print(str_cat(pd, str_cat("BLOCK", ts)))
+            s1 <- nd_get(nodes, ni, NF.L1s); c1 <- nd_get(nodes, ni, NF.L1n)
+            s2 <- nd_get(nodes, ni, NF.L2s); c2 <- nd_get(nodes, ni, NF.L2n)
+            j <- 0; [j < c1] { typed_ast_show(src, toks, nodes, kids, types, tp, tpn, vec_get(kids, s1 + j), indent + 1); j <- j + 1 }
+            j <- 0; [j < c2] { typed_ast_show(src, toks, nodes, kids, types, tp, tpn, vec_get(kids, s2 + j), indent + 1); j <- j + 1 }
+            typed_ast_show(src, toks, nodes, kids, types, tp, tpn, nd_get(nodes, ni, NF.C), indent + 1)
+            d2 <- 1
+        }
+        // --- BINDING ---
+        d2 == 0 && k == AstKind.Binding ? {
+            is_mut <- nd_get(nodes, ni, NF.F1)
+            nm <- tk_lex(src, toks, nd_get(nodes, ni, NF.Name))
+            is_mut == 1 ? { print(str_cat(str_cat(str_cat(pd, "MUT_BINDING "), nm), ts)); typed_ast_show(src, toks, nodes, kids, types, tp, tpn, nd_get(nodes, ni, NF.A), indent + 1); d2 <- 1 }
+            is_mut == 0 ? { print(str_cat(str_cat(str_cat(pd, "BINDING "), nm), ts)); typed_ast_show(src, toks, nodes, kids, types, tp, tpn, nd_get(nodes, ni, NF.A), indent + 1); d2 <- 1 }
+        }
+        // --- ASSIGN ---
+        d2 == 0 && k == AstKind.Assign ? {
+            nm <- tk_lex(src, toks, nd_get(nodes, ni, NF.Name))
+            op <- nd_get(nodes, ni, NF.Op)
+            print(str_cat(str_cat(str_cat(str_cat(pd, "ASSIGN "), nm), str_cat(" ", token_kind_name(op))), ts))
+            typed_ast_show(src, toks, nodes, kids, types, tp, tpn, nd_get(nodes, ni, NF.B), indent + 1)
+            typed_ast_show(src, toks, nodes, kids, types, tp, tpn, nd_get(nodes, ni, NF.A), indent + 1)
+            d2 <- 1
+        }
+        // --- FUNCTION ---
+        d2 == 0 && k == AstKind.Function ? {
+            nm <- tk_lex(src, toks, nd_get(nodes, ni, NF.Name))
+            print(str_cat(str_cat(str_cat(pd, "FUNCTION "), nm), ts))
+            s1 <- nd_get(nodes, ni, NF.L1s); c1 <- nd_get(nodes, ni, NF.L1n)
+            j <- 0
+            [j < c1] {
+                pn_tok <- vec_get(kids, s1 + j)
+                pn <- tk_lex(src, toks, pn_tok)
+                print(str_cat(str_cat(pad(indent + 1), "PARAM "), pn))
+                j <- j + 1
+            }
+            typed_ast_show(src, toks, nodes, kids, types, tp, tpn, nd_get(nodes, ni, NF.A), indent + 1)
+            d2 <- 1
+        }
+        // --- EXTERN --- (M16.1: mirrors the FUNCTION shape; no body). A
+        // missing name (broken ABI operand) prints empty, like C's
+        // zero-length token.
+        d2 == 0 && k == AstKind.Extern ? {
+            nt <- nd_get(nodes, ni, NF.Name)
+            nm <- nt != 0 - 1 ? tk_lex(src, toks, nt) : ""
+            print(str_cat(str_cat(str_cat(pd, "EXTERN "), nm), ts))
+            s1 <- nd_get(nodes, ni, NF.L1s); c1 <- nd_get(nodes, ni, NF.L1n)
+            j <- 0
+            [j < c1] {
+                pn_tok <- vec_get(kids, s1 + j)
+                pn <- tk_lex(src, toks, pn_tok)
+                print(str_cat(str_cat(pad(indent + 1), "PARAM "), pn))
+                j <- j + 1
+            }
+            d2 <- 1
+        }
+        // --- MATCH ---
+        d2 == 0 && k == AstKind.Match ? {
+            print(str_cat(pd, str_cat("MATCH", ts)))
+            typed_ast_show(src, toks, nodes, kids, types, tp, tpn, nd_get(nodes, ni, NF.A), indent + 1)
+            s1 <- nd_get(nodes, ni, NF.L1s); c1 <- nd_get(nodes, ni, NF.L1n)
+            j <- 0
+            [j < c1] {
+                arm <- vec_get(kids, s1 + j)
+                arm != -1 ? { typed_ast_show(src, toks, nodes, kids, types, tp, tpn, arm, indent + 1) }
+                j <- j + 1
+            }
+            d2 <- 1
+        }
+        // --- MATCH_ARM ---
+        d2 == 0 && k == AstKind.MatchArm ? {
+            print(str_cat(pd, "ARM"))
+            pat_kind <- nd_get(nodes, ni, NF.F1)
+            pat_kind == 0 ? {
+                print(str_cat(pad(indent + 1), "WILDCARD"))
+            }
+            pat_kind == 1 ? {
+                pat_data <- nd_get(nodes, ni, NF.A)
+                pat_data != -1 ? {
+                    lt <- nd_get(nodes, pat_data, NF.Op)
+                    lx <- tk_lex(src, toks, nd_get(nodes, pat_data, NF.Tok))
+                    lt == TokenKind.Int ? { print(str_cat(str_cat(pad(indent + 1), "PAT_INT "), lx)) }
+                    lt == TokenKind.Float ? { print(str_cat(str_cat(pad(indent + 1), "PAT_FLOAT "), lx)) }
+                    lt == TokenKind.String ? { print(str_cat(str_cat(pad(indent + 1), "PAT_STR "), lx)) }
+                    lt == TokenKind.True ? { print(str_cat(pad(indent + 1), "PAT_TRUE")) }
+                    lt == TokenKind.False ? { print(str_cat(pad(indent + 1), "PAT_FALSE")) }
+                    lt == TokenKind.None ? { print(str_cat(pad(indent + 1), "PAT_NONE")) }
+                }
+            }
+            pat_kind == 2 ? {
+                nm <- tk_lex(src, toks, nd_get(nodes, ni, NF.Name))
+                print(str_cat(str_cat(pad(indent + 1), "BINDING "), nm))
+            }
+            pat_kind == 3 ? {
+                nm <- tk_lex(src, toks, nd_get(nodes, ni, NF.Name))
+                print(str_cat(str_cat(pad(indent + 1), "CTOR "), nm))
+                s1 <- nd_get(nodes, ni, NF.L1s); c1 <- nd_get(nodes, ni, NF.L1n)
+                j <- 0
+                [j < c1] {
+                    sub <- vec_get(kids, s1 + j)
+                    sub != -1 ? { typed_ast_show(src, toks, nodes, kids, types, tp, tpn, sub, indent + 2) }
+                    j <- j + 1
+                }
+            }
+            pat_kind == 4 ? {
+                tn <- tk_lex(src, toks, nd_get(nodes, ni, NF.Name))
+                vn <- tk_lex(src, toks, nd_get(nodes, ni, NF.F2))
+                print(str_cat(str_cat(str_cat(str_cat(pad(indent + 1), "ENUM_PAT "), tn), "."), vn))
+            }
+            typed_ast_show(src, toks, nodes, kids, types, tp, tpn, nd_get(nodes, ni, NF.B), indent + 1)
+            d2 <- 1
+        }
+        // --- BRACKET_LOOP ---
+        d2 == 0 && k == AstKind.BracketLoop ? {
+            has_binder <- nd_get(nodes, ni, NF.F1)
+            has_binder == 1 ? { bn <- tk_lex(src, toks, nd_get(nodes, ni, NF.Name)); print(str_cat(str_cat(str_cat(pd, "BRACKET_LOOP "), bn), ts)); d2 <- 1 }
+            d2 == 0 ? { print(str_cat(pd, str_cat("BRACKET_LOOP", ts))) }
+            typed_ast_show(src, toks, nodes, kids, types, tp, tpn, nd_get(nodes, ni, NF.A), indent + 1)
+            s1 <- nd_get(nodes, ni, NF.L1s); c1 <- nd_get(nodes, ni, NF.L1n)
+            j <- 0; [j < c1] { typed_ast_show(src, toks, nodes, kids, types, tp, tpn, vec_get(kids, s1 + j), indent + 1); j <- j + 1 }
+            typed_ast_show(src, toks, nodes, kids, types, tp, tpn, nd_get(nodes, ni, NF.B), indent + 1)
+            d2 <- 1
+        }
+        // --- BREAK ---
+        d2 == 0 && k == AstKind.Break ? { print(str_cat(pd, str_cat("BREAK", ts))); d2 <- 1 }
+        // --- SKIP ---
+        d2 == 0 && k == AstKind.Skip ? { print(str_cat(pd, str_cat("SKIP", ts))); d2 <- 1 }
+        // --- STREAM_GEN ---
+        d2 == 0 && k == AstKind.StreamGen ? {
+            bc = nd_get(nodes, ni, NF.F1)
+            hi = nd_get(nodes, ni, NF.F2)
+            has_binders <- 0
+            bc > 0 ? { has_binders <- 1 }
+            hi == 1 ? { has_binders <- 1 }
+            has_binders == 1 ? {
+                lbl <- "STREAM_GEN("
+                r1 = nd_get(nodes, ni, NF.R1)
+                r2 = nd_get(nodes, ni, NF.R2)
+                ci2 = nd_get(nodes, ni, NF.C)
+                bc > 0 ? {
+                    lbl <- str_cat(lbl, tk_lex(src, toks, r1))
+                }
+                bc > 1 ? {
+                    lbl <- str_cat(str_cat(lbl, ", "), tk_lex(src, toks, r2))
+                }
+                hi == 1 ? {
+                    lbl <- str_cat(str_cat(lbl, "; "), tk_lex(src, toks, ci2))
+                }
+                lbl <- str_cat(lbl, ")")
+                print(str_cat(pd, str_cat(lbl, ts)))
+            }
+            has_binders == 0 ? {
+                print(str_cat(pd, str_cat("STREAM_GEN", ts)))
+            }
+            s1 <- nd_get(nodes, ni, NF.L1s); c1 <- nd_get(nodes, ni, NF.L1n)
+            j <- 0; [j < c1] { typed_ast_show(src, toks, nodes, kids, types, tp, tpn, vec_get(kids, s1 + j), indent + 1); j <- j + 1 }
+            typed_ast_show(src, toks, nodes, kids, types, tp, tpn, nd_get(nodes, ni, NF.A), indent + 1)
+            typed_ast_show(src, toks, nodes, kids, types, tp, tpn, nd_get(nodes, ni, NF.B), indent + 1)
+            d2 <- 1
+        }
+        // --- ARRAY ---
+        d2 == 0 && k == AstKind.Array ? {
+            print(str_cat(pd, str_cat("ARRAY", ts)))
+            s1 <- nd_get(nodes, ni, NF.L1s); c1 <- nd_get(nodes, ni, NF.L1n)
+            j <- 0; [j < c1] { typed_ast_show(src, toks, nodes, kids, types, tp, tpn, vec_get(kids, s1 + j), indent + 1); j <- j + 1 }
+            d2 <- 1
+        }
+        // --- DEFER ---
+        d2 == 0 && k == AstKind.Defer ? {
+            print(str_cat(pd, str_cat("DEFER", ts)))
+            typed_ast_show(src, toks, nodes, kids, types, tp, tpn, nd_get(nodes, ni, NF.A), indent + 1)
+            d2 <- 1
+        }
+        // --- FIELD_ACCESS ---
+        d2 == 0 && k == AstKind.FieldAccess ? {
+            fld <- tk_lex(src, toks, nd_get(nodes, ni, NF.Name))
+            print(str_cat(str_cat(str_cat(pd, "FIELD_ACCESS "), fld), ts))
+            typed_ast_show(src, toks, nodes, kids, types, tp, tpn, nd_get(nodes, ni, NF.A), indent + 1)
+            d2 <- 1
+        }
+        // --- ENUM_DEF ---
+        d2 == 0 && k == AstKind.EnumDef ? {
+            nm <- tk_lex(src, toks, nd_get(nodes, ni, NF.Name))
+            print(str_cat(str_cat(str_cat(pd, "ENUM_DEF "), nm), ts))
+            s1 <- nd_get(nodes, ni, NF.L1s); c1 <- nd_get(nodes, ni, NF.L1n)
+            j <- 0
+            [j < c1] {
+                vn_tok <- vec_get(kids, s1 + j)
+                vnm <- tk_lex(src, toks, vn_tok)
+                print(str_cat(str_cat(pad(indent + 1), "VARIANT "), vnm))
+                j <- j + 1
+            }
+            d2 <- 1
+        }
+        // --- IMPORT ---
+        d2 == 0 && k == AstKind.Import ? {
+            nm <- tk_lex(src, toks, nd_get(nodes, ni, NF.Name))
+            print(str_cat(str_cat(str_cat(pd, "IMPORT "), nm), ts))
+            d2 <- 1
+        }
+        // fallback
+        d2 == 0 ? { print(str_cat(pd, str_cat("UNKNOWN", ts))) }
+    }
+    0
+}
+
+// M13.5: run semantic analysis while retaining the node-type vector and type
+// pool for the backend. All three output containers use shared-handle
+// semantics, so the caller sees the elements appended here. Unlike
+// semantic_check(), this entry point never writes a typed-AST dump to stdout.

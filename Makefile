@@ -13,6 +13,7 @@ TEST_JOBS ?= 5
 all: $(TIQ) $(BUILD)/unit_tests $(BUILD)/qbe $(BUILD)/runtime_qbe.o
 
 SRCS = src/main.c src/emit_c.c src/emit_qbe.c src/emit_wasm.c src/lexer.c src/diag.c src/parser.c src/semantic.c \
+       src/env.c src/symtab.c src/typecheck.c src/check_builtins.c src/check_call.c src/check_pattern.c \
        src/type.c src/arena.c src/module.c src/ir.c src/ir_lower.c src/ir_dump.c \
        src/asm_arm64.c src/asm_amd64.c src/asm_rv64.c src/macho_obj.c src/macho_read.c src/link_macho.c \
        src/elf_obj.c src/elf_read.c src/elf_link.c \

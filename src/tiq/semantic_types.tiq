@@ -1,0 +1,88 @@
+// M13.4-S3: type-pool helpers, annotation resolution, and unification
+// for the self-hosted semantic checker — split from semantic.tiq.
+import "ast.tiq"
+import "type.tiq"
+import "semantic_env.tiq"
+
+
+// Prime the pool with primitive kinds so pool[i] = TY.i for simple types.
+// OPTION (10) and RESULT (11) are NOT primed: C's generic interner ignores
+// inner_type, so the first OPTION/RESULT in the pool wins for ty_get. If we
+// primed a bare OPTION, then `none` would match it instead of an earlier
+// OPTION<INT> created by `some(1)`. Let them be created on demand like C.
+prime_pool tp:vec[int] tpn:vec[str] : i64 -> { k <- 0; [k < 28] { k != 10 && k != 11 ? { ty_get(tp, tpn, k) }; k <- k + 1 }; 0 }
+
+resolve_type src:str toks:vec[Token] tp:vec[int] tpn:vec[str] tidx:i64 : i64 -> {
+    r <- 0 - 1
+    tidx != -1 ? {
+        nm <- tk_lex(src, toks, tidx)
+        str_eq(nm, "i8") ? { r <- ty_get(tp, tpn, TY.I8) }        str_eq(nm, "i16") ? { r <- ty_get(tp, tpn, TY.I16) }        str_eq(nm, "i32") ? { r <- ty_get(tp, tpn, TY.I32) }        str_eq(nm, "i64") ? { r <- ty_get(tp, tpn, TY.Int) }        str_eq(nm, "u8") ? { r <- ty_get(tp, tpn, TY.U8) }        str_eq(nm, "u16") ? { r <- ty_get(tp, tpn, TY.U16) }        str_eq(nm, "u32") ? { r <- ty_get(tp, tpn, TY.U32) }        str_eq(nm, "u64") ? { r <- ty_get(tp, tpn, TY.U64) }        str_eq(nm, "f32") ? { r <- ty_get(tp, tpn, TY.F32) }        str_eq(nm, "f64") ? { r <- ty_get(tp, tpn, TY.Float) }        str_eq(nm, "bool") ? { r <- ty_get(tp, tpn, TY.Bool) }        str_eq(nm, "str") ? { r <- ty_get(tp, tpn, TY.Str) }        str_eq(nm, "int") ? { r <- ty_get(tp, tpn, TY.Int) }        str_eq(nm, "float") ? { r <- ty_get(tp, tpn, TY.Float) }    }
+    r
+}
+resolve_cont src:str toks:vec[Token] tp:vec[int] tpn:vec[str] st_names:vec[str] st_meta:vec[int] tidx:i64 eidx:i64 path:str ctx:vec[int] : i64 -> {
+    r <- 0 - 1
+    tidx != -1 ? {
+        nm <- tk_lex(src, toks, tidx)
+        str_eq(nm, "strbuf") ? { r <- ty_get(tp, tpn, TY.Strbuf) }        str_eq(nm, "map") ? { r <- ty_get(tp, tpn, TY.Map) }        str_eq(nm, "vec") ? {
+            eidx == -1 ? { s_diag(ctx, path, tk_line(toks, tidx), 9, "vec annotation requires an element type: vec[T]"); r <- ty_get(tp, tpn, TY.Unknown) }
+            eidx != -1 ? {
+                et <- resolve_type(src, toks, tp, tpn, eidx)
+                et == -1 ? { enm <- tk_lex(src, toks, eidx); esi <- struct_lookup(st_names, enm); esi != -1 ? { et <- vec_get(st_meta, esi) }}
+                et == -1 ? { msg <- str_cat(str_cat("unknown type '", tk_lex(src, toks, eidx)), "'"); s_diag(ctx, path, tk_line(toks, eidx), 9, msg); r <- ty_get(tp, tpn, TY.Unknown) }
+                et != -1 ? {
+                    ek <- vec_get(tp, et * 8 + TF.Kind)
+                    ek != TY.Int && ek != TY.Str && ek != TY.Struct ? { s_diag(ctx, path, tk_line(toks, eidx), 9, "vec element type must be int, str, or a struct"); r <- ty_get(tp, tpn, TY.Unknown) }
+                    ek == TY.Int || ek == TY.Str || ek == TY.Struct ? { r <- ty_vec(tp, tpn, et) }                }
+            }
+        }
+    }
+    r
+}
+
+// Annotation resolution mirroring C resolve_container_annot + resolve_type_annot:
+// containers (strbuf/map/vec[T]) first, then primitive names, then structs.
+resolve_ann src:str toks:vec[Token] tp:vec[int] tpn:vec[str] st_names:vec[str] st_meta:vec[int] tidx:i64 eidx:i64 path:str ctx:vec[int] : i64 -> {
+    r <- resolve_cont(src, toks, tp, tpn, st_names, st_meta, tidx, eidx, path, ctx)
+    r == -1 ? { r <- resolve_type(src, toks, tp, tpn, tidx) }    r == -1 && tidx != -1 ? {
+        nm <- tk_lex(src, toks, tidx)
+        si2 <- struct_lookup(st_names, nm)
+        si2 != -1 ? { r <- vec_get(st_meta, si2) }    }
+    r
+}
+unify ctx:vec[int] path:str ln:i64 tp:vec[int] tpn:vec[str] exp:i64 found:i64 emsg:str : i64 -> {
+    r <- 0 - 1; d <- 0
+    d == 0 && exp == -1 ? { r <- found; d <- 1 }
+    d == 0 && found == -1 ? { r <- exp; d <- 1 }
+    d == 0 ? {
+        ek <- vec_get(tp, exp * 8 + TF.Kind); fk <- vec_get(tp, found * 8 + TF.Kind)
+        ek == TY.Unknown ? { r <- found; d <- 1 }
+        fk == TY.Unknown ? { r <- exp; d <- 1 }
+        ek == fk ? { r <- exp; d <- 1 }
+        d == 0 ? {
+            msg <- str_cat(str_cat(str_cat(emsg, ": expected "), disp(tp, tpn, exp)), str_cat(", found ", disp(tp, tpn, found)))
+            s_diag(ctx, path, ln, 9, msg)
+        }
+    }
+    r
+}
+vec_elem_ok k:i64 : i64 -> k == TY.Int || k == TY.Str || k == TY.Struct ? 1 : 0
+vec_elem_same tp:vec[int] a:i64 b:i64 : i64 -> { ak <- vec_get(tp, a * 8 + TF.Kind); bk <- vec_get(tp, b * 8 + TF.Kind); ak == bk && (ak != TY.Struct || a == b) ? 1 : 0 }
+
+check_int_range src:str toks:vec[Token] ctx:vec[int] path:str tidx:i64 : i64 -> {
+    lx <- tk_lex(src, toks, tidx)
+    n <- len(lx)
+    n > 19 ? { s_diag(ctx, path, tk_line(toks, tidx), 20, "integer literal out of range for i64") }
+    n == 19 ? {
+        mx <- "9223372036854775807"
+        j <- 0; bigger <- 0; done <- 0
+        [j < 19 && done == 0] {
+            a <- str_sub_code(lx, j); b <- str_sub_code(mx, j)
+            a > b ? { bigger <- 1; done <- 1 }
+            a < b ? { done <- 1 }
+            j <- j + 1
+        }
+        bigger == 1 ? { s_diag(ctx, path, tk_line(toks, tidx), 20, "integer literal out of range for i64") }
+    }
+    0
+}
+
