@@ -159,23 +159,45 @@ typed_ast_show src:str toks:vec[Token] nodes:vec[int] kids:vec[int] types:vec[in
             }
             pat_kind == 2 ? {
                 nm <- tk_lex(src, toks, nd_get(nodes, ni, NF.Name))
-                print(str_cat(str_cat(pad(indent + 1), "BINDING "), nm))
+                print(str_cat(str_cat(pad(indent + 1), "PAT_BIND "), nm))
             }
             pat_kind == 3 ? {
                 nm <- tk_lex(src, toks, nd_get(nodes, ni, NF.Name))
-                print(str_cat(str_cat(pad(indent + 1), "CTOR "), nm))
+                print(str_cat(str_cat(pad(indent + 1), "PAT_CTOR "), nm))
                 s1 <- nd_get(nodes, ni, NF.L1s); c1 <- nd_get(nodes, ni, NF.L1n)
                 j <- 0
                 [j < c1] {
-                    sub <- vec_get(kids, s1 + j)
-                    sub != -1 ? { typed_ast_show(src, toks, nodes, kids, types, tp, tpn, sub, indent + 2) }
+                    sub_i <- vec_get(kids, s1 + j)
+                    sub_k <- nd_get(nodes, sub_i, NF.F1)
+                    sub_pp <- pad(indent + 2)
+                    sub_k == 0 ? { print(str_cat(sub_pp, "WILDCARD")) }
+                    sub_k == 1 ? {
+                        sub_lit <- nd_get(nodes, sub_i, NF.A)
+                        sub_lit != -1 ? {
+                            sub_lt <- nd_get(nodes, sub_lit, NF.Op)
+                            sub_lx <- tk_lex(src, toks, nd_get(nodes, sub_lit, NF.Tok))
+                            sub_lt == TokenKind.Int ? { print(str_cat(str_cat(sub_pp, "PAT_INT "), sub_lx)) }
+                            sub_lt == TokenKind.Float ? { print(str_cat(str_cat(sub_pp, "PAT_FLOAT "), sub_lx)) }
+                            sub_lt == TokenKind.String ? { print(str_cat(str_cat(sub_pp, "PAT_STR "), sub_lx)) }
+                            sub_lt == TokenKind.True ? { print(str_cat(sub_pp, "PAT_TRUE")) }
+                            sub_lt == TokenKind.False ? { print(str_cat(sub_pp, "PAT_FALSE")) }
+                            sub_lt == TokenKind.None ? { print(str_cat(sub_pp, "PAT_NONE")) }
+                        }
+                    }
+                    sub_k == 2 ? { print(str_cat(str_cat(sub_pp, "PAT_BIND "), tk_lex(src, toks, nd_get(nodes, sub_i, NF.Name)))) }
+                    sub_k == 3 ? { print(str_cat(str_cat(sub_pp, "PAT_CTOR "), tk_lex(src, toks, nd_get(nodes, sub_i, NF.Name)))) }
+                    sub_k == 4 ? {
+                        sub_tn <- tk_lex(src, toks, nd_get(nodes, sub_i, NF.Name))
+                        sub_vn <- tk_lex(src, toks, nd_get(nodes, sub_i, NF.F2))
+                        print(str_cat(str_cat(str_cat(str_cat(sub_pp, "PAT_ENUM "), sub_tn), "."), sub_vn))
+                    }
                     j <- j + 1
                 }
             }
             pat_kind == 4 ? {
                 tn <- tk_lex(src, toks, nd_get(nodes, ni, NF.Name))
                 vn <- tk_lex(src, toks, nd_get(nodes, ni, NF.F2))
-                print(str_cat(str_cat(str_cat(str_cat(pad(indent + 1), "ENUM_PAT "), tn), "."), vn))
+                print(str_cat(str_cat(str_cat(str_cat(pad(indent + 1), "PAT_ENUM "), tn), "."), vn))
             }
             typed_ast_show(src, toks, nodes, kids, types, tp, tpn, nd_get(nodes, ni, NF.B), indent + 1)
             d2 <- 1

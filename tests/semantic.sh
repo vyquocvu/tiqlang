@@ -705,9 +705,27 @@ assert_semantic "ok_wrong_arity" 'x = ok(1, 2)
 assert_semantic "err_wrong_arity" 'x = err()
 ' "$TMP_DIR/err_wrong_arity.tiq:1: error[E12]: err expects exactly 1 argument"
 
-assert_semantic "propagate_non_option" 'x = 1
-y = ?x
+assert_semantic "propagate_non_option" 'f x: i64 -> {
+  y = ?x
+  y
+}
 ' "$TMP_DIR/propagate_non_option.tiq:2: error[E09]: propagation operator requires Option or Result operand"
+
+assert_semantic "propagate_outside_function" 'x = some(42)
+y = ?x
+' "$TMP_DIR/propagate_outside_function.tiq:2: error[E07]: propagation operator '?' is only valid inside a function"
+
+assert_semantic "propagate_in_scalar_function" 'f x: i64 : i64 -> {
+  y = ?some(x)
+  y
+}
+' "$TMP_DIR/propagate_in_scalar_function.tiq:2: error[E09]: propagation operator '?' on Option requires enclosing function to return Option"
+
+assert_semantic "propagate_result_in_scalar_function" 'f x: i64 : i64 -> {
+  y = ?ok(x)
+  y
+}
+' "$TMP_DIR/propagate_result_in_scalar_function.tiq:2: error[E09]: propagation operator '?' on Result requires enclosing function to return Result"
 
 # M13.1-P1: str_sub / str_eq / eprint / fs_list builtins (LANGUAGE_SPEC §19.5, §19.6).
 assert_semantic "str_sub_bad_arity" 'x = str_sub("abc", 0)

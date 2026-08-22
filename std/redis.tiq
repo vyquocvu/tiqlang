@@ -1,0 +1,150 @@
+// std/redis.tiq: Redis database connector using RESP2 protocol over TCP sockets
+//
+// Import:
+//   import "std/net.tiq"
+//   import "std/redis.tiq"
+
+import "std/net.tiq"
+
+// --- RESP2 Command Formatting ---
+
+redis_format_bulk arg:str : str -> {
+    n = len(arg)
+    str_cat(str_cat(str_cat("$", int_str(n)), "\r\n"), str_cat(arg, "\r\n"))
+}
+
+redis_cmd_1 c1:str : str -> {
+    str_cat("*1\r\n", redis_format_bulk(c1))
+}
+
+redis_cmd_2 c1:str c2:str : str -> {
+    str_cat(str_cat("*2\r\n", redis_format_bulk(c1)), redis_format_bulk(c2))
+}
+
+redis_cmd_3 c1:str c2:str c3:str : str -> {
+    str_cat(str_cat(str_cat("*3\r\n", redis_format_bulk(c1)), redis_format_bulk(c2)), redis_format_bulk(c3))
+}
+
+// --- RESP2 Response Parsing ---
+
+redis_find_crlf raw:str start:i64 : i64 -> {
+    n = len(raw)
+    pos <- -1
+    i <- start
+    [i + 1 < n && pos == -1] {
+        c1 = str_sub_code(raw, i)
+        c2 = str_sub_code(raw, i + 1)
+        c1 == 13 && c2 == 10 ? {
+            pos <- i
+        }
+        i <- i + 1
+    }
+    pos
+}
+
+redis_parse_int_str s:str : i64 -> {
+    n = len(s)
+    sign <- 1
+    val <- 0
+    idx <- 0
+    [idx < n] {
+        ch = str_sub_code(s, idx)
+        idx == 0 && ch == 45 ? {
+            sign <- -1
+        }
+        ch >= 48 && ch <= 57 ? {
+            val <- val * 10 + (ch - 48)
+        }
+        idx <- idx + 1
+    }
+    val * sign
+}
+
+redis_parse_response raw:str : str -> {
+    n = len(raw)
+    res <- ""
+    n > 0 ? {
+        tag = str_sub_code(raw, 0)
+        // '+' Simple string: e.g. +OK\r\n
+        tag == 43 ? {
+            crlf = redis_find_crlf(raw, 1)
+            crlf != -1 ? {
+                res <- str_sub(raw, 1, crlf)
+            }
+        }
+        // ':' Integer: e.g. :1\r\n
+        tag == 58 ? {
+            crlf = redis_find_crlf(raw, 1)
+            crlf != -1 ? {
+                res <- str_sub(raw, 1, crlf)
+            }
+        }
+        // '$' Bulk string: e.g. $6\r\nfoobar\r\n or $-1\r\n (nil)
+        tag == 36 ? {
+            crlf = redis_find_crlf(raw, 1)
+            crlf != -1 ? {
+                len_str = str_sub(raw, 1, crlf)
+                blen = redis_parse_int_str(len_str)
+                blen >= 0 ? {
+                    res <- str_sub(raw, crlf + 2, crlf + 2 + blen)
+                }
+            }
+        }
+    }
+    res
+}
+
+// --- Client Operations ---
+
+// Connect to Redis on 127.0.0.1:<port>. Returns socket fd or -1.
+redis_connect port:i64 : i64 -> {
+    net_connect(port)
+}
+
+// Close connection.
+redis_close sock:i64 : i64 -> {
+    net_close(sock)
+}
+
+// Send PING command. Returns reply (e.g. "PONG") or "".
+redis_ping sock:i64 : str -> {
+    cmd = redis_cmd_1("PING")
+    net_send(sock, cmd)
+    resp = net_recv(sock)
+    redis_parse_response(resp)
+}
+
+// Send SET key value. Returns true on "OK".
+redis_set sock:i64 key:str val:str : bool -> {
+    cmd = redis_cmd_3("SET", key, val)
+    net_send(sock, cmd)
+    resp = net_recv(sock)
+    res = redis_parse_response(resp)
+    str_eq(res, "OK")
+}
+
+// Send GET key. Returns value string or "" if nil/absent.
+redis_get sock:i64 key:str : str -> {
+    cmd = redis_cmd_2("GET", key)
+    net_send(sock, cmd)
+    resp = net_recv(sock)
+    redis_parse_response(resp)
+}
+
+// Send DEL key. Returns number of keys deleted.
+redis_del sock:i64 key:str : i64 -> {
+    cmd = redis_cmd_2("DEL", key)
+    net_send(sock, cmd)
+    resp = net_recv(sock)
+    res = redis_parse_response(resp)
+    redis_parse_int_str(res)
+}
+
+// Send INCR key. Returns new incremented integer value.
+redis_incr sock:i64 key:str : i64 -> {
+    cmd = redis_cmd_2("INCR", key)
+    net_send(sock, cmd)
+    resp = net_recv(sock)
+    res = redis_parse_response(resp)
+    redis_parse_int_str(res)
+}

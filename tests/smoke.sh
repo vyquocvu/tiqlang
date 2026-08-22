@@ -455,10 +455,18 @@ printf 'x = err(99)\ny = x ?? 0\nprint(y)\n' > "$TMP_DIR/result_err.tiq"
 ./build/tiq build "$TMP_DIR/result_err.tiq" -o "$TMP_DIR/result_err"
 [ "$("$TMP_DIR/result_err")" = "0" ]
 
-# M8/M25: Propagation operator (prefix `?expr`).
-printf 'x = some(42)\ny = ?x\nprint(y)\n' > "$TMP_DIR/propagate_some.tiq"
-./build/tiq build "$TMP_DIR/propagate_some.tiq" -o "$TMP_DIR/propagate_some"
-[ "$("$TMP_DIR/propagate_some")" = "42" ]
+# M8/M25/Pre-M13 S4: Propagation operator (prefix `?expr`) with early return.
+printf 'f x: Option : Option -> {\n  y = ?x\n  some(y * 2)\n}\nres1 = f(some(21)) ?? 0\nprint(res1)\nres2 = f(none) ?? 99\nprint(res2)\n' > "$TMP_DIR/propagate_option.tiq"
+./build/tiq build "$TMP_DIR/propagate_option.tiq" -o "$TMP_DIR/propagate_option"
+"$TMP_DIR/propagate_option" > "$TMP_DIR/propagate_option.out"
+printf '42\n99\n' > "$TMP_DIR/propagate_option.expected"
+cmp "$TMP_DIR/propagate_option.out" "$TMP_DIR/propagate_option.expected"
+
+printf 'f x: Result : Result -> {\n  y = ?x\n  ok(y * 2)\n}\nres1 = f(ok(21)) ?? 0\nprint(res1)\nres2 = f(err(7)) ?? 99\nprint(res2)\n' > "$TMP_DIR/propagate_result.tiq"
+./build/tiq build "$TMP_DIR/propagate_result.tiq" -o "$TMP_DIR/propagate_result"
+"$TMP_DIR/propagate_result" > "$TMP_DIR/propagate_result.out"
+printf '42\n99\n' > "$TMP_DIR/propagate_result.expected"
+cmp "$TMP_DIR/propagate_result.out" "$TMP_DIR/propagate_result.expected"
 
 # M10.1: CLI argument builtins read real argc/argv (LANGUAGE_SPEC §18.1);
 # out-of-range indices yield the empty string.

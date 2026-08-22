@@ -184,10 +184,10 @@ Production-grade standard library for web microservices and fast system tools. A
 
 - [x] **M19.1** High-performance non-blocking I/O event loop (`epoll` on Linux, `kqueue` on macOS) — closed 2026-08-16. `std/ev.tiq` and `include/runtime_aux.h` (`TIQ_RUNTIME_PRELUDE_AUX5B`) implement multiplatform polling via `epoll_create`/`epoll_ctl`/`epoll_wait` on Linux and `kqueue`/`kevent` on macOS/BSD.
 - [ ] **M19.2** Structured concurrency runtime (`spawn`, `chan`, task cancellation, structured lifetimes)
-- [ ] **M19.3** Zero-copy HTTP/1.1 server and client implementation
+- [x] **M19.3** Zero-copy HTTP/1.1 server and client implementation — closed 2026-08-22. `std/http.tiq` provides HTTP/1.1 parsing, status extraction, chunked transfer decoding, response serialization, and socket client request helpers (`http_client_get`, `http_client_post`, `http_server_response`, `http_decode_chunked`). Verified by `examples/http_client.tiq` and `tests/http_std.sh`.
 - [ ] **M19.4** Production JSON serializer; Protocol Buffers / MessagePack as separate packages once M18 exists
 - [ ] **M19.5** HTTP/2 support, once HTTP/1.1 is proven in production
-- [x] **M19.6** Standard Database Connectors (SQLite) via M16 FFI bindings — closed 2026-08-16. `std/sqlite.tiq` provides native SQLite3 connector bindings (`sqlite_open`, `sqlite_close`, `sqlite_exec`, `sqlite_prepare`, `sqlite_step`, `sqlite_col_int`, `sqlite_col_str`, `sqlite_finalize`, `sqlite_changes`, `sqlite_last_insert_rowid`) using Tiq C FFI (`extern "C"`). Verified by `examples/sqlite_demo.tiq` and `tests/sqlite.sh`. PostgreSQL and Redis connectors queued.
+- [x] **M19.6** Standard Database Connectors (SQLite & Redis) via M16 FFI and socket protocols — closed 2026-08-22. `std/sqlite.tiq` provides native SQLite3 connector bindings using Tiq C FFI (`extern "C"`), verified by `examples/sqlite_demo.tiq` and `tests/sqlite.sh`. `std/redis.tiq` provides pure Tiq RESP2 protocol encoding and client socket operations (`redis_connect`, `redis_ping`, `redis_set`, `redis_get`, `redis_del`, `redis_incr`), verified by `examples/redis_demo.tiq` and `tests/redis.sh`.
 
 **Exit gate**: Production web service running on Tiq handling >100k req/sec with minimal memory footprint.
 

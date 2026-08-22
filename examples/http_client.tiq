@@ -1,0 +1,25 @@
+// examples/http_client.tiq: Demonstrates pure Tiq HTTP/1.1 client & server helpers
+//
+// Run:
+//   tiq run examples/http_client.tiq
+
+import "std/net.tiq"
+import "std/http.tiq"
+
+// 1. Build a mock server response
+raw_resp = http_server_response(200, "application/json", "{\"status\":\"ok\",\"code\":100}")
+print(str_cat("Built response len: ", int_str(len(raw_resp))))
+
+// 2. Parse status and body
+code = http_response_status(raw_resp)
+print(str_cat("Parsed HTTP status: ", int_str(code)))
+
+body = http_response_body(raw_resp)
+print(str_cat("Parsed HTTP body: ", body))
+
+// 3. Test chunked transfer decoding
+chunked_resp = "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n7\r\nMozilla\r\n9\r\nDeveloper\r\n7\r\nNetwork\r\n0\r\n\r\n"
+decoded_body = http_response_body(chunked_resp)
+print(str_cat("Decoded chunked body: ", decoded_body))
+
+print("HTTP client demo completed successfully.")

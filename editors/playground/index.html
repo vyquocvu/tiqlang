@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Tiq Playground</title>
+  <link rel="stylesheet" href="playground.css">
+</head>
+<body>
+  <header>
+    <div class="logo">
+      <h1>Tiq Playground</h1>
+      <span class="badge">v0.1.0</span>
+    </div>
+    <div class="controls">
+      <select id="example-select">
+        <option value="" disabled selected>Select Example...</option>
+        <option value="hello">Hello World</option>
+        <option value="fib">Fibonacci</option>
+        <option value="primes">Sieve of Primes</option>
+        <option value="option_result">Option & Result</option>
+        <option value="pattern_matching">Pattern Matching</option>
+      </select>
+
+      <select id="target-select">
+        <option value="wasm32-wasi">WASM (Client-Side)</option>
+        <option value="c">Emitted C</option>
+        <option value="ir">SSA Intermediate Representation</option>
+      </select>
+
+      <button id="share-btn">Share</button>
+      <button id="run-btn" class="primary">Run ▶</button>
+    </div>
+  </header>
+
+  <main>
+    <div class="pane">
+      <div class="pane-header">
+        <span>Tiq Source Code</span>
+      </div>
+      <div class="editor-container">
+        <textarea id="code-input" spellcheck="false" placeholder="Write Tiq code here..."></textarea>
+      </div>
+    </div>
+
+    <div class="pane">
+      <div class="pane-header">
+        <span>Output / Execution Console</span>
+      </div>
+      <div class="output-container">
+        <pre id="output-console">Ready. Click 'Run ▶' to compile and execute.</pre>
+      </div>
+    </div>
+  </main>
+
+  <footer>
+    <span>Tiq: deterministic compiled systems language. Fast tools, zero GC, ISO C11 bootstrap.</span>
+    <span><a href="https://github.com/tiqlang/tiq" target="_blank" style="color: var(--accent); text-decoration: none;">GitHub</a></span>
+  </footer>
+
+  <script src="playground.js"></script>
+</body>
+</html>

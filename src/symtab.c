@@ -25,6 +25,7 @@ SemanticType *resolve_type_annot(SemanticContext *ctx, Token tok) {
         {"f32",  3, TYPE_F32},   {"f64",  3, TYPE_FLOAT},
         {"bool", 4, TYPE_BOOL},  {"str",  3, TYPE_STR},
         {"int",  3, TYPE_INT},   {"float",5, TYPE_FLOAT},
+        {"Option", 6, TYPE_OPTION}, {"Result", 6, TYPE_RESULT},
     };
     for (int i = 0; i < (int)(sizeof type_names / sizeof type_names[0]); i++) {
         if ((int)tok.length == type_names[i].len &&

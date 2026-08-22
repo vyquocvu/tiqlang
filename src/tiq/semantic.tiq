@@ -36,7 +36,7 @@ check_node src:str path:str toks:vec[Token] nodes:vec[int] kids:vec[int] types:v
                 vec_get(ed, si * 4 + 1) == 1 ? { s_diag(ctx, path, ln, 18, str_cat(str_cat("use of moved value '", nm), "'")); vec_set(types, ni, ty_get(tp, tpn, TY.Unknown)); done <- 1 }
                 done == 0 ? {
                     st <- vec_get(ed, si * 4 + 2)
-                    st != -1 ? { sk <- vec_get(tp, st * 8 + TF.Kind); sk == TY.Ref || sk == TY.RefMut ? { el <- vec_get(tp, st * 8 + TF.Elem); vec_set(types, ni, el != -1 ? el : ty_get(tp, tpn, TY.Unknown)); done <- 1 } }
+                    st != -1 ? { sk <- vec_get(tp, st * 8 + TF.Kind); (sk == TY.Ref || sk == TY.RefMut) && vec_get(tp, st * 8 + TF.Pc) == 0 ? { el <- vec_get(tp, st * 8 + TF.Elem); vec_set(types, ni, el != -1 ? el : ty_get(tp, tpn, TY.Unknown)); done <- 1 } }
                     done == 0 ? { vec_set(types, ni, st); done <- 1 }
                 }
             }
@@ -78,9 +78,28 @@ check_node src:str path:str toks:vec[Token] nodes:vec[int] kids:vec[int] types:v
         op == TokenKind.Amp ? { check_node(src, path, toks, nodes, kids, types, en, ed, sc, st_reg, st_data, st_names, st_meta, en_reg, en_data, fn_reg, fn_data, fpts, frks, tp, tpn, ctx, ri); s_diag(ctx, path, ln, 7, "borrow is only valid as an argument to a reference parameter"); vec_set(types, ni, ty_get(tp, tpn, TY.Unknown)); done <- 1 }
         op == TokenKind.Question ? {
             check_node(src, path, toks, nodes, kids, types, en, ed, sc, st_reg, st_data, st_names, st_meta, en_reg, en_data, fn_reg, fn_data, fpts, frks, tp, tpn, ctx, ri)
-            rt <- ri != -1 ? vec_get(types, ri) : -1
-            rt != -1 && (vec_get(tp, rt * 8 + TF.Kind) == TY.Option || vec_get(tp, rt * 8 + TF.Kind) == TY.Result) ? { inner <- vec_get(tp, rt * 8 + TF.Inner); vec_set(types, ni, inner != -1 ? inner : ty_get(tp, tpn, TY.Unknown)); done <- 1 }
-            done == 0 ? { s_diag(ctx, path, ln, 9, "propagation operator requires Option or Result operand"); vec_set(types, ni, ty_get(tp, tpn, TY.Unknown)); done <- 1 }
+            vec_get(ctx, CX.InFn) == 0 ? {
+                s_diag(ctx, path, ln, 7, "propagation operator '?' is only valid inside a function")
+                vec_set(types, ni, ty_get(tp, tpn, TY.Unknown)); done <- 1
+            }
+            done == 0 ? {
+                rt <- ri != -1 ? vec_get(types, ri) : -1
+                rt != -1 && (vec_get(tp, rt * 8 + TF.Kind) == TY.Option || vec_get(tp, rt * 8 + TF.Kind) == TY.Result || vec_get(tp, rt * 8 + TF.Kind) == TY.Unknown) ? {
+                    rk <- vec_get(tp, rt * 8 + TF.Kind)
+                    fn_ret <- vec_get(ctx, CX.FnRet)
+                    fn_ret != -1 && fn_ret != TY.Unknown ? {
+                        rk == TY.Option && fn_ret != TY.Option ? {
+                            s_diag(ctx, path, ln, 9, "propagation operator '?' on Option requires enclosing function to return Option")
+                        }
+                        rk == TY.Result && fn_ret != TY.Result ? {
+                            s_diag(ctx, path, ln, 9, "propagation operator '?' on Result requires enclosing function to return Result")
+                        }
+                    }
+                    inner <- vec_get(tp, rt * 8 + TF.Inner)
+                    vec_set(types, ni, inner != -1 ? inner : ty_get(tp, tpn, TY.Unknown)); done <- 1
+                }
+                done == 0 ? { s_diag(ctx, path, ln, 9, "propagation operator requires Option or Result operand"); vec_set(types, ni, ty_get(tp, tpn, TY.Unknown)); done <- 1 }
+            }
         }
         done == 0 ? { check_node(src, path, toks, nodes, kids, types, en, ed, sc, st_reg, st_data, st_names, st_meta, en_reg, en_data, fn_reg, fn_data, fpts, frks, tp, tpn, ctx, ri) }
         op == TokenKind.Bang ? { rt <- ri != -1 ? vec_get(types, ri) : -1; rt != -1 && vec_get(tp, rt * 8 + TF.Kind) != TY.Bool && vec_get(tp, rt * 8 + TF.Kind) != TY.Unknown ? { s_diag(ctx, path, ln, 9, str_cat("operand of '!' must be bool, found ", disp(tp, tpn, rt))) }; vec_set(types, ni, ty_get(tp, tpn, TY.Bool)); done <- 1 }
@@ -481,10 +500,16 @@ check_node src:str path:str toks:vec[Token] nodes:vec[int] kids:vec[int] types:v
         // M15: set IsStd when the function name matches a gated builtin
         // (std/ wrappers share the builtin name; user code does not).
         old_std <- vec_get(ctx, CX.IsStd)
+        old_infn <- vec_get(ctx, CX.InFn)
+        old_fnret <- vec_get(ctx, CX.FnRet)
+        vec_set(ctx, CX.InFn, 1)
+        vec_set(ctx, CX.FnRet, pre_ret)
         is_gated_name(nm) ? { vec_set(ctx, CX.IsStd, 1) }
         bi <- nd_get(nodes, ni, NF.A)
         check_node(src, path, toks, nodes, kids, types, en, ed, sc, st_reg, st_data, st_names, st_meta, en_reg, en_data, fn_reg, fn_data, fpts, frks, tp, tpn, ctx, bi)
         vec_set(ctx, CX.IsStd, old_std)
+        vec_set(ctx, CX.InFn, old_infn)
+        vec_set(ctx, CX.FnRet, old_fnret)
         // Update param types from env (may have been refined)
         j <- 0
         [j < pc] {
@@ -961,7 +986,7 @@ semantic_run src:str path:str toks:vec[Token] nodes:vec[int] kids:vec[int] tops:
     fn_reg <- vec_new(); fn_data <- vec_new()
     fpts <- vec_new(); frks <- vec_new()
     ctx <- vec_new()
-    vec_push(ctx, 0); vec_push(ctx, 0); vec_push(ctx, 0); vec_push(ctx, 0); vec_push(ctx, 0)
+    vec_push(ctx, 0); vec_push(ctx, 0); vec_push(ctx, 0); vec_push(ctx, 0); vec_push(ctx, 0); vec_push(ctx, 0); vec_push(ctx, 0 - 1)
     top_count <- vec_len(tops)
     // Only run semantic checking if parse was clean
     parse_err == 0 ? {

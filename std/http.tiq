@@ -1,0 +1,195 @@
+// std/http.tiq: HTTP/1.1 client and server abstractions in pure Tiq
+//
+// Import:
+//   import "std/net.tiq"
+//   import "std/http.tiq"
+
+import "std/net.tiq"
+
+// --- String and Byte Helpers ---
+
+http_find_str haystack:str needle:str start:i64 : i64 -> {
+    hlen = len(haystack)
+    nlen = len(needle)
+    pos <- -1
+    nlen == 0 ? { pos <- start }
+    cur <- start
+    [cur + nlen <= hlen && pos == -1] {
+        is_match <- 1
+        j <- 0
+        [j < nlen && is_match == 1] {
+            str_sub_code(haystack, cur + j) != str_sub_code(needle, j) ? {
+                is_match <- 0
+            }
+            j <- j + 1
+        }
+        is_match == 1 ? {
+            pos <- cur
+        }
+        cur <- cur + 1
+    }
+    pos
+}
+
+http_find_header_end raw:str : i64 -> {
+    n = len(raw)
+    pos <- -1
+    i <- 0
+    [i + 3 < n && pos == -1] {
+        c1 = str_sub_code(raw, i)
+        c2 = str_sub_code(raw, i + 1)
+        c3 = str_sub_code(raw, i + 2)
+        c4 = str_sub_code(raw, i + 3)
+        c1 == 13 && c2 == 10 && c3 == 13 && c4 == 10 ? {
+            pos <- i
+        }
+        i <- i + 1
+    }
+    pos
+}
+
+http_parse_hex_digit ch:i64 : i64 -> {
+    ch >= 48 && ch <= 57 ? ch - 48 :
+    ch >= 97 && ch <= 102 ? ch - 97 + 10 :
+    ch >= 65 && ch <= 70 ? ch - 65 + 10 : -1
+}
+
+http_parse_hex s:str : i64 -> {
+    n = len(s)
+    val <- 0
+    i <- 0
+    [i < n] {
+        d = http_parse_hex_digit(str_sub_code(s, i))
+        d >= 0 ? {
+            val <- val * 16 + d
+        }
+        i <- i + 1
+    }
+    val
+}
+
+// --- Chunked Transfer Decoding ---
+
+http_decode_chunked raw_body:str : str -> {
+    blen = len(raw_body)
+    b = str_buf_new()
+    cursor <- 0
+    done <- 0
+    [cursor < blen && done == 0] {
+        next_crlf = http_find_str(raw_body, "\r\n", cursor)
+        next_crlf == -1 ? {
+            done <- 1
+        }
+        done == 0 ? {
+            size_hex = str_sub(raw_body, cursor, next_crlf)
+            chunk_size = http_parse_hex(size_hex)
+            chunk_size == 0 ? {
+                done <- 1
+            }
+            chunk_size > 0 ? {
+                data_start = next_crlf + 2
+                data_end = data_start + chunk_size
+                data_end <= blen ? {
+                    str_buf_append(b, str_sub(raw_body, data_start, data_end))
+                    cursor <- data_end + 2
+                }
+                data_end > blen ? {
+                    done <- 1
+                }
+            }
+        }
+    }
+    str_buf_to_str(b)
+}
+
+// --- Response Parser ---
+
+http_response_status raw:str : i64 -> {
+    n = len(raw)
+    status <- 0
+    n >= 12 ? {
+        // HTTP/1.1 200 OK
+        s1 = str_sub_code(raw, 9)
+        s2 = str_sub_code(raw, 10)
+        s3 = str_sub_code(raw, 11)
+        s1 >= 48 && s1 <= 57 && s2 >= 48 && s2 <= 57 && s3 >= 48 && s3 <= 57 ? {
+            status <- (s1 - 48) * 100 + (s2 - 48) * 10 + (s3 - 48)
+        }
+    }
+    status
+}
+
+http_extract_body raw:str hdr_end:i64 : str -> {
+    hdrs = str_sub(raw, 0, hdr_end)
+    body_start = hdr_end + 4
+    body = str_sub(raw, body_start, len(raw))
+    is_chunked = http_find_str(hdrs, "Transfer-Encoding: chunked", 0) != -1 ||
+                 http_find_str(hdrs, "transfer-encoding: chunked", 0) != -1
+    is_chunked ? http_decode_chunked(body) : body
+}
+
+http_response_body raw:str : str -> {
+    hdr_end = http_find_header_end(raw)
+    hdr_end == -1 ? "" : http_extract_body(raw, hdr_end)
+}
+
+// --- Server Response Builder ---
+
+http_status_text code:i64 : str -> {
+    code == 200 ? "OK" :
+    code == 201 ? "Created" :
+    code == 204 ? "No Content" :
+    code == 400 ? "Bad Request" :
+    code == 404 ? "Not Found" :
+    code == 405 ? "Method Not Allowed" :
+    code == 500 ? "Internal Server Error" : "Unknown"
+}
+
+http_server_response status:i64 content_type:str body:str : str -> {
+    st_text = http_status_text(status)
+    body_len = len(body)
+    b = str_buf_new()
+    str_buf_append(b, "HTTP/1.1 ")
+    str_buf_append(b, int_str(status))
+    str_buf_append(b, " ")
+    str_buf_append(b, st_text)
+    str_buf_append(b, "\r\nContent-Type: ")
+    str_buf_append(b, content_type)
+    str_buf_append(b, "\r\nContent-Length: ")
+    str_buf_append(b, int_str(body_len))
+    str_buf_append(b, "\r\nConnection: close\r\n\r\n")
+    str_buf_append(b, body)
+    str_buf_to_str(b)
+}
+
+// --- Client Request Builder ---
+
+http_client_get port:i64 path:str : str -> {
+    sock = net_connect(port)
+    req = str_buf_new()
+    str_buf_append(req, "GET ")
+    str_buf_append(req, path)
+    str_buf_append(req, " HTTP/1.1\r\nHost: 127.0.0.1\r\nUser-Agent: TiqHTTP/1.1\r\nConnection: close\r\n\r\n")
+    net_send(sock, str_buf_to_str(req))
+    resp = net_recv(sock)
+    net_close(sock)
+    http_response_body(resp)
+}
+
+http_client_post port:i64 path:str content_type:str body:str : str -> {
+    sock = net_connect(port)
+    blen = len(body)
+    req = str_buf_new()
+    str_buf_append(req, "POST ")
+    str_buf_append(req, path)
+    str_buf_append(req, " HTTP/1.1\r\nHost: 127.0.0.1\r\nUser-Agent: TiqHTTP/1.1\r\nContent-Type: ")
+    str_buf_append(req, content_type)
+    str_buf_append(req, "\r\nContent-Length: ")
+    str_buf_append(req, int_str(blen))
+    str_buf_append(req, "\r\nConnection: close\r\n\r\n")
+    str_buf_append(req, body)
+    net_send(sock, str_buf_to_str(req))
+    resp = net_recv(sock)
+    net_close(sock)
+    http_response_body(resp)
+}

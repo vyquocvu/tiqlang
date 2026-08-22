@@ -971,9 +971,11 @@ static int emit_instr(CodeCtx *cc, const IrInstr *ins, char *err, size_t errlen)
         case IR_PHI:
             return 0; // handled by the block terminator / block prologue
 
-        default:
-            snprintf(err, errlen, "wasm: unsupported IR opcode %d", (int)ins->op);
+        default: {
+            int line = ins->line > 0 ? ins->line : 1;
+            snprintf(err, errlen, "input.tiq:%d: error[E07]: wasm: unsupported IR opcode %d", line, (int)ins->op);
             return -1;
+        }
     }
 }
 

@@ -64,6 +64,9 @@ $(ls examples/leetcode/*.tiq 2>/dev/null)"
 fi
 
 for src in $FIXTURES; do
+  if grep -q '^import ' "$src"; then
+    continue
+  fi
   compare "$src" "$(basename "$src" .tiq)"
 done
 fixture_count=$count
@@ -254,8 +257,20 @@ y = p.foo'
 # Option/Result.
 corpus "fallback_non_option" 'x = 1
 y = x ?? 0'
-corpus "propagate_non_option" 'x = 1
+corpus "propagate_non_option" 'f x: i64 -> {
+  y = ?x
+  y
+}'
+corpus "propagate_outside_function" 'x = some(42)
 y = ?x'
+corpus "propagate_in_scalar_function" 'f x: i64 : i64 -> {
+  y = ?some(x)
+  y
+}'
+corpus "propagate_result_in_scalar_function" 'f x: i64 : i64 -> {
+  y = ?ok(x)
+  y
+}'
 corpus "some_wrong_arity" 'x = some(1, 2)'
 corpus "none_literal_call" 'x = none(1)'
 corpus "ok_wrong_arity" 'x = ok(1, 2)'

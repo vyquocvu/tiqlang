@@ -83,7 +83,8 @@ void check_node(SemanticContext *ctx, AstNode *node) {
                 // M9.1: reference parameters auto-deref to the referent type
                 // in expression position; the emitter re-derives ref-ness
                 // from the enclosing function's parameter types.
-                if (sym->type && (sym->type->kind == TYPE_REF || sym->type->kind == TYPE_REF_MUT)) {
+                if (sym->type && sym->type->param_count == 0 &&
+                    (sym->type->kind == TYPE_REF || sym->type->kind == TYPE_REF_MUT)) {
                     node->semantic_type = sym->type->element_type ?
                         sym->type->element_type : ty(ctx, TYPE_UNKNOWN);
                 } else {
@@ -187,16 +188,33 @@ void check_node(SemanticContext *ctx, AstNode *node) {
                            "borrow is only valid as an argument to a reference parameter");
                 node->semantic_type = ty(ctx, TYPE_UNKNOWN);
             } else if (node->as.unary.op == TOK_QUESTION) {
-                // M8: Propagation operator (expr?) - unwraps Option/Result.
+                // M8/Pre-M13 S4: Propagation operator (?expr) - unwraps Option/Result.
                 check_node(ctx, node->as.unary.right);
-                SemanticType *rt = node->as.unary.right ?
-                    node->as.unary.right->semantic_type : NULL;
-                if (rt && (rt->kind == TYPE_OPTION || rt->kind == TYPE_RESULT)) {
-                    node->semantic_type = rt->inner_type ? rt->inner_type : ty(ctx, TYPE_UNKNOWN);
-                } else {
-                    diag_error(ctx->diag, ctx->path, node->token.line, ERR_TYPE_MISMATCH,
-                               "propagation operator requires Option or Result operand");
+                if (!ctx->in_function) {
+                    diag_error(ctx->diag, ctx->path, node->token.line,
+                               ERR_UNSUPPORTED_STATEMENT,
+                               "propagation operator '?' is only valid inside a function");
                     node->semantic_type = ty(ctx, TYPE_UNKNOWN);
+                } else {
+                    SemanticType *rt = node->as.unary.right ?
+                        node->as.unary.right->semantic_type : NULL;
+                    if (rt && (rt->kind == TYPE_OPTION || rt->kind == TYPE_RESULT || rt->kind == TYPE_UNKNOWN)) {
+                        if (ctx->current_fn_return_type &&
+                            ctx->current_fn_return_type->kind != TYPE_UNKNOWN) {
+                            if (rt->kind == TYPE_OPTION && ctx->current_fn_return_type->kind != TYPE_OPTION) {
+                                diag_error(ctx->diag, ctx->path, node->token.line, ERR_TYPE_MISMATCH,
+                                           "propagation operator '?' on Option requires enclosing function to return Option");
+                            } else if (rt->kind == TYPE_RESULT && ctx->current_fn_return_type->kind != TYPE_RESULT) {
+                                diag_error(ctx->diag, ctx->path, node->token.line, ERR_TYPE_MISMATCH,
+                                           "propagation operator '?' on Result requires enclosing function to return Result");
+                            }
+                        }
+                        node->semantic_type = rt->inner_type ? rt->inner_type : ty(ctx, TYPE_UNKNOWN);
+                    } else {
+                        diag_error(ctx->diag, ctx->path, node->token.line, ERR_TYPE_MISMATCH,
+                                   "propagation operator requires Option or Result operand");
+                        node->semantic_type = ty(ctx, TYPE_UNKNOWN);
+                    }
                 }
             } else {
                 check_node(ctx, node->as.unary.right);
@@ -589,7 +607,21 @@ void check_node(SemanticContext *ctx, AstNode *node) {
                 if (node->as.function.param_types) node->as.function.param_types[i] = pt;
                 env_define(ctx->current_env, node->as.function.params[i], false, pt);
             }
+            bool prev_in_func = ctx->in_function;
+            SemanticType *prev_fn_ret = ctx->current_fn_return_type;
+            ctx->in_function = true;
+            SemanticType *declared_ret = NULL;
+            if (node->as.function.return_type_annot.kind == TOK_IDENT) {
+                declared_ret = resolve_container_annot(ctx,
+                    node->as.function.return_type_annot,
+                    node->as.function.return_elem_annot);
+                if (!declared_ret)
+                    declared_ret = resolve_type_annot(ctx, node->as.function.return_type_annot);
+            }
+            ctx->current_fn_return_type = declared_ret;
             check_node(ctx, node->as.function.body);
+            ctx->in_function = prev_in_func;
+            ctx->current_fn_return_type = prev_fn_ret;
             for (int i = 0; i < node->as.function.param_count; i++) {
                 Symbol *psym = env_lookup(ctx->current_env, node->as.function.params[i]);
                 if (psym && node->as.function.param_types) {
@@ -1189,6 +1221,8 @@ void semantic_check_modules(SemanticModule *mods, int mod_count, DiagContext *di
     ctx.enums = NULL;
     ctx.enum_count = 0;
     ctx.enum_capacity = 0;
+    ctx.in_function = false;
+    ctx.current_fn_return_type = NULL;
     Environment global_env;
     env_init(&global_env, NULL);
     ctx.current_env = &global_env;

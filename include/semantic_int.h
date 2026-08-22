@@ -52,6 +52,9 @@ typedef struct {
     EnumEntry *enums;
     int enum_count;
     int enum_capacity;
+    // Pre-M13 S4: propagation tracking
+    bool in_function;
+    SemanticType *current_fn_return_type;
 } SemanticContext;
 
 // src/env.c

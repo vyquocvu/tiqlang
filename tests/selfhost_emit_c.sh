@@ -151,8 +151,16 @@ r = ok(9)
 print(a ?? 3)
 print(b ?? 4)
 print(r ?? 5)
-print(?a)
-print(?r)'
+get_opt x: Option : Option -> {
+  v = ?x
+  some(v)
+}
+get_res x: Result : Result -> {
+  v = ?x
+  ok(v)
+}
+print(get_opt(a) ?? 0)
+print(get_res(r) ?? 0)'
 case_run "numeric_conversions" 'print(i8(130))
 print(u16(65537))
 print(i32(42.9))

@@ -19,10 +19,18 @@ f = e ?? 0
 print(f)
 
 // Propagation operator unwraps Option/Result
+get_opt o: Option : Option -> {
+  v = ?o
+  some(v)
+}
 a = some(7)
-b = ?a
+b = get_opt(a) ?? 0
 print(b)
 
+get_res res: Result : Result -> {
+  v = ?res
+  ok(v)
+}
 c = ok(13)
-d = ?c
+d = get_res(c) ?? 0
 print(d)

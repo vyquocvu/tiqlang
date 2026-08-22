@@ -1097,5 +1097,9 @@ ec_runtime b:strbuf : i64 -> {
     str_buf_append(b, "    return fn(a, b, c, d, e, f);\n")
     str_buf_append(b, "}\n")
     str_buf_append(b, "\n")
+    str_buf_append(b, "uint64_t tiq_ptr_read_u64(uint64_t addr) {\n")
+    str_buf_append(b, "    return addr ? *(const uint64_t *)(uintptr_t)addr : 0;\n")
+    str_buf_append(b, "}\n")
+    str_buf_append(b, "\n")
     0
 }

@@ -535,6 +535,152 @@ static int lower_expr(LowerCtx *ctx, AstNode *node) {
             return result;
         }
 
+        case AST_MATCH: {
+            int target_reg = lower_expr(ctx, node->as.match_expr.expr);
+            int arm_count = node->as.match_expr.arm_count;
+            if (arm_count == 0) return -1;
+
+            int merge_block = ir_add_block(ctx->func, ctx->func->block_count);
+            int *phi_regs = malloc(arm_count * sizeof(int));
+            int *phi_blocks = malloc(arm_count * sizeof(int));
+            int phi_count = 0;
+
+            for (int i = 0; i < arm_count; i++) {
+                MatchArm *arm = &node->as.match_expr.arms[i];
+                bool is_last = (i == arm_count - 1);
+                int next_test_block = is_last ? merge_block : ir_add_block(ctx->func, ctx->func->block_count);
+                int arm_body_block = ir_add_block(ctx->func, ctx->func->block_count);
+
+                enter_scope(ctx);
+                Pattern *pat = arm->pat;
+                if (!pat || pat->kind == PAT_WILDCARD) {
+                    IrOperand ops[] = {block_op(arm_body_block)};
+                    ir_emit_into_block(ctx->func, ctx->current_block, IR_BR, -1, void_type(), ops, 1, node->token.line);
+                } else if (pat->kind == PAT_BINDING) {
+                    set_var(ctx, pat->as.binding.name.start, pat->as.binding.name.length, target_reg,
+                            node->as.match_expr.expr->semantic_type ?
+                            ir_type_from_semantic(node->as.match_expr.expr->semantic_type) : i64_type());
+                    IrOperand ops[] = {block_op(arm_body_block)};
+                    ir_emit_into_block(ctx->func, ctx->current_block, IR_BR, -1, void_type(), ops, 1, node->token.line);
+                } else if (pat->kind == PAT_LITERAL) {
+                    AstNode *lit_expr = pat->as.literal.expr;
+                    TokenKind ltype = lit_expr ? lit_expr->as.literal.type : TOK_NONE;
+                    if (ltype == TOK_NONE) {
+                        int flag_reg = ir_new_reg(ctx->func);
+                        IrOperand f_ops[] = {reg_op(target_reg), (IrOperand){IR_OP_IMM, .imm = 1}};
+                        ir_emit_into_block(ctx->func, ctx->current_block, IR_FIELD_PTR, flag_reg, i64_type(), f_ops, 2, node->token.line);
+                        int zero_reg = emit_const_i64(ctx, ctx->current_block, 0, node->token.line);
+                        int cond_reg = ir_new_reg(ctx->func);
+                        IrOperand cmp_ops[] = {reg_op(flag_reg), reg_op(zero_reg)};
+                        ir_emit_into_block(ctx->func, ctx->current_block, IR_CMP_EQ, cond_reg, bool_type(), cmp_ops, 2, node->token.line);
+                        IrOperand cbr_ops[] = {reg_op(cond_reg), block_op(arm_body_block), block_op(next_test_block)};
+                        ir_emit_into_block(ctx->func, ctx->current_block, IR_CBR, -1, void_type(), cbr_ops, 3, node->token.line);
+                    } else {
+                        int lit_reg = -1;
+                        if (ltype == TOK_INT) {
+                            char tmp[64];
+                            size_t tl = 0;
+                            for (size_t k = 0; k < lit_expr->token.length && tl < sizeof(tmp) - 1; k++)
+                                if (lit_expr->token.start[k] != '_') tmp[tl++] = lit_expr->token.start[k];
+                            tmp[tl] = '\0';
+                            long long val = strtoll(tmp, NULL, 10);
+                            lit_reg = emit_const_i64(ctx, ctx->current_block, val, node->token.line);
+                        } else if (ltype == TOK_TRUE || ltype == TOK_FALSE) {
+                            lit_reg = emit_const_i64(ctx, ctx->current_block, ltype == TOK_TRUE ? 1 : 0, node->token.line);
+                        } else if (ltype == TOK_STRING) {
+                            lit_reg = ir_new_reg(ctx->func);
+                            IrOperand ops[] = {str_op(lit_expr->token.start, lit_expr->token.length)};
+                            ir_emit_into_block(ctx->func, ctx->current_block, IR_CONST_STR, lit_reg, (IrType){IR_STR, NULL}, ops, 1, node->token.line);
+                        }
+                        int cond_reg = ir_new_reg(ctx->func);
+                        IrOperand cmp_ops[] = {reg_op(target_reg), reg_op(lit_reg)};
+                        ir_emit_into_block(ctx->func, ctx->current_block, IR_CMP_EQ, cond_reg, bool_type(), cmp_ops, 2, node->token.line);
+                        IrOperand cbr_ops[] = {reg_op(cond_reg), block_op(arm_body_block), block_op(next_test_block)};
+                        ir_emit_into_block(ctx->func, ctx->current_block, IR_CBR, -1, void_type(), cbr_ops, 3, node->token.line);
+                    }
+                } else if (pat->kind == PAT_ENUM_VARIANT) {
+                    int val = 0;
+                    for (int e = 0; e < ctx->enum_count; e++) {
+                        if (ctx->enums[e].name_len == pat->as.enum_variant.type_name.length &&
+                            memcmp(ctx->enums[e].name, pat->as.enum_variant.type_name.start, ctx->enums[e].name_len) == 0) {
+                            for (int v = 0; v < ctx->enums[e].variant_count; v++) {
+                                if (ctx->enums[e].variants[v].length == pat->as.enum_variant.variant_name.length &&
+                                    memcmp(ctx->enums[e].variants[v].start, pat->as.enum_variant.variant_name.start, pat->as.enum_variant.variant_name.length) == 0) {
+                                    val = v;
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                    int enum_const_reg = emit_const_i64(ctx, ctx->current_block, val, node->token.line);
+                    int cond_reg = ir_new_reg(ctx->func);
+                    IrOperand cmp_ops[] = {reg_op(target_reg), reg_op(enum_const_reg)};
+                    ir_emit_into_block(ctx->func, ctx->current_block, IR_CMP_EQ, cond_reg, bool_type(), cmp_ops, 2, node->token.line);
+                    IrOperand cbr_ops[] = {reg_op(cond_reg), block_op(arm_body_block), block_op(next_test_block)};
+                    ir_emit_into_block(ctx->func, ctx->current_block, IR_CBR, -1, void_type(), cbr_ops, 3, node->token.line);
+                } else if (pat->kind == PAT_CONSTRUCTOR) {
+                    const char *cn = pat->as.constructor.name.start;
+                    size_t cl = pat->as.constructor.name.length;
+                    int flag_idx = (cl == 4 && memcmp(cn, "some", 4) == 0) ? 1 : 2;
+                    int expected_flag = (cl == 3 && memcmp(cn, "err", 3) == 0) ? 0 : 1;
+                    int payload_idx = (cl == 3 && memcmp(cn, "err", 3) == 0) ? 1 : 0;
+
+                    int flag_reg = ir_new_reg(ctx->func);
+                    IrOperand f_ops[] = {reg_op(target_reg), (IrOperand){IR_OP_IMM, .imm = flag_idx}};
+                    ir_emit_into_block(ctx->func, ctx->current_block, IR_FIELD_PTR, flag_reg, i64_type(), f_ops, 2, node->token.line);
+                    int exp_reg = emit_const_i64(ctx, ctx->current_block, expected_flag, node->token.line);
+                    int cond_reg = ir_new_reg(ctx->func);
+                    IrOperand cmp_ops[] = {reg_op(flag_reg), reg_op(exp_reg)};
+                    ir_emit_into_block(ctx->func, ctx->current_block, IR_CMP_EQ, cond_reg, bool_type(), cmp_ops, 2, node->token.line);
+                    IrOperand cbr_ops[] = {reg_op(cond_reg), block_op(arm_body_block), block_op(next_test_block)};
+                    ir_emit_into_block(ctx->func, ctx->current_block, IR_CBR, -1, void_type(), cbr_ops, 3, node->token.line);
+
+                    if (pat->as.constructor.arg_count > 0 && pat->as.constructor.args[0]->kind == PAT_BINDING) {
+                        ctx->current_block = arm_body_block;
+                        int val_reg = ir_new_reg(ctx->func);
+                        IrOperand v_ops[] = {reg_op(target_reg), (IrOperand){IR_OP_IMM, .imm = payload_idx}};
+                        ir_emit_into_block(ctx->func, ctx->current_block, IR_FIELD_PTR, val_reg, i64_type(), v_ops, 2, node->token.line);
+                        Token bname = pat->as.constructor.args[0]->as.binding.name;
+                        set_var(ctx, bname.start, bname.length, val_reg, i64_type());
+                    }
+                }
+
+                ctx->current_block = arm_body_block;
+                int arm_val = lower_expr(ctx, arm->body);
+                int arm_end_block = ctx->current_block;
+                IrOperand br_merge[] = {block_op(merge_block)};
+                ir_emit_into_block(ctx->func, ctx->current_block, IR_BR, -1, void_type(), br_merge, 1, node->token.line);
+                exit_scope(ctx);
+
+                if (arm_val >= 0) {
+                    phi_regs[phi_count] = arm_val;
+                    phi_blocks[phi_count] = arm_end_block;
+                    phi_count++;
+                }
+
+                ctx->current_block = next_test_block;
+            }
+
+            ctx->current_block = merge_block;
+            IrType type = ir_type_from_semantic(node->semantic_type);
+            if (type.kind == IR_VOID || phi_count == 0) {
+                free(phi_regs);
+                free(phi_blocks);
+                return -1;
+            }
+            int dst = ir_new_reg(ctx->func);
+            IrOperand *phi_args = malloc(phi_count * 2 * sizeof(IrOperand));
+            for (int p = 0; p < phi_count; p++) {
+                phi_args[p * 2] = reg_op(phi_regs[p]);
+                phi_args[p * 2 + 1] = block_op(phi_blocks[p]);
+            }
+            ir_emit_phi(ctx->func, merge_block, dst, type, phi_args, phi_count * 2);
+            free(phi_regs);
+            free(phi_blocks);
+            free(phi_args);
+            return dst;
+        }
+
         default:
             return lower_unsupported(ctx, node, "construct is not supported by IR lowering yet");
     }

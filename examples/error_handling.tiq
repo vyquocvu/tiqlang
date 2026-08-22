@@ -24,10 +24,18 @@ val_e = e ?? 500
 print(val_e == 500 ? "err fallback: 500" : "mismatch")
 
 // 3. Propagation operator (?)
+unwrap_opt o: Option : Option -> {
+  v = ?o
+  some(v)
+}
 opt_val = some(7)
-unwrapped_opt = ?opt_val
+unwrapped_opt = unwrap_opt(opt_val) ?? 0
 print(unwrapped_opt == 7 ? "propagated option: 7" : "mismatch")
 
+unwrap_res r: Result : Result -> {
+  v = ?r
+  ok(v)
+}
 res_val = ok(13)
-unwrapped_res = ?res_val
+unwrapped_res = unwrap_res(res_val) ?? 0
 print(unwrapped_res == 13 ? "propagated result: 13" : "mismatch")

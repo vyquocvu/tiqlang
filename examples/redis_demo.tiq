@@ -1,0 +1,29 @@
+// examples/redis_demo.tiq: Demonstrates Redis RESP client operations
+//
+// Run:
+//   tiq run examples/redis_demo.tiq
+
+import "std/net.tiq"
+import "std/redis.tiq"
+
+// 1. Test RESP formatting
+cmd_ping = redis_cmd_1("PING")
+print(str_cat("PING command formatted: len=", int_str(len(cmd_ping))))
+
+cmd_set = redis_cmd_3("SET", "greeting", "hello world")
+print(str_cat("SET command formatted: len=", int_str(len(cmd_set))))
+
+// 2. Test RESP parsing
+resp_pong = redis_parse_response("+PONG\r\n")
+print(str_cat("Parsed simple string: ", resp_pong))
+
+resp_bulk = redis_parse_response("$11\r\nhello world\r\n")
+print(str_cat("Parsed bulk string: ", resp_bulk))
+
+resp_int = redis_parse_response(":42\r\n")
+print(str_cat("Parsed integer: ", resp_int))
+
+resp_nil = redis_parse_response("$-1\r\n")
+print(str_cat("Parsed nil bulk string: '", str_cat(resp_nil, "'")))
+
+print("Redis demo completed successfully.")

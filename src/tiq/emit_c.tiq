@@ -88,6 +88,8 @@ ec_annot_type src:str toks:vec[Token] ti:i64 : str -> {
     str_eq(n, "vec") ? { r <- "TiqVec *" }
     str_eq(n, "strbuf") ? { r <- "TiqStrBuf *" }
     str_eq(n, "map") ? { r <- "TiqMap *" }
+    str_eq(n, "Option") ? { r <- "TiqOption" }
+    str_eq(n, "Result") ? { r <- "TiqResult" }
     r
 }
 
@@ -508,7 +510,19 @@ ec_expr src:str toks:vec[Token] nodes:vec[int] kids:vec[int] hs:vec[int] his:vec
     }
     done == 0 && k == AstKind.Unary ? {
         op = nd_get(nodes, ni, NF.Op)
-        op == TokenKind.Question ? { ec_expr(src, toks, nodes, kids, hs, his, hem, types, tp, tpn, b, nd_get(nodes, ni, NF.A)); ec_put(b, ".value") }
+        op == TokenKind.Question ? {
+            ri = nd_get(nodes, ni, NF.A); rk = ec_kind(types, tp, ri)
+            rk == TY.Result ? {
+                ec_put(b, "__extension__({ TiqResult _p = ")
+                ec_expr(src, toks, nodes, kids, hs, his, hem, types, tp, tpn, b, ri)
+                ec_put(b, "; if (!_p.is_ok) return ((TiqResult){ .value = 0, .error = _p.error, .is_ok = 0 }); _p.value; })")
+            }
+            rk != TY.Result ? {
+                ec_put(b, "__extension__({ TiqOption _p = ")
+                ec_expr(src, toks, nodes, kids, hs, his, hem, types, tp, tpn, b, ri)
+                ec_put(b, "; if (!_p.has_value) return ((TiqOption){ .value = 0, .has_value = 0 }); _p.value; })")
+            }
+        }
         op != TokenKind.Question ? {
             op != TokenKind.Move ? { ec_put(b, ec_op(op)); ec_put(b, "(") }
             ec_expr(src, toks, nodes, kids, hs, his, hem, types, tp, tpn, b, nd_get(nodes, ni, NF.A))

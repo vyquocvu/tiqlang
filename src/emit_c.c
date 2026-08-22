@@ -724,10 +724,17 @@ static void emit_expr(AstNode *node, EmitContext *ctx) {
             if (node->as.unary.op == TOK_MOVE) {
                 emit_expr(node->as.unary.right, ctx);
             } else if (node->as.unary.op == TOK_QUESTION) {
-                // M8: Propagation operator - unwrap Option/Result value.
-                // Full early-return semantics not yet implemented; emit .value access.
-                emit_expr(node->as.unary.right, ctx);
-                fputs(".value", ctx->out);
+                // Pre-M13 S4: Propagation operator (?expr) with early return
+                SemanticType *rt = node->as.unary.right ? (SemanticType *)node->as.unary.right->semantic_type : NULL;
+                if (rt && rt->kind == TYPE_RESULT) {
+                    fputs("__extension__({ TiqResult _p = ", ctx->out);
+                    emit_expr(node->as.unary.right, ctx);
+                    fputs("; if (!_p.is_ok) return ((TiqResult){ .value = 0, .error = _p.error, .is_ok = 0 }); _p.value; })", ctx->out);
+                } else {
+                    fputs("__extension__({ TiqOption _p = ", ctx->out);
+                    emit_expr(node->as.unary.right, ctx);
+                    fputs("; if (!_p.has_value) return ((TiqOption){ .value = 0, .has_value = 0 }); _p.value; })", ctx->out);
+                }
             } else if (node->as.unary.op == TOK_AMP) {
                 // M9.1: borrow argument; semantic analysis guarantees the
                 // operand is a plain named binding in the caller's scope.

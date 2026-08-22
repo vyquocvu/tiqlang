@@ -1,6 +1,18 @@
 # Tiq Implementation Status
 
-Updated: 2026-08-16
+Updated: 2026-08-22
+
+M20.3 — Interactive Web Playground (closed 2026-08-22):
+`editors/playground/` (index.html, playground.js, playground.css, README.md) provides an in-browser playground environment with WASI preview1 runtime polyfill, real-time code runner, preset examples (`hello`, `fib`, `primes`, `option_result`, `pattern_matching`), target switcher (WASM, Emitted C, SSA IR), and shareable URL hashing. Verified by `tests/playground.sh`.
+
+M19.3 — Zero-copy HTTP/1.1 Client & Server Standard Library (closed 2026-08-22):
+`std/http.tiq` provides pure Tiq HTTP/1.1 protocol parsing (`http_response_status`, `http_response_body`, `http_decode_chunked`, `http_find_header_end`), server response building (`http_server_response`), and network client helpers (`http_client_get`, `http_client_post`). Verified by `examples/http_client.tiq` and `tests/http_std.sh`.
+
+M19.6 — Standard Database Connectors: Redis Protocol Client (closed 2026-08-22):
+`std/redis.tiq` provides a pure Tiq RESP2 client implementation (`redis_connect`, `redis_close`, `redis_ping`, `redis_set`, `redis_get`, `redis_del`, `redis_incr`, RESP command formatting and parser). Verified by `examples/redis_demo.tiq` and `tests/redis.sh` against a loopback mock Redis server.
+
+M17.4.6 — Pattern Matching SSA IR Lowering (closed 2026-08-22):
+`src/ir_lower.c` implements SSA IR lowering for `AST_MATCH` across enum variants, literals, Option/Result constructors (`some`, `ok`, `err`, `none`), and wildcards, emitting basic blocks with conditional branching (`IR_CBR`) and phi nodes (`IR_PHI`). Promoted `examples/pattern_matching.tiq` to supported IR test set in `tests/ir.sh`.
 
 M20.2 — Official VS Code Extension (closed 2026-08-16):
 `editors/vscode/` provides the official extension package with rich TextMate syntax grammar (`syntaxes/tiq.tmLanguage.json`), bracket/delimiter configuration (`language-configuration.json`), code snippets (`snippets/tiq.code-snippets`), and LSP integration readiness.
@@ -270,10 +282,10 @@ corrected audits. None of these milestones is complete.
   - `some(x)` emits `((TiqOption){ .value = (int64_t)(x), .has_value = 1 })`; `none` emits `((TiqOption){ .value = 0, .has_value = 0 })`.
   - `ok(x)` emits `((TiqResult){ .value = (int64_t)(x), .error = 0, .is_ok = 1 })`; `err(e)` emits `((TiqResult){ .value = 0, .error = (int64_t)(e), .is_ok = 0 })`.
   - Fallback `a ?? b` emits `(a.has_value ? a.value : b)` for Option, `(a.is_ok ? a.value : b)` for Result (type-aware field selection).
-  - Propagation `expr?` emits `expr.value` (full early-return semantics deferred).
-  - Parser distinguishes postfix `?` (propagation) from ternary `? :` via lookahead for `:` at same nesting level.
-  - Semantic checking: `some`/`ok`/`err` require exactly 1 argument (E12); fallback requires Option/Result left side (E09); propagation requires Option/Result operand (E09).
-  - Tests: `semantic.sh` (fallback_non_option, some_wrong_arity, ok_wrong_arity, err_wrong_arity, propagate_non_option); `smoke.sh` (option_some, option_none, result_ok, result_err, propagate_some); full suite green under ASan/UBSan.
+  - Propagation `?expr` emits statement expression with early-return: if absent (`none`) or error (`err(e)`), enclosing function returns early with `none` or `err(e)`; unwraps value on present/ok.
+  - Parser treats `?expr` as prefix unary expression (M25 disambiguation).
+  - Semantic checking: `some`/`ok`/`err` require exactly 1 argument (E12); fallback requires Option/Result left side (E09); propagation operator `?` is restricted to function scope (E07), requires Option/Result operand (E09), and enforces enclosing function return type compatibility (E09).
+  - Tests: `semantic.sh` (fallback_non_option, some_wrong_arity, ok_wrong_arity, err_wrong_arity, propagate_non_option, propagate_outside_function, propagate_in_scalar_function, propagate_result_in_scalar_function); `smoke.sh` (option_some, option_none, result_ok, result_err, propagate_option, propagate_result); full suite green under ASan/UBSan.
 - AST arena allocator (2026-07-27, plan 4.1):
   - `src/arena.c` / `include/arena.h`: bump allocator (64 KiB blocks, max-aligned, in-place growth for the newest allocation); the `Parser` owns one `Arena` that holds every `AstNode`, aux array (`call.args`, `block.statements`/`deferred`, `function.params`/`param_types`, `bracket_loop.body_stmts`, `stream_gen.seeds`, `match_expr.arms`), and the top-level statements array.
   - `parser_free` is now a single `arena_free`; the per-node partial-free switch (the source of the earlier fuzz-found leaks) is gone. Callers no longer `free(stmts)` — the parse result is arena-owned.

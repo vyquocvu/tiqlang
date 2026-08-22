@@ -168,9 +168,10 @@ y = x ?? 0
 print(y)
 ' "phi"
 
-assert_ir_contains "option_unwrap" 'x = some(42)
-y = ?x
-print(y)
+assert_ir_contains "option_unwrap" 'f x: Option : Option -> {
+  y = ?x
+  some(y)
+}
 ' "field_ptr"
 
 # Test 17: Supported examples lower cleanly into IR
@@ -185,6 +186,7 @@ examples/gcd.tiq
 examples/hello.tiq
 examples/max.tiq
 examples/option_result.tiq
+examples/pattern_matching.tiq
 examples/primes.tiq
 examples/structs.tiq"
 

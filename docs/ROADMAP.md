@@ -345,7 +345,7 @@ Status: queued
 Status audit 2026-07-25: previously marked done; corrected after source review. `src/platform.c` does not exist; there is no wasm playground or self-hosted compiler. Update 2026-07-27 (plan 5.1): LSP `hover`/`definition`/`semanticTokens` now answer with real symbol data from the lexer+parser+semantic front end, pinned by the golden JSON-RPC transcript `tests/tooling/lsp.sh`. Update 2026-07-29 (M11.1): `didOpen` publishes structured in-protocol diagnostics from the real front end.
 
 - [ ] Native Windows platform abstraction layer (`src/platform.c` using Win32 API)
-- [ ] WebAssembly-compiled in-browser Tiq compiler & interactive web playground
+- [x] WebAssembly-compiled in-browser Tiq compiler & interactive web playground — M20.3 (2026-08-22): `editors/playground/` (index.html, playground.js, playground.css) with WASI runtime polyfill, code presets, shareable hash URLs, verified by `tests/playground.sh`.
 - [x] Full LSP server capabilities (`hover`, `go-to-definition`, `semanticTokens` with real symbol data) — 2026-07-27, evidence: `src/lsp.c` runs the front end on stored `didOpen` text; golden transcript `tests/tooling/lsp.sh`
 - [x] Structured in-protocol diagnostics on `didOpen` — M11.1 (2026-07-29): optional bounded `DiagRecord` sink on `DiagContext` (`include/diag.h`); `publishDiagnostics` carries 0-based start-of-line ranges, severity 1, code `"ENN"`, source `"tiq"`, exact CLI messages, keyed to the stored document version (docs/CLI.md); evidence: golden transcript `tests/tooling/lsp.sh` pins two E08 diagnostics plus the clean-document empty set.
 - [x] Document sync: `didChange`/`didClose` — M11.2 (2026-07-29): full-document sync matching the advertised `textDocumentSync: 1` — `didChange` replaces the stored text, advances the version, and republishes diagnostics; `didClose` drops the document (later requests answer `null`) and clears its diagnostics; unopened uris fail closed (docs/CLI.md); evidence: golden transcript `tests/tooling/lsp.sh` pins change-to-broken, change-to-clean, post-change hover, close, and ignored unopened-uri change.
@@ -600,9 +600,7 @@ deterministic tests agree.
 - [ ] Complete `Option<T>` and `Result<T, E>` payload representation so supported payloads
   are not forced through `int64_t`. *Deferred* — the bootstrap still stores payloads in
   `int64_t` slots; this is the S4 representation migration tracked elsewhere.
-- [ ] Implement the documented control-flow semantics of propagation, or mark propagation
-  fail-closed until early return and cleanup are correct. A plain `.value` extraction is
-  not sufficient. *Deferred*.
+- [x] Implement the documented control-flow semantics of propagation (`?expr` unwraps on success, early-returns `none`/`err` state, restricted to function scope with matching return type) in bootstrap and self-hosted compilers. (2026-08-22)
 - [ ] Add representation and ownership tests for non-integer Option/Result payloads,
   nested composites, propagation on both branches, and cleanup on early exit. *Deferred*.
 
