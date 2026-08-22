@@ -1014,6 +1014,15 @@ static void emit_expr(AstNode *node, EmitContext *ctx) {
                     {"map_len", 7, "tiq_map_len", 0},
                     {"map_key_at", 10, "tiq_map_key_at", 0},
                     {"map_val_at", 10, "tiq_map_val_at", 0},
+                    // M19.2: Thread-safe channel builtins (LANGUAGE_SPEC §19.12)
+                    {"chan_new", 8, "tiq_chan_new", 1},
+                    {"chan_send", 9, "tiq_chan_send", 1},
+                    {"chan_recv", 9, "tiq_chan_recv", 1},
+                    {"chan_try_recv", 13, "tiq_chan_try_recv", 1},
+                    {"chan_close", 10, "tiq_chan_close", 1},
+                    {"chan_len", 8, "tiq_chan_len", 1},
+                    {"chan_cap", 8, "tiq_chan_cap", 1},
+                    {"chan_free", 9, "tiq_chan_free", 1},
                 };
                 const char *builtin_fn = NULL;
                 for (int bi = 0; bi < (int)(sizeof btn / sizeof btn[0]); bi++) {
@@ -2292,6 +2301,7 @@ void compile_modules_to_c(SemanticModule *mods, int mod_count, const char *root_
     fputs(TIQ_RUNTIME_PRELUDE_AUX10, ctx->out);
     fputs(TIQ_RUNTIME_PRELUDE_AUX11, ctx->out);
     fputs(TIQ_RUNTIME_PRELUDE_AUX11B, ctx->out);
+    fputs(TIQ_RUNTIME_PRELUDE_AUX12, ctx->out);
 
     // M12.6: Emit struct definitions (before function declarations so types are visible)
     emit_struct_defs(ctx, stmts, count);

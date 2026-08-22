@@ -74,6 +74,8 @@ test: $(TIQ) $(BUILD)/qbe $(BUILD)/runtime_qbe.o test-unit test-heavy
 	sh tests/redis.sh
 	sh tests/http_std.sh
 	sh tests/playground.sh
+	sh tests/wasm.sh
+	sh tests/concurrency.sh
 
 # These suites dominate sanitizer test time and use disjoint output paths.
 # Bound the default fan-out; smaller hosts can use `make TEST_JOBS=2 test`.

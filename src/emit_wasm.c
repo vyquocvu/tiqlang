@@ -259,6 +259,8 @@ typedef struct {
 } RtCtx;
 
 // Function index layout.
+// FUNC_ALLOC: internal bump-allocator (i32 size -> i32 ptr) used by
+// IR_STRUCT_INIT and IR_ARRAY_INIT to allocate struct/array memory.
 enum {
     FUNC_FD_WRITE = 0,
     FUNC_PROC_EXIT = 1,
@@ -268,7 +270,8 @@ enum {
     FUNC_PRINT_BOOL = 5,
     FUNC_PRINT_F64 = 6,
     FUNC_PRINT_NL = 7,
-    FUNC_USER_BASE = 8,
+    FUNC_ALLOC = 8,     // bump allocator: (size: i32) -> i32 ptr
+    FUNC_USER_BASE = 9,
 };
 
 // ---------------------------------------------------------------------------
@@ -679,6 +682,28 @@ static void emit_print_f64(Buf *o, const RtCtx *rc) {
     end(o);
 }
 
+// store/load helpers for 32-bit and 64-bit linear memory access.
+static void st64(Buf *o) { b_byte(o, 0x37); b_byte(o, 0x03); b_byte(o, 0x00); } // i64.store align=8
+static void ld64(Buf *o) { b_byte(o, 0x29); b_byte(o, 0x03); b_byte(o, 0x00); } // i64.load align=8
+
+// alloc(size: i32) -> i32: bump allocator from global 0 (__heap_ptr).
+// 8-byte aligned. No free. Each call returns a fresh block of `size` bytes.
+// locals: none
+static void emit_alloc(Buf *o) {
+    b_byte(o, 0x00); // no extra locals
+    // 1. push old heap_ptr as return value
+    b_byte(o, 0x23); w_uleb(o, 0); // global.get 0
+    // 2. compute new heap_ptr = old heap_ptr + ((size + 7) & ~7)
+    b_byte(o, 0x23); w_uleb(o, 0); // global.get 0
+    lg(o, 0);                       // size arg
+    i32c(o, 7); op(o, 0x6A);        // size + 7
+    i32c(o, -8); op(o, 0x71);       // & ~7
+    op(o, 0x6A);                    // old_heap_ptr + aligned_size
+    b_byte(o, 0x24); w_uleb(o, 0); // global.set 0 (updates heap_ptr)
+    // stack has exactly 1 element: old heap_ptr (the return value)
+    end(o);
+}
+
 // ---------------------------------------------------------------------------
 // Operand / value emission (pushes a value of `vt` on the stack)
 
@@ -966,6 +991,115 @@ static int emit_instr(CodeCtx *cc, const IrInstr *ins, char *err, size_t errlen)
             return 0;
         }
 
+        // IR_STRUCT_INIT: allocate n*8 bytes, store each field operand as i64
+        // at base+i*8, then return the base pointer (i32 in wasm32).
+        case IR_STRUCT_INIT: {
+            if (dst < 0) return 0;
+            int n = ins->operand_count;
+            // alloc(n * 8) -> dst (i32 base ptr)
+            b_byte(o, 0x41); w_sleb(o, n * 8);  // i32.const (n*8)
+            b_byte(o, 0x10); w_uleb(o, FUNC_ALLOC);
+            b_byte(o, 0x21); w_uleb(o, (uint64_t)dst); // dst = base ptr
+            // store each field at base + i*8
+            for (int i = 0; i < n; i++) {
+                const IrOperand *fop = &ins->operands[i];
+                IrTypeKind fk = IR_I64;
+                if (fop->kind == IR_OP_REG && fop->reg < cc->rt->count)
+                    fk = cc->rt->kinds[fop->reg];
+                uint8_t fvt = valtype(fk);
+                // addr = base + i*8  (i32)
+                b_byte(o, 0x20); w_uleb(o, (uint64_t)dst);
+                i32c(o, i * 8);
+                op(o, 0x6A); // i32.add
+                // value: emit as i64 (widen small int/bool to i64 for uniform 8-byte layout)
+                if (emit_value(cc, fop, fvt, err, errlen) != 0) return -1;
+                if (fvt == 0x7F) {
+                    b_byte(o, 0xAD); // i64.extend_i32_u
+                } else if (fvt == 0x7D) {
+                    // f32 -> store as i32 bits reinterpreted as i64
+                    b_byte(o, 0xBB); // f64.promote_f32
+                    b_byte(o, 0xBD); // i64.reinterpret_f64
+                } else if (fvt == 0x7C) {
+                    b_byte(o, 0xBD); // i64.reinterpret_f64
+                }
+                st64(o); // i64.store
+            }
+            return 0;
+        }
+
+        // IR_FIELD_PTR: load i64 at base + field_index*8
+        case IR_FIELD_PTR: {
+            if (!a0 || !a1 || dst < 0) return 0;
+            int fidx = (a1->kind == IR_OP_IMM) ? (int)a1->imm : 0;
+            // addr = base (i32) + fidx*8
+            if (emit_value(cc, a0, 0x7F, err, errlen) != 0) return -1;
+            i32c(o, fidx * 8);
+            op(o, 0x6A); // i32.add
+            // load the i64 value
+            ld64(o);
+            // convert to dst type
+            IrTypeKind dk = ins->dst_type.kind;
+            uint8_t dvt = valtype(dk);
+            if (dvt == 0x7F) {
+                b_byte(o, 0xA7); // i32.wrap_i64
+            } else if (dvt == 0x7C) {
+                b_byte(o, 0xBF); // f64.reinterpret_i64
+            } else if (dvt == 0x7D) {
+                b_byte(o, 0xBF); // f64.reinterpret_i64
+                b_byte(o, 0x56); // f32.demote_f64
+            }
+            b_byte(o, 0x21); w_uleb(o, (uint64_t)dst);
+            return 0;
+        }
+
+        // IR_ARRAY_INIT: allocate n*8 bytes, store each element as i64.
+        case IR_ARRAY_INIT: {
+            if (dst < 0) return 0;
+            int n = ins->operand_count;
+            b_byte(o, 0x41); w_sleb(o, n * 8);
+            b_byte(o, 0x10); w_uleb(o, FUNC_ALLOC);
+            b_byte(o, 0x21); w_uleb(o, (uint64_t)dst);
+            for (int i = 0; i < n; i++) {
+                const IrOperand *fop = &ins->operands[i];
+                IrTypeKind fk = IR_I64;
+                if (fop->kind == IR_OP_REG && fop->reg < cc->rt->count)
+                    fk = cc->rt->kinds[fop->reg];
+                uint8_t fvt = valtype(fk);
+                b_byte(o, 0x20); w_uleb(o, (uint64_t)dst);
+                i32c(o, i * 8);
+                op(o, 0x6A);
+                if (emit_value(cc, fop, fvt, err, errlen) != 0) return -1;
+                if (fvt == 0x7F) { b_byte(o, 0xAD); }
+                else if (fvt == 0x7D) { b_byte(o, 0xBB); b_byte(o, 0xBD); }
+                else if (fvt == 0x7C) { b_byte(o, 0xBD); }
+                st64(o);
+            }
+            return 0;
+        }
+
+        // IR_INDEX_PTR: load i64 at base + index*8
+        case IR_INDEX_PTR: {
+            if (!a0 || !a1 || dst < 0) return 0;
+            // base ptr (i32)
+            if (emit_value(cc, a0, 0x7F, err, errlen) != 0) return -1;
+            // index (i64 or i32)
+            IrTypeKind ik = IR_I64;
+            if (a1->kind == IR_OP_REG && a1->reg < cc->rt->count) ik = cc->rt->kinds[a1->reg];
+            if (emit_value(cc, a1, valtype(ik), err, errlen) != 0) return -1;
+            if (valtype(ik) == 0x7E) { b_byte(o, 0xA7); } // i32.wrap_i64
+            i32c(o, 8);
+            op(o, 0x6C); // i32.mul
+            op(o, 0x6A); // i32.add
+            ld64(o);
+            IrTypeKind dk = ins->dst_type.kind;
+            uint8_t dvt = valtype(dk);
+            if (dvt == 0x7F) { b_byte(o, 0xA7); }
+            else if (dvt == 0x7C) { b_byte(o, 0xBF); }
+            else if (dvt == 0x7D) { b_byte(o, 0xBF); b_byte(o, 0x56); }
+            b_byte(o, 0x21); w_uleb(o, (uint64_t)dst);
+            return 0;
+        }
+
         case IR_BR:
         case IR_CBR:
         case IR_PHI:
@@ -1196,8 +1330,10 @@ bool emit_wasm(const IrModule *module, uint8_t **out, size_t *out_len,
     int sig_print_bool = sig_add(&tt, (const uint8_t[]){v_i32}, 1, 0, 0);
     int sig_print_f64 = sig_add(&tt, (const uint8_t[]){v_f64}, 1, 0, 0);
     int sig_print_nl = sig_add(&tt, (const uint8_t[]){v_i32}, 1, 0, 0);
+    int sig_alloc    = sig_add(&tt, (const uint8_t[]){v_i32}, 1, v_i32, 1);
     if (sig_fdwrite < 0 || sig_proc_exit < 0 || sig_strlen < 0 || sig_print_str < 0 ||
-        sig_print_i64 < 0 || sig_print_bool < 0 || sig_print_f64 < 0 || sig_print_nl < 0)
+        sig_print_i64 < 0 || sig_print_bool < 0 || sig_print_f64 < 0 || sig_print_nl < 0 ||
+        sig_alloc < 0)
         goto fail;
 
     // User function signatures + name table.
@@ -1261,16 +1397,18 @@ bool emit_wasm(const IrModule *module, uint8_t **out, size_t *out_len,
     }
 
     // Function section: type indices for local funcs (imports are 0,1).
+    // Order: strlen, print_str, print_i64, print_bool, print_f64, print_nl, alloc, [user funcs], _start
     {
         Buf s;
         b_init(&s);
-        w_uleb(&s, (uint64_t)(module->func_count + 7));
+        w_uleb(&s, (uint64_t)(module->func_count + 8)); // 6 print helpers + alloc + user + start
         w_uleb(&s, (uint64_t)sig_strlen);
         w_uleb(&s, (uint64_t)sig_print_str);
         w_uleb(&s, (uint64_t)sig_print_i64);
         w_uleb(&s, (uint64_t)sig_print_bool);
         w_uleb(&s, (uint64_t)sig_print_f64);
         w_uleb(&s, (uint64_t)sig_print_nl);
+        w_uleb(&s, (uint64_t)sig_alloc);
         for (int i = 0; i < module->func_count; i++)
             w_uleb(&s, (uint64_t)ft.e[i].sig_idx);
         w_uleb(&s, (uint64_t)start_sig);
@@ -1286,6 +1424,26 @@ bool emit_wasm(const IrModule *module, uint8_t **out, size_t *out_len,
         b_byte(&s, 0x00); // no max
         w_uleb(&s, 1);    // min pages
         sec(&m, 5, &s);
+        b_free(&s);
+    }
+
+    // Compute data segment total for the __heap_ptr initial value.
+    // heap starts immediately after the NUL-terminated string pool, 8-byte aligned.
+    uint32_t data_total = 60;
+    for (int i = 0; i < pool.count; i++)
+        data_total += (uint32_t)pool.e[i].len + 1;
+    uint32_t heap_init = (data_total + 7) & ~(uint32_t)7; // 8-byte align
+
+    // Global section: one mutable i32 global (__heap_ptr).
+    {
+        Buf s;
+        b_init(&s);
+        w_uleb(&s, 1);                    // one global
+        b_byte(&s, 0x7F);                 // valtype i32
+        b_byte(&s, 0x01);                 // mutable
+        b_byte(&s, 0x41); w_sleb(&s, (int32_t)heap_init); // i32.const heap_init
+        b_byte(&s, 0x0B);                 // end init expr
+        sec(&m, 6, &s);
         b_free(&s);
     }
 
@@ -1308,7 +1466,7 @@ bool emit_wasm(const IrModule *module, uint8_t **out, size_t *out_len,
     {
         Buf s;
         b_init(&s);
-        w_uleb(&s, (uint64_t)(module->func_count + 7));
+        w_uleb(&s, (uint64_t)(module->func_count + 8));
         {
             Buf b; b_init(&b);
             emit_strlen(&b);
@@ -1342,6 +1500,12 @@ bool emit_wasm(const IrModule *module, uint8_t **out, size_t *out_len,
         {
             Buf b; b_init(&b);
             emit_print_nl(&b, rc.iov, rc.nw);
+            w_uleb(&s, b.len); b_bytes(&s, b.d, b.len);
+            b_free(&b);
+        }
+        {
+            Buf b; b_init(&b);
+            emit_alloc(&b);
             w_uleb(&s, b.len); b_bytes(&s, b.d, b.len);
             b_free(&b);
         }

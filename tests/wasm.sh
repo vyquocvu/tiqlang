@@ -44,7 +44,10 @@ examples/gcd.tiq
 examples/primes.tiq
 examples/continue_skip.tiq
 examples/fib.tiq
-examples/arithmetic.tiq"
+examples/arithmetic.tiq
+examples/structs.tiq
+examples/option_result.tiq
+examples/pattern_matching.tiq"
 
 for src in $golden_files; do
   name=$(basename "$src" .tiq)
@@ -88,26 +91,19 @@ for src in $golden_files; do
   fi
 done
 
-# --- Test 2: fail-closed on unsupported input ------------------------------
+# --- Test 2: fail-closed on invalid input ----------------------------------
 
-# Structs: IR lowering does not support field access / record literals.
-# These must be a clean compile error with a source location, not a garbage
-# module or a silent miscompile.
-fail_closed_files="examples/structs.tiq"
-
-for src in $fail_closed_files; do
-  name=$(basename "$src" .tiq)
-  if $TIQ build "$src" --target wasm32-wasi -o "$TMP_DIR/$name.wasm" 2>"$TMP_DIR/$name.err"; then
-    echo "wasm: FAIL $src (unsupported input must not build)" >&2
+printf 'x = 1 + "bad"\n' > "$TMP_DIR/type_err.tiq"
+if $TIQ build "$TMP_DIR/type_err.tiq" --target wasm32-wasi -o "$TMP_DIR/type_err.wasm" 2>"$TMP_DIR/type_err.err"; then
+  echo "wasm: FAIL type_err.tiq (invalid input must not build)" >&2
+  fail=1
+else
+  if ! grep -qE ':[0-9]+:' "$TMP_DIR/type_err.err"; then
+    echo "wasm: FAIL type_err.tiq (diagnostic lacks source location)" >&2
+    cat "$TMP_DIR/type_err.err" >&2
     fail=1
-  else
-    if ! grep -qE ':[0-9]+:' "$TMP_DIR/$name.err"; then
-      echo "wasm: FAIL $src (diagnostic lacks source location)" >&2
-      cat "$TMP_DIR/$name.err" >&2
-      fail=1
-    fi
   fi
-done
+fi
 
 if [ "$fail" -ne 0 ]; then
   echo "wasm: failed" >&2

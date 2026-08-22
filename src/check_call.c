@@ -215,6 +215,15 @@ void check_call(SemanticContext *ctx, AstNode *node) {
                         {"dl_sym",         6, 2, TYPE_U64, TYPE_U64, TYPE_STR, true},
                         {"dl_error",       8, 0, TYPE_INT, TYPE_STR, TYPE_UNKNOWN, false},
                         {"dl_call",        7, 7, TYPE_U64, TYPE_INT, TYPE_INT, true},
+                        // M19.2: Thread-safe channel builtins (LANGUAGE_SPEC §19.12).
+                        {"chan_new",       8, 1, TYPE_INT, TYPE_U64, TYPE_UNKNOWN, true},
+                        {"chan_send",      9, 2, TYPE_U64, TYPE_INT, TYPE_INT, true},
+                        {"chan_recv",      9, 1, TYPE_U64, TYPE_INT, TYPE_UNKNOWN, true},
+                        {"chan_try_recv", 13, 1, TYPE_U64, TYPE_INT, TYPE_UNKNOWN, true},
+                        {"chan_close",    10, 1, TYPE_U64, TYPE_INT, TYPE_UNKNOWN, true},
+                        {"chan_len",       8, 1, TYPE_U64, TYPE_INT, TYPE_UNKNOWN, true},
+                        {"chan_cap",       8, 1, TYPE_U64, TYPE_INT, TYPE_UNKNOWN, true},
+                        {"chan_free",      9, 1, TYPE_U64, TYPE_INT, TYPE_UNKNOWN, true},
                     };
                     bool matched = false;
                     for (int bi = 0; bi < (int)(sizeof builtins / sizeof builtins[0]); bi++) {

@@ -703,7 +703,18 @@ corrected audits. None of these milestones is complete.
   - `src/ir_lower.c` lowers top-level stream generators — bindings (`fib = [0, 1, ... a + b]`) and generator functions (`evens limit -> [0, ... x + 2]`) — into IR functions named by the user symbol with signature `(params..., n) -> i64`, mirroring `emit_c.c emit_stream_gen_def` (`n < 0 -> 0`, seed returns for `n == 0`/`n == 1`, then a header/body/inc loop). The accumulator (single-seed `x` or the two-seed window `a`/`b`) is a header phi whose back-edge value is materialized in the inc block via `IR_COPY` so both the wasm `$pc` phi-move emission and QBE's SSA rules see a value defined in the predecessor block.
   - Bracket call sites lower as ordinary calls: `fib[i]` -> `IR_CALL "fib" i`; the parameterized form `evens(10)[5]` flattens to `IR_CALL "evens" 10 5` (previously fail-closed E07). Generator functions are appended after main so the wasm start section keeps calling the main slot (`FUNC_USER_BASE + 0`). Structs/field access/matches still fail closed with a located diagnostic.
   - Tests (updated failing-first): `tests/ir.sh` moves `arithmetic`/`evens`/`factorial`/`fib` to the supported set (only `structs` remains unsupported); `tests/wasm.sh` adds `fib`/`arithmetic` to the golden set and drops stream generators from the fail-closed gate; `tests/qbe_backend.sh` now exercises the stream examples end-to-end automatically. 26 of 27 examples match the C backend byte-for-byte through wasm (`option_result` remains unsupported: `call to unknown function 'some'`).
-  - Evidence: `make clean && make && make test` green (all harnesses), plus the ASan/UBSan build clean (`tests/ir.sh`, `tests/wasm.sh`, `tests/semantic.sh`).
+  - M17.4.5: WASM Backend Struct & Aggregate Lowering (2026-08-22):
+  - `src/emit_wasm.c` adds a linear memory bump allocator (`FUNC_ALLOC`) powered by a mutable `__heap_ptr` global initialized immediately after the static data segment / string pool, 8-byte aligned.
+  - IR instructions `IR_STRUCT_INIT`, `IR_FIELD_PTR`, `IR_ARRAY_INIT`, and `IR_INDEX_PTR` are lowered to linear memory store/load sequences (`i64.store`/`i64.load` with type conversions for `f64`/`f32`/`i32`/`bool`).
+  - WebAssembly MVP backend now executes `examples/structs.tiq`, `examples/option_result.tiq`, and `examples/pattern_matching.tiq` end-to-end in Node.js WASI preview1 with byte-for-byte output equivalence to the reference C backend.
+  - Evidence: `tests/wasm.sh` verified green over all 11 golden fixtures.
+
+- M19.2: Structured Concurrency & Thread-Safe Channels (2026-08-22):
+  - `include/runtime_aux.h` (`TIQ_RUNTIME_PRELUDE_AUX12`) adds `TiqChan`, a bounded thread-safe FIFO channel queue guarded by `pthread_mutex_t` and `pthread_cond_t` condition variables (`not_empty`, `not_full`), supporting blocking `tiq_chan_send`/`tiq_chan_recv`, non-blocking `tiq_chan_try_recv`, capacity queries, length queries, and lifecycle management (`tiq_chan_close`, `tiq_chan_free`).
+  - Registered `chan_new`, `chan_send`, `chan_recv`, `chan_try_recv`, `chan_close`, `chan_len`, `chan_cap`, `chan_free` builtins in C checker (`src/check_call.c`), C emitter (`src/emit_c.c`), self-hosted checker (`src/tiq/semantic_builtins.tiq`), and self-hosted emitter (`src/tiq/emit_c.tiq`).
+  - New modular standard library package `std/sync.tiq` wrapping channel operations.
+  - `examples/concurrency_demo.tiq` and new test suite `tests/concurrency.sh` wired into `make test`.
+  - Evidence: `make clean && make && make test` all green.
 
 ## Known bootstrap limitations
 

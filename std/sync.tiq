@@ -1,0 +1,16 @@
+// M19.2: Thread-Safe Channels and Concurrency Primitives (LANGUAGE_SPEC §19.12).
+// Import this module to use chan_* functions:
+//   import "std/sync.tiq"
+//
+// These are thin wrappers over the compiler's pthread-synchronized channel builtins.
+// Channels provide bounded FIFO message passing across threads with blocking
+// and non-blocking operations.
+
+chan_new cap:i64 : u64 -> { chan_new(cap) }
+chan_send ch:u64 val:i64 : i64 -> { chan_send(ch, val) }
+chan_recv ch:u64 : i64 -> { chan_recv(ch) }
+chan_try_recv ch:u64 : i64 -> { chan_try_recv(ch) }
+chan_close ch:u64 : i64 -> { chan_close(ch) }
+chan_len ch:u64 : i64 -> { chan_len(ch) }
+chan_cap ch:u64 : i64 -> { chan_cap(ch) }
+chan_free ch:u64 : i64 -> { chan_free(ch) }

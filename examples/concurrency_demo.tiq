@@ -1,0 +1,34 @@
+//! expected: 4
+//! expected: 3
+//! expected: 10
+//! expected: 20
+//! expected: 30
+//! expected: 0
+//! expected: 1
+
+import "std/sync.tiq"
+
+// 1. Channel creation with bounded capacity
+ch = chan_new(4)
+print(chan_cap(ch))
+
+// 2. Sending values
+chan_send(ch, 10)
+chan_send(ch, 20)
+chan_send(ch, 30)
+print(chan_len(ch))
+
+// 3. Receiving values in FIFO order
+print(chan_recv(ch))
+print(chan_recv(ch))
+
+// 4. Non-blocking try_recv on remaining element
+print(chan_try_recv(ch))
+
+// 5. Try_recv on empty channel returns 0
+print(chan_try_recv(ch))
+
+// 6. Close channel and free resources
+chan_close(ch)
+chan_free(ch)
+print(1)

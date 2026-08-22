@@ -17,9 +17,11 @@ is_gated_name n:str : bool ->
     str_eq(n, "net_fetch") || str_eq(n, "net_listen") || str_eq(n, "net_accept") ||
     str_eq(n, "net_connect") || str_eq(n, "net_recv") || str_eq(n, "net_send") ||
     str_eq(n, "net_close") || str_eq(n, "net_port") || str_eq(n, "net_shutdown") ||
-    str_eq(n, "http_method") || str_eq(n, "http_path") || str_eq(n, "http_header") ||
     str_eq(n, "ev_add") || str_eq(n, "ev_wait") || str_eq(n, "ev_ready") ||
-    str_eq(n, "dl_open") || str_eq(n, "dl_sym") || str_eq(n, "dl_call")
+    str_eq(n, "dl_open") || str_eq(n, "dl_sym") || str_eq(n, "dl_call") ||
+    str_eq(n, "chan_new") || str_eq(n, "chan_send") || str_eq(n, "chan_recv") ||
+    str_eq(n, "chan_try_recv") || str_eq(n, "chan_close") || str_eq(n, "chan_len") ||
+    str_eq(n, "chan_cap") || str_eq(n, "chan_free")
 
 // vec/strbuf/map builtin checkers (args already checked by caller).
 chk_vec src:str toks:vec[Token] ctx:vec[int] path:str nodes:vec[int] kids:vec[int] types:vec[int] en:vec[str] ed:vec[int] tp:vec[int] tpn:vec[str] ni:i64 nm:str : i64 -> {
@@ -177,7 +179,7 @@ chk_map ctx:vec[int] path:str toks:vec[Token] nodes:vec[int] kids:vec[int] types
 
 chk_generic_arity nm:str : i64 -> {
     ar <- 0 - 1
-    str_eq(nm, "str_cat") || str_eq(nm, "fs_write") || str_eq(nm, "str_eq") || str_eq(nm, "json_get") || str_eq(nm, "json_arr_get") || str_eq(nm, "json_view") || str_eq(nm, "json_has") || str_eq(nm, "json_del") || str_eq(nm, "net_send") || str_eq(nm, "http_header") || str_eq(nm, "ev_add") || str_eq(nm, "ev_wait") || str_eq(nm, "ev_ready") || str_eq(nm, "str_sub_code") ? { ar <- 2 }    str_eq(nm, "int_str") || str_eq(nm, "eprint") || str_eq(nm, "fs_read") || str_eq(nm, "fs_exists") || str_eq(nm, "fs_list") || str_eq(nm, "proc_exec") || str_eq(nm, "proc_exit") || str_eq(nm, "net_fetch") || str_eq(nm, "cli_arg") || str_eq(nm, "json_parse_int") || str_eq(nm, "json_encode_str") || str_eq(nm, "json_arr_len") || str_eq(nm, "net_listen") || str_eq(nm, "net_accept") || str_eq(nm, "net_connect") || str_eq(nm, "net_recv") || str_eq(nm, "net_close") || str_eq(nm, "net_port") || str_eq(nm, "net_shutdown") || str_eq(nm, "http_method") || str_eq(nm, "http_path") ? { ar <- 1 }    str_eq(nm, "str_sub") || str_eq(nm, "json_set") ? { ar <- 3 }    str_eq(nm, "cli_arg_count") || str_eq(nm, "ev_loop") || str_eq(nm, "clock_ms") || str_eq(nm, "dl_error") ? { ar <- 0 }    str_eq(nm, "dl_open") ? { ar <- 1 }    str_eq(nm, "dl_sym") ? { ar <- 2 }    str_eq(nm, "dl_call") ? { ar <- 7 }    ar
+    str_eq(nm, "str_cat") || str_eq(nm, "fs_write") || str_eq(nm, "str_eq") || str_eq(nm, "json_get") || str_eq(nm, "json_arr_get") || str_eq(nm, "json_view") || str_eq(nm, "json_has") || str_eq(nm, "json_del") || str_eq(nm, "net_send") || str_eq(nm, "http_header") || str_eq(nm, "ev_add") || str_eq(nm, "ev_wait") || str_eq(nm, "ev_ready") || str_eq(nm, "str_sub_code") || str_eq(nm, "chan_send") ? { ar <- 2 }    str_eq(nm, "int_str") || str_eq(nm, "eprint") || str_eq(nm, "fs_read") || str_eq(nm, "fs_exists") || str_eq(nm, "fs_list") || str_eq(nm, "proc_exec") || str_eq(nm, "proc_exit") || str_eq(nm, "net_fetch") || str_eq(nm, "cli_arg") || str_eq(nm, "json_parse_int") || str_eq(nm, "json_encode_str") || str_eq(nm, "json_arr_len") || str_eq(nm, "net_listen") || str_eq(nm, "net_accept") || str_eq(nm, "net_connect") || str_eq(nm, "net_recv") || str_eq(nm, "net_close") || str_eq(nm, "net_port") || str_eq(nm, "net_shutdown") || str_eq(nm, "http_method") || str_eq(nm, "http_path") || str_eq(nm, "chan_new") || str_eq(nm, "chan_recv") || str_eq(nm, "chan_try_recv") || str_eq(nm, "chan_close") || str_eq(nm, "chan_len") || str_eq(nm, "chan_cap") || str_eq(nm, "chan_free") ? { ar <- 1 }    str_eq(nm, "str_sub") || str_eq(nm, "json_set") ? { ar <- 3 }    str_eq(nm, "cli_arg_count") || str_eq(nm, "ev_loop") || str_eq(nm, "clock_ms") || str_eq(nm, "dl_error") ? { ar <- 0 }    str_eq(nm, "dl_open") ? { ar <- 1 }    str_eq(nm, "dl_sym") ? { ar <- 2 }    str_eq(nm, "dl_call") ? { ar <- 7 }    ar
 }
 
 // Generic builtin checker: returns 1 if matched, 0 if not.
@@ -231,6 +233,15 @@ chk_generic ctx:vec[int] path:str toks:vec[Token] nodes:vec[int] kids:vec[int] t
     str_eq(nm, "dl_sym") ? { ar <- 2; exp <- TY.U64; ret <- TY.U64; exp2 <- TY.Str; hit <- 1 }
     str_eq(nm, "dl_error") ? { ar <- 0; exp <- TY.Int; ret <- TY.Str; exp2 <- 0; hit <- 1 }
     str_eq(nm, "dl_call") ? { ar <- 7; exp <- TY.U64; ret <- TY.Int; exp2 <- TY.Int; hit <- 1 }
+    // M19.2: thread-safe channel builtins (LANGUAGE_SPEC §19.12).
+    str_eq(nm, "chan_new") ? { ar <- 1; exp <- TY.Int; ret <- TY.U64; exp2 <- 0; hit <- 1 }
+    str_eq(nm, "chan_send") ? { ar <- 2; exp <- TY.U64; ret <- TY.Int; exp2 <- TY.Int; hit <- 1 }
+    str_eq(nm, "chan_recv") ? { ar <- 1; exp <- TY.U64; ret <- TY.Int; exp2 <- 0; hit <- 1 }
+    str_eq(nm, "chan_try_recv") ? { ar <- 1; exp <- TY.U64; ret <- TY.Int; exp2 <- 0; hit <- 1 }
+    str_eq(nm, "chan_close") ? { ar <- 1; exp <- TY.U64; ret <- TY.Int; exp2 <- 0; hit <- 1 }
+    str_eq(nm, "chan_len") ? { ar <- 1; exp <- TY.U64; ret <- TY.Int; exp2 <- 0; hit <- 1 }
+    str_eq(nm, "chan_cap") ? { ar <- 1; exp <- TY.U64; ret <- TY.Int; exp2 <- 0; hit <- 1 }
+    str_eq(nm, "chan_free") ? { ar <- 1; exp <- TY.U64; ret <- TY.Int; exp2 <- 0; hit <- 1 }
     // M15: gated domain builtins only match inside std/ wrapper functions.
     hit == 1 && is_gated_name(nm) && vec_get(ctx, CX.IsStd) == 0 ? { hit <- 0; r <- 0 }
     hit == 0 ? { r <- 0 }    // hit == 1: check arity + arg types
