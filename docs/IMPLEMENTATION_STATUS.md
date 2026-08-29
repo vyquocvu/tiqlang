@@ -715,6 +715,7 @@ corrected audits. None of these milestones is complete.
   - New modular standard library package `std/sync.tiq` wrapping channel operations.
   - `examples/concurrency_demo.tiq` and new test suite `tests/concurrency.sh` wired into `make test`.
   - Evidence: `make clean && make && make test` all green.
+  - Spec (2026-08-29): LANGUAGE_SPEC §19.12 documents the eight chan builtins (signatures, blocking/close semantics, pthread threading model, `spawn`-remains-fail-closed note) and §17.7 adds `std/sync.tiq` to the gated-module list; ROADMAP M7's chan/spawn item now records the runtime-vs-syntax split.
 
 ## Known bootstrap limitations
 

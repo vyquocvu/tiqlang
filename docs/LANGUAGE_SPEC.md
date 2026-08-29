@@ -815,6 +815,7 @@ Gated domains and their modules:
 - `import "std/net.tiq"` — `net_fetch`, `net_listen`, `net_accept`, `net_connect`, `net_recv`, `net_send`, `net_close`, `net_port`, `net_shutdown`, `http_method`, `http_path`, `http_header` (§19.2–§19.3).
 - `import "std/ev.tiq"` — `ev_add`, `ev_wait`, `ev_ready` (§19.4).
 - `import "std/dl.tiq"` — `dl_open`, `dl_sym`, `dl_call` (§19.11).
+- `import "std/sync.tiq"` — `chan_new`, `chan_send`, `chan_recv`, `chan_try_recv`, `chan_close`, `chan_len`, `chan_cap`, `chan_free` (§19.12).
 
 Behavior:
 - Outside a `std/` module, calling a gated builtin without importing its module is a compile-time `error[E08]: undefined symbol '<name>'` whose message carries a hint naming the module to import (for example, `— import "std/json.tiq" for JSON operations`). With the import present, the call resolves to the wrapper function defined in that module, which has the same name and signature as the builtin.
@@ -1122,6 +1123,35 @@ dl_call(sym: u64, a: i64, b: i64, c: i64, d: i64, e: i64, f: i64) : i64
 **Limitations.** `dl_call` covers integer/pointer signatures only (valid on x86-64 and ARM64): f64-returning symbols and struct-by-value parameters are out of scope. There is no `dl_close` in v0.1 — handles live for the process lifetime. No `-l dl` flag is appended automatically; macOS (libSystem) and glibc ≥ 2.34 resolve `dlopen` without it, and older glibc needs `-l dl` via the M16.2 link options.
 
 Status: implemented — builtins, gating, the `std/dl.tiq` wrapper module, runtime helpers, and fail-closed tests in both compilers (M16.4).
+
+### 19.12 Thread-safe channels (`std/sync.tiq`) (implemented)
+
+Bounded FIFO message passing between threads, through eight builtins gated behind `import "std/sync.tiq"` (§17.7). Channel values are `i64`; the handle is an opaque `u64` (`0` never denotes a valid channel).
+
+```text
+chan_new(cap: i64) : u64
+chan_send(ch: u64, val: i64) : i64
+chan_recv(ch: u64) : i64
+chan_try_recv(ch: u64) : i64
+chan_close(ch: u64) : i64
+chan_len(ch: u64) : i64
+chan_cap(ch: u64) : i64
+chan_free(ch: u64) : i64
+```
+
+- `chan_new(cap)` allocates a bounded channel with capacity `max(cap, 1)` and returns the handle; allocation failure returns `0`.
+- `chan_send(ch, val)` enqueues `val`, blocking while the channel is full until space frees or the channel closes. Returns `0` on success, `-1` when `ch` is invalid or the channel was closed (the value is not enqueued).
+- `chan_recv(ch)` dequeues the oldest value, blocking while the channel is empty until a value arrives or the channel closes. Returns the value, or `0` when `ch` is invalid or the channel is closed and drained. Buffered values remain receivable after `chan_close`. Because `0` is a valid payload, a received `0` is indistinguishable from a closed-and-drained channel — v0.1 limitation until `Option<i64>` returns are available here.
+- `chan_try_recv(ch)` dequeues without blocking: the oldest value, or `0` when the channel is empty or `ch` is invalid (regardless of closed state).
+- `chan_close(ch)` marks the channel closed and wakes all blocked senders and receivers. Subsequent sends fail with `-1`; receivers drain buffered values, then return `0`. Idempotent; returns `0`, `-1` on invalid handle.
+- `chan_len(ch)` returns the currently buffered count; `chan_cap(ch)` returns the capacity (minimum `1`). Both return `0` on an invalid handle.
+- `chan_free(ch)` destroys the channel: the mutex and condition variables are destroyed and the buffer freed. Returns `0`, `-1` on invalid handle. Using a handle after `chan_free` is undefined behavior.
+
+**Threading model.** Every operation takes the channel's `pthread_mutex_t`; blocking send/recv wait on `not_full`/`not_empty` condition variables, and `chan_close` broadcasts both. Tiq has no thread-creation syntax in v0.1 — `spawn` remains fail-closed (§17.3). Threads are created through C FFI (`extern "C"` + `pthread_create`, §17.8) or a host embedder; `chan_*` handles are plain `u64` values and may be passed to such threads.
+
+**Compile-time checks.** The standard builtin rules: gating (E08 with the import hint), arity (E12), argument types (E09).
+
+Status: implemented — builtins, gating, the `std/sync.tiq` wrapper module, pthread runtime helpers, `examples/concurrency_demo.tiq`, and `tests/concurrency.sh` in both compilers (M19.2).
 
 ## 20. Bootstrap conformance
 
