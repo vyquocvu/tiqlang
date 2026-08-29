@@ -161,6 +161,37 @@ get_res x: Result : Result -> {
 }
 print(get_opt(a) ?? 0)
 print(get_res(r) ?? 0)'
+
+case_run "s4_nested_option" 'x = some(some(3))
+y = x ?? some(0)
+z = y ?? 0
+print(z)'
+case_run "s4_double_nested" 'x = some(some(some(2)))
+y = x ?? some(some(0))
+z = y ?? some(0)
+w = z ?? 0
+print(w)'
+case_run "s4_nested_match" 'x = some(some(7))
+print(match x { some(v) => v ?? 0, none => 0, _ => 0 })'
+case_run "s4_f64_payload" 'r = some(1.5)
+print(r ?? 0.0)'
+case_run "s4_struct_payload" 'struct P { v: i64 }
+wrap p:P : Option[P] -> {
+  some(p)
+}
+pt = P { v: 9 }
+got = wrap(pt) ?? P { v: 0 }
+print(got.v)'
+case_run "s4_result_struct_error" 'struct E { code: i64 }
+try n:i64 : Result[i64, E] -> {
+  n > 0 ? ok(n) : err(E { code: 0 - n })
+}
+print(match try(0 - 5) { ok(v) => v, err(e) => e.code, _ => 0 - 1 })'
+case_run "s4_bare_none_repoint" 'struct P { v: i64 }
+mknone u:i64 : Option[P] -> {
+  none
+}
+print(mknone(0) ?? P { v: 7 })'
 case_run "numeric_conversions" 'print(i8(130))
 print(u16(65537))
 print(i32(42.9))

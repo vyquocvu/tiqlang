@@ -7,8 +7,9 @@ import "lexer.tiq"
 // Env symbol: names in env_names:vec[str], data in env_data:vec[int]
 // with EW=4 slots per binding: mut, moved, type, line.
 enum EF { EMut, EMoved, EType, ELine }
-// Context: packed into ctx:vec[int].
-enum CX { HasErr, Fatal, LoopDepth, InRange, IsStd, InFn, FnRet }
+// Context: packed into ctx:vec[int]. FnRetFull (Pre-M13 S4) carries the
+// annotated full Option/Result return type index, -1 otherwise.
+enum CX { HasErr, Fatal, LoopDepth, InRange, IsStd, InFn, FnRet, FnRetFull }
 
 
 // diag_error(): path:line: error[E%02d]: msg. E07 is fatal → suppresses later diag.

@@ -207,9 +207,46 @@ ec_find_unsupported src:str toks:vec[Token] nodes:vec[int] kids:vec[int] types:v
     found
 }
 
-ec_type tp:vec[int] tpn:vec[str] types:vec[int] ni:i64 : str -> {
+ec_optres_suffix tp:vec[int] tpn:vec[str] t:i64 : str -> {
+    r <- "i64"
+    t != 0 - 1 ? {
+        k = vec_get(tp, t * 8 + TF.Kind)
+        k == TY.I8 ? { r <- "i8" }        k == TY.I16 ? { r <- "i16" }
+        k == TY.I32 ? { r <- "i32" }      k == TY.U8 ? { r <- "u8" }
+        k == TY.U16 ? { r <- "u16" }      k == TY.U32 ? { r <- "u32" }
+        k == TY.U64 ? { r <- "u64" }      k == TY.F32 ? { r <- "f32" }
+        k == TY.Float ? { r <- "f64" }    k == TY.Bool ? { r <- "bool" }
+        k == TY.Struct ? { r <- vec_get(tpn, t) }
+        k == TY.Option ? {
+            optres_flat(tp, t) == 1 ? { r <- "TiqOption" }
+            optres_flat(tp, t) == 0 ? { r <- str_cat("TiqOption_", ec_optres_suffix(tp, tpn, vec_get(tp, t * 8 + TF.Inner))) }
+        }
+        k == TY.Result ? {
+            optres_flat(tp, t) == 1 ? { r <- "TiqResult" }
+            optres_flat(tp, t) == 0 ? { r <- str_cat(str_cat("TiqResult_", ec_optres_suffix(tp, tpn, vec_get(tp, t * 8 + TF.Inner))), str_cat("_", ec_optres_suffix(tp, tpn, vec_get(tp, t * 8 + TF.Err)))) }
+        }
+    }
+    r
+}
+
+ec_optres_name tp:vec[int] tpn:vec[str] t:i64 : str -> {
     r <- "int64_t"
-    t = vec_get(types, ni)
+    t != 0 - 1 ? {
+        k = vec_get(tp, t * 8 + TF.Kind)
+        k == TY.Option ? {
+            optres_flat(tp, t) == 1 ? { r <- "TiqOption" }
+            optres_flat(tp, t) == 0 ? { r <- str_cat("TiqOption_", ec_optres_suffix(tp, tpn, vec_get(tp, t * 8 + TF.Inner))) }
+        }
+        k == TY.Result ? {
+            optres_flat(tp, t) == 1 ? { r <- "TiqResult" }
+            optres_flat(tp, t) == 0 ? { r <- str_cat(str_cat("TiqResult_", ec_optres_suffix(tp, tpn, vec_get(tp, t * 8 + TF.Inner))), str_cat("_", ec_optres_suffix(tp, tpn, vec_get(tp, t * 8 + TF.Err)))) }
+        }
+    }
+    r
+}
+
+ec_type_t tp:vec[int] tpn:vec[str] t:i64 : str -> {
+    r <- "int64_t"
     [(t != 0 - 1)] {
         k = vec_get(tp, t * 8 + TF.Kind)
         k == TY.Float ? { r <- "double" }
@@ -226,14 +263,18 @@ ec_type tp:vec[int] tpn:vec[str] types:vec[int] ni:i64 : str -> {
         k == TY.Struct ? { r <- vec_get(tpn, t) }
         k == TY.Slice ? { r <- "TiqSlice" }
         k == TY.StrView ? { r <- "TiqSlice" }
-        k == TY.Option ? { r <- "TiqOption" }
-        k == TY.Result ? { r <- "TiqResult" }
+        k == TY.Option ? { r <- ec_optres_name(tp, tpn, t) }
+        k == TY.Result ? { r <- ec_optres_name(tp, tpn, t) }
         k == TY.Vec ? { r <- "TiqVec *" }
         k == TY.Strbuf ? { r <- "TiqStrBuf *" }
         k == TY.Map ? { r <- "TiqMap *" }
         break
     }
     r
+}
+
+ec_type tp:vec[int] tpn:vec[str] types:vec[int] ni:i64 : str -> {
+    ec_type_t(tp, tpn, vec_get(types, ni))
 }
 
 ec_owned_name n:str : bool ->
@@ -481,7 +522,16 @@ ec_expr src:str toks:vec[Token] nodes:vec[int] kids:vec[int] hs:vec[int] his:vec
         done == 0 && lk == TokenKind.Int ? { ec_put(b, x); ec_put(b, "LL"); done <- 1 }
         done == 0 && lk == TokenKind.True ? { ec_put(b, "1"); done <- 1 }
         done == 0 && lk == TokenKind.False ? { ec_put(b, "0"); done <- 1 }
-        done == 0 && lk == TokenKind.None ? { ec_put(b, "((TiqOption){ .value = 0, .has_value = 0 })"); done <- 1 }
+        done == 0 && lk == TokenKind.None ? {
+            nt = vec_get(types, ni)
+            nt != 0 - 1 && vec_get(tp, nt * 8 + TF.Kind) == TY.Option && optres_flat(tp, nt) == 0 ? {
+                ec_put(b, "(("); ec_put(b, ec_optres_name(tp, tpn, nt)); ec_put(b, "){ .has_value = 0 })")
+            }
+            nt == 0 - 1 || vec_get(tp, nt * 8 + TF.Kind) != TY.Option || optres_flat(tp, nt) == 1 ? {
+                ec_put(b, "((TiqOption){ .value = 0, .has_value = 0 })")
+            }
+            done <- 1
+        }
         done == 0 ? { ec_put(b, x) }
         done <- 1
     }
@@ -496,7 +546,15 @@ ec_expr src:str toks:vec[Token] nodes:vec[int] kids:vec[int] hs:vec[int] his:vec
             li = nd_get(nodes, ni, NF.A); lk = ec_kind(types, tp, li)
             ct = lk == TY.Result ? "TiqResult" : "TiqOption"
             fl = lk == TY.Result ? ".is_ok" : ".has_value"
-            ec_put(b, "__extension__({ "); ec_put(b, ct); ec_put(b, " _fb = ")
+            lt = li != 0 - 1 ? vec_get(types, li) : 0 - 1
+            ec_put(b, "__extension__({ ")
+            lt != 0 - 1 && (vec_get(tp, lt * 8 + TF.Kind) == TY.Option || vec_get(tp, lt * 8 + TF.Kind) == TY.Result) ? {
+                ec_put(b, ec_optres_name(tp, tpn, lt))
+            }
+            lt == 0 - 1 || (vec_get(tp, lt * 8 + TF.Kind) != TY.Option && vec_get(tp, lt * 8 + TF.Kind) != TY.Result) ? {
+                ec_put(b, ct)
+            }
+            ec_put(b, " _fb = ")
             ec_expr(src, toks, nodes, kids, hs, his, hem, types, tp, tpn, b, li)
             ec_put(b, "; _fb"); ec_put(b, fl); ec_put(b, " ? _fb.value : (")
             ec_expr(src, toks, nodes, kids, hs, his, hem, types, tp, tpn, b, nd_get(nodes, ni, NF.B)); ec_put(b, "); })")
@@ -514,15 +572,30 @@ ec_expr src:str toks:vec[Token] nodes:vec[int] kids:vec[int] hs:vec[int] his:vec
         op = nd_get(nodes, ni, NF.Op)
         op == TokenKind.Question ? {
             ri = nd_get(nodes, ni, NF.A); rk = ec_kind(types, tp, ri)
+            rt = ri != 0 - 1 ? vec_get(types, ri) : 0 - 1
             rk == TY.Result ? {
-                ec_put(b, "__extension__({ TiqResult _p = ")
+                ec_put(b, "__extension__({ ")
+                rt != 0 - 1 && vec_get(tp, rt * 8 + TF.Kind) == TY.Result ? { ec_put(b, ec_optres_name(tp, tpn, rt)) } : { ec_put(b, "TiqResult") }
+                ec_put(b, " _p = ")
                 ec_expr(src, toks, nodes, kids, hs, his, hem, types, tp, tpn, b, ri)
-                ec_put(b, "; if (!_p.is_ok) return ((TiqResult){ .value = 0, .error = _p.error, .is_ok = 0 }); _p.value; })")
+                rt != 0 - 1 && vec_get(tp, rt * 8 + TF.Kind) == TY.Result && optres_flat(tp, rt) == 0 ? {
+                    ec_put(b, "; if (!_p.is_ok) return (("); ec_put(b, ec_optres_name(tp, tpn, rt)); ec_put(b, "){ .error = _p.error, .is_ok = 0 }); _p.value; })")
+                }
+                rt == 0 - 1 || vec_get(tp, rt * 8 + TF.Kind) != TY.Result || optres_flat(tp, rt) == 1 ? {
+                    ec_put(b, "; if (!_p.is_ok) return ((TiqResult){ .value = 0, .error = _p.error, .is_ok = 0 }); _p.value; })")
+                }
             }
             rk != TY.Result ? {
-                ec_put(b, "__extension__({ TiqOption _p = ")
+                ec_put(b, "__extension__({ ")
+                rt != 0 - 1 && vec_get(tp, rt * 8 + TF.Kind) == TY.Option ? { ec_put(b, ec_optres_name(tp, tpn, rt)) } : { ec_put(b, "TiqOption") }
+                ec_put(b, " _p = ")
                 ec_expr(src, toks, nodes, kids, hs, his, hem, types, tp, tpn, b, ri)
-                ec_put(b, "; if (!_p.has_value) return ((TiqOption){ .value = 0, .has_value = 0 }); _p.value; })")
+                rt != 0 - 1 && vec_get(tp, rt * 8 + TF.Kind) == TY.Option && optres_flat(tp, rt) == 0 ? {
+                    ec_put(b, "; if (!_p.has_value) return (("); ec_put(b, ec_optres_name(tp, tpn, rt)); ec_put(b, "){ .has_value = 0 }); _p.value; })")
+                }
+                rt == 0 - 1 || vec_get(tp, rt * 8 + TF.Kind) != TY.Option || optres_flat(tp, rt) == 1 ? {
+                    ec_put(b, "; if (!_p.has_value) return ((TiqOption){ .value = 0, .has_value = 0 }); _p.value; })")
+                }
             }
         }
         op != TokenKind.Question ? {
@@ -561,13 +634,37 @@ ec_expr src:str toks:vec[Token] nodes:vec[int] kids:vec[int] hs:vec[int] his:vec
             ec_expr(src, toks, nodes, kids, hs, his, hem, types, tp, tpn, b, vec_get(kids, s)); ec_put(b, ")"); done <- 1
         }
         is_bracket == 0 && str_eq(cname, "some") && n == 1 ? {
-            ec_put(b, "((TiqOption){ .value = (int64_t)("); ec_expr(src, toks, nodes, kids, hs, his, hem, types, tp, tpn, b, vec_get(kids, s)); ec_put(b, "), .has_value = 1 })"); done <- 1
+            nt = vec_get(types, ni)
+            nt != 0 - 1 && vec_get(tp, nt * 8 + TF.Kind) == TY.Option && optres_flat(tp, nt) == 0 ? {
+                ec_put(b, "(("); ec_put(b, ec_optres_name(tp, tpn, nt)); ec_put(b, "){ .value = (")
+                ec_expr(src, toks, nodes, kids, hs, his, hem, types, tp, tpn, b, vec_get(kids, s)); ec_put(b, "), .has_value = 1 })")
+            }
+            nt == 0 - 1 || vec_get(tp, nt * 8 + TF.Kind) != TY.Option || optres_flat(tp, nt) == 1 ? {
+                ec_put(b, "((TiqOption){ .value = (int64_t)("); ec_expr(src, toks, nodes, kids, hs, his, hem, types, tp, tpn, b, vec_get(kids, s)); ec_put(b, "), .has_value = 1 })")
+            }
+            done <- 1
         }
         done == 0 && is_bracket == 0 && str_eq(cname, "ok") && n == 1 ? {
-            ec_put(b, "((TiqResult){ .value = (int64_t)("); ec_expr(src, toks, nodes, kids, hs, his, hem, types, tp, tpn, b, vec_get(kids, s)); ec_put(b, "), .error = 0, .is_ok = 1 })"); done <- 1
+            nt = vec_get(types, ni)
+            nt != 0 - 1 && vec_get(tp, nt * 8 + TF.Kind) == TY.Result && optres_flat(tp, nt) == 0 ? {
+                ec_put(b, "(("); ec_put(b, ec_optres_name(tp, tpn, nt)); ec_put(b, "){ .value = (")
+                ec_expr(src, toks, nodes, kids, hs, his, hem, types, tp, tpn, b, vec_get(kids, s)); ec_put(b, "), .is_ok = 1 })")
+            }
+            nt == 0 - 1 || vec_get(tp, nt * 8 + TF.Kind) != TY.Result || optres_flat(tp, nt) == 1 ? {
+                ec_put(b, "((TiqResult){ .value = (int64_t)("); ec_expr(src, toks, nodes, kids, hs, his, hem, types, tp, tpn, b, vec_get(kids, s)); ec_put(b, "), .error = 0, .is_ok = 1 })")
+            }
+            done <- 1
         }
         done == 0 && is_bracket == 0 && str_eq(cname, "err") && n == 1 ? {
-            ec_put(b, "((TiqResult){ .value = 0, .error = (int64_t)("); ec_expr(src, toks, nodes, kids, hs, his, hem, types, tp, tpn, b, vec_get(kids, s)); ec_put(b, "), .is_ok = 0 })"); done <- 1
+            nt = vec_get(types, ni)
+            nt != 0 - 1 && vec_get(tp, nt * 8 + TF.Kind) == TY.Result && optres_flat(tp, nt) == 0 ? {
+                ec_put(b, "(("); ec_put(b, ec_optres_name(tp, tpn, nt)); ec_put(b, "){ .error = (")
+                ec_expr(src, toks, nodes, kids, hs, his, hem, types, tp, tpn, b, vec_get(kids, s)); ec_put(b, "), .is_ok = 0 })")
+            }
+            nt == 0 - 1 || vec_get(tp, nt * 8 + TF.Kind) != TY.Result || optres_flat(tp, nt) == 1 ? {
+                ec_put(b, "((TiqResult){ .value = 0, .error = (int64_t)("); ec_expr(src, toks, nodes, kids, hs, his, hem, types, tp, tpn, b, vec_get(kids, s)); ec_put(b, "), .is_ok = 0 })")
+            }
+            done <- 1
         }
         done == 0 && is_bracket == 0 && str_eq(cname, "vec_new") ? { ec_put(b, "tiq_vec_new() "); done <- 1 }
         done == 0 && is_bracket == 0 && str_eq(cname, "vec_with_allocator") && n == 1 ? {
@@ -878,15 +975,19 @@ ec_expr src:str toks:vec[Token] nodes:vec[int] kids:vec[int] hs:vec[int] his:vec
                             // Binding sub-pattern
                             sub_nm <- tk_lex(src, toks, nd_get(nodes, sub_pat, NF.Name))
                             str_eq(cname, "some") ? {
-                                inner_t <- scrutinee_type
+                                scr_ti <- vec_get(types, scrutinee)
+                                inner_t <- ec_type_t(tp, tpn, vec_get(tp, scr_ti * 8 + TF.Inner))
                                 ec_put(b, inner_t); ec_put(b, " "); ec_put(b, sub_nm); ec_put(b, " = _t.value; ")
                             }
                             str_eq(cname, "ok") ? {
-                                inner_t <- scrutinee_type
+                                scr_ti <- vec_get(types, scrutinee)
+                                inner_t <- ec_type_t(tp, tpn, vec_get(tp, scr_ti * 8 + TF.Inner))
                                 ec_put(b, inner_t); ec_put(b, " "); ec_put(b, sub_nm); ec_put(b, " = _t.value; ")
                             }
                             str_eq(cname, "err") ? {
-                                ec_put(b, "int64_t "); ec_put(b, sub_nm); ec_put(b, " = _t.error; ")
+                                scr_ti <- vec_get(types, scrutinee)
+                                err_t <- ec_type_t(tp, tpn, vec_get(tp, scr_ti * 8 + TF.Err))
+                                ec_put(b, err_t); ec_put(b, " "); ec_put(b, sub_nm); ec_put(b, " = _t.error; ")
                             }
                         }
                     }
@@ -1293,6 +1394,54 @@ ec_exportable src:str toks:vec[Token] nodes:vec[int] kids:vec[int] tops:vec[int]
 // M16.3: deterministic C header for a definitions-only library. Struct
 // typedefs come first (by-value parameter support), then the exported
 // prototypes spelled exactly like the --lib forward declarations.
+ec_optres_pending tp:vec[int] tpn:vec[str] t:i64 done:vec[str] : i64 -> {
+    r <- 0
+    t != 0 - 1 ? {
+        k <- vec_get(tp, t * 8 + TF.Kind)
+        k == TY.Struct ? {
+            r <- 1; i <- 0
+            [i < vec_len(done) && r == 1] { str_eq(vec_get(done, i), vec_get(tpn, t)) ? { r <- 0 }; i <- i + 1 }
+        }
+        k == TY.Option ? { r <- ec_optres_pending(tp, tpn, vec_get(tp, t * 8 + TF.Inner), done) }
+        k == TY.Result ? {
+            ec_optres_pending(tp, tpn, vec_get(tp, t * 8 + TF.Inner), done) == 1 ? { r <- 1 }
+            r == 0 && ec_optres_pending(tp, tpn, vec_get(tp, t * 8 + TF.Err), done) == 1 ? { r <- 1 }
+        }
+    }
+    r
+}
+
+ec_optres_flush tp:vec[int] tpn:vec[str] tops:vec[int] nodes:vec[int] src:str toks:vec[Token] done:vec[str] em:vec[int] b:strbuf : i64 -> {
+    p <- 0
+    [p < vec_len(tp) / 8] {
+        k <- vec_get(tp, p * 8 + TF.Kind)
+        (k == TY.Option || k == TY.Result) && optres_flat(tp, p) == 0 ? {
+            seen <- 0; q <- 0
+            [q < vec_len(em)] { vec_get(em, q) == p ? { seen <- 1 }; q <- q + 1 }
+            seen == 0 && ec_optres_pending(tp, tpn, p, done) == 0 ? {
+                nm <- ec_optres_name(tp, tpn, p)
+                coll <- 0; j2 <- 0
+                [j2 < vec_len(tops) && coll == 0] {
+                    ni2 <- vec_get(tops, j2)
+                    nd_get(nodes, ni2, NF.Kind) == AstKind.StructDef && str_eq(tk_lex(src, toks, nd_get(nodes, ni2, NF.Name)), nm) ? { coll <- 1 }
+                    j2 <- j2 + 1
+                }
+                coll == 0 ? {
+                    k == TY.Option ? {
+                        ec_put(b, "typedef struct {\n    "); ec_put(b, ec_type_t(tp, tpn, vec_get(tp, p * 8 + TF.Inner))); ec_put(b, " value;\n    int has_value;\n} "); ec_put(b, nm); ec_put(b, ";\n\n")
+                    }
+                    k == TY.Result ? {
+                        ec_put(b, "typedef struct {\n    "); ec_put(b, ec_type_t(tp, tpn, vec_get(tp, p * 8 + TF.Inner))); ec_put(b, " value;\n    "); ec_put(b, ec_type_t(tp, tpn, vec_get(tp, p * 8 + TF.Err))); ec_put(b, " error;\n    int is_ok;\n} "); ec_put(b, nm); ec_put(b, ";\n\n")
+                    }
+                    vec_push(em, p)
+                }
+            }
+        }
+        p <- p + 1
+    }
+    0
+}
+
 ec_header b:strbuf path:str src:str toks:vec[Token] nodes:vec[int] kids:vec[int] tops:vec[int] types:vec[int] tp:vec[int] tpn:vec[str] : i64 -> {
     base = ec_path_base(path)
     guard = ec_header_guard(base)
@@ -1302,11 +1451,13 @@ ec_header b:strbuf path:str src:str toks:vec[Token] nodes:vec[int] kids:vec[int]
     ec_put(b, "#define TIQ_"); ec_put(b, guard); ec_put(b, "_H\n\n")
     ec_put(b, "#include <stdint.h>\n\n")
     ec_put(b, "#ifdef __cplusplus\nextern \"C\" {\n#endif\n\n")
+    sdone <- vec_new(); sem <- vec_new()
     n = vec_len(tops)
     j <- 0
     [j < n] {
         ni = vec_get(tops, j)
         nd_get(nodes, ni, NF.Kind) == AstKind.StructDef ? {
+            ec_optres_flush(tp, tpn, tops, nodes, src, toks, sdone, sem, b)
             ec_put(b, "typedef struct {\n")
             ns = nd_get(nodes, ni, NF.L1s); ts = nd_get(nodes, ni, NF.L2s); fc = nd_get(nodes, ni, NF.L1n); q <- 0
             [q < fc] {
@@ -1314,9 +1465,11 @@ ec_header b:strbuf path:str src:str toks:vec[Token] nodes:vec[int] kids:vec[int]
                 ec_put(b, tk_lex(src, toks, vec_get(kids, ns + q))); ec_put(b, ";\n"); q <- q + 1
             }
             ec_put(b, "} "); ec_put(b, tk_lex(src, toks, nd_get(nodes, ni, NF.Name))); ec_put(b, ";\n\n")
+            vec_push(sdone, tk_lex(src, toks, nd_get(nodes, ni, NF.Name)))
         }
         j <- j + 1
     }
+    ec_optres_flush(tp, tpn, tops, nodes, src, toks, sdone, sem, b)
     j <- 0
     [j < n] {
         ni = vec_get(tops, j)
@@ -1346,9 +1499,6 @@ ec_header b:strbuf path:str src:str toks:vec[Token] nodes:vec[int] kids:vec[int]
     0
 }
 
-// M16.3: program/lib emission body. mode 0 emits the full executable;
-// mode 1 (lib) omits the entry point so the definitions link into a host
-// program. Header mode is handled by emit_c_program before this runs.
 ec_program_body src:str toks:vec[Token] nodes:vec[int] kids:vec[int] tops:vec[int] types:vec[int] tp:vec[int] tpn:vec[str] b:strbuf mode:i64 : i64 -> {
     oss = vec_new(); ons = vec_new(); oms = vec_new()
     hs = vec_new(); his = vec_new(); hem = vec_new(); hnext = vec_new(); vec_push(hnext, 0)
@@ -1364,9 +1514,11 @@ ec_program_body src:str toks:vec[Token] nodes:vec[int] kids:vec[int] tops:vec[in
         fj <- fj + 1
     }
     j <- 0
+    sdone <- vec_new(); sem <- vec_new()
     [j < n] {
         ni = vec_get(tops, j); k = nd_get(nodes, ni, NF.Kind)
         k == AstKind.StructDef ? {
+            ec_optres_flush(tp, tpn, tops, nodes, src, toks, sdone, sem, b)
             ec_put(b, "typedef struct {\n")
             ns = nd_get(nodes, ni, NF.L1s); ts = nd_get(nodes, ni, NF.L2s); fc = nd_get(nodes, ni, NF.L1n); q <- 0
             [q < fc] {
@@ -1374,6 +1526,7 @@ ec_program_body src:str toks:vec[Token] nodes:vec[int] kids:vec[int] tops:vec[in
                 ec_put(b, tk_lex(src, toks, vec_get(kids, ns + q))); ec_put(b, ";\n"); q <- q + 1
             }
             ec_put(b, "} "); ec_put(b, tk_lex(src, toks, nd_get(nodes, ni, NF.Name))); ec_put(b, ";\n\n")
+            vec_push(sdone, tk_lex(src, toks, nd_get(nodes, ni, NF.Name)))
         }
         k == AstKind.EnumDef && nd_get(nodes, ni, NF.L1n) > 0 ? {
             ec_put(b, "enum {\n")
@@ -1388,6 +1541,7 @@ ec_program_body src:str toks:vec[Token] nodes:vec[int] kids:vec[int] tops:vec[in
         }
         j <- j + 1
     }
+    ec_optres_flush(tp, tpn, tops, nodes, src, toks, sdone, sem, b)
     // M16.2: extern "C" prototypes in declaration order, immediately
     // after the enum constants (M13_DETERMINISM.md §1 pass sequence),
     // before the stream-gen forward declarations. Programs without extern

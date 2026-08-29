@@ -47,11 +47,6 @@ resolve_cont src:str toks:vec[Token] tp:vec[int] tpn:vec[str] st_names:vec[str] 
     r
 }
 
-// Pre-M13 S4: top-level element starts of the bracket group whose '[' sits
-// at gidx. One element start is pushed per top-level comma-separated
-// segment; the count is returned. Newlines are NOT skipped — the C parse
-// rejects them inside the group, and the parser consumed the group
-// wholesale only when it was well-formed.
 group_elems toks:vec[Token] gidx:i64 eo:vec[int] : i64 -> {
     n <- 0
     dep <- 1
@@ -75,12 +70,6 @@ group_elems toks:vec[Token] gidx:i64 eo:vec[int] : i64 -> {
     n
 }
 
-// Pre-M13 S4: payload kinds allowed inside Option/Result values (mirror of
-// optres_payload_ok in src/typecheck.c). Allowed: integer kinds, f32/f64,
-// bool, named structs, nested Option/Result. str (not an owner under M9.2
-// scope cleanup), arrays/slices, vec/strbuf/map handles, streams, chans,
-// refs, and unresolvable inners fail closed. Defined before resolve_ann
-// (the self-hosted checker resolves top-level functions in order).
 payload_ok tp:vec[int] t:i64 : i64 -> {
     r <- 0
     t != 0 - 1 ? {
@@ -89,6 +78,25 @@ payload_ok tp:vec[int] t:i64 : i64 -> {
         k == TY.Struct ? { r <- 1 }
         k == TY.Option ? { r <- payload_ok(tp, vec_get(tp, t * 8 + TF.Inner)) }
         k == TY.Result ? { r <- payload_ok(tp, vec_get(tp, t * 8 + TF.Inner)) == 1 && payload_ok(tp, vec_get(tp, t * 8 + TF.Err)) == 1 ? 1 : 0 }
+    }
+    r
+}
+
+optres_flat tp:vec[int] t:i64 : i64 -> {
+    r <- 1
+    t != 0 - 1 ? {
+        k <- vec_get(tp, t * 8 + TF.Kind)
+        k == TY.Option ? {
+            inner <- vec_get(tp, t * 8 + TF.Inner)
+            r <- inner == 0 - 1 ? 1 : (vec_get(tp, inner * 8 + TF.Kind) == TY.Int && vec_get(tp, inner * 8 + TF.Elem) == 0 - 1 && vec_get(tp, inner * 8 + TF.Len) == 0 && vec_get(tp, inner * 8 + TF.Pc) == 0) ? 1 : 0
+        }
+        k == TY.Result ? {
+            inner <- vec_get(tp, t * 8 + TF.Inner)
+            errt <- vec_get(tp, t * 8 + TF.Err)
+            fi <- inner == 0 - 1 ? 1 : (vec_get(tp, inner * 8 + TF.Kind) == TY.Int && vec_get(tp, inner * 8 + TF.Elem) == 0 - 1 && vec_get(tp, inner * 8 + TF.Len) == 0 && vec_get(tp, inner * 8 + TF.Pc) == 0) ? 1 : 0
+            fe <- errt == 0 - 1 ? 1 : (vec_get(tp, errt * 8 + TF.Kind) == TY.Int && vec_get(tp, errt * 8 + TF.Elem) == 0 - 1 && vec_get(tp, errt * 8 + TF.Len) == 0 && vec_get(tp, errt * 8 + TF.Pc) == 0) ? 1 : 0
+            r <- fi == 1 && fe == 1 ? 1 : 0
+        }
     }
     r
 }
@@ -159,11 +167,6 @@ resolve_ann src:str toks:vec[Token] tp:vec[int] tpn:vec[str] st_names:vec[str] s
         si2 != -1 ? { r <- vec_get(st_meta, si2) }    }
     r
 }
-// Pre-M13 S4: structural comparison for Option/Result inner/error types
-// (mirror of optres_inner_same in src/typecheck.c). -1 and Unknown sides
-// are tolerated; scalars compare by kind (ty_func interns per-arity scalar
-// instances, so pool-index identity would falsely reject valid programs);
-// structs are nominal; nested Option/Result recurse.
 optres_inner_same tp:vec[int] a:i64 b:i64 : i64 -> {
     r <- 1
     a != 0 - 1 && b != 0 - 1 ? {
