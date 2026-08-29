@@ -459,34 +459,32 @@ void check_node(SemanticContext *ctx, AstNode *node) {
                     diag_error(ctx->diag, ctx->path, node->token.line, ERR_BORROW,
                                "extern parameters cannot use borrow annotations");
                 }
-                Token annot = node->as.function.param_type_annots[i];
-                if (annot.kind == TOK_EOF) {
+                TypeAnnot *annot = node->as.function.param_annots ?
+                    node->as.function.param_annots[i] : NULL;
+                if (!annot || annot->name.kind == TOK_EOF) {
                     diag_error(ctx->diag, ctx->path, node->token.line, ERR_EXTERN,
                                "extern parameters require type annotations");
                     continue;
                 }
-                if (annot.kind != TOK_IDENT) {
+                if (annot->name.kind != TOK_IDENT) {
                     // Compound annotations ([T; N] forms) are not FFI-safe.
                     diag_error(ctx->diag, ctx->path, node->token.line, ERR_EXTERN,
                                "extern parameter type is not FFI-safe");
                     continue;
                 }
-                Token elem = {0};
-                if (node->as.function.param_elem_annots)
-                    elem = node->as.function.param_elem_annots[i];
-                SemanticType *cont = resolve_container_annot(ctx, annot, elem);
+                SemanticType *cont = resolve_ann(ctx, annot);
                 if (cont) {
                     if (cont->kind != TYPE_UNKNOWN)
                         diag_error(ctx->diag, ctx->path, node->token.line, ERR_EXTERN,
                                    "extern parameter type is not FFI-safe");
                     continue;
                 }
-                SemanticType *pt = resolve_type_annot(ctx, annot);
+                SemanticType *pt = resolve_type_annot(ctx, annot->name);
                 if (!pt) {
                     char msg[128];
                     snprintf(msg, sizeof msg, "unknown type '%.*s'",
-                             (int)annot.length, annot.start);
-                    diag_error(ctx->diag, ctx->path, annot.line, ERR_TYPE_MISMATCH, msg);
+                             (int)annot->name.length, annot->name.start);
+                    diag_error(ctx->diag, ctx->path, annot->name.line, ERR_TYPE_MISMATCH, msg);
                     continue;
                 }
                 if (!ffi_safe_kind(pt->kind)) {
@@ -499,21 +497,20 @@ void check_node(SemanticContext *ctx, AstNode *node) {
             }
             // The return type is mandatory, resolved, and FFI-safe.
             SemanticType *ret = NULL;
-            Token ra = node->as.function.return_type_annot;
-            if (ra.kind == TOK_IDENT) {
-                SemanticType *rcont = resolve_container_annot(ctx, ra,
-                    node->as.function.return_elem_annot);
+            TypeAnnot *ra = node->as.function.return_annot;
+            if (ra && ra->name.kind == TOK_IDENT) {
+                SemanticType *rcont = resolve_ann(ctx, ra);
                 if (rcont) {
                     if (rcont->kind != TYPE_UNKNOWN)
                         diag_error(ctx->diag, ctx->path, node->token.line, ERR_EXTERN,
                                    "extern return type is not FFI-safe");
                 } else {
-                    ret = resolve_type_annot(ctx, ra);
+                    ret = resolve_type_annot(ctx, ra->name);
                     if (!ret) {
                         char msg[128];
                         snprintf(msg, sizeof msg, "unknown type '%.*s'",
-                                 (int)ra.length, ra.start);
-                        diag_error(ctx->diag, ctx->path, ra.line, ERR_TYPE_MISMATCH, msg);
+                                 (int)ra->name.length, ra->name.start);
+                        diag_error(ctx->diag, ctx->path, ra->name.line, ERR_TYPE_MISMATCH, msg);
                     } else if (!ffi_safe_kind(ret->kind)) {
                         diag_error(ctx->diag, ctx->path, node->token.line, ERR_EXTERN,
                                    "extern return type is not FFI-safe");
@@ -543,15 +540,20 @@ void check_node(SemanticContext *ctx, AstNode *node) {
             // body so recursive calls see the correct return type.
             PrimitiveType pre_ret = TYPE_UNKNOWN;
             SemanticType *pre_ret_full = NULL;
-            if (node->as.function.return_type_annot.kind == TOK_IDENT) {
-                SemanticType *ra = resolve_container_annot(ctx,
-                    node->as.function.return_type_annot,
-                    node->as.function.return_elem_annot);
+            if (node->as.function.return_annot &&
+                node->as.function.return_annot->name.kind == TOK_IDENT) {
+                bool via_ann = false;
+                SemanticType *ra = resolve_ann(ctx, node->as.function.return_annot);
+                if (ra) via_ann = true;
                 if (!ra)
-                    ra = resolve_type_annot(ctx, node->as.function.return_type_annot);
+                    ra = resolve_type_annot(ctx, node->as.function.return_annot->name);
                 if (ra) {
                     pre_ret = ra->kind;
-                    if (ra->kind == TYPE_STRUCT || ra->kind == TYPE_VEC)
+                    // Only bracketed generics carry a full type here; bare
+                    // Option/Result names keep the erased func-type
+                    // registration (dump/parity stability, Pre-M13 S4).
+                    if (ra->kind == TYPE_STRUCT || ra->kind == TYPE_VEC ||
+                        (via_ann && (ra->kind == TYPE_OPTION || ra->kind == TYPE_RESULT)))
                         pre_ret_full = ra;
                 }
             }
@@ -569,28 +571,29 @@ void check_node(SemanticContext *ctx, AstNode *node) {
                 SemanticType *pt = ty(ctx, TYPE_UNKNOWN);
                 bool is_container = false;
                 // Check for type annotation
-                if (node->as.function.param_type_annots &&
-                    node->as.function.param_type_annots[i].kind == TOK_IDENT) {
+                TypeAnnot *pan = node->as.function.param_annots ?
+                    node->as.function.param_annots[i] : NULL;
+                if (pan && pan->name.kind == TOK_IDENT) {
                     // M13.1-P8: container annotations resolve before plain
-                    // names (vec/strbuf/map win in annotation position).
-                    Token elem_tok = {0};
-                    if (node->as.function.param_elem_annots)
-                        elem_tok = node->as.function.param_elem_annots[i];
-                    SemanticType *cont = resolve_container_annot(ctx,
-                        node->as.function.param_type_annots[i], elem_tok);
+                    // names (vec/strbuf/map/Option[T]/Result[T,E] win in
+                    // annotation position).
+                    SemanticType *cont = resolve_ann(ctx, pan);
                     if (cont) {
                         pt = cont;
-                        is_container = cont->kind != TYPE_UNKNOWN;
+                        // M13.1-P8: only handle-style containers reject '&';
+                        // Option/Result are value types (Pre-M13 S4).
+                        is_container = cont->kind == TYPE_VEC ||
+                                       cont->kind == TYPE_MAP ||
+                                       cont->kind == TYPE_STRBUF;
                     } else {
-                        SemanticType *annot = resolve_type_annot(ctx, node->as.function.param_type_annots[i]);
+                        SemanticType *annot = resolve_type_annot(ctx, pan->name);
                         if (annot) {
                             pt = annot;
                         } else {
                             char msg[128];
                             snprintf(msg, sizeof msg, "unknown type '%.*s'",
-                                     (int)node->as.function.param_type_annots[i].length,
-                                     node->as.function.param_type_annots[i].start);
-                            diag_error(ctx->diag, ctx->path, node->as.function.param_type_annots[i].line,
+                                     (int)pan->name.length, pan->name.start);
+                            diag_error(ctx->diag, ctx->path, pan->name.line,
                                        ERR_TYPE_MISMATCH, msg);
                         }
                     }
@@ -601,7 +604,7 @@ void check_node(SemanticContext *ctx, AstNode *node) {
                     if (is_container) {
                         // M13.1-P8: containers are shared handles (§19.10).
                         diag_error(ctx->diag, ctx->path,
-                                   node->as.function.param_type_annots[i].line, ERR_BORROW,
+                                   pan ? pan->name.line : node->token.line, ERR_BORROW,
                                    "container parameters are reference-semantics handles; '&' is not allowed");
                     } else {
                         pt = type_get_ref(ctx->pool, pt,
@@ -615,12 +618,11 @@ void check_node(SemanticContext *ctx, AstNode *node) {
             SemanticType *prev_fn_ret = ctx->current_fn_return_type;
             ctx->in_function = true;
             SemanticType *declared_ret = NULL;
-            if (node->as.function.return_type_annot.kind == TOK_IDENT) {
-                declared_ret = resolve_container_annot(ctx,
-                    node->as.function.return_type_annot,
-                    node->as.function.return_elem_annot);
+            if (node->as.function.return_annot &&
+                node->as.function.return_annot->name.kind == TOK_IDENT) {
+                declared_ret = resolve_ann(ctx, node->as.function.return_annot);
                 if (!declared_ret)
-                    declared_ret = resolve_type_annot(ctx, node->as.function.return_type_annot);
+                    declared_ret = resolve_type_annot(ctx, node->as.function.return_annot->name);
             }
             ctx->current_fn_return_type = declared_ret;
             check_node(ctx, node->as.function.body);
@@ -641,20 +643,24 @@ void check_node(SemanticContext *ctx, AstNode *node) {
             }
             // M12.4: Check body against declared return type if present
             SemanticType *ret_type = NULL; // Full type for struct returns
-            if (node->as.function.return_type_annot.kind == TOK_IDENT) {
+            if (node->as.function.return_annot &&
+                node->as.function.return_annot->name.kind == TOK_IDENT) {
                 // M13.1-P8: container return annotations resolve first.
-                SemanticType *ret_annot = resolve_container_annot(ctx,
-                    node->as.function.return_type_annot,
-                    node->as.function.return_elem_annot);
+                bool via_ann = false;
+                SemanticType *ret_annot = resolve_ann(ctx, node->as.function.return_annot);
+                if (ret_annot) via_ann = true;
                 if (!ret_annot)
-                    ret_annot = resolve_type_annot(ctx, node->as.function.return_type_annot);
+                    ret_annot = resolve_type_annot(ctx, node->as.function.return_annot->name);
                 if (ret_annot) {
                     SemanticType *u = unify(ctx, node->token.line, ret_annot,
                                             ty(ctx, ret_kind), "return type mismatch");
                     if (u) ret_kind = u->kind;
                     // M12.6: Preserve full struct type for return
                     // M13.1-P8: likewise vec<T>, so callers get the element type
-                    if (ret_annot->kind == TYPE_STRUCT || ret_annot->kind == TYPE_VEC)
+                    // Pre-M13 S4: bracketed Option[T]/Result[T, E] annotations
+                    // likewise; bare names stay erased (parity with pre_reg).
+                    if (ret_annot->kind == TYPE_STRUCT || ret_annot->kind == TYPE_VEC ||
+                        (via_ann && (ret_annot->kind == TYPE_OPTION || ret_annot->kind == TYPE_RESULT)))
                         ret_type = ret_annot;
                     // M13.1-P8: nominal element check for vec expression
                     // bodies (block bodies are kind-checked only, §19.10).
@@ -673,11 +679,11 @@ void check_node(SemanticContext *ctx, AstNode *node) {
                         }
                     }
                 } else {
+                    Token rname = node->as.function.return_annot->name;
                     char msg[128];
                     snprintf(msg, sizeof msg, "unknown return type '%.*s'",
-                             (int)node->as.function.return_type_annot.length,
-                             node->as.function.return_type_annot.start);
-                    diag_error(ctx->diag, ctx->path, node->as.function.return_type_annot.line,
+                             (int)rname.length, rname.start);
+                    diag_error(ctx->diag, ctx->path, rname.line,
                                ERR_TYPE_MISMATCH, msg);
                 }
             }
@@ -686,8 +692,12 @@ void check_node(SemanticContext *ctx, AstNode *node) {
                 if (pre_ret != TYPE_UNKNOWN) {
                     // M13.4-S3: annotation was pre-registered; the annotation
                     // check above already reported any mismatch.  Just ensure
-                    // the symbol carries the final resolved type.
-                    if (ret_type && (ret_type->kind == TYPE_STRUCT || ret_type->kind == TYPE_VEC)) {
+                    // the symbol carries the final resolved type. Pre-M13 S4:
+                    // Option[T]/Result[T, E] annotations register the full
+                    // parameterised type (call-site arity for these kinds is
+                    // checked against the recorded definition, like vec).
+                    if (ret_type && (ret_type->kind == TYPE_STRUCT || ret_type->kind == TYPE_VEC ||
+                                     ret_type->kind == TYPE_OPTION || ret_type->kind == TYPE_RESULT)) {
                         sym->type = ret_type;
                     } else {
                         sym->type = type_get_func(ctx->pool, pre_ret, node->as.function.param_count);

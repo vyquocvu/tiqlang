@@ -314,6 +314,31 @@ assert_parse_error "extern_missing_return" 'extern "C" f x:i64 :' \
 assert_parse_error "legacy_typed_return" 'f x:i64 -> i64 -> x' \
   "$TMP_DIR/legacy_typed_return.tiq:1: error[E04]: return type annotations use ':': write ': Type -> body'"
 
+# Pre-M13 S4: Option[T] / Result[T, E] generic type annotations parse and
+# consume their bracket group (mirrors vec[T]); element resolution and
+# arity checks happen in semantic analysis. The trailing statement pins
+# that the group is consumed exactly.
+assert_parser "option_annotation_parse" 'first o: Option[i64] : i64 -> 1
+y = 2' 'FUNCTION first
+  PARAM o
+  INT 1
+BINDING y
+  INT 2'
+
+assert_parser "result_annotation_parse" 'half r: Result[i64, i64] : i64 -> 1
+y = 2' 'FUNCTION half
+  PARAM r
+  INT 1
+BINDING y
+  INT 2'
+
+assert_parse_error "option_annotation_missing_bracket" 'first o: Option[i64 : i64 -> 1' \
+  "$TMP_DIR/option_annotation_missing_bracket.tiq:1: error[E04]: expected ']' after type parameters"
+
+assert_parse_error "option_annotation_missing_elem" 'first o: Option[ : i64 -> 1' \
+  "$TMP_DIR/option_annotation_missing_elem.tiq:1: error[E04]: expected type name in type parameters
+$TMP_DIR/option_annotation_missing_elem.tiq:1: error[E04]: expected ']' after type parameters"
+
 # Pre-M13 S1: identifiers starting with '_' are reserved for compiler
 # temporaries; using one as a match binding pattern is a parse error.
 assert_parse_error "reserved_uscore_bind" 'x = match v { _t => 1 }' \

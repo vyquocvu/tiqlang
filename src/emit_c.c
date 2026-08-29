@@ -2093,8 +2093,9 @@ static bool function_exportable(AstNode *fn) {
     for (int i = 0; i < fn->as.function.param_count; i++) {
         if (fn->as.function.param_ref_kinds && fn->as.function.param_ref_kinds[i] != 0)
             return false;
-        bool annotated = fn->as.function.param_type_annots &&
-                         fn->as.function.param_type_annots[i].kind == TOK_IDENT;
+        bool annotated = fn->as.function.param_annots &&
+                         fn->as.function.param_annots[i] &&
+                         fn->as.function.param_annots[i]->name.kind == TOK_IDENT;
         SemanticType *pt = fn->as.function.param_types ?
             (SemanticType *)fn->as.function.param_types[i] : NULL;
         if (annotated) {

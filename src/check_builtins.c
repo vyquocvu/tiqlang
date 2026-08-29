@@ -36,39 +36,123 @@ void vec_unify_elem(SemanticContext *ctx, int line, SemanticType *expected,
     diag_error(ctx->diag, ctx->path, line, ERR_TYPE_MISMATCH, msg);
 }
 
-// M13.1-P8: resolve container annotations (vec[T] / strbuf / map) in
-// function parameter and return position (LANGUAGE_SPEC §19.10).
-// Returns NULL when the token is not a container name; malformed vec
-// annotations report E09 here and yield TYPE_UNKNOWN so the caller
-// does not double-report.
-SemanticType *resolve_container_annot(SemanticContext *ctx, Token tok, Token elem_tok) {
-    if (tok.kind != TOK_IDENT) return NULL;
-    if (tok.length == 6 && memcmp(tok.start, "strbuf", 6) == 0)
+// M13.1-P8 / Pre-M13 S4: resolve type annotations (vec[T] / strbuf / map /
+// Option[T] / Result[T, E]) in function parameter and return position
+// (LANGUAGE_SPEC §19.10, §15.1). Bare Option/Result names have no bracket
+// group here and return NULL, so they keep resolving as erased kinds via
+// resolve_type_annot exactly as before. Returns NULL when the annotation
+// is not a container; malformed annotations report a located E09 and yield
+// TYPE_UNKNOWN so the caller does not double-report.
+static SemanticType *resolve_annot_elem(SemanticContext *ctx, TypeAnnot *e);
+
+SemanticType *resolve_ann(SemanticContext *ctx, TypeAnnot *a) {
+    if (!a || a->name.kind != TOK_IDENT) return NULL;
+    Token t = a->name;
+    bool bracketed = a->open.kind == TOK_LBRACKET;
+    if (t.length == 6 && memcmp(t.start, "strbuf", 6) == 0) {
+        if (bracketed) {
+            diag_error(ctx->diag, ctx->path, a->open.line, ERR_TYPE_MISMATCH,
+                       "strbuf annotation takes no type parameters");
+            return ty(ctx, TYPE_UNKNOWN);
+        }
         return ty(ctx, TYPE_STRBUF);
-    if (tok.length == 3 && memcmp(tok.start, "map", 3) == 0)
+    }
+    if (t.length == 3 && memcmp(t.start, "map", 3) == 0) {
+        if (bracketed) {
+            diag_error(ctx->diag, ctx->path, a->open.line, ERR_TYPE_MISMATCH,
+                       "map annotation takes no type parameters");
+            return ty(ctx, TYPE_UNKNOWN);
+        }
         return ty(ctx, TYPE_MAP);
-    if (tok.length == 3 && memcmp(tok.start, "vec", 3) == 0) {
-        if (elem_tok.kind != TOK_IDENT) {
-            diag_error(ctx->diag, ctx->path, tok.line, ERR_TYPE_MISMATCH,
+    }
+    if (t.length == 3 && memcmp(t.start, "vec", 3) == 0) {
+        if (!bracketed || a->elem_count != 1) {
+            diag_error(ctx->diag, ctx->path, t.line, ERR_TYPE_MISMATCH,
                        "vec annotation requires an element type: vec[T]");
             return ty(ctx, TYPE_UNKNOWN);
         }
-        SemanticType *et = resolve_type_annot(ctx, elem_tok);
+        SemanticType *et = resolve_annot_elem(ctx, a->elems[0]);
         if (!et) {
             char msg[128];
+            Token en = a->elems[0]->name;
             snprintf(msg, sizeof msg, "unknown type '%.*s'",
-                     (int)elem_tok.length, elem_tok.start);
-            diag_error(ctx->diag, ctx->path, elem_tok.line, ERR_TYPE_MISMATCH, msg);
+                     (int)en.length, en.start);
+            diag_error(ctx->diag, ctx->path, en.line, ERR_TYPE_MISMATCH, msg);
             return ty(ctx, TYPE_UNKNOWN);
         }
         if (!vec_elem_type_ok(et)) {
-            diag_error(ctx->diag, ctx->path, elem_tok.line, ERR_TYPE_MISMATCH,
+            diag_error(ctx->diag, ctx->path, a->elems[0]->name.line, ERR_TYPE_MISMATCH,
                        "vec element type must be int, str, or a struct");
             return ty(ctx, TYPE_UNKNOWN);
         }
         return type_get_vec(ctx->pool, et);
     }
+    if (t.length == 6 && memcmp(t.start, "Option", 6) == 0 && bracketed) {
+        if (a->elem_count != 1) {
+            diag_error(ctx->diag, ctx->path, a->open.line, ERR_TYPE_MISMATCH,
+                       "Option annotation takes exactly 1 type parameter: Option[T]");
+            return ty(ctx, TYPE_UNKNOWN);
+        }
+        SemanticType *et = resolve_annot_elem(ctx, a->elems[0]);
+        if (!et) {
+            char msg[128];
+            Token en = a->elems[0]->name;
+            snprintf(msg, sizeof msg, "unknown type '%.*s'",
+                     (int)en.length, en.start);
+            diag_error(ctx->diag, ctx->path, en.line, ERR_TYPE_MISMATCH, msg);
+            return ty(ctx, TYPE_UNKNOWN);
+        }
+        if (!optres_payload_ok(et)) {
+            optres_payload_reject(ctx, a->elems[0]->name.line, false, et);
+            return ty(ctx, TYPE_UNKNOWN);
+        }
+        return type_get_option(ctx->pool, et);
+    }
+    if (t.length == 6 && memcmp(t.start, "Result", 6) == 0 && bracketed) {
+        if (a->elem_count != 2) {
+            diag_error(ctx->diag, ctx->path, a->open.line, ERR_TYPE_MISMATCH,
+                       "Result annotation takes exactly 2 type parameters: Result[T, E]");
+            return ty(ctx, TYPE_UNKNOWN);
+        }
+        SemanticType *it = resolve_annot_elem(ctx, a->elems[0]);
+        if (!it) {
+            char msg[128];
+            Token en = a->elems[0]->name;
+            snprintf(msg, sizeof msg, "unknown type '%.*s'",
+                     (int)en.length, en.start);
+            diag_error(ctx->diag, ctx->path, en.line, ERR_TYPE_MISMATCH, msg);
+            return ty(ctx, TYPE_UNKNOWN);
+        }
+        if (!optres_payload_ok(it)) {
+            optres_payload_reject(ctx, a->elems[0]->name.line, true, it);
+            return ty(ctx, TYPE_UNKNOWN);
+        }
+        SemanticType *ee = resolve_annot_elem(ctx, a->elems[1]);
+        if (!ee) {
+            char msg[128];
+            Token en = a->elems[1]->name;
+            snprintf(msg, sizeof msg, "unknown type '%.*s'",
+                     (int)en.length, en.start);
+            diag_error(ctx->diag, ctx->path, en.line, ERR_TYPE_MISMATCH, msg);
+            return ty(ctx, TYPE_UNKNOWN);
+        }
+        if (!optres_payload_ok(ee)) {
+            optres_payload_reject(ctx, a->elems[1]->name.line, true, ee);
+            return ty(ctx, TYPE_UNKNOWN);
+        }
+        return type_get_result(ctx->pool, it, ee);
+    }
     return NULL;
+}
+
+// Nested element annotations recurse through resolve_ann (Option[Point],
+// Result[i64, Option[i64]], vec[T]); plain scalar/struct names go through
+// resolve_type_annot. Returns NULL when unresolvable (caller reports).
+static SemanticType *resolve_annot_elem(SemanticContext *ctx, TypeAnnot *e) {
+    if (!e || e->name.kind != TOK_IDENT) return NULL;
+    SemanticType *c = resolve_ann(ctx, e);
+    if (c) return c;
+    return resolve_type_annot(ctx, e->name);
 }
 
 // M13.1-P3: Per-builtin checker for the six vec builtins. vec_push and

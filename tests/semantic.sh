@@ -453,6 +453,39 @@ BINDING x <TYPE_OPTION<TYPE_STRUCT>>
     IDENT some
     UNKNOWN <TYPE_STRUCT>'
 
+# Pre-M13 S4: Option[T] / Result[T, E] annotations resolve through the pool
+# with arity, element, and payload-gate checks. Bare Option/Result
+# annotations keep their existing (erased) meaning.
+assert_semantic "option_annotation_arity" 'mk x: Option[i64, u8] : i64 -> 1
+' "$TMP_DIR/option_annotation_arity.tiq:1: error[E09]: Option annotation takes exactly 1 type parameter: Option[T]"
+
+assert_semantic "result_annotation_arity" 'mk x: Result[i64] : i64 -> 1
+' "$TMP_DIR/result_annotation_arity.tiq:1: error[E09]: Result annotation takes exactly 2 type parameters: Result[T, E]"
+
+assert_semantic "option_annotation_unknown_elem" 'mk x: Option[Frob] : i64 -> 1
+' "$TMP_DIR/option_annotation_unknown_elem.tiq:1: error[E09]: unknown type 'Frob'"
+
+assert_semantic "option_annotation_str_elem" 'mk x: Option[str] : i64 -> 1
+' "$TMP_DIR/option_annotation_str_elem.tiq:1: error[E09]: Option payload type 'str' is not supported (S4 boundary)"
+
+assert_semantic "result_annotation_str_error" 'mk x: Result[i64, str] : i64 -> 1
+' "$TMP_DIR/result_annotation_str_error.tiq:1: error[E09]: Result payload type 'str' is not supported (S4 boundary)"
+
+# vec element gating is unchanged: container elements stay rejected.
+assert_semantic "vec_option_elem_rejected" 'mk v: vec[Option[i64]] : i64 -> 1
+' "$TMP_DIR/vec_option_elem_rejected.tiq:1: error[E09]: vec element type must be int, str, or a struct"
+
+# Annotated Option/Result signatures are not FFI-safe (§7.1).
+assert_semantic "extern_option_annot_unsafe" 'extern "C" foo x: Option[i64] : i64
+' "$TMP_DIR/extern_option_annot_unsafe.tiq:1: error[E29]: extern parameter type is not FFI-safe"
+
+# Concrete annotations flow: the function node carries the full pooled
+# return type.
+assert_semantic_ast "typed_option_annotation" 'first o: Option[i64] : Option[i64] -> o
+' 'FUNCTION first <TYPE_OPTION<TYPE_INT>>
+  PARAM o
+  IDENT o <TYPE_OPTION<TYPE_INT>>'
+
 # M12.7.2: range expressions are only valid inside loop or slice contexts
 assert_semantic "range_outside_context" 'x = 0..10
 ' "$TMP_DIR/range_outside_context.tiq:1: error[E07]: range expressions 'a..b' are only valid inside loop or slice contexts"

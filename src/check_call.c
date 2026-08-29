@@ -451,7 +451,16 @@ void check_call(SemanticContext *ctx, AstNode *node) {
                 // M13.1-P8: likewise for vec-returning functions — their callee
                 // type is the interned vec<T> (param_count 0); arity is checked
                 // against the recorded definition below.
-                if (!node->as.call.is_bracket_call && callee_type->kind != TYPE_STRUCT &&
+                // Pre-M13 S4: likewise for Option[T]/Result[T, E]-annotated
+                // identifier callees, whose callee type is the parameterised
+                // instance. Non-identifier callees typed Option/Result (e.g.
+                // calling a `none` literal) keep the arity check (E12).
+                if (!node->as.call.is_bracket_call &&
+                    !(node->as.call.callee &&
+                      node->as.call.callee->kind == AST_IDENTIFIER &&
+                      (callee_type->kind == TYPE_OPTION ||
+                       callee_type->kind == TYPE_RESULT)) &&
+                    callee_type->kind != TYPE_STRUCT &&
                     callee_type->kind != TYPE_VEC &&
                     (callee_type->param_count > 0 ||
                      (callee_type->param_count == 0 && callee_type->kind != TYPE_UNKNOWN)) &&
@@ -470,8 +479,11 @@ void check_call(SemanticContext *ctx, AstNode *node) {
                 }
                 // M13.1-P8: vec-returning functions carry vec<T> as their
                 // callee type, so their arity comes from the definition.
+                // Pre-M13 S4: Option/Result-annotated functions likewise.
                 if (fn_def && node->as.call.callee->semantic_type &&
-                    ((SemanticType *)node->as.call.callee->semantic_type)->kind == TYPE_VEC &&
+                    (((SemanticType *)node->as.call.callee->semantic_type)->kind == TYPE_VEC ||
+                     ((SemanticType *)node->as.call.callee->semantic_type)->kind == TYPE_OPTION ||
+                     ((SemanticType *)node->as.call.callee->semantic_type)->kind == TYPE_RESULT) &&
                     fn_def->as.function.param_count != node->as.call.arg_count) {
                     diag_error(ctx->diag, ctx->path, node->token.line, ERR_ARITY_MISMATCH, "arity mismatch");
                 }

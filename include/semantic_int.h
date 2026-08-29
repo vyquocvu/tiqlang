@@ -93,7 +93,10 @@ bool vec_elem_type_ok(SemanticType *t);
 bool vec_elem_same(SemanticType *expected, SemanticType *found);
 void vec_unify_elem(SemanticContext *ctx, int line, SemanticType *expected,
                     SemanticType *found, const char *context);
-SemanticType *resolve_container_annot(SemanticContext *ctx, Token tok, Token elem_tok);
+// Pre-M13 S4: resolves vec[T] / strbuf / map / Option[T] / Result[T, E]
+// annotations; bare names return NULL so callers fall back to
+// resolve_type_annot (bare Option/Result keep their erased meaning).
+SemanticType *resolve_ann(SemanticContext *ctx, TypeAnnot *a);
 void check_vec_builtin(SemanticContext *ctx, AstNode *node, Token name);
 void check_strbuf_builtin(SemanticContext *ctx, AstNode *node, Token name);
 void check_map_builtin(SemanticContext *ctx, AstNode *node, Token name);

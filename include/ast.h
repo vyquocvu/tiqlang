@@ -38,6 +38,19 @@ typedef enum {
 
 typedef struct AstNode AstNode;
 
+// Pre-M13 S4: parsed type annotation. Either a named type (TOK_IDENT with
+// an optional bracket group: Option[T], Result[T, E], vec[T]) or the
+// compound marker forms whose '[' sits in `name` ([T; N] / []T; resolved
+// in semantic analysis exactly as before). `name.kind == TOK_EOF` marks an
+// absent annotation (parse recovery only).
+typedef struct TypeAnnot TypeAnnot;
+struct TypeAnnot {
+    Token name;
+    Token open;         // '[' of the bracket group, TOK_EOF if none
+    TypeAnnot **elems;  // elem_count element annotations, arena-owned
+    int elem_count;
+};
+
 // Pattern kinds for match arm patterns (first-class syntactic category,
 // never arbitrary expressions).  Patterns are parsed into Pattern nodes
 // and validated during semantic analysis.
@@ -136,13 +149,11 @@ struct AstNode {
             void **param_types;
             int param_count;
             AstNode *body;
-            // M12.4: optional type annotations (kind == TOK_EOF if absent)
-            Token *param_type_annots;
-            Token return_type_annot;
-            // M13.1-P8: vec[T] element type names (kind == TOK_EOF if
-            // absent; set only when the annotation name is "vec").
-            Token *param_elem_annots;
-            Token return_elem_annot;
+            // M12.4 / Pre-M13 S4: parsed type annotations, one per
+            // parameter (NULL = unannotated; name.kind == TOK_EOF = parse
+            // recovery) and the return annotation.
+            TypeAnnot **param_annots;
+            TypeAnnot *return_annot;
             // M9.1: borrow spelling per parameter annotation:
             // 0 = by value, 1 = shared borrow (&T), 2 = mutable borrow (&mut T)
             unsigned char *param_ref_kinds;
