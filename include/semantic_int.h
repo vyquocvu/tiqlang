@@ -87,6 +87,8 @@ bool ffi_safe_kind(PrimitiveType k);
 bool optres_payload_ok(SemanticType *t);
 void optres_payload_reject(SemanticContext *ctx, int line, bool is_result,
                            SemanticType *t);
+bool optres_type_is_flat(SemanticType *t);
+bool optres_inner_same(SemanticType *a, SemanticType *b);
 
 // src/check_builtins.c
 bool vec_elem_type_ok(SemanticType *t);

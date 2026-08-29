@@ -9,7 +9,8 @@
 // returns intern distinct scalar instances (type_get_func), so pooled
 // pointer identity would falsely reject valid programs. Structs are
 // nominal (declaration-site identity). Nested Option/Result recurse.
-static bool optres_inner_same(SemanticType *a, SemanticType *b) {
+// Exported: the constructors use it for context-typed slots (S4).
+bool optres_inner_same(SemanticType *a, SemanticType *b) {
     if (!a || !b) return true;
     if (a->kind == TYPE_UNKNOWN || b->kind == TYPE_UNKNOWN) return true;
     if (a->kind != b->kind) return false;
@@ -122,6 +123,27 @@ void optres_payload_reject(SemanticContext *ctx, int line, bool is_result,
     snprintf(msg, sizeof msg, "%s payload type '%s' is not supported (S4 boundary)",
              is_result ? "Result" : "Option", tbuf);
     diag_error(ctx->diag, ctx->path, line, ERR_TYPE_MISMATCH, msg);
+}
+
+// Pre-M13 S4: the semantic-side twin of the emitter's optres_is_flat — an
+// Option/Result whose payloads are (or may be) the i64 slot instantiations.
+// Bare names (NULL payloads) count as flat: they spell the runtime structs.
+bool optres_type_is_flat(SemanticType *t) {
+    if (!t) return true;
+    if (t->kind == TYPE_OPTION)
+        return !t->inner_type ||
+               (t->inner_type->kind == TYPE_INT && !t->inner_type->element_type &&
+                t->inner_type->array_length == 0 && t->inner_type->param_count == 0);
+    if (t->kind == TYPE_RESULT) {
+        bool inner_flat = !t->inner_type ||
+                          (t->inner_type->kind == TYPE_INT && !t->inner_type->element_type &&
+                           t->inner_type->array_length == 0 && t->inner_type->param_count == 0);
+        bool error_flat = !t->error_type ||
+                          (t->error_type->kind == TYPE_INT && !t->error_type->element_type &&
+                           t->error_type->array_length == 0 && t->error_type->param_count == 0);
+        return inner_flat && error_flat;
+    }
+    return true;
 }
 
 // M16.2: FFI-safe kinds per the C ABI mapping table (LANGUAGE_SPEC §7.1).

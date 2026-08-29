@@ -11,6 +11,11 @@
 #include "../include/runtime_prelude.h"
 #include "../include/runtime_aux.h"
 
+// Pre-M13 S4: forward declarations — the expression emitter (below) spells
+// Option/Result instantiations through these before their definitions.
+static bool optres_is_flat(SemanticType *t);
+static void emit_optres_name(SemanticType *t, FILE *out);
+
 // Emit the raw bytes of a Tiq string literal as a C string literal.
 // LANGUAGE_SPEC §4 escapes (\\ \" \n \r \t \0) are spelled identically in C,
 // so validated escape sequences pass through verbatim; the lexer has already
@@ -680,7 +685,19 @@ static void emit_expr(AstNode *node, EmitContext *ctx) {
             else if (node->as.literal.type == TOK_STRING) emit_c_string(ctx->out, node->token.start + 1, node->token.length - 2);
             else if (node->as.literal.type == TOK_TRUE) fputs("1", ctx->out);
             else if (node->as.literal.type == TOK_FALSE) fputs("0", ctx->out);
-            else if (node->as.literal.type == TOK_NONE) fputs("((TiqOption){ .value = 0, .has_value = 0 })", ctx->out);
+            else if (node->as.literal.type == TOK_NONE) {
+                // Pre-M13 S4: a none literal whose type was re-pointed to a
+                // concrete instantiation emits that struct (value omitted);
+                // flat/bare keeps the historical spelling.
+                SemanticType *nt = node->semantic_type;
+                if (nt && nt->kind == TYPE_OPTION && !optres_is_flat(nt)) {
+                    fputs("((", ctx->out);
+                    emit_optres_name(nt, ctx->out);
+                    fputs("){ .has_value = 0 })", ctx->out);
+                } else {
+                    fputs("((TiqOption){ .value = 0, .has_value = 0 })", ctx->out);
+                }
+            }
             break;
         }
         case AST_IDENTIFIER:
@@ -697,11 +714,17 @@ static void emit_expr(AstNode *node, EmitContext *ctx) {
                 SemanticType *lt = node->as.binary.left ? node->as.binary.left->semantic_type : NULL;
                 const char *ctype = (lt && lt->kind == TYPE_RESULT) ? "TiqResult" : "TiqOption";
                 const char *flag_field = (lt && lt->kind == TYPE_RESULT) ? ".is_ok" : ".has_value";
+                // Pre-M13 S4: concrete instantiations spell their
+                // monomorphized struct so _fb.value keeps the payload type.
                 // Evaluate left side once into a temporary to avoid
                 // double-evaluation of side-effectful expressions (e.g.
                 // allocator calls that would allocate twice).
                 fputs("__extension__({ ", ctx->out);
-                fputs(ctype, ctx->out);
+                if (lt && (lt->kind == TYPE_OPTION || lt->kind == TYPE_RESULT)) {
+                    emit_semantic_type(lt, ctx->out);
+                } else {
+                    fputs(ctype, ctx->out);
+                }
                 fputs(" _fb = ", ctx->out);
                 emit_expr(node->as.binary.left, ctx);
                 fputs("; _fb", ctx->out);
@@ -724,16 +747,39 @@ static void emit_expr(AstNode *node, EmitContext *ctx) {
             if (node->as.unary.op == TOK_MOVE) {
                 emit_expr(node->as.unary.right, ctx);
             } else if (node->as.unary.op == TOK_QUESTION) {
-                // Pre-M13 S4: Propagation operator (?expr) with early return
+                // Pre-M13 S4: Propagation operator (?expr) with early return.
+                // Concrete instantiations spell their monomorphized struct for
+                // both the temporary and the early-return re-wrap (the zero
+                // value field is omitted via designated-initializer rules).
                 SemanticType *rt = node->as.unary.right ? (SemanticType *)node->as.unary.right->semantic_type : NULL;
                 if (rt && rt->kind == TYPE_RESULT) {
-                    fputs("__extension__({ TiqResult _p = ", ctx->out);
+                    fputs("__extension__({ ", ctx->out);
+                    emit_semantic_type(rt, ctx->out);
+                    fputs(" _p = ", ctx->out);
                     emit_expr(node->as.unary.right, ctx);
-                    fputs("; if (!_p.is_ok) return ((TiqResult){ .value = 0, .error = _p.error, .is_ok = 0 }); _p.value; })", ctx->out);
+                    if (optres_is_flat(rt)) {
+                        fputs("; if (!_p.is_ok) return ((TiqResult){ .value = 0, .error = _p.error, .is_ok = 0 }); _p.value; })", ctx->out);
+                    } else {
+                        fputs("; if (!_p.is_ok) return ((", ctx->out);
+                        emit_optres_name(rt, ctx->out);
+                        fputs("){ .error = _p.error, .is_ok = 0 }); _p.value; })", ctx->out);
+                    }
                 } else {
-                    fputs("__extension__({ TiqOption _p = ", ctx->out);
+                    fputs("__extension__({ ", ctx->out);
+                    if (rt && rt->kind == TYPE_OPTION) {
+                        emit_semantic_type(rt, ctx->out);
+                    } else {
+                        fputs("TiqOption", ctx->out);
+                    }
+                    fputs(" _p = ", ctx->out);
                     emit_expr(node->as.unary.right, ctx);
-                    fputs("; if (!_p.has_value) return ((TiqOption){ .value = 0, .has_value = 0 }); _p.value; })", ctx->out);
+                    if (rt && rt->kind == TYPE_OPTION && !optres_is_flat(rt)) {
+                        fputs("; if (!_p.has_value) return ((", ctx->out);
+                        emit_optres_name(rt, ctx->out);
+                        fputs("){ .has_value = 0 }); _p.value; })", ctx->out);
+                    } else {
+                        fputs("; if (!_p.has_value) return ((TiqOption){ .value = 0, .has_value = 0 }); _p.value; })", ctx->out);
+                    }
                 }
             } else if (node->as.unary.op == TOK_AMP) {
                 // M9.1: borrow argument; semantic analysis guarantees the
@@ -826,32 +872,62 @@ static void emit_expr(AstNode *node, EmitContext *ctx) {
                 }
                 break;
             }
-            // M8: Option constructors some(x) and none.
+            // M8: Option constructors some(x) and none. Pre-M13 S4: the flat
+            // (i64/bare) instantiations keep the historical byte-exact
+            // spelling; concrete payloads keep their real C type (no cast,
+            // zero fields omitted via designated-initializer rules).
             if (node->as.call.callee && node->as.call.callee->kind == AST_IDENTIFIER &&
                 node->as.call.callee->as.identifier.name.length == 4 &&
                 memcmp(node->as.call.callee->as.identifier.name.start, "some", 4) == 0 &&
                 node->as.call.arg_count == 1) {
-                fputs("((TiqOption){ .value = (int64_t)(", ctx->out);
-                emit_expr(node->as.call.args[0], ctx);
-                fputs("), .has_value = 1 })", ctx->out);
+                SemanticType *ot = node->semantic_type;
+                if (ot && ot->kind == TYPE_OPTION && !optres_is_flat(ot)) {
+                    fputs("((", ctx->out);
+                    emit_optres_name(ot, ctx->out);
+                    fputs("){ .value = (", ctx->out);
+                    emit_expr(node->as.call.args[0], ctx);
+                    fputs("), .has_value = 1 })", ctx->out);
+                } else {
+                    fputs("((TiqOption){ .value = (int64_t)(", ctx->out);
+                    emit_expr(node->as.call.args[0], ctx);
+                    fputs("), .has_value = 1 })", ctx->out);
+                }
                 break;
             }
             if (node->as.call.callee && node->as.call.callee->kind == AST_IDENTIFIER &&
                 node->as.call.callee->as.identifier.name.length == 2 &&
                 memcmp(node->as.call.callee->as.identifier.name.start, "ok", 2) == 0 &&
                 node->as.call.arg_count == 1) {
-                fputs("((TiqResult){ .value = (int64_t)(", ctx->out);
-                emit_expr(node->as.call.args[0], ctx);
-                fputs("), .error = 0, .is_ok = 1 })", ctx->out);
+                SemanticType *ot = node->semantic_type;
+                if (ot && ot->kind == TYPE_RESULT && !optres_is_flat(ot)) {
+                    fputs("((", ctx->out);
+                    emit_optres_name(ot, ctx->out);
+                    fputs("){ .value = (", ctx->out);
+                    emit_expr(node->as.call.args[0], ctx);
+                    fputs("), .is_ok = 1 })", ctx->out);
+                } else {
+                    fputs("((TiqResult){ .value = (int64_t)(", ctx->out);
+                    emit_expr(node->as.call.args[0], ctx);
+                    fputs("), .error = 0, .is_ok = 1 })", ctx->out);
+                }
                 break;
             }
             if (node->as.call.callee && node->as.call.callee->kind == AST_IDENTIFIER &&
                 node->as.call.callee->as.identifier.name.length == 3 &&
                 memcmp(node->as.call.callee->as.identifier.name.start, "err", 3) == 0 &&
                 node->as.call.arg_count == 1) {
-                fputs("((TiqResult){ .value = 0, .error = (int64_t)(", ctx->out);
-                emit_expr(node->as.call.args[0], ctx);
-                fputs("), .is_ok = 0 })", ctx->out);
+                SemanticType *ot = node->semantic_type;
+                if (ot && ot->kind == TYPE_RESULT && !optres_is_flat(ot)) {
+                    fputs("((", ctx->out);
+                    emit_optres_name(ot, ctx->out);
+                    fputs("){ .error = (", ctx->out);
+                    emit_expr(node->as.call.args[0], ctx);
+                    fputs("), .is_ok = 0 })", ctx->out);
+                } else {
+                    fputs("((TiqResult){ .value = 0, .error = (int64_t)(", ctx->out);
+                    emit_expr(node->as.call.args[0], ctx);
+                    fputs("), .is_ok = 0 })", ctx->out);
+                }
                 break;
             }
             if (node->as.call.callee && node->as.call.callee->kind == AST_IDENTIFIER) {
@@ -1593,6 +1669,81 @@ static void emit_type_name(PrimitiveType kind, FILE *out) {
     }
 }
 
+// Pre-M13 S4: Option/Result payload representation. The i64 instantiations
+// keep the flat runtime structs (Option<i64> -> TiqOption, Result<i64,i64>
+// -> TiqResult) so every existing program emits byte-identical C; other
+// instantiations get monomorphized typedefs emitted in pool order by
+// emit_option_result_typedefs.
+static void emit_optres_suffix(SemanticType *t, FILE *out);
+
+static bool optres_is_flat(SemanticType *t) {
+    if (!t) return true;
+    if (t->kind == TYPE_OPTION)
+        return !t->inner_type ||
+               (t->inner_type->kind == TYPE_INT && !t->inner_type->element_type &&
+                t->inner_type->array_length == 0 && t->inner_type->param_count == 0);
+    if (t->kind == TYPE_RESULT) {
+        bool inner_flat = !t->inner_type ||
+                          (t->inner_type->kind == TYPE_INT && !t->inner_type->element_type &&
+                           t->inner_type->array_length == 0 && t->inner_type->param_count == 0);
+        bool error_flat = !t->error_type ||
+                          (t->error_type->kind == TYPE_INT && !t->error_type->element_type &&
+                           t->error_type->array_length == 0 && t->error_type->param_count == 0);
+        return inner_flat && error_flat;
+    }
+    return true;
+}
+
+static void emit_optres_suffix(SemanticType *t, FILE *out) {
+    if (!t) { fputs("i64", out); return; }
+    switch (t->kind) {
+        case TYPE_I8:  fputs("i8", out); break;
+        case TYPE_I16: fputs("i16", out); break;
+        case TYPE_I32: fputs("i32", out); break;
+        case TYPE_U8:  fputs("u8", out); break;
+        case TYPE_U16: fputs("u16", out); break;
+        case TYPE_U32: fputs("u32", out); break;
+        case TYPE_U64: fputs("u64", out); break;
+        case TYPE_F32: fputs("f32", out); break;
+        case TYPE_FLOAT: fputs("f64", out); break;
+        case TYPE_BOOL: fputs("bool", out); break;
+        case TYPE_STRUCT: fputs(t->struct_name ? t->struct_name : "struct", out); break;
+        case TYPE_OPTION:
+            // A flat inner contributes its flat spelling, so the mangled
+            // name and the emitted field type always agree.
+            if (optres_is_flat(t)) { fputs("TiqOption", out); break; }
+            fputs("TiqOption_", out);
+            emit_optres_suffix(t->inner_type, out);
+            break;
+        case TYPE_RESULT:
+            if (optres_is_flat(t)) { fputs("TiqResult", out); break; }
+            fputs("TiqResult_", out);
+            emit_optres_suffix(t->inner_type, out);
+            fputs("_", out);
+            emit_optres_suffix(t->error_type, out);
+            break;
+        default: fputs("i64", out); break;
+    }
+}
+
+static void emit_optres_name(SemanticType *t, FILE *out) {
+    if (t && t->kind == TYPE_OPTION) {
+        if (optres_is_flat(t)) { fputs("TiqOption", out); return; }
+        fputs("TiqOption_", out);
+        emit_optres_suffix(t->inner_type, out);
+        return;
+    }
+    if (t && t->kind == TYPE_RESULT) {
+        if (optres_is_flat(t)) { fputs("TiqResult", out); return; }
+        fputs("TiqResult_", out);
+        emit_optres_suffix(t->inner_type, out);
+        fputs("_", out);
+        emit_optres_suffix(t->error_type, out);
+        return;
+    }
+    emit_type_name(t ? t->kind : TYPE_INT, out);
+}
+
 // M12.6/M8: Emit full C type for a SemanticType, including struct names.
 static void emit_semantic_type(SemanticType *t, FILE *out) {
     if (!t) { fputs("int64_t", out); return; }
@@ -1606,6 +1757,10 @@ static void emit_semantic_type(SemanticType *t, FILE *out) {
     }
     if (t->kind == TYPE_STRUCT && t->struct_name && t->struct_name[0]) {
         fputs(t->struct_name, out);
+    } else if (t->kind == TYPE_OPTION || t->kind == TYPE_RESULT) {
+        // Pre-M13 S4: flat instantiations spell the runtime structs exactly
+        // as before; concrete payloads get their monomorphized typedef.
+        emit_optres_name(t, out);
     } else {
         emit_type_name(t->kind, out);
     }
@@ -1670,15 +1825,12 @@ static void emit_stmt(AstNode *node, EmitContext *ctx, int indent) {
                 fputs(" = ", ctx->out);
                 emit_expr(node->as.binding.expr, ctx);
                 fputs(";\n", ctx->out);
-            } else if (t && t->kind == TYPE_OPTION) {
-                // M8: Option binding
-                fprintf(ctx->out, "TiqOption %.*s", (int)node->as.binding.name.length, node->as.binding.name.start);
-                fputs(" = ", ctx->out);
-                emit_expr(node->as.binding.expr, ctx);
-                fputs(";\n", ctx->out);
-            } else if (t && t->kind == TYPE_RESULT) {
-                // M8: Result binding
-                fprintf(ctx->out, "TiqResult %.*s", (int)node->as.binding.name.length, node->as.binding.name.start);
+            } else if (t && (t->kind == TYPE_OPTION || t->kind == TYPE_RESULT)) {
+                // M8 / Pre-M13 S4: Option/Result bindings — concrete
+                // instantiations spell their monomorphized typedef; flat
+                // instantiations keep the historical runtime-struct spelling.
+                emit_semantic_type(t, ctx->out);
+                fprintf(ctx->out, " %.*s", (int)node->as.binding.name.length, node->as.binding.name.start);
                 fputs(" = ", ctx->out);
                 emit_expr(node->as.binding.expr, ctx);
                 fputs(";\n", ctx->out);
@@ -2049,11 +2201,142 @@ static bool ffi_shadows_preamble_header(Token name) {
     return false;
 }
 
+// Pre-M13 S4: does the payload chain of this Option/Result instantiation
+// reference any struct that is not emitted yet? Struct payloads are always
+// user-declared (the semantic payload gate only admits named structs).
+static bool optres_structs_pending(SemanticType *t, char **done, int done_count) {
+    if (!t) return false;
+    if (t->kind == TYPE_STRUCT) {
+        if (!t->struct_name) return false;
+        for (int i = 0; i < done_count; i++) {
+            if (strcmp(done[i], t->struct_name) == 0) return false;
+        }
+        return true;
+    }
+    if (t->kind == TYPE_OPTION)
+        return optres_structs_pending(t->inner_type, done, done_count);
+    if (t->kind == TYPE_RESULT)
+        return optres_structs_pending(t->inner_type, done, done_count) ||
+               optres_structs_pending(t->error_type, done, done_count);
+    return false;
+}
+
+// Pre-M13 S4: suffix rendering into a fixed buffer (deterministic, no
+// stdio tricks — the emitted-C build is strict ISO C11).
+static bool optres_typedef_emitted(SemanticType *t, SemanticType **emitted, int emitted_count) {
+    for (int i = 0; i < emitted_count; i++) {
+        if (emitted[i] == t) return true;
+    }
+    return false;
+}
+
+static void emit_optres_suffix_str(SemanticType *t, char *buf, size_t cap) {
+    if (!t || cap == 0) return;
+    size_t len = strlen(buf);
+    switch (t->kind) {
+        case TYPE_I8:  snprintf(buf + len, cap - len, "i8");  break;
+        case TYPE_I16: snprintf(buf + len, cap - len, "i16"); break;
+        case TYPE_I32: snprintf(buf + len, cap - len, "i32"); break;
+        case TYPE_U8:  snprintf(buf + len, cap - len, "u8");  break;
+        case TYPE_U16: snprintf(buf + len, cap - len, "u16"); break;
+        case TYPE_U32: snprintf(buf + len, cap - len, "u32"); break;
+        case TYPE_U64: snprintf(buf + len, cap - len, "u64"); break;
+        case TYPE_F32: snprintf(buf + len, cap - len, "f32"); break;
+        case TYPE_FLOAT: snprintf(buf + len, cap - len, "f64"); break;
+        case TYPE_BOOL: snprintf(buf + len, cap - len, "bool"); break;
+        case TYPE_STRUCT: snprintf(buf + len, cap - len, "%s",
+                                   t->struct_name ? t->struct_name : "struct"); break;
+        case TYPE_OPTION:
+            if (optres_is_flat(t)) { snprintf(buf + len, cap - len, "TiqOption"); break; }
+            snprintf(buf + len, cap - len, "TiqOption_");
+            emit_optres_suffix_str(t->inner_type, buf, cap);
+            break;
+        case TYPE_RESULT:
+            if (optres_is_flat(t)) { snprintf(buf + len, cap - len, "TiqResult"); break; }
+            snprintf(buf + len, cap - len, "TiqResult_");
+            emit_optres_suffix_str(t->inner_type, buf, cap);
+            len = strlen(buf);
+            snprintf(buf + len, cap - len, "_");
+            emit_optres_suffix_str(t->error_type, buf, cap);
+            break;
+        default: snprintf(buf + len, cap - len, "i64"); break;
+    }
+}
+
 // M12.6: struct definitions (before function declarations so types are
 // visible). Shared by the program pass and the M16.3 header pass.
-static void emit_struct_defs(EmitContext *ctx, AstNode **stmts, int count) {
+// Pre-M13 S4: monomorphized Option/Result typedefs interleave — each is
+// flushed right before the first struct definition whose payload chain is
+// fully emitted, and the rest after the loop. Pool order is a topological
+// order of typedef-to-typedef references because an inner type is always
+// interned before its container (src/type.c type_get_option/type_get_result).
+static void emit_struct_defs(EmitContext *ctx, TypePool *pool, AstNode **stmts, int count) {
+    char **done = NULL;
+    int done_count = 0, done_cap = 0;
+    SemanticType **emitted = NULL;
+    int emitted_count = 0, emitted_cap = 0;
     for (int i = 0; i < count; i++) {
         if (stmts[i] && stmts[i]->kind == AST_STRUCT_DEF) {
+            // Flush pending typedefs whose struct payloads are all emitted.
+            if (pool) {
+                for (int p = 0; p < pool->count; p++) {
+                    SemanticType *t = pool->items[p];
+                    if (!t || (t->kind != TYPE_OPTION && t->kind != TYPE_RESULT)) continue;
+                    if (optres_is_flat(t)) continue;
+                    if (optres_typedef_emitted(t, emitted, emitted_count)) continue;
+                    if (optres_structs_pending(t, done, done_count)) continue;
+                    // Collision guard: a user struct named exactly like the
+                    // generated typedef would declare it twice.
+                    char namebuf[192] = "";
+                    if (t->kind == TYPE_OPTION) {
+                        snprintf(namebuf, sizeof namebuf, "TiqOption_");
+                        emit_optres_suffix_str(t->inner_type, namebuf, sizeof namebuf);
+                    } else {
+                        snprintf(namebuf, sizeof namebuf, "TiqResult_");
+                        emit_optres_suffix_str(t->inner_type, namebuf, sizeof namebuf);
+                        size_t nl = strlen(namebuf);
+                        snprintf(namebuf + nl, sizeof namebuf - nl, "_");
+                        emit_optres_suffix_str(t->error_type, namebuf, sizeof namebuf);
+                    }
+                    bool collides = false;
+                    for (int s = 0; s < count; s++) {
+                        if (stmts[s] && stmts[s]->kind == AST_STRUCT_DEF) {
+                            Token n = stmts[s]->as.struct_def.name;
+                            if (strlen(namebuf) == (size_t)n.length &&
+                                memcmp(namebuf, n.start, n.length) == 0) {
+                                char msg[224];
+                                snprintf(msg, sizeof msg,
+                                         "struct name '%s' collides with Option/Result typedef mangling; rename the struct",
+                                         namebuf);
+                                diag_error(ctx->diag, ctx->path, n.line,
+                                           ERR_TYPE_MISMATCH, msg);
+                                collides = true;
+                            }
+                        }
+                    }
+                    if (collides) continue;
+                    if (t->kind == TYPE_OPTION) {
+                        fputs("typedef struct {\n    ", ctx->out);
+                        emit_semantic_type(t->inner_type, ctx->out);
+                        fputs(" value;\n    int has_value;\n} ", ctx->out);
+                        fputs(namebuf, ctx->out);
+                        fputs(";\n\n", ctx->out);
+                    } else {
+                        fputs("typedef struct {\n    ", ctx->out);
+                        emit_semantic_type(t->inner_type, ctx->out);
+                        fputs(" value;\n    ", ctx->out);
+                        emit_semantic_type(t->error_type, ctx->out);
+                        fputs(" error;\n    int is_ok;\n} ", ctx->out);
+                        fputs(namebuf, ctx->out);
+                        fputs(";\n\n", ctx->out);
+                    }
+                    if (emitted_count + 1 > emitted_cap) {
+                        emitted_cap = emitted_cap < 8 ? 8 : emitted_cap * 2;
+                        emitted = realloc(emitted, sizeof(SemanticType *) * (size_t)emitted_cap);
+                    }
+                    emitted[emitted_count++] = t;
+                }
+            }
             SemanticType *st = stmts[i]->semantic_type;
             if (st && st->kind == TYPE_STRUCT && st->struct_name) {
                 fprintf(ctx->out, "typedef struct {\n");
@@ -2064,9 +2347,43 @@ static void emit_struct_defs(EmitContext *ctx, AstNode **stmts, int count) {
                     fprintf(ctx->out, " %s;\n", st->field_names[f]);
                 }
                 fprintf(ctx->out, "} %s;\n\n", st->struct_name);
+                if (done_count + 1 > done_cap) {
+                    done_cap = done_cap < 8 ? 8 : done_cap * 2;
+                    done = realloc(done, sizeof(char *) * (size_t)done_cap);
+                }
+                done[done_count++] = (char *)st->struct_name;
             }
         }
     }
+    // Tail flush: remaining typedefs reference only structs, and every
+    // struct definition has been emitted by now.
+    if (pool) {
+        for (int p = 0; p < pool->count; p++) {
+            SemanticType *t = pool->items[p];
+            if (!t || (t->kind != TYPE_OPTION && t->kind != TYPE_RESULT)) continue;
+            if (optres_is_flat(t)) continue;
+            if (optres_typedef_emitted(t, emitted, emitted_count)) continue;
+            if (t->kind == TYPE_OPTION) {
+                fputs("typedef struct {\n    ", ctx->out);
+                emit_semantic_type(t->inner_type, ctx->out);
+                fputs(" value;\n    int has_value;\n} TiqOption_", ctx->out);
+                emit_optres_suffix(t->inner_type, ctx->out);
+                fputs(";\n\n", ctx->out);
+            } else {
+                fputs("typedef struct {\n    ", ctx->out);
+                emit_semantic_type(t->inner_type, ctx->out);
+                fputs(" value;\n    ", ctx->out);
+                emit_semantic_type(t->error_type, ctx->out);
+                fputs(" error;\n    int is_ok;\n} TiqResult_", ctx->out);
+                emit_optres_suffix(t->inner_type, ctx->out);
+                fputs("_", ctx->out);
+                emit_optres_suffix(t->error_type, ctx->out);
+                fputs(";\n\n", ctx->out);
+            }
+        }
+    }
+    free(done);
+    free(emitted);
 }
 
 // M16.3: header export filter — the FFI-safe set of the C ABI table
@@ -2123,7 +2440,7 @@ static void fputs_header_guard(FILE *out, const char *base, size_t blen) {
 // M16.3: deterministic C header for a definitions-only library. The
 // prototypes use the same emit_semantic_type path as the --lib function
 // definitions, so declaration and definition always match.
-static void emit_c_header(EmitContext *ctx, AstNode **stmts, int count, const char *root_path) {
+static void emit_c_header(EmitContext *ctx, TypePool *pool, AstNode **stmts, int count, const char *root_path) {
     const char *base = root_path;
     for (const char *p = root_path; *p; p++)
         if (*p == '/') base = p + 1;
@@ -2140,7 +2457,7 @@ static void emit_c_header(EmitContext *ctx, AstNode **stmts, int count, const ch
     fputs("_H\n#define TIQ_", out);
     fputs_header_guard(out, base, blen);
     fputs("_H\n\n#include <stdint.h>\n\n#ifdef __cplusplus\nextern \"C\" {\n#endif\n\n", out);
-    emit_struct_defs(ctx, stmts, count);
+    emit_struct_defs(ctx, pool, stmts, count);
     for (int i = 0; i < count; i++) {
         if (stmts[i] && function_exportable(stmts[i])) {
             emit_semantic_type(stmts[i]->semantic_type, out);
@@ -2231,7 +2548,7 @@ void compile_modules_to_c(SemanticModule *mods, int mod_count, const char *root_
 
     // M16.3: header mode emits only the C header and stops.
     if (mode == TIQ_EMIT_HEADER) {
-        emit_c_header(ctx, stmts, count, root_path);
+        emit_c_header(ctx, &pool, stmts, count, root_path);
         free(stmts); free(stmt_std); type_pool_free(&pool);
         return;
     }
@@ -2305,7 +2622,7 @@ void compile_modules_to_c(SemanticModule *mods, int mod_count, const char *root_
     fputs(TIQ_RUNTIME_PRELUDE_AUX12, ctx->out);
 
     // M12.6: Emit struct definitions (before function declarations so types are visible)
-    emit_struct_defs(ctx, stmts, count);
+    emit_struct_defs(ctx, &pool, stmts, count);
 
     // M13.1-P2: Emit enum constants (declaration order, deterministic).
     // An enum with no variants emits nothing (an empty enumerator list is

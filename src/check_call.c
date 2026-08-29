@@ -86,7 +86,21 @@ void check_call(SemanticContext *ctx, AstNode *node) {
                                 optres_payload_reject(ctx, node->token.line, true, at);
                                 node->semantic_type = ty(ctx, TYPE_UNKNOWN);
                             } else {
-                                node->semantic_type = type_get_result(ctx->pool, at, ty(ctx, TYPE_INT));
+                                // Pre-M13 S4: context-typed slots — inside a
+                                // function whose annotated return is a
+                                // concrete Result with a matching value
+                                // type, ok(x) adopts that error type (and
+                                // err(e) the matching inner) instead of the
+                                // hardwired int, so Result[i64, E] bodies
+                                // can produce ok values.
+                                SemanticType *et = ty(ctx, TYPE_INT);
+                                SemanticType *ctx_ret = ctx->current_fn_return_type;
+                                if (ctx_ret && ctx_ret->kind == TYPE_RESULT &&
+                                    !optres_type_is_flat(ctx_ret) &&
+                                    optres_inner_same(at, ctx_ret->inner_type)) {
+                                    et = ctx_ret->error_type;
+                                }
+                                node->semantic_type = type_get_result(ctx->pool, at, et);
                             }
                         } else {
                             node->semantic_type = ty(ctx, TYPE_RESULT);
@@ -106,7 +120,15 @@ void check_call(SemanticContext *ctx, AstNode *node) {
                                 optres_payload_reject(ctx, node->token.line, true, at);
                                 node->semantic_type = ty(ctx, TYPE_UNKNOWN);
                             } else {
-                                node->semantic_type = type_get_result(ctx->pool, ty(ctx, TYPE_INT), at);
+                                // Pre-M13 S4: context-typed slots (see ok).
+                                SemanticType *it = ty(ctx, TYPE_INT);
+                                SemanticType *ctx_ret = ctx->current_fn_return_type;
+                                if (ctx_ret && ctx_ret->kind == TYPE_RESULT &&
+                                    !optres_type_is_flat(ctx_ret) &&
+                                    optres_inner_same(at, ctx_ret->error_type)) {
+                                    it = ctx_ret->inner_type;
+                                }
+                                node->semantic_type = type_get_result(ctx->pool, it, at);
                             }
                         } else {
                             node->semantic_type = ty(ctx, TYPE_RESULT);

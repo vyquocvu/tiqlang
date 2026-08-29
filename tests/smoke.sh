@@ -468,6 +468,38 @@ printf 'f x: Result : Result -> {\n  y = ?x\n  ok(y * 2)\n}\nres1 = f(ok(21)) ??
 printf '42\n99\n' > "$TMP_DIR/propagate_result.expected"
 cmp "$TMP_DIR/propagate_result.out" "$TMP_DIR/propagate_result.expected"
 
+# Pre-M13 S4: concrete payload representation. Nested Option composites,
+# f64 payloads, and struct payloads keep their real C types through
+# construction, fallback, propagation, and match lowering.
+printf 'x = some(some(3))\ny = x ?? some(0)\nz = y ?? 0\nprint(z)\n' > "$TMP_DIR/s4_nested_option.tiq"
+./build/tiq build "$TMP_DIR/s4_nested_option.tiq" -o "$TMP_DIR/s4_nested_option"
+[ "$("$TMP_DIR/s4_nested_option")" = "3" ]
+
+printf 'x = some(some(some(2)))\ny = x ?? some(some(0))\nz = y ?? some(0)\nw = z ?? 0\nprint(w)\n' > "$TMP_DIR/s4_double_nested_option.tiq"
+./build/tiq build "$TMP_DIR/s4_double_nested_option.tiq" -o "$TMP_DIR/s4_double_nested_option"
+[ "$("$TMP_DIR/s4_double_nested_option")" = "2" ]
+
+printf 'x = some(some(7))\nm = match x { some(v) => v ?? 0, none => 0, _ => 0 }\nprint(m)\n' > "$TMP_DIR/s4_nested_match.tiq"
+./build/tiq build "$TMP_DIR/s4_nested_match.tiq" -o "$TMP_DIR/s4_nested_match"
+[ "$("$TMP_DIR/s4_nested_match")" = "7" ]
+
+printf 'r = some(1.5)\nv = r ?? 0.0\nprint(v)\n' > "$TMP_DIR/s4_f64_payload.tiq"
+./build/tiq build "$TMP_DIR/s4_f64_payload.tiq" -o "$TMP_DIR/s4_f64_payload"
+[ "$("$TMP_DIR/s4_f64_payload")" = "1.5" ]
+
+printf 'struct P {\n  v: i64\n}\nwrap p:P : Option[P] -> {\n  some(p)\n}\npt = P { v: 9 }\no = wrap(pt)\ngot = o ?? P { v: 0 }\nprint(got.v)\n' > "$TMP_DIR/s4_struct_payload.tiq"
+./build/tiq build "$TMP_DIR/s4_struct_payload.tiq" -o "$TMP_DIR/s4_struct_payload"
+[ "$("$TMP_DIR/s4_struct_payload")" = "9" ]
+
+printf 'struct E {\n  code: i64\n}\ntry n:i64 : Result[i64, E] -> {\n  n > 0 ? ok(n) : err(E { code: 0 - n })\n}\nm = match try(0 - 5) { ok(v) => v, err(e) => e.code, _ => 0 - 1 }\nprint(m)\n' > "$TMP_DIR/s4_result_struct_error.tiq"
+./build/tiq build "$TMP_DIR/s4_result_struct_error.tiq" -o "$TMP_DIR/s4_result_struct_error"
+[ "$("$TMP_DIR/s4_result_struct_error")" = "5" ]
+
+# A bare `none` body re-points to the annotated concrete return type.
+printf 'struct P {\n  v: i64\n}\nmknone u:i64 : Option[P] -> {\n  none\n}\nn = mknone(0) ?? P { v: 7 }\nprint(n.v)\n' > "$TMP_DIR/s4_bare_none_repoint.tiq"
+./build/tiq build "$TMP_DIR/s4_bare_none_repoint.tiq" -o "$TMP_DIR/s4_bare_none_repoint"
+[ "$("$TMP_DIR/s4_bare_none_repoint")" = "7" ]
+
 # M10.1: CLI argument builtins read real argc/argv (LANGUAGE_SPEC §18.1);
 # out-of-range indices yield the empty string.
 printf 'print(cli_arg_count())\nprint(cli_arg(0))\nprint(cli_arg(1))\nprint(cli_arg(5))\n' > "$TMP_DIR/m10_cli_args.tiq"

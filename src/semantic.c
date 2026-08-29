@@ -8,6 +8,34 @@
 #include <stdlib.h>
 #include <string.h>
 
+// Pre-M13 S4: re-point a bare `none` literal (and blocks/conditionals whose
+// final value is one) to the concrete Option/Result type expected at the
+// join, so the emitter spells the matching monomorphized struct. Flat
+// contexts are left untouched: they spell the runtime structs exactly as
+// before.
+static void optres_repoint_none(AstNode *node, SemanticType *full) {
+    if (!node || !full) return;
+    if ((full->kind != TYPE_OPTION && full->kind != TYPE_RESULT) ||
+        optres_type_is_flat(full)) return;
+    if (node->kind == AST_LITERAL && node->as.literal.type == TOK_NONE) {
+        SemanticType *t = node->semantic_type;
+        if (t && (t->kind == TYPE_OPTION || t->kind == TYPE_RESULT) &&
+            optres_type_is_flat(t)) {
+            node->semantic_type = full;
+        }
+        return;
+    }
+    if (node->kind == AST_BLOCK) {
+        optres_repoint_none(node->as.block.final_expr, full);
+        return;
+    }
+    if (node->kind == AST_CONDITIONAL) {
+        optres_repoint_none(node->as.conditional.then_branch, full);
+        optres_repoint_none(node->as.conditional.else_branch, full);
+        return;
+    }
+}
+
 void check_node(SemanticContext *ctx, AstNode *node) {
     if (!node) return;
 
@@ -263,6 +291,11 @@ void check_node(SemanticContext *ctx, AstNode *node) {
                     if (u) {
                         if (tt->kind == TYPE_UNKNOWN) node->as.conditional.then_branch->semantic_type = u;
                         if (et->kind == TYPE_UNKNOWN) node->as.conditional.else_branch->semantic_type = u;
+                        // Pre-M13 S4: bare `none` branches adopt the join type.
+                        if (u->kind == TYPE_OPTION || u->kind == TYPE_RESULT) {
+                            optres_repoint_none(node->as.conditional.then_branch, u);
+                            optres_repoint_none(node->as.conditional.else_branch, u);
+                        }
                         node->semantic_type = u;
                     } else {
                         node->semantic_type = tt;
@@ -687,6 +720,11 @@ void check_node(SemanticContext *ctx, AstNode *node) {
                                ERR_TYPE_MISMATCH, msg);
                 }
             }
+            // Pre-M13 S4: a bare `none` body adopts the annotated concrete
+            // return type so the emitter spells the right monomorphized struct.
+            if (ret_type && (ret_type->kind == TYPE_OPTION || ret_type->kind == TYPE_RESULT)) {
+                optres_repoint_none(node->as.function.body, ret_type);
+            }
             Symbol *sym = env_lookup(ctx->current_env, node->as.function.name);
             if (sym) {
                 if (pre_ret != TYPE_UNKNOWN) {
@@ -1052,6 +1090,10 @@ void check_node(SemanticContext *ctx, AstNode *node) {
                 env_free(&arm_env);
                 AstNode *body = node->as.match_expr.arms[i].body;
                 if (body && body->semantic_type) {
+                    // Pre-M13 S4: a bare `none` arm body adopts the join type.
+                    if (result && (result->kind == TYPE_OPTION || result->kind == TYPE_RESULT)) {
+                        optres_repoint_none(body, result);
+                    }
                     SemanticType *u = unify(ctx, body->token.line, result,
                                             body->semantic_type,
                                             "match arms must have the same type");
