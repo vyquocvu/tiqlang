@@ -163,6 +163,18 @@ print(p.y)
 assert_ir_contains "option_some" 'x = some(42)
 ' "struct_init"
 
+# Pre-M13 S4: the IR/wasm path stores every struct field as one 8-byte i64
+# slot with no per-field type info, so concrete non-i64 Option/Result
+# payloads fail closed with a located diagnostic. The C backend is
+# unaffected (it never lowers through ir_lower.c).
+assert_ir_fails "ir_nested_option_payload" 'x = some(some(3))
+y = x ?? some(0)
+' "payload type 'int?' is not supported"
+
+assert_ir_fails "ir_f64_option_payload" 'r = some(1.5)
+v = r ?? 0.0
+' "payload type 'float' is not supported"
+
 assert_ir_contains "option_coalesce" 'x = some(42)
 y = x ?? 0
 print(y)

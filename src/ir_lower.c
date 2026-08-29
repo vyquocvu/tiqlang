@@ -5,6 +5,8 @@
 #include <errno.h>
 #include "../include/ir.h"
 #include "../include/ast.h"
+#include "../include/semantic.h"
+#include "../include/type.h"
 
 #define MAX_VARS 256
 #define MAX_SCOPES 32
@@ -60,6 +62,38 @@ typedef struct {
     EnumEntryLower enums[MAX_ENUMS];
     int enum_count;
 } LowerCtx;
+
+// Pre-M13 S4: the IR/wasm path stores every aggregate field as one 8-byte
+// i64 slot (emit_wasm.c widens small ints and reinterprets floats; there is
+// no per-field type info), so concrete Option/Result payloads that are not
+// i64-compatible cannot round-trip and fail closed with a located
+// diagnostic. The C backend never lowers through ir_lower.c.
+static bool ir_optres_payload_ok(SemanticType *t) {
+    if (!t) return false;
+    switch (t->kind) {
+        case TYPE_INT:
+        case TYPE_I8: case TYPE_I16: case TYPE_I32:
+        case TYPE_U8: case TYPE_U16: case TYPE_U32: case TYPE_U64:
+        case TYPE_BOOL:
+        case TYPE_UNKNOWN:
+            // TYPE_UNKNOWN rides the flat i64 slot (unresolved payloads in
+            // the bare/erased world), exactly as before this gate.
+            return true;
+        default:
+            return false;
+    }
+}
+
+static int ir_optres_reject(LowerCtx *ctx, AstNode *node, bool is_result,
+                            SemanticType *payload) {
+    char tbuf[96];
+    char msg[224];
+    type_display(payload, tbuf, sizeof tbuf);
+    snprintf(msg, sizeof msg, "%s payload type '%s' is not supported (S4 boundary)",
+             is_result ? "Result" : "Option", tbuf);
+    diag_error(ctx->diag, ctx->path, node->token.line, ERR_UNSUPPORTED_STATEMENT, msg);
+    return -1;
+}
 
 static int find_var(LowerCtx *ctx, const char *name, size_t len) {
     for (int i = ctx->var_count - 1; i >= 0; i--) {
@@ -208,9 +242,20 @@ static int lower_expr(LowerCtx *ctx, AstNode *node) {
 
         case AST_BINARY: {
             if (node->as.binary.op == TOK_QUESTION_QUESTION) {
+                SemanticType *lt = node->as.binary.left ? (SemanticType *)node->as.binary.left->semantic_type : NULL;
+                // Pre-M13 S4: non-i64-compatible payloads fail closed before
+                // the field-pointer lowering (see ir_optres_payload_ok).
+                if (lt && (lt->kind == TYPE_OPTION || lt->kind == TYPE_RESULT)) {
+                    if (lt->inner_type && !ir_optres_payload_ok(lt->inner_type)) {
+                        return ir_optres_reject(ctx, node, lt->kind == TYPE_RESULT, lt->inner_type);
+                    }
+                    if (lt->kind == TYPE_RESULT && lt->error_type &&
+                        !ir_optres_payload_ok(lt->error_type)) {
+                        return ir_optres_reject(ctx, node, true, lt->error_type);
+                    }
+                }
                 int left_reg = lower_expr(ctx, node->as.binary.left);
                 int right_reg = lower_expr(ctx, node->as.binary.right);
-                SemanticType *lt = node->as.binary.left ? (SemanticType *)node->as.binary.left->semantic_type : NULL;
                 int check_idx = (lt && lt->kind == TYPE_RESULT) ? 2 : 1;
                 int flag_reg = ir_new_reg(ctx->func);
                 IrOperand f_ops[] = {reg_op(left_reg), (IrOperand){IR_OP_IMM, .imm = check_idx}};
@@ -279,6 +324,18 @@ static int lower_expr(LowerCtx *ctx, AstNode *node) {
 
         case AST_UNARY: {
             if (node->as.unary.op == TOK_QUESTION) {
+                SemanticType *rt = node->as.unary.right ? (SemanticType *)node->as.unary.right->semantic_type : NULL;
+                // Pre-M13 S4: non-i64-compatible payloads fail closed (see
+                // ir_optres_payload_ok).
+                if (rt && (rt->kind == TYPE_OPTION || rt->kind == TYPE_RESULT)) {
+                    if (rt->inner_type && !ir_optres_payload_ok(rt->inner_type)) {
+                        return ir_optres_reject(ctx, node, rt->kind == TYPE_RESULT, rt->inner_type);
+                    }
+                    if (rt->kind == TYPE_RESULT && rt->error_type &&
+                        !ir_optres_payload_ok(rt->error_type)) {
+                        return ir_optres_reject(ctx, node, true, rt->error_type);
+                    }
+                }
                 int right = lower_expr(ctx, node->as.unary.right);
                 int dst = ir_new_reg(ctx->func);
                 IrType type = ir_type_from_semantic(node->semantic_type);
@@ -394,6 +451,16 @@ static int lower_expr(LowerCtx *ctx, AstNode *node) {
                 return dst;
             }
             if (name_len == 4 && memcmp(name, "some", 4) == 0 && node->as.call.arg_count == 1) {
+                // Pre-M13 S4: the IR/wasm path stores every aggregate field
+                // as one 8-byte i64 slot with no per-field type info, so
+                // concrete non-i64 payloads cannot round-trip; they fail
+                // closed here. The C backend never lowers through ir_lower.c.
+                SemanticType *pt = node->as.call.args[0] ?
+                    node->as.call.args[0]->semantic_type : NULL;
+                if (pt && !ir_optres_payload_ok(pt)) {
+                    ir_optres_reject(ctx, node, false, pt);
+                    return -1;
+                }
                 int arg = lower_expr(ctx, node->as.call.args[0]);
                 int one = emit_const_i64(ctx, ctx->current_block, 1, node->token.line);
                 int dst = ir_new_reg(ctx->func);
@@ -403,6 +470,15 @@ static int lower_expr(LowerCtx *ctx, AstNode *node) {
                 return dst;
             }
             if (name_len == 4 && memcmp(name, "none", 4) == 0 && node->as.call.arg_count == 0) {
+                // Pre-M13 S4: a none literal re-pointed to a concrete
+                // instantiation whose payload cannot round-trip through the
+                // i64-slot IR fails closed (see ir_optres_payload_ok).
+                SemanticType *nt = node->semantic_type;
+                if (nt && nt->kind == TYPE_OPTION && nt->inner_type &&
+                    nt->inner_type->kind != TYPE_UNKNOWN &&
+                    !ir_optres_payload_ok(nt->inner_type)) {
+                    return ir_optres_reject(ctx, node, false, nt->inner_type);
+                }
                 int z0 = emit_const_i64(ctx, ctx->current_block, 0, node->token.line);
                 int z1 = emit_const_i64(ctx, ctx->current_block, 0, node->token.line);
                 int dst = ir_new_reg(ctx->func);
@@ -412,6 +488,16 @@ static int lower_expr(LowerCtx *ctx, AstNode *node) {
                 return dst;
             }
             if (name_len == 2 && memcmp(name, "ok", 2) == 0 && node->as.call.arg_count == 1) {
+                SemanticType *rt = node->semantic_type;
+                SemanticType *pt = node->as.call.args[0] ?
+                    node->as.call.args[0]->semantic_type : NULL;
+                if ((pt && !ir_optres_payload_ok(pt)) ||
+                    (rt && rt->kind == TYPE_RESULT && rt->error_type &&
+                     !ir_optres_payload_ok(rt->error_type))) {
+                    ir_optres_reject(ctx, node, true, rt && rt->kind == TYPE_RESULT &&
+                                     rt->error_type ? rt->error_type : pt);
+                    return -1;
+                }
                 int arg = lower_expr(ctx, node->as.call.args[0]);
                 int z = emit_const_i64(ctx, ctx->current_block, 0, node->token.line);
                 int one = emit_const_i64(ctx, ctx->current_block, 1, node->token.line);
@@ -422,6 +508,16 @@ static int lower_expr(LowerCtx *ctx, AstNode *node) {
                 return dst;
             }
             if (name_len == 3 && memcmp(name, "err", 3) == 0 && node->as.call.arg_count == 1) {
+                SemanticType *rt = node->semantic_type;
+                SemanticType *pt = node->as.call.args[0] ?
+                    node->as.call.args[0]->semantic_type : NULL;
+                if ((pt && !ir_optres_payload_ok(pt)) ||
+                    (rt && rt->kind == TYPE_RESULT && rt->inner_type &&
+                     !ir_optres_payload_ok(rt->inner_type))) {
+                    ir_optres_reject(ctx, node, true, rt && rt->kind == TYPE_RESULT &&
+                                     rt->inner_type ? rt->inner_type : pt);
+                    return -1;
+                }
                 int arg = lower_expr(ctx, node->as.call.args[0]);
                 int z0 = emit_const_i64(ctx, ctx->current_block, 0, node->token.line);
                 int z1 = emit_const_i64(ctx, ctx->current_block, 0, node->token.line);
