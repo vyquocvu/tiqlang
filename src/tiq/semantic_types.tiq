@@ -23,15 +23,23 @@ resolve_cont src:str toks:vec[Token] tp:vec[int] tpn:vec[str] st_names:vec[str] 
     r <- 0 - 1
     tidx != -1 ? {
         nm <- tk_lex(src, toks, tidx)
-        str_eq(nm, "strbuf") ? { r <- ty_get(tp, tpn, TY.Strbuf) }        str_eq(nm, "map") ? { r <- ty_get(tp, tpn, TY.Map) }        str_eq(nm, "vec") ? {
-            eidx == -1 ? { s_diag(ctx, path, tk_line(toks, tidx), 9, "vec annotation requires an element type: vec[T]"); r <- ty_get(tp, tpn, TY.Unknown) }
-            eidx != -1 ? {
-                et <- resolve_type(src, toks, tp, tpn, eidx)
-                et == -1 ? { enm <- tk_lex(src, toks, eidx); esi <- struct_lookup(st_names, enm); esi != -1 ? { et <- vec_get(st_meta, esi) }}
-                et == -1 ? { msg <- str_cat(str_cat("unknown type '", tk_lex(src, toks, eidx)), "'"); s_diag(ctx, path, tk_line(toks, eidx), 9, msg); r <- ty_get(tp, tpn, TY.Unknown) }
+        str_eq(nm, "strbuf") ? {
+            tk_kind(toks, tidx + 1) == TokenKind.Lbracket ? { s_diag(ctx, path, tk_line(toks, tidx + 1), 9, "strbuf annotation takes no type parameters"); r <- ty_get(tp, tpn, TY.Unknown) }
+            tk_kind(toks, tidx + 1) != TokenKind.Lbracket ? { r <- ty_get(tp, tpn, TY.Strbuf) }
+        }        str_eq(nm, "map") ? {
+            tk_kind(toks, tidx + 1) == TokenKind.Lbracket ? { s_diag(ctx, path, tk_line(toks, tidx + 1), 9, "map annotation takes no type parameters"); r <- ty_get(tp, tpn, TY.Unknown) }
+            tk_kind(toks, tidx + 1) != TokenKind.Lbracket ? { r <- ty_get(tp, tpn, TY.Map) }
+        }        str_eq(nm, "vec") ? {
+            e2 <- eidx
+            e2 == 0 - 1 && tk_kind(toks, tidx + 1) == TokenKind.Lbracket ? { e2 <- tidx + 2 }
+            e2 == 0 - 1 ? { s_diag(ctx, path, tk_line(toks, tidx), 9, "vec annotation requires an element type: vec[T]"); r <- ty_get(tp, tpn, TY.Unknown) }
+            e2 != 0 - 1 ? {
+                et <- resolve_type(src, toks, tp, tpn, e2)
+                et == -1 ? { enm <- tk_lex(src, toks, e2); esi <- struct_lookup(st_names, enm); esi != -1 ? { et <- vec_get(st_meta, esi) }}
+                et == -1 ? { msg <- str_cat(str_cat("unknown type '", tk_lex(src, toks, e2)), "'"); s_diag(ctx, path, tk_line(toks, e2), 9, msg); r <- ty_get(tp, tpn, TY.Unknown) }
                 et != -1 ? {
                     ek <- vec_get(tp, et * 8 + TF.Kind)
-                    ek != TY.Int && ek != TY.Str && ek != TY.Struct ? { s_diag(ctx, path, tk_line(toks, eidx), 9, "vec element type must be int, str, or a struct"); r <- ty_get(tp, tpn, TY.Unknown) }
+                    ek != TY.Int && ek != TY.Str && ek != TY.Struct ? { s_diag(ctx, path, tk_line(toks, e2), 9, "vec element type must be int, str, or a struct"); r <- ty_get(tp, tpn, TY.Unknown) }
                     ek == TY.Int || ek == TY.Str || ek == TY.Struct ? { r <- ty_vec(tp, tpn, et) }                }
             }
         }
@@ -39,13 +47,115 @@ resolve_cont src:str toks:vec[Token] tp:vec[int] tpn:vec[str] st_names:vec[str] 
     r
 }
 
-// Annotation resolution mirroring C resolve_container_annot + resolve_type_annot:
-// containers (strbuf/map/vec[T]) first, then primitive names, then structs.
-resolve_ann src:str toks:vec[Token] tp:vec[int] tpn:vec[str] st_names:vec[str] st_meta:vec[int] tidx:i64 eidx:i64 path:str ctx:vec[int] : i64 -> {
-    r <- resolve_cont(src, toks, tp, tpn, st_names, st_meta, tidx, eidx, path, ctx)
-    r == -1 ? { r <- resolve_type(src, toks, tp, tpn, tidx) }    r == -1 && tidx != -1 ? {
+// Pre-M13 S4: top-level element starts of the bracket group whose '[' sits
+// at gidx. One element start is pushed per top-level comma-separated
+// segment; the count is returned. Newlines are NOT skipped — the C parse
+// rejects them inside the group, and the parser consumed the group
+// wholesale only when it was well-formed.
+group_elems toks:vec[Token] gidx:i64 eo:vec[int] : i64 -> {
+    n <- 0
+    dep <- 1
+    j <- gidx + 1
+    at_start <- 1
+    stop <- 0
+    [stop == 0] {
+        k <- tk_kind(toks, j)
+        k == TokenKind.Eof ? { stop <- 1 }
+        stop == 0 && k == TokenKind.Rbracket && dep == 1 ? { stop <- 1 }
+        stop == 0 && k == TokenKind.Rbracket && dep > 1 ? { dep <- dep - 1; at_start <- 0 }
+        stop == 0 && k == TokenKind.Lbracket && dep >= 1 ? { dep <- dep + 1; at_start <- 0 }
+        stop == 0 && k == TokenKind.Comma && dep == 1 ? { at_start <- 1 }
+        stop == 0 && at_start == 1 && k != TokenKind.Rbracket && k != TokenKind.Comma ? {
+            vec_push(eo, j)
+            n <- n + 1
+            at_start <- 0
+        }
+        j <- j + 1
+    }
+    n
+}
+
+// Pre-M13 S4: payload kinds allowed inside Option/Result values (mirror of
+// optres_payload_ok in src/typecheck.c). Allowed: integer kinds, f32/f64,
+// bool, named structs, nested Option/Result. str (not an owner under M9.2
+// scope cleanup), arrays/slices, vec/strbuf/map handles, streams, chans,
+// refs, and unresolvable inners fail closed. Defined before resolve_ann
+// (the self-hosted checker resolves top-level functions in order).
+payload_ok tp:vec[int] t:i64 : i64 -> {
+    r <- 0
+    t != 0 - 1 ? {
+        k <- vec_get(tp, t * 8 + TF.Kind)
+        (k == TY.Int || k == TY.Float || k == TY.Bool || k == TY.I8 || k == TY.I16 || k == TY.I32 || k == TY.U8 || k == TY.U16 || k == TY.U32 || k == TY.U64 || k == TY.F32) ? { r <- 1 }
+        k == TY.Struct ? { r <- 1 }
+        k == TY.Option ? { r <- payload_ok(tp, vec_get(tp, t * 8 + TF.Inner)) }
+        k == TY.Result ? { r <- payload_ok(tp, vec_get(tp, t * 8 + TF.Inner)) == 1 && payload_ok(tp, vec_get(tp, t * 8 + TF.Err)) == 1 ? 1 : 0 }
+    }
+    r
+}
+
+// Annotation resolution mirroring C resolve_ann (src/check_builtins.c):
+// bracketed Option[T]/Result[T, E] first (self-recursive on elements —
+// self-recursion within one function is supported), then containers
+// (strbuf/map/vec[T]), then primitive names, then structs. Malformed
+// groups report the same located E09 messages as the C bootstrap and yield
+// Unknown so callers do not double-report.
+resolve_ann src:str toks:vec[Token] tp:vec[int] tpn:vec[str] st_names:vec[str] st_meta:vec[int] tidx:i64 eidx:i64 path:str ctx:vec[int] full:i64 : i64 -> {
+    r <- 0 - 1
+    tidx != 0 - 1 ? {
         nm <- tk_lex(src, toks, tidx)
-        si2 <- struct_lookup(st_names, nm)
+        (str_eq(nm, "Option") || str_eq(nm, "Result")) && tk_kind(toks, tidx + 1) == TokenKind.Lbracket ? {
+            eo <- vec_new()
+            cnt <- group_elems(toks, tidx + 1, eo)
+            bad <- str_eq(nm, "Option") && cnt != 1 ? 1 : 0
+            str_eq(nm, "Result") && cnt != 2 ? { bad <- 1 }
+            bad == 1 ? {
+                msg <- str_eq(nm, "Option") ? "Option annotation takes exactly 1 type parameter: Option[T]" : "Result annotation takes exactly 2 type parameters: Result[T, E]"
+                s_diag(ctx, path, tk_line(toks, tidx + 1), 9, msg)
+                r <- ty_get(tp, tpn, TY.Unknown)
+            }
+            bad == 0 ? {
+                e1 <- resolve_ann(src, toks, tp, tpn, st_names, st_meta, vec_get(eo, 0), 0 - 1, path, ctx, 1)
+                e1 == 0 - 1 ? {
+                    msg <- str_cat(str_cat("unknown type '", tk_lex(src, toks, vec_get(eo, 0))), "'")
+                    s_diag(ctx, path, tk_line(toks, vec_get(eo, 0)), 9, msg)
+                    r <- ty_get(tp, tpn, TY.Unknown)
+                }
+                e1 != 0 - 1 ? {
+                    p1 <- payload_ok(tp, e1)
+                    p1 == 0 ? {
+                        msg <- str_cat(str_cat(str_eq(nm, "Option") ? "Option payload type '" : "Result payload type '", disp(tp, tpn, e1)), "' is not supported (S4 boundary)")
+                        s_diag(ctx, path, tk_line(toks, vec_get(eo, 0)), 9, msg)
+                        r <- ty_get(tp, tpn, TY.Unknown)
+                    }
+                    p1 == 1 && str_eq(nm, "Option") ? { r <- ty_option(tp, tpn, e1) }
+                    p1 == 1 && str_eq(nm, "Result") ? {
+                        e2 <- resolve_ann(src, toks, tp, tpn, st_names, st_meta, vec_get(eo, 1), 0 - 1, path, ctx, 1)
+                        e2 == 0 - 1 ? {
+                            msg <- str_cat(str_cat("unknown type '", tk_lex(src, toks, vec_get(eo, 1))), "'")
+                            s_diag(ctx, path, tk_line(toks, vec_get(eo, 1)), 9, msg)
+                            r <- ty_get(tp, tpn, TY.Unknown)
+                        }
+                        e2 != 0 - 1 ? {
+                            p2 <- payload_ok(tp, e2)
+                            p2 == 0 ? {
+                                msg <- str_cat(str_cat("Result payload type '", disp(tp, tpn, e2)), "' is not supported (S4 boundary)")
+                                s_diag(ctx, path, tk_line(toks, vec_get(eo, 1)), 9, msg)
+                                r <- ty_get(tp, tpn, TY.Unknown)
+                            }
+                            p2 == 1 ? { r <- ty_result(tp, tpn, e1, e2) }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    r == -1 ? { r <- resolve_cont(src, toks, tp, tpn, st_names, st_meta, tidx, eidx, path, ctx) }
+    // full == 0 (extern positions): only containers/generics resolve here —
+    // scalars return -1 so the caller's FFI-safety fallback runs, exactly
+    // like the C bootstrap where resolve_ann returns NULL for bare names.
+    r == -1 && full == 1 ? { r <- resolve_type(src, toks, tp, tpn, tidx) }    r == -1 && full == 1 && tidx != -1 ? {
+        nm2 <- tk_lex(src, toks, tidx)
+        si2 <- struct_lookup(st_names, nm2)
         si2 != -1 ? { r <- vec_get(st_meta, si2) }    }
     r
 }
@@ -99,23 +209,6 @@ unify ctx:vec[int] path:str ln:i64 tp:vec[int] tpn:vec[str] exp:i64 found:i64 em
 }
 vec_elem_ok k:i64 : i64 -> k == TY.Int || k == TY.Str || k == TY.Struct ? 1 : 0
 vec_elem_same tp:vec[int] a:i64 b:i64 : i64 -> { ak <- vec_get(tp, a * 8 + TF.Kind); bk <- vec_get(tp, b * 8 + TF.Kind); ak == bk && (ak != TY.Struct || a == b) ? 1 : 0 }
-
-// Pre-M13 S4: payload kinds allowed inside Option/Result values (mirror of
-// optres_payload_ok in src/typecheck.c). Allowed: integer kinds, f32/f64,
-// bool, named structs, nested Option/Result. str (not an owner under M9.2
-// scope cleanup), arrays/slices, vec/strbuf/map handles, streams, chans,
-// refs, and unresolvable inners fail closed.
-payload_ok tp:vec[int] t:i64 : i64 -> {
-    r <- 0
-    t != 0 - 1 ? {
-        k <- vec_get(tp, t * 8 + TF.Kind)
-        (k == TY.Int || k == TY.Float || k == TY.Bool || k == TY.I8 || k == TY.I16 || k == TY.I32 || k == TY.U8 || k == TY.U16 || k == TY.U32 || k == TY.U64 || k == TY.F32) ? { r <- 1 }
-        k == TY.Struct ? { r <- 1 }
-        k == TY.Option ? { r <- payload_ok(tp, vec_get(tp, t * 8 + TF.Inner)) }
-        k == TY.Result ? { r <- payload_ok(tp, vec_get(tp, t * 8 + TF.Inner)) == 1 && payload_ok(tp, vec_get(tp, t * 8 + TF.Err)) == 1 ? 1 : 0 }
-    }
-    r
-}
 
 check_int_range src:str toks:vec[Token] ctx:vec[int] path:str tidx:i64 : i64 -> {
     lx <- tk_lex(src, toks, tidx)

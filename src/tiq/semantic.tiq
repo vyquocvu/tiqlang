@@ -262,11 +262,11 @@ check_node src:str path:str toks:vec[Token] nodes:vec[int] kids:vec[int] types:v
                 is_slice == 0 && bk == TY.Stream ? { c1 >= 1 ? { ai0 <- vec_get(kids, s1); ai0 != 0 - 1 ? { it <- vec_get(types, ai0); it != 0 - 1 && vec_get(tp, it * 8 + TF.Kind) != TY.Int ? { s_diag(ctx, path, ln, 9, "stream index must be int") }} }; vec_set(types, ni, ty_get(tp, tpn, TY.Int)); handled <- 1 }
             }
             // Regular function call
-            handled == 0 && callee_t != -1 ? { ck <- vec_get(tp, callee_t * 8 + TF.Kind); is_bracket == 0 && ck != TY.Struct && ck != TY.Vec ? { pc <- vec_get(tp, callee_t * 8 + TF.Pc); pc >= 0 && pc != c1 ? { s_diag(ctx, path, ln, 12, "arity mismatch") }} }
+            handled == 0 && callee_t != -1 ? { ck <- vec_get(tp, callee_t * 8 + TF.Kind); ident_callee <- ci != -1 && nd_get(nodes, ci, NF.Kind) == AstKind.Identifier ? 1 : 0; is_bracket == 0 && ck != TY.Struct && ck != TY.Vec && (ident_callee == 0 || (ck != TY.Option && ck != TY.Result)) ? { pc <- vec_get(tp, callee_t * 8 + TF.Pc); pc >= 0 && pc != c1 ? { s_diag(ctx, path, ln, 12, "arity mismatch") }} }
             // Borrow-aware argument checking
             fn_def <- -1; fn_pb <- 0
             is_bracket == 0 && ci != -1 && nd_get(nodes, ci, NF.Kind) == AstKind.Identifier ? { cnm <- tk_lex(src, toks, nd_get(nodes, ci, NF.Name)); fi <- vec_len(fn_reg) / 2 - 1; [fi >= 0 && fn_def == -1] { str_eq(vec_get(fn_reg, fi * 2), cnm) ? { fn_def <- vec_get(fn_data, fi * 2); fn_pb <- vec_get(fn_data, fi * 2 + 1); break }; fi <- fi - 1 } }
-            fn_def != -1 && callee_t != -1 && vec_get(tp, callee_t * 8 + TF.Kind) == TY.Vec ? { fpc <- nd_get(nodes, fn_def, NF.L1n); fpc != c1 ? { s_diag(ctx, path, ln, 12, "arity mismatch") }}
+            fn_def != -1 && callee_t != -1 && (vec_get(tp, callee_t * 8 + TF.Kind) == TY.Vec || vec_get(tp, callee_t * 8 + TF.Kind) == TY.Option || vec_get(tp, callee_t * 8 + TF.Kind) == TY.Result) ? { fpc <- nd_get(nodes, fn_def, NF.L1n); fpc != c1 ? { s_diag(ctx, path, ln, 12, "arity mismatch") }}
             rec_names <- vec_new(); vec_push(rec_names, "")
             rec_muts <- vec_new(); vec_push(rec_muts, 0)
             j <- 0
@@ -449,12 +449,15 @@ check_node src:str path:str toks:vec[Token] nodes:vec[int] kids:vec[int] types:v
         // (Option/Result are not primed), and ty_func expects a kind.
         pre_ret <- TY.Unknown; pre_ret_full <- 0 - 1; pre_reg <- 0
         r_tok != -1 ? {
-            ra <- resolve_ann(src, toks, tp, tpn, st_names, st_meta, r_tok, re_tok, path, ctx)
+            ra <- resolve_ann(src, toks, tp, tpn, st_names, st_meta, r_tok, re_tok, path, ctx, 1)
             ra != -1 ? {
                 rk <- vec_get(tp, ra * 8 + TF.Kind)
                 rk != TY.Unknown ? {
                     pre_reg <- 1
-                    rk == TY.Struct || rk == TY.Vec ? { pre_ret_full <- ra }                    pre_ret <- rk
+                    rk == TY.Struct || rk == TY.Vec ? { pre_ret_full <- ra }
+                    // Pre-M13 S4: bracketed Option[T]/Result[T, E] register
+                    // the full parameterised type; bare names stay erased.
+                    (rk == TY.Option || rk == TY.Result) && tk_kind(toks, r_tok + 1) == TokenKind.Lbracket ? { pre_ret_full <- ra }                    pre_ret <- rk
                 }
             }
         }
@@ -474,7 +477,7 @@ check_node src:str path:str toks:vec[Token] nodes:vec[int] kids:vec[int] types:v
             pt <- ty_get(tp, tpn, TY.Unknown)
             is_cont <- 0
             pt_tok != -1 ? {
-                cont <- resolve_cont(src, toks, tp, tpn, st_names, st_meta, pt_tok, et_tok, path, ctx)
+                cont <- resolve_ann(src, toks, tp, tpn, st_names, st_meta, pt_tok, et_tok, path, ctx, 1)
                 cont != -1 ? {
                     ck <- vec_get(tp, cont * 8 + TF.Kind)
                     ck == TY.Vec || ck == TY.Map || ck == TY.Strbuf ? { is_cont <- 1 }
@@ -538,7 +541,7 @@ check_node src:str path:str toks:vec[Token] nodes:vec[int] kids:vec[int] types:v
         // Check return type annotation (M12.4 / M13.1-P8)
         ret_type <- 0 - 1
         r_tok != -1 ? {
-            r_ann <- resolve_ann(src, toks, tp, tpn, st_names, st_meta, r_tok, re_tok, path, ctx)
+            r_ann <- resolve_ann(src, toks, tp, tpn, st_names, st_meta, r_tok, re_tok, path, ctx, 1)
             r_ann != -1 ? {
                 u <- unify(ctx, path, ln, tp, tpn, r_ann, ty_get(tp, tpn, ret_kind), "return type mismatch")
                 u != -1 ? { ret_kind <- vec_get(tp, u * 8 + TF.Kind) }                rk <- vec_get(tp, r_ann * 8 + TF.Kind)
@@ -552,6 +555,9 @@ check_node src:str path:str toks:vec[Token] nodes:vec[int] kids:vec[int] types:v
                         }
                     }
                 }
+                // Pre-M13 S4: bracketed Option[T]/Result[T, E] capture the
+                // full type; bare names stay erased (parity with pre_reg).
+                (rk == TY.Option || rk == TY.Result) && tk_kind(toks, r_tok + 1) == TokenKind.Lbracket ? { ret_type <- r_ann }
             }
             r_ann == -1 ? {
                 msg <- str_cat(str_cat("unknown return type '", tk_lex(src, toks, r_tok)), "'")
@@ -614,7 +620,7 @@ check_node src:str path:str toks:vec[Token] nodes:vec[int] kids:vec[int] types:v
             }
             took <- 0
             pt_tok != 0 - 1 && tk_kind(toks, pt_tok) == TokenKind.Ident ? {
-                cont <- resolve_cont(src, toks, tp, tpn, st_names, st_meta, pt_tok, et_tok, path, ctx)
+                cont <- resolve_ann(src, toks, tp, tpn, st_names, st_meta, pt_tok, et_tok, path, ctx, 0)
                 cont != 0 - 1 ? {
                     vec_get(tp, cont * 8 + TF.Kind) != TY.Unknown ? { s_diag(ctx, path, ln, 29, "extern parameter type is not FFI-safe") }
                     took <- 1
@@ -638,7 +644,7 @@ check_node src:str path:str toks:vec[Token] nodes:vec[int] kids:vec[int] types:v
         ret <- 0 - 1
         r_tok <- nd_get(nodes, ni, NF.R1); re_tok <- nd_get(nodes, ni, NF.R2)
         r_tok != 0 - 1 && tk_kind(toks, r_tok) == TokenKind.Ident ? {
-            rcont <- resolve_cont(src, toks, tp, tpn, st_names, st_meta, r_tok, re_tok, path, ctx)
+            rcont <- resolve_ann(src, toks, tp, tpn, st_names, st_meta, r_tok, re_tok, path, ctx, 0)
             rcont != 0 - 1 ? {
                 vec_get(tp, rcont * 8 + TF.Kind) != TY.Unknown ? { s_diag(ctx, path, ln, 29, "extern return type is not FFI-safe") }
             }
@@ -831,7 +837,7 @@ check_node src:str path:str toks:vec[Token] nodes:vec[int] kids:vec[int] types:v
             fn_tok <- vec_get(kids, s1 + j)
             ft_tok <- vec_get(kids, s2 + j)
             fnm <- tk_lex(src, toks, fn_tok)
-            ft2 <- resolve_ann(src, toks, tp, tpn, st_names, st_meta, ft_tok, -1, path, ctx)
+            ft2 <- resolve_ann(src, toks, tp, tpn, st_names, st_meta, ft_tok, -1, path, ctx, 1)
             ft2 == -1 ? { msg <- str_cat(str_cat("unknown field type '", tk_lex(src, toks, ft_tok)), "'"); s_diag(ctx, path, ln, 9, msg); ft2 <- ty_get(tp, tpn, TY.Unknown) }
             vec_push(st_reg, fnm); vec_push(st_reg, "")
             vec_push(st_data, ft2); vec_push(st_data, 0)

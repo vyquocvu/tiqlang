@@ -98,6 +98,9 @@ corpus "import_bare_eof" 'import'
 corpus "vec_annot_no_elem" 'f v:vec[ -> 1'
 corpus "vec_annot_no_rbracket" 'f v:vec[int -> 1'
 corpus "annot_no_type" 'f v: -> 1'
+# Pre-M13 S4: Option[T] / Result[T, E] generic groups (parse level).
+corpus "option_annot_no_rbracket" 'first o: Option[i64 : i64 -> 1'
+corpus "option_annot_no_elem" 'first o: Option[ : i64 -> 1'
 # Structs, match arms, calls, field access.
 corpus "struct_no_name" 'struct { x: i64 }'
 corpus "struct_no_rbrace" 'struct P { x: i64'
@@ -169,6 +172,12 @@ construct "slice_open_start" 'x = a[..3]'
 construct "slice_bare" 'x = a[..]'
 construct "take_while" 'x = s[while c]'
 construct "take_until" 'x = s[until c]'
+# Pre-M13 S4: Option[T] / Result[T, E] generic groups parse and consume
+# their bracket group exactly (trailing statement pins consumption).
+construct "option_annot_parse" 'first o: Option[i64] : i64 -> 1
+y = 2'
+construct "result_annot_parse" 'half r: Result[i64, i64] : i64 -> 1
+y = 2'
 # defer (E19 only outside a block, legal as a block statement).
 construct "defer_block" 'f d:i64 : i64 -> { defer print(1) 2 }'
 construct "defer_two" 'f d:i64 : i64 -> { defer print(1) defer print(2) 3 }'

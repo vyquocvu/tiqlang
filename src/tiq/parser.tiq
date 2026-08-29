@@ -222,6 +222,72 @@ p_expect toks:vec[Token] st:vec[int] path:str k:i64 code:i64 msg:str : i64 -> {
     0
 }
 
+// Pre-M13 S4: consume an Option[T] / Result[T, E] bracket group after the
+// type ident, mirroring the C structured parse: elements are a type start
+// (Ident, optionally followed by a nested/compound bracket group, or a '['
+// compound), separated by top-level commas, closed by ']' — with the same
+// pinned E04 messages and cascade as src/parser.c parse_type_annot.
+p_ty_group toks:vec[Token] st:vec[int] path:str : i64 -> {
+    p_advance(toks, st)
+    done <- 0
+    [done == 0] {
+        k <- p_ck(toks, st)
+        k == TokenKind.Ident || k == TokenKind.Lbracket ? {
+            k == TokenKind.Lbracket ? {
+                dep <- 1
+                p_advance(toks, st)
+                [dep > 0 && p_ck(toks, st) != TokenKind.Eof] {
+                    bk = p_ck(toks, st)
+                    bk == TokenKind.Lbracket ? { dep += 1 }
+                    bk == TokenKind.Rbracket ? { dep -= 1 }
+                    dep > 0 ? { p_advance(toks, st) }
+                }
+                p_ck(toks, st) == TokenKind.Rbracket ? { p_advance(toks, st) }
+            }
+            k == TokenKind.Ident ? {
+                p_advance(toks, st)
+                p_ck(toks, st) == TokenKind.Lbracket ? {
+                    dep2 <- 1
+                    p_advance(toks, st)
+                    [dep2 > 0 && p_ck(toks, st) != TokenKind.Eof] {
+                        bk2 = p_ck(toks, st)
+                        bk2 == TokenKind.Lbracket ? { dep2 += 1 }
+                        bk2 == TokenKind.Rbracket ? { dep2 -= 1 }
+                        dep2 > 0 ? { p_advance(toks, st) }
+                    }
+                    p_ck(toks, st) == TokenKind.Rbracket ? { p_advance(toks, st) }
+                }
+            }
+            sep <- 0
+            p_ck(toks, st) == TokenKind.Comma ? {
+                p_advance(toks, st)
+                sep <- 1
+            }
+            sep == 0 ? {
+                p_ck(toks, st) == TokenKind.Rbracket ? {
+                    p_advance(toks, st)
+                    done <- 1
+                }
+                done == 0 && p_ck(toks, st) != TokenKind.Rbracket ? {
+                    p_errcur(toks, st, path, 4, "expected ']' after type parameters")
+                    done <- 1
+                }
+            }
+        }
+        k != TokenKind.Ident && k != TokenKind.Lbracket ? {
+            // C reports the missing element via a direct diag_error (no
+            // advance), then the ']' consume advances — mirror both.
+            p_diag(st, path, tk_line(toks, p_ci(st)), 4, "expected type name in type parameters")
+            p_ck(toks, st) == TokenKind.Rbracket ? { p_advance(toks, st) }
+            p_ck(toks, st) != TokenKind.Rbracket ? {
+                p_errcur(toks, st, path, 4, "expected ']' after type parameters")
+            }
+            done <- 1
+        }
+    }
+    0
+}
+
 // The collapsed recursive-descent cycle. `mode` (enum PM) selects the
 // production; the return value is a node index into `nodes`, or -1 for the
 // C parser's NULL. Every branch is a guarded block sequenced on the `hit`
@@ -1051,11 +1117,24 @@ p_decl src:str path:str toks:vec[Token] st:vec[int] nodes:vec[int] kids:vec[int]
                             p_ck(toks, st) == TokenKind.Ident ? {
                                 ean <- p_ci(st)
                                 p_advance(toks, st)
+                                // Pre-M13 S4: a nested generic group in the
+                                // element (vec[Option[i64]]) is consumed here
+                                // and rejected in semantic, mirroring the C
+                                // recursive parse_type_annot.
+                                p_ck(toks, st) == TokenKind.Lbracket ? {
+                                    p_ty_group(toks, st, path)
+                                }
                             }
                             ean == -1 ? {
                                 p_diag(st, path, tk_line(toks, p_ci(st)), 4, "expected element type name in vec[...]")
                             }
                             p_expect(toks, st, path, TokenKind.Rbracket, 4, "expected ']' after vec element type")
+                        }
+                        // Pre-M13 S4: any other ident followed by a bracket group
+                        // (Option[T] / Result[T, E] / strbuf[...] / ...) consumes
+                        // the group here; element resolution happens in semantic.
+                        p_ck(toks, st) == TokenKind.Lbracket ? {
+                            p_ty_group(toks, st, path)
                         }
                         seen <- 1
                     }
@@ -1116,11 +1195,18 @@ p_decl src:str path:str toks:vec[Token] st:vec[int] nodes:vec[int] kids:vec[int]
                 p_ck(toks, st) == TokenKind.Ident ? {
                     nd_set(nodes, n, NF.R2, p_ci(st))
                     p_advance(toks, st)
+                    p_ck(toks, st) == TokenKind.Lbracket ? {
+                        p_ty_group(toks, st, path)
+                    }
                 }
                 nd_get(nodes, n, NF.R2) == -1 ? {
                     p_diag(st, path, tk_line(toks, p_ci(st)), 4, "expected element type name in vec[...]")
                 }
                 p_expect(toks, st, path, TokenKind.Rbracket, 4, "expected ']' after vec element type")
+            }
+            // Pre-M13 S4: a bracket group after any other return-type ident.
+            p_ck(toks, st) == TokenKind.Lbracket ? {
+                p_ty_group(toks, st, path)
             }
             // An extern has no body; reject an attempted body marker directly
             // instead of letting it cascade as a top-level expression error.
@@ -1243,11 +1329,24 @@ p_decl src:str path:str toks:vec[Token] st:vec[int] nodes:vec[int] kids:vec[int]
                             p_ck(toks, st) == TokenKind.Ident ? {
                                 ean <- p_ci(st)
                                 p_advance(toks, st)
+                                // Pre-M13 S4: a nested generic group in the
+                                // element (vec[Option[i64]]) is consumed here
+                                // and rejected in semantic, mirroring the C
+                                // recursive parse_type_annot.
+                                p_ck(toks, st) == TokenKind.Lbracket ? {
+                                    p_ty_group(toks, st, path)
+                                }
                             }
                             ean == -1 ? {
                                 p_diag(st, path, tk_line(toks, p_ci(st)), 4, "expected element type name in vec[...]")
                             }
                             p_expect(toks, st, path, TokenKind.Rbracket, 4, "expected ']' after vec element type")
+                        }
+                        // Pre-M13 S4: any other ident followed by a bracket group
+                        // (Option[T] / Result[T, E] / strbuf[...] / ...) consumes
+                        // the group here; element resolution happens in semantic.
+                        p_ck(toks, st) == TokenKind.Lbracket ? {
+                            p_ty_group(toks, st, path)
                         }
                         seen <- 1
                     }
@@ -1301,7 +1400,14 @@ p_decl src:str path:str toks:vec[Token] st:vec[int] nodes:vec[int] kids:vec[int]
                     p_advance(toks, st)
                     p_expect(toks, st, path, TokenKind.Ident, 4, "expected element type name in vec[...]")
                     nd_set(nodes, n, NF.R2, p_pi(st))
+                    p_ck(toks, st) == TokenKind.Lbracket ? {
+                        p_ty_group(toks, st, path)
+                    }
                     p_expect(toks, st, path, TokenKind.Rbracket, 4, "expected ']' after vec element type")
+                }
+                // Pre-M13 S4: a bracket group after any other return-type ident.
+                p_ck(toks, st) == TokenKind.Lbracket ? {
+                    p_ty_group(toks, st, path)
                 }
                 p_expect(toks, st, path, TokenKind.Rarrow, 4, "expected '->' after function signature")
             }

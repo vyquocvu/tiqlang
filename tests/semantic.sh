@@ -479,6 +479,11 @@ assert_semantic "vec_option_elem_rejected" 'mk v: vec[Option[i64]] : i64 -> 1
 assert_semantic "extern_option_annot_unsafe" 'extern "C" foo x: Option[i64] : i64
 ' "$TMP_DIR/extern_option_annot_unsafe.tiq:1: error[E29]: extern parameter type is not FFI-safe"
 
+# Handle-style containers take no type parameters (Option/Result are the
+# only parameterised value generics).
+assert_semantic "strbuf_annot_params" 'mk b: strbuf[i64] : i64 -> 1
+' "$TMP_DIR/strbuf_annot_params.tiq:1: error[E09]: strbuf annotation takes no type parameters"
+
 # Concrete annotations flow: the function node carries the full pooled
 # return type.
 assert_semantic_ast "typed_option_annotation" 'first o: Option[i64] : Option[i64] -> o

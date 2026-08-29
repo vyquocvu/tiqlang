@@ -291,6 +291,17 @@ x = some(v)'
 corpus "option_strbuf_payload" 'sb = str_buf_new()
 x = some(sb)'
 corpus "option_none_payload" 'x = some(none)'
+# Pre-M13 S4: Option[T] / Result[T, E] annotation resolution (arity,
+# elements, payload gate, FFI boundary) matches the C bootstrap byte for
+# byte.
+corpus "option_annotation_arity" 'mk x: Option[i64, u8] : i64 -> 1'
+corpus "result_annotation_arity" 'mk x: Result[i64] : i64 -> 1'
+corpus "option_annotation_unknown_elem" 'mk x: Option[Frob] : i64 -> 1'
+corpus "option_annotation_str_elem" 'mk x: Option[str] : i64 -> 1'
+corpus "result_annotation_str_error" 'mk x: Result[i64, str] : i64 -> 1'
+corpus "vec_option_elem_rejected" 'mk v: vec[Option[i64]] : i64 -> 1'
+corpus "extern_option_annot_unsafe" 'extern "C" foo x: Option[i64] : i64'
+corpus "strbuf_annot_params" 'mk b: strbuf[i64] : i64 -> 1'
 # P1 str/IO builtins.
 corpus "str_sub_bad_arity" 'x = str_sub("abc", 0)'
 corpus "str_sub_bad_str_type" 'x = str_sub(1, 0, 1)'
@@ -496,6 +507,7 @@ construct "option_struct_payload" 'struct P {
   v: i64
 }
 x = some(P { v: 1 })'
+construct "option_annotation" 'first o: Option[i64] : Option[i64] -> o'
 construct "vec_int" 'v = vec_new()
 n = vec_push(v, 7)
 x = vec_get(v, 0)'
