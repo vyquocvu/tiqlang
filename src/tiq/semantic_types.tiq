@@ -49,6 +49,25 @@ resolve_ann src:str toks:vec[Token] tp:vec[int] tpn:vec[str] st_names:vec[str] s
         si2 != -1 ? { r <- vec_get(st_meta, si2) }    }
     r
 }
+// Pre-M13 S4: structural comparison for Option/Result inner/error types
+// (mirror of optres_inner_same in src/typecheck.c). -1 and Unknown sides
+// are tolerated; scalars compare by kind (ty_func interns per-arity scalar
+// instances, so pool-index identity would falsely reject valid programs);
+// structs are nominal; nested Option/Result recurse.
+optres_inner_same tp:vec[int] a:i64 b:i64 : i64 -> {
+    r <- 1
+    a != 0 - 1 && b != 0 - 1 ? {
+        ak <- vec_get(tp, a * 8 + TF.Kind)
+        bk <- vec_get(tp, b * 8 + TF.Kind)
+        ak != TY.Unknown && bk != TY.Unknown && ak != bk ? { r <- 0 }
+        ak == bk && ak == TY.Struct && a != b ? { r <- 0 }
+        ak == bk && ak == TY.Option ? { r <- optres_inner_same(tp, vec_get(tp, a * 8 + TF.Inner), vec_get(tp, b * 8 + TF.Inner)) }
+        ak == bk && ak == TY.Result && r == 1 ? { r <- optres_inner_same(tp, vec_get(tp, a * 8 + TF.Inner), vec_get(tp, b * 8 + TF.Inner)) }
+        ak == bk && ak == TY.Result && r == 1 ? { r <- optres_inner_same(tp, vec_get(tp, a * 8 + TF.Err), vec_get(tp, b * 8 + TF.Err)) }
+    }
+    r
+}
+
 unify ctx:vec[int] path:str ln:i64 tp:vec[int] tpn:vec[str] exp:i64 found:i64 emsg:str : i64 -> {
     r <- 0 - 1; d <- 0
     d == 0 && exp == -1 ? { r <- found; d <- 1 }
@@ -57,7 +76,20 @@ unify ctx:vec[int] path:str ln:i64 tp:vec[int] tpn:vec[str] exp:i64 found:i64 em
         ek <- vec_get(tp, exp * 8 + TF.Kind); fk <- vec_get(tp, found * 8 + TF.Kind)
         ek == TY.Unknown ? { r <- found; d <- 1 }
         fk == TY.Unknown ? { r <- exp; d <- 1 }
-        ek == fk ? { r <- exp; d <- 1 }
+        d == 0 && ek != fk ? {
+            msg <- str_cat(str_cat(str_cat(emsg, ": expected "), disp(tp, tpn, exp)), str_cat(", found ", disp(tp, tpn, found)))
+            s_diag(ctx, path, ln, 9, msg)
+            d <- 1
+        }
+        d == 0 && ek == fk && ek != TY.Option && ek != TY.Result ? { r <- exp; d <- 1 }
+        d == 0 && ek == fk && ek == TY.Option ? {
+            optres_inner_same(tp, vec_get(tp, exp * 8 + TF.Inner), vec_get(tp, found * 8 + TF.Inner)) == 1 ? { r <- exp; d <- 1 }
+        }
+        d == 0 && ek == fk && ek == TY.Result ? {
+            optres_inner_same(tp, vec_get(tp, exp * 8 + TF.Inner), vec_get(tp, found * 8 + TF.Inner)) == 1 ? {
+                optres_inner_same(tp, vec_get(tp, exp * 8 + TF.Err), vec_get(tp, found * 8 + TF.Err)) == 1 ? { r <- exp; d <- 1 }
+            }
+        }
         d == 0 ? {
             msg <- str_cat(str_cat(str_cat(emsg, ": expected "), disp(tp, tpn, exp)), str_cat(", found ", disp(tp, tpn, found)))
             s_diag(ctx, path, ln, 9, msg)

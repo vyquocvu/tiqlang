@@ -61,7 +61,7 @@ check_node src:str path:str toks:vec[Token] nodes:vec[int] kids:vec[int] types:v
                 vec_get(tp, rt * 8 + TF.Kind) == TY.Unknown && bi != -1 ? { vec_set(types, bi, u) }
                 (op == TokenKind.EqEq || op == TokenKind.BangEq || op == TokenKind.Lt || op == TokenKind.Lte || op == TokenKind.Gt || op == TokenKind.Gte) && done == 0 ? { uk <- vec_get(tp, u * 8 + TF.Kind); uk == TY.Unknown || uk == TY.Int || uk == TY.Float || uk == TY.Bool || uk == TY.I8 || uk == TY.I16 || uk == TY.I32 || uk == TY.U8 || uk == TY.U16 || uk == TY.U32 || uk == TY.U64 || uk == TY.F32 ? { vec_set(types, ni, ty_get(tp, tpn, TY.Bool)); done <- 1 } }
                 (op == TokenKind.EqEq || op == TokenKind.BangEq || op == TokenKind.Lt || op == TokenKind.Lte || op == TokenKind.Gt || op == TokenKind.Gte) && done == 0 ? { s_diag(ctx, path, ln, 9, str_cat("type '", str_cat(disp(tp, tpn, u), "' does not support equality comparison"))); vec_set(types, ni, ty_get(tp, tpn, TY.Unknown)); done <- 1 }
-                done == 0 ? { vec_set(types, ni, ty_get(tp, tpn, vec_get(tp, u * 8 + TF.Kind))); done <- 1 }
+                done == 0 ? { vec_set(types, ni, u); done <- 1 }
             }
             done == 0 ? { vec_set(types, ni, ty_get(tp, tpn, TY.Unknown)); done <- 1 }
         }
@@ -947,7 +947,9 @@ check_node src:str path:str toks:vec[Token] nodes:vec[int] kids:vec[int] types:v
             }
             j <- j + 1
         }
-        vec_set(types, ni, ty_get(tp, tpn, result != -1 ? vec_get(tp, result * 8 + TF.Kind) : TY.Unknown)); done <- 1
+        // Pre-M13 S4: keep the unified arm type (C keeps the pooled type at
+        // the match join; ty_get-by-kind would alias the first instance).
+        vec_set(types, ni, result != -1 ? result : ty_get(tp, tpn, TY.Unknown)); done <- 1
     }
     // --- SPAWN ---
     done == 0 && k == AstKind.Spawn ? {

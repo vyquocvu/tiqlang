@@ -147,7 +147,11 @@ void check_node(SemanticContext *ctx, AstNode *node) {
                             node->semantic_type = ty(ctx, TYPE_BOOL);
                         }
                     } else {
-                        node->semantic_type = ty(ctx, u->kind);
+                        // Pre-M13 S4: keep the unified full type. The former
+                        // ty(u->kind) lookup aliased the FIRST pooled instance
+                        // of the kind, silently re-typing joins whose payload
+                        // differed from that instance.
+                        node->semantic_type = u;
                     }
                 } else {
                     node->semantic_type = ty(ctx, TYPE_UNKNOWN);
@@ -707,7 +711,15 @@ void check_node(SemanticContext *ctx, AstNode *node) {
                         } else if ((ret_kind == TYPE_OPTION || ret_kind == TYPE_RESULT)
                                    && node->as.function.body
                                    && node->as.function.body->semantic_type) {
-                            SemanticType *bt = (SemanticType *)node->as.function.body->semantic_type;
+                            // Pre-M13 S4: Option/Result returns preserve inner
+                            // and error types so callers see the full
+                            // parameterised type. This stays a raw (unpooled)
+                            // instance on purpose: the call-arity check reads
+                            // param_count off the registered type, which the
+                            // pool interners do not carry. The emitter spells
+                            // it through the same mangling path as pooled
+                            // instances (it reads kind/inner/error pointers).
+                            SemanticType *bt = node->as.function.body->semantic_type;
                             SemanticType *ft = calloc(1, sizeof(SemanticType));
                             if (!ft) die_oom();
                             ft->kind = (PrimitiveType)ret_kind;
@@ -1036,7 +1048,10 @@ void check_node(SemanticContext *ctx, AstNode *node) {
                     if (u) result = u;
                 }
             }
-            node->semantic_type = ty(ctx, result ? result->kind : TYPE_UNKNOWN);
+            // Pre-M13 S4: keep the unified arm type. The former
+            // ty(result->kind) lookup aliased the FIRST pooled Option/Result
+            // instance, silently re-typing joins with a different payload.
+            node->semantic_type = result ? result : ty(ctx, TYPE_UNKNOWN);
             break;
         }
         case AST_STRUCT_DEF: {

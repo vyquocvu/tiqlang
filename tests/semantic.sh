@@ -376,6 +376,38 @@ BINDING res <TYPE_INT>
       WILDCARD
       INT 2 <TYPE_INT>'
 
+# Pre-M13 S4: match joins preserve the unified full type instead of
+# aliasing the first Option/Result instance in the pool. Both arms are
+# Option<Option<int>>; the join must not silently degrade to the first
+# pooled Option instance (Option<int>).
+assert_semantic_ast "typed_match_full_join" 'm = match 1 { 0 => some(some(1)), _ => some(some(2)) }
+' 'BINDING m <TYPE_OPTION<TYPE_OPTION<TYPE_INT>>>
+  MATCH <TYPE_OPTION<TYPE_OPTION<TYPE_INT>>>
+    INT 1 <TYPE_INT>
+    ARM
+      PAT_INT 0
+      CALL <TYPE_OPTION<TYPE_OPTION<TYPE_INT>>>
+        IDENT some
+        CALL <TYPE_OPTION<TYPE_INT>>
+          IDENT some
+          INT 1 <TYPE_INT>
+    ARM
+      WILDCARD
+      CALL <TYPE_OPTION<TYPE_OPTION<TYPE_INT>>>
+        IDENT some
+        CALL <TYPE_OPTION<TYPE_INT>>
+          IDENT some
+          INT 2 <TYPE_INT>'
+
+# Pre-M13 S4: nested Option/Result payload mismatches must be caught at
+# the Tiq level with a located diagnostic, not deferred to the host C
+# compiler as an int64_t-cast constraint violation.
+assert_semantic "match_nested_payload_mismatch" 'f g c:i64 : Result -> {
+  m = match c { 0 => ok(some(1)), _ => ok(some(some(1))) }
+  m
+}
+' "$TMP_DIR/match_nested_payload_mismatch.tiq:2: error[E09]: match arms must have the same type: expected int?!int, found int??!int"
+
 # M12.7.2: range expressions are only valid inside loop or slice contexts
 assert_semantic "range_outside_context" 'x = 0..10
 ' "$TMP_DIR/range_outside_context.tiq:1: error[E07]: range expressions 'a..b' are only valid inside loop or slice contexts"

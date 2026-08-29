@@ -3,11 +3,31 @@
 #include "../include/semantic_int.h"
 #include <stdio.h>
 
+// Pre-M13 S4: structural comparison for Option/Result inner (and error)
+// types. NULL and TYPE_UNKNOWN sides are tolerated (inference may not
+// have resolved them yet). Scalars compare by kind: per-arity function
+// returns intern distinct scalar instances (type_get_func), so pooled
+// pointer identity would falsely reject valid programs. Structs are
+// nominal (declaration-site identity). Nested Option/Result recurse.
+static bool optres_inner_same(SemanticType *a, SemanticType *b) {
+    if (!a || !b) return true;
+    if (a->kind == TYPE_UNKNOWN || b->kind == TYPE_UNKNOWN) return true;
+    if (a->kind != b->kind) return false;
+    if (a->kind == TYPE_STRUCT) return a == b;
+    if (a->kind == TYPE_OPTION)
+        return optres_inner_same(a->inner_type, b->inner_type);
+    if (a->kind == TYPE_RESULT)
+        return optres_inner_same(a->inner_type, b->inner_type) &&
+               optres_inner_same(a->error_type, b->error_type);
+    return true;
+}
+
 // The single kind-level compatibility rule (OPTIMIZATION_PLAN 3.1).
 // Unknown unifies with anything and takes the known side; otherwise the
 // kinds must match exactly. For Option/Result types, inner (and error)
-// types must also unify so that e.g. Result<u64,i64> and Result<i64,i64>
-// are not silently treated as interchangeable (Pre-M13 S4).
+// types must also unify so that e.g. Result<Option<i64>,i64> and
+// Result<Option<Option<i64>>,i64> are not silently treated as
+// interchangeable (Pre-M13 S4).
 // On mismatch this emits
 // "<context>: expected <T>, found <U>" and returns NULL.
 SemanticType *unify(SemanticContext *ctx, int line,
@@ -27,12 +47,9 @@ SemanticType *unify(SemanticContext *ctx, int line,
         diag_error(ctx->diag, ctx->path, line, ERR_TYPE_MISMATCH, msg);
         return NULL;
     }
-    // Same kind. For Option/Result, check inner types match.
+    // Same kind. For Option/Result, check inner/error match structurally.
     if (expected->kind == TYPE_OPTION) {
-        SemanticType *ei = expected->inner_type;
-        SemanticType *fi = found->inner_type;
-        if (ei && fi && ei->kind != TYPE_UNKNOWN && fi->kind != TYPE_UNKNOWN
-            && ei->kind != fi->kind) {
+        if (!optres_inner_same(expected->inner_type, found->inner_type)) {
             char want[96], got[96], msg[320];
             type_display(expected, want, sizeof want);
             type_display(found, got, sizeof got);
@@ -43,13 +60,8 @@ SemanticType *unify(SemanticContext *ctx, int line,
         return expected;
     }
     if (expected->kind == TYPE_RESULT) {
-        SemanticType *ei = expected->inner_type;
-        SemanticType *fi = found->inner_type;
-        SemanticType *ee = expected->error_type;
-        SemanticType *fe = found->error_type;
-        bool inner_ok = !ei || !fi || ei->kind == TYPE_UNKNOWN || fi->kind == TYPE_UNKNOWN || ei->kind == fi->kind;
-        bool error_ok = !ee || !fe || ee->kind == TYPE_UNKNOWN || fe->kind == TYPE_UNKNOWN || ee->kind == fe->kind;
-        if (!inner_ok || !error_ok) {
+        if (!optres_inner_same(expected->inner_type, found->inner_type) ||
+            !optres_inner_same(expected->error_type, found->error_type)) {
             char want[96], got[96], msg[320];
             type_display(expected, want, sizeof want);
             type_display(found, got, sizeof got);

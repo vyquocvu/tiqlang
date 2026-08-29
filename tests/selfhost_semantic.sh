@@ -275,6 +275,12 @@ corpus "some_wrong_arity" 'x = some(1, 2)'
 corpus "none_literal_call" 'x = none(1)'
 corpus "ok_wrong_arity" 'x = ok(1, 2)'
 corpus "err_wrong_arity" 'x = err()'
+# Pre-M13 S4: nested Option/Result payload mismatches must be caught at the
+# Tiq level (structural unify), not deferred to the host C compiler.
+corpus "match_nested_payload_mismatch" 'f g c:i64 : Result -> {
+  m = match c { 0 => ok(some(1)), _ => ok(some(some(1))) }
+  m
+}'
 # P1 str/IO builtins.
 corpus "str_sub_bad_arity" 'x = str_sub("abc", 0)'
 corpus "str_sub_bad_str_type" 'x = str_sub(1, 0, 1)'
@@ -472,6 +478,9 @@ x = r ?? 0
 y = ?r'
 construct "match_unify" 'v = 1
 x = match v { 1 => 10, _ => 20 }'
+# Pre-M13 S4: the match join keeps the unified full type (no first-pool
+# Option/Result aliasing).
+construct "match_full_join" 'm = match 1 { 0 => some(some(1)), _ => some(some(2)) }'
 construct "vec_int" 'v = vec_new()
 n = vec_push(v, 7)
 x = vec_get(v, 0)'
