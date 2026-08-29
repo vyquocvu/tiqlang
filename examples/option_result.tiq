@@ -20,16 +20,16 @@ print(f)
 
 // Propagation operator unwraps Option/Result
 get_opt o: Option : Option -> {
-  v = ?o
-  some(v)
+    v = ?o
+    some(v)
 }
 a = some(7)
 b = get_opt(a) ?? 0
 print(b)
 
 get_res res: Result : Result -> {
-  v = ?res
-  ok(v)
+    v = ?res
+    ok(v)
 }
 c = ok(13)
 d = get_res(c) ?? 0

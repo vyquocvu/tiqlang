@@ -5,15 +5,15 @@
 //! expected: defer 1: first scheduled
 //! expected: defer 2: second scheduled
 
-bump r:&mut i64 -> {
+bump r: &mut i64 -> {
     r <- r + 1
 }
 
-inspect v:&i64 -> {
+inspect v: &i64 -> {
     print("read via shared borrow: 11")
 }
 
-run_lifecycle start:i64 : i64 -> {
+run_lifecycle start: i64 : i64 -> {
     defer print("defer 1: first scheduled")
     defer print("defer 2: second scheduled")
 

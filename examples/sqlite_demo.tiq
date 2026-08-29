@@ -15,7 +15,7 @@
 
 import "std/sqlite.tiq"
 
-print_row stmt:u64 -> {
+print_row stmt: u64 -> {
     id = sqlite_col_int(stmt, 0)
     name = sqlite_col_str(stmt, 1)
     score = sqlite_col_int(stmt, 2)

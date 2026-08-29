@@ -11,7 +11,7 @@ enum TrafficLight {
     Green
 }
 
-action light:i64 -> match light {
+action light: i64 -> match light {
     TrafficLight.Red => "red light: stop",
     TrafficLight.Yellow => "yellow light: caution",
     TrafficLight.Green => "green light: go",
@@ -21,7 +21,7 @@ action light:i64 -> match light {
 print(action(TrafficLight.Red))
 
 // 1. Literal patterns
-check_number n:i64 -> match n {
+check_number n: i64 -> match n {
     0 => "count is zero",
     1 => "count is one",
     _ => "count is other"

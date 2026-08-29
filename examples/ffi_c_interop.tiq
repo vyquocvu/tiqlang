@@ -2,8 +2,8 @@
 //! expected: string length: 7
 
 // 1. Foreign C Function Declarations
-extern "C" llabs x:i64 : i64
-extern "C" strlen s:str : i64
+extern "C" llabs x: i64 : i64
+extern "C" strlen s: str : i64
 
 val = llabs(-42)
 print(val == 42 ? "absolute value: 42" : "llabs mismatch")
