@@ -281,6 +281,16 @@ corpus "match_nested_payload_mismatch" 'f g c:i64 : Result -> {
   m = match c { 0 => ok(some(1)), _ => ok(some(some(1))) }
   m
 }'
+# Pre-M13 S4: the payload-kind gate rejects non-owner and handle payloads
+# with a located E09 in both compilers; supported payloads keep typing.
+corpus "option_str_payload" 'x = some("s")'
+corpus "result_str_error" 'x = err("boom")'
+corpus "option_vec_payload" 'v = vec_new()
+vec_push(v, 7)
+x = some(v)'
+corpus "option_strbuf_payload" 'sb = str_buf_new()
+x = some(sb)'
+corpus "option_none_payload" 'x = some(none)'
 # P1 str/IO builtins.
 corpus "str_sub_bad_arity" 'x = str_sub("abc", 0)'
 corpus "str_sub_bad_str_type" 'x = str_sub(1, 0, 1)'
@@ -481,6 +491,11 @@ x = match v { 1 => 10, _ => 20 }'
 # Pre-M13 S4: the match join keeps the unified full type (no first-pool
 # Option/Result aliasing).
 construct "match_full_join" 'm = match 1 { 0 => some(some(1)), _ => some(some(2)) }'
+construct "option_f64_payload" 'x = some(1.5)'
+construct "option_struct_payload" 'struct P {
+  v: i64
+}
+x = some(P { v: 1 })'
 construct "vec_int" 'v = vec_new()
 n = vec_push(v, 7)
 x = vec_get(v, 0)'

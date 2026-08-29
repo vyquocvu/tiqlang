@@ -80,6 +80,14 @@ SemanticType *unify(SemanticContext *ctx, int line,
 bool eq_comparable_kind(PrimitiveType k);
 bool ffi_safe_kind(PrimitiveType k);
 
+// Pre-M13 S4: payload-kind gate for Option/Result constructors and
+// annotations. Allowed: integer kinds, f32/f64, bool, named structs, and
+// nested Option/Result. Rejected (E09, located): str (not an owner — M9.2),
+// arrays, slices, vec/strbuf/map handles, streams, chans, refs, unknown.
+bool optres_payload_ok(SemanticType *t);
+void optres_payload_reject(SemanticContext *ctx, int line, bool is_result,
+                           SemanticType *t);
+
 // src/check_builtins.c
 bool vec_elem_type_ok(SemanticType *t);
 bool vec_elem_same(SemanticType *expected, SemanticType *found);

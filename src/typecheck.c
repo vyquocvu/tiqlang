@@ -87,6 +87,43 @@ bool eq_comparable_kind(PrimitiveType k) {
            k == TYPE_F32;
 }
 
+// Pre-M13 S4: payload kinds that can be stored in an Option/Result value.
+// Allowed: integer kinds, f32/f64, bool, named structs, and nested
+// Option/Result (recursively; a bare inner with no resolvable payload has
+// no spellable struct and is rejected). Everything else fails closed:
+// str is not an owner under M9.2 scope cleanup (a stored payload would
+// dangle), arrays cannot be spelled as struct fields by value in Tiq, and
+// vec/strbuf/map/stream/chan are shared-reference handles rather than
+// values. Callers gate only known, non-unknown payload types.
+bool optres_payload_ok(SemanticType *t) {
+    if (!t) return false;
+    switch (t->kind) {
+        case TYPE_INT:
+        case TYPE_I8: case TYPE_I16: case TYPE_I32:
+        case TYPE_U8: case TYPE_U16: case TYPE_U32: case TYPE_U64:
+        case TYPE_F32: case TYPE_FLOAT: case TYPE_BOOL:
+        case TYPE_STRUCT:
+            return true;
+        case TYPE_OPTION:
+            return optres_payload_ok(t->inner_type);
+        case TYPE_RESULT:
+            return optres_payload_ok(t->inner_type) &&
+                   optres_payload_ok(t->error_type);
+        default:
+            return false;
+    }
+}
+
+void optres_payload_reject(SemanticContext *ctx, int line, bool is_result,
+                           SemanticType *t) {
+    char tbuf[96];
+    char msg[224];
+    type_display(t, tbuf, sizeof tbuf);
+    snprintf(msg, sizeof msg, "%s payload type '%s' is not supported (S4 boundary)",
+             is_result ? "Result" : "Option", tbuf);
+    diag_error(ctx->diag, ctx->path, line, ERR_TYPE_MISMATCH, msg);
+}
+
 // M16.2: FFI-safe kinds per the C ABI mapping table (LANGUAGE_SPEC §7.1).
 // Everything else fails closed at the extern declaration site (E29).
 bool ffi_safe_kind(PrimitiveType k) {

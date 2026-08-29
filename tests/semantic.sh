@@ -408,6 +408,51 @@ assert_semantic "match_nested_payload_mismatch" 'f g c:i64 : Result -> {
 }
 ' "$TMP_DIR/match_nested_payload_mismatch.tiq:2: error[E09]: match arms must have the same type: expected int?!int, found int??!int"
 
+# Pre-M13 S4 payload gate: str payloads are rejected because Option/Result
+# fields are not owners (M9.2 frees heap strings at scope end, so a stored
+# payload would dangle); the previous behavior squeezed the pointer into an
+# int64_t slot and misbehaved at unwrap sites.
+assert_semantic "option_str_payload" 'x = some("s")
+' "$TMP_DIR/option_str_payload.tiq:1: error[E09]: Option payload type 'str' is not supported (S4 boundary)"
+
+assert_semantic "result_str_error" 'x = err("boom")
+' "$TMP_DIR/result_str_error.tiq:1: error[E09]: Result payload type 'str' is not supported (S4 boundary)"
+
+# Handles (vec/strbuf/map) and streams are shared-reference values, not
+# owned payloads; they fail closed at the same S4 boundary.
+assert_semantic "option_vec_payload" 'v = vec_new()
+vec_push(v, 7)
+x = some(v)
+' "$TMP_DIR/option_vec_payload.tiq:3: error[E09]: Option payload type 'vec<int>' is not supported (S4 boundary)"
+
+assert_semantic "option_strbuf_payload" 'sb = str_buf_new()
+x = some(sb)
+' "$TMP_DIR/option_strbuf_payload.tiq:2: error[E09]: Option payload type 'strbuf' is not supported (S4 boundary)"
+
+# A nested bare Option (inner unresolvable) has no spellable payload
+# struct, so it fails closed too.
+assert_semantic "option_none_payload" 'x = some(none)
+' "$TMP_DIR/option_none_payload.tiq:1: error[E09]: Option payload type 'unknown?' is not supported (S4 boundary)"
+
+# Pre-M13 S4: supported payload kinds keep typing cleanly (f64, struct,
+# nested concrete Option). These goldens pin that the gate does not
+# over-reject.
+assert_semantic_ast "typed_option_f64_payload" 'x = some(1.5)
+' 'BINDING x <TYPE_OPTION<TYPE_FLOAT>>
+  CALL <TYPE_OPTION<TYPE_FLOAT>>
+    IDENT some
+    LITERAL <TYPE_FLOAT>'
+
+assert_semantic_ast "typed_option_struct_payload" 'struct P {
+  v: i64
+}
+x = some(P { v: 1 })
+' 'UNKNOWN <TYPE_STRUCT>
+BINDING x <TYPE_OPTION<TYPE_STRUCT>>
+  CALL <TYPE_OPTION<TYPE_STRUCT>>
+    IDENT some
+    UNKNOWN <TYPE_STRUCT>'
+
 # M12.7.2: range expressions are only valid inside loop or slice contexts
 assert_semantic "range_outside_context" 'x = 0..10
 ' "$TMP_DIR/range_outside_context.tiq:1: error[E07]: range expressions 'a..b' are only valid inside loop or slice contexts"

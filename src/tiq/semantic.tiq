@@ -154,7 +154,11 @@ check_node src:str path:str toks:vec[Token] nodes:vec[int] kids:vec[int] types:v
                     ai0 <- vec_get(kids, s1)
                     ai0 != 0 - 1 ? { check_node(src, path, toks, nodes, kids, types, en, ed, sc, st_reg, st_data, st_names, st_meta, en_reg, en_data, fn_reg, fn_data, fpts, frks, tp, tpn, ctx, ai0) }
                     at <- ai0 != 0 - 1 ? vec_get(types, ai0) : 0 - 1
-                    at != 0 - 1 && vec_get(tp, at * 8 + TF.Kind) != TY.Unknown ? { vec_set(types, ni, ty_option(tp, tpn, at)) }
+                    at != 0 - 1 && vec_get(tp, at * 8 + TF.Kind) != TY.Unknown ? {
+                        po <- payload_ok(tp, at)
+                        po == 1 ? { vec_set(types, ni, ty_option(tp, tpn, at)) }
+                        po == 0 ? { msg <- str_cat(str_cat("Option payload type '", disp(tp, tpn, at)), "' is not supported (S4 boundary)"); s_diag(ctx, path, ln, 9, msg); vec_set(types, ni, ty_get(tp, tpn, TY.Unknown)) }
+                    }
                     at == 0 - 1 || vec_get(tp, at * 8 + TF.Kind) == TY.Unknown ? { vec_set(types, ni, ty_get(tp, tpn, TY.Option)) }
                 }
                 handled <- 1
@@ -165,7 +169,11 @@ check_node src:str path:str toks:vec[Token] nodes:vec[int] kids:vec[int] types:v
                     ai0 <- vec_get(kids, s1)
                     ai0 != 0 - 1 ? { check_node(src, path, toks, nodes, kids, types, en, ed, sc, st_reg, st_data, st_names, st_meta, en_reg, en_data, fn_reg, fn_data, fpts, frks, tp, tpn, ctx, ai0) }
                     at <- ai0 != 0 - 1 ? vec_get(types, ai0) : 0 - 1
-                    at != 0 - 1 && vec_get(tp, at * 8 + TF.Kind) != TY.Unknown ? { vec_set(types, ni, ty_result(tp, tpn, at, ty_get(tp, tpn, TY.Int))) }
+                    at != 0 - 1 && vec_get(tp, at * 8 + TF.Kind) != TY.Unknown ? {
+                        po <- payload_ok(tp, at)
+                        po == 1 ? { vec_set(types, ni, ty_result(tp, tpn, at, ty_get(tp, tpn, TY.Int))) }
+                        po == 0 ? { msg <- str_cat(str_cat("Result payload type '", disp(tp, tpn, at)), "' is not supported (S4 boundary)"); s_diag(ctx, path, ln, 9, msg); vec_set(types, ni, ty_get(tp, tpn, TY.Unknown)) }
+                    }
                     at == 0 - 1 || vec_get(tp, at * 8 + TF.Kind) == TY.Unknown ? { vec_set(types, ni, ty_get(tp, tpn, TY.Result)) }
                 }
                 handled <- 1
@@ -176,7 +184,11 @@ check_node src:str path:str toks:vec[Token] nodes:vec[int] kids:vec[int] types:v
                     ai0 <- vec_get(kids, s1)
                     ai0 != 0 - 1 ? { check_node(src, path, toks, nodes, kids, types, en, ed, sc, st_reg, st_data, st_names, st_meta, en_reg, en_data, fn_reg, fn_data, fpts, frks, tp, tpn, ctx, ai0) }
                     at <- ai0 != 0 - 1 ? vec_get(types, ai0) : 0 - 1
-                    at != 0 - 1 && vec_get(tp, at * 8 + TF.Kind) != TY.Unknown ? { vec_set(types, ni, ty_result(tp, tpn, ty_get(tp, tpn, TY.Int), at)) }
+                    at != 0 - 1 && vec_get(tp, at * 8 + TF.Kind) != TY.Unknown ? {
+                        po <- payload_ok(tp, at)
+                        po == 1 ? { vec_set(types, ni, ty_result(tp, tpn, ty_get(tp, tpn, TY.Int), at)) }
+                        po == 0 ? { msg <- str_cat(str_cat("Result payload type '", disp(tp, tpn, at)), "' is not supported (S4 boundary)"); s_diag(ctx, path, ln, 9, msg); vec_set(types, ni, ty_get(tp, tpn, TY.Unknown)) }
+                    }
                     at == 0 - 1 || vec_get(tp, at * 8 + TF.Kind) == TY.Unknown ? { vec_set(types, ni, ty_get(tp, tpn, TY.Result)) }
                 }
                 handled <- 1

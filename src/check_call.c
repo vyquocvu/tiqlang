@@ -50,7 +50,10 @@ void check_call(SemanticContext *ctx, AstNode *node) {
                     node->semantic_type = ty(ctx, TYPE_INT);
                     return;
                 }
-                // M8: Option constructors
+                // M8: Option constructors. Pre-M13 S4: the payload kind is
+                // gated (optres_payload_ok) so unsupported payloads fail
+                // closed with a located diagnostic instead of producing
+                // broken C at the host compiler.
                 if (name.length == 4 && memcmp(name.start, "some", 4) == 0) {
                     if (node->as.call.arg_count != 1) {
                         diag_error(ctx->diag, ctx->path, node->token.line, ERR_ARITY_MISMATCH, "some expects exactly 1 argument");
@@ -59,7 +62,12 @@ void check_call(SemanticContext *ctx, AstNode *node) {
                         SemanticType *at = node->as.call.args[0] ?
                             node->as.call.args[0]->semantic_type : NULL;
                         if (at && at->kind != TYPE_UNKNOWN) {
-                            node->semantic_type = type_get_option(ctx->pool, at);
+                            if (!optres_payload_ok(at)) {
+                                optres_payload_reject(ctx, node->token.line, false, at);
+                                node->semantic_type = ty(ctx, TYPE_UNKNOWN);
+                            } else {
+                                node->semantic_type = type_get_option(ctx->pool, at);
+                            }
                         } else {
                             node->semantic_type = ty(ctx, TYPE_OPTION);
                         }
@@ -74,7 +82,12 @@ void check_call(SemanticContext *ctx, AstNode *node) {
                         SemanticType *at = node->as.call.args[0] ?
                             node->as.call.args[0]->semantic_type : NULL;
                         if (at && at->kind != TYPE_UNKNOWN) {
-                            node->semantic_type = type_get_result(ctx->pool, at, ty(ctx, TYPE_INT));
+                            if (!optres_payload_ok(at)) {
+                                optres_payload_reject(ctx, node->token.line, true, at);
+                                node->semantic_type = ty(ctx, TYPE_UNKNOWN);
+                            } else {
+                                node->semantic_type = type_get_result(ctx->pool, at, ty(ctx, TYPE_INT));
+                            }
                         } else {
                             node->semantic_type = ty(ctx, TYPE_RESULT);
                         }
@@ -89,7 +102,12 @@ void check_call(SemanticContext *ctx, AstNode *node) {
                         SemanticType *at = node->as.call.args[0] ?
                             node->as.call.args[0]->semantic_type : NULL;
                         if (at && at->kind != TYPE_UNKNOWN) {
-                            node->semantic_type = type_get_result(ctx->pool, ty(ctx, TYPE_INT), at);
+                            if (!optres_payload_ok(at)) {
+                                optres_payload_reject(ctx, node->token.line, true, at);
+                                node->semantic_type = ty(ctx, TYPE_UNKNOWN);
+                            } else {
+                                node->semantic_type = type_get_result(ctx->pool, ty(ctx, TYPE_INT), at);
+                            }
                         } else {
                             node->semantic_type = ty(ctx, TYPE_RESULT);
                         }

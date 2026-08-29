@@ -100,6 +100,23 @@ unify ctx:vec[int] path:str ln:i64 tp:vec[int] tpn:vec[str] exp:i64 found:i64 em
 vec_elem_ok k:i64 : i64 -> k == TY.Int || k == TY.Str || k == TY.Struct ? 1 : 0
 vec_elem_same tp:vec[int] a:i64 b:i64 : i64 -> { ak <- vec_get(tp, a * 8 + TF.Kind); bk <- vec_get(tp, b * 8 + TF.Kind); ak == bk && (ak != TY.Struct || a == b) ? 1 : 0 }
 
+// Pre-M13 S4: payload kinds allowed inside Option/Result values (mirror of
+// optres_payload_ok in src/typecheck.c). Allowed: integer kinds, f32/f64,
+// bool, named structs, nested Option/Result. str (not an owner under M9.2
+// scope cleanup), arrays/slices, vec/strbuf/map handles, streams, chans,
+// refs, and unresolvable inners fail closed.
+payload_ok tp:vec[int] t:i64 : i64 -> {
+    r <- 0
+    t != 0 - 1 ? {
+        k <- vec_get(tp, t * 8 + TF.Kind)
+        (k == TY.Int || k == TY.Float || k == TY.Bool || k == TY.I8 || k == TY.I16 || k == TY.I32 || k == TY.U8 || k == TY.U16 || k == TY.U32 || k == TY.U64 || k == TY.F32) ? { r <- 1 }
+        k == TY.Struct ? { r <- 1 }
+        k == TY.Option ? { r <- payload_ok(tp, vec_get(tp, t * 8 + TF.Inner)) }
+        k == TY.Result ? { r <- payload_ok(tp, vec_get(tp, t * 8 + TF.Inner)) == 1 && payload_ok(tp, vec_get(tp, t * 8 + TF.Err)) == 1 ? 1 : 0 }
+    }
+    r
+}
+
 check_int_range src:str toks:vec[Token] ctx:vec[int] path:str tidx:i64 : i64 -> {
     lx <- tk_lex(src, toks, tidx)
     n <- len(lx)
