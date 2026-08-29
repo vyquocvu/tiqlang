@@ -38,11 +38,6 @@ typedef enum {
 
 typedef struct AstNode AstNode;
 
-// Pre-M13 S4: parsed type annotation. Either a named type (TOK_IDENT with
-// an optional bracket group: Option[T], Result[T, E], vec[T]) or the
-// compound marker forms whose '[' sits in `name` ([T; N] / []T; resolved
-// in semantic analysis exactly as before). `name.kind == TOK_EOF` marks an
-// absent annotation (parse recovery only).
 typedef struct TypeAnnot TypeAnnot;
 struct TypeAnnot {
     Token name;

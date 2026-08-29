@@ -11,8 +11,6 @@
 #include "../include/runtime_prelude.h"
 #include "../include/runtime_aux.h"
 
-// Pre-M13 S4: forward declarations — the expression emitter (below) spells
-// Option/Result instantiations through these before their definitions.
 static bool optres_is_flat(SemanticType *t);
 static void emit_optres_name(SemanticType *t, FILE *out);
 
@@ -686,9 +684,6 @@ static void emit_expr(AstNode *node, EmitContext *ctx) {
             else if (node->as.literal.type == TOK_TRUE) fputs("1", ctx->out);
             else if (node->as.literal.type == TOK_FALSE) fputs("0", ctx->out);
             else if (node->as.literal.type == TOK_NONE) {
-                // Pre-M13 S4: a none literal whose type was re-pointed to a
-                // concrete instantiation emits that struct (value omitted);
-                // flat/bare keeps the historical spelling.
                 SemanticType *nt = node->semantic_type;
                 if (nt && nt->kind == TYPE_OPTION && !optres_is_flat(nt)) {
                     fputs("((", ctx->out);
@@ -714,11 +709,6 @@ static void emit_expr(AstNode *node, EmitContext *ctx) {
                 SemanticType *lt = node->as.binary.left ? node->as.binary.left->semantic_type : NULL;
                 const char *ctype = (lt && lt->kind == TYPE_RESULT) ? "TiqResult" : "TiqOption";
                 const char *flag_field = (lt && lt->kind == TYPE_RESULT) ? ".is_ok" : ".has_value";
-                // Pre-M13 S4: concrete instantiations spell their
-                // monomorphized struct so _fb.value keeps the payload type.
-                // Evaluate left side once into a temporary to avoid
-                // double-evaluation of side-effectful expressions (e.g.
-                // allocator calls that would allocate twice).
                 fputs("__extension__({ ", ctx->out);
                 if (lt && (lt->kind == TYPE_OPTION || lt->kind == TYPE_RESULT)) {
                     emit_semantic_type(lt, ctx->out);
@@ -747,10 +737,6 @@ static void emit_expr(AstNode *node, EmitContext *ctx) {
             if (node->as.unary.op == TOK_MOVE) {
                 emit_expr(node->as.unary.right, ctx);
             } else if (node->as.unary.op == TOK_QUESTION) {
-                // Pre-M13 S4: Propagation operator (?expr) with early return.
-                // Concrete instantiations spell their monomorphized struct for
-                // both the temporary and the early-return re-wrap (the zero
-                // value field is omitted via designated-initializer rules).
                 SemanticType *rt = node->as.unary.right ? (SemanticType *)node->as.unary.right->semantic_type : NULL;
                 if (rt && rt->kind == TYPE_RESULT) {
                     fputs("__extension__({ ", ctx->out);
@@ -1669,11 +1655,6 @@ static void emit_type_name(PrimitiveType kind, FILE *out) {
     }
 }
 
-// Pre-M13 S4: Option/Result payload representation. The i64 instantiations
-// keep the flat runtime structs (Option<i64> -> TiqOption, Result<i64,i64>
-// -> TiqResult) so every existing program emits byte-identical C; other
-// instantiations get monomorphized typedefs emitted in pool order by
-// emit_option_result_typedefs.
 static void emit_optres_suffix(SemanticType *t, FILE *out);
 
 static bool optres_is_flat(SemanticType *t) {
@@ -1758,8 +1739,6 @@ static void emit_semantic_type(SemanticType *t, FILE *out) {
     if (t->kind == TYPE_STRUCT && t->struct_name && t->struct_name[0]) {
         fputs(t->struct_name, out);
     } else if (t->kind == TYPE_OPTION || t->kind == TYPE_RESULT) {
-        // Pre-M13 S4: flat instantiations spell the runtime structs exactly
-        // as before; concrete payloads get their monomorphized typedef.
         emit_optres_name(t, out);
     } else {
         emit_type_name(t->kind, out);
@@ -2201,9 +2180,6 @@ static bool ffi_shadows_preamble_header(Token name) {
     return false;
 }
 
-// Pre-M13 S4: does the payload chain of this Option/Result instantiation
-// reference any struct that is not emitted yet? Struct payloads are always
-// user-declared (the semantic payload gate only admits named structs).
 static bool optres_structs_pending(SemanticType *t, char **done, int done_count) {
     if (!t) return false;
     if (t->kind == TYPE_STRUCT) {
@@ -2221,8 +2197,6 @@ static bool optres_structs_pending(SemanticType *t, char **done, int done_count)
     return false;
 }
 
-// Pre-M13 S4: suffix rendering into a fixed buffer (deterministic, no
-// stdio tricks — the emitted-C build is strict ISO C11).
 static bool optres_typedef_emitted(SemanticType *t, SemanticType **emitted, int emitted_count) {
     for (int i = 0; i < emitted_count; i++) {
         if (emitted[i] == t) return true;
@@ -2265,11 +2239,6 @@ static void emit_optres_suffix_str(SemanticType *t, char *buf, size_t cap) {
 
 // M12.6: struct definitions (before function declarations so types are
 // visible). Shared by the program pass and the M16.3 header pass.
-// Pre-M13 S4: monomorphized Option/Result typedefs interleave — each is
-// flushed right before the first struct definition whose payload chain is
-// fully emitted, and the rest after the loop. Pool order is a topological
-// order of typedef-to-typedef references because an inner type is always
-// interned before its container (src/type.c type_get_option/type_get_result).
 static void emit_struct_defs(EmitContext *ctx, TypePool *pool, AstNode **stmts, int count) {
     char **done = NULL;
     int done_count = 0, done_cap = 0;

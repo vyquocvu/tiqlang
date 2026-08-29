@@ -86,13 +86,6 @@ void check_call(SemanticContext *ctx, AstNode *node) {
                                 optres_payload_reject(ctx, node->token.line, true, at);
                                 node->semantic_type = ty(ctx, TYPE_UNKNOWN);
                             } else {
-                                // Pre-M13 S4: context-typed slots — inside a
-                                // function whose annotated return is a
-                                // concrete Result with a matching value
-                                // type, ok(x) adopts that error type (and
-                                // err(e) the matching inner) instead of the
-                                // hardwired int, so Result[i64, E] bodies
-                                // can produce ok values.
                                 SemanticType *et = ty(ctx, TYPE_INT);
                                 SemanticType *ctx_ret = ctx->current_fn_return_type;
                                 if (ctx_ret && ctx_ret->kind == TYPE_RESULT &&
@@ -120,7 +113,6 @@ void check_call(SemanticContext *ctx, AstNode *node) {
                                 optres_payload_reject(ctx, node->token.line, true, at);
                                 node->semantic_type = ty(ctx, TYPE_UNKNOWN);
                             } else {
-                                // Pre-M13 S4: context-typed slots (see ok).
                                 SemanticType *it = ty(ctx, TYPE_INT);
                                 SemanticType *ctx_ret = ctx->current_fn_return_type;
                                 if (ctx_ret && ctx_ret->kind == TYPE_RESULT &&
@@ -473,10 +465,6 @@ void check_call(SemanticContext *ctx, AstNode *node) {
                 // M13.1-P8: likewise for vec-returning functions — their callee
                 // type is the interned vec<T> (param_count 0); arity is checked
                 // against the recorded definition below.
-                // Pre-M13 S4: likewise for Option[T]/Result[T, E]-annotated
-                // identifier callees, whose callee type is the parameterised
-                // instance. Non-identifier callees typed Option/Result (e.g.
-                // calling a `none` literal) keep the arity check (E12).
                 if (!node->as.call.is_bracket_call &&
                     !(node->as.call.callee &&
                       node->as.call.callee->kind == AST_IDENTIFIER &&
@@ -501,7 +489,6 @@ void check_call(SemanticContext *ctx, AstNode *node) {
                 }
                 // M13.1-P8: vec-returning functions carry vec<T> as their
                 // callee type, so their arity comes from the definition.
-                // Pre-M13 S4: Option/Result-annotated functions likewise.
                 if (fn_def && node->as.call.callee->semantic_type &&
                     (((SemanticType *)node->as.call.callee->semantic_type)->kind == TYPE_VEC ||
                      ((SemanticType *)node->as.call.callee->semantic_type)->kind == TYPE_OPTION ||

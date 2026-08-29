@@ -870,12 +870,6 @@ static AstNode *statement(Parser *parser) {
     return expr;
 }
 
-// Pre-M13 S4: parse one type annotation. A named type optionally followed
-// by a bracket group (Option[T], Result[T, E], vec[T] — elements recurse),
-// or a compound '[' marker form ([T; N] / []T, resolved in semantic).
-// Returns an annotation with name.kind == TOK_EOF after a located parse
-// error so callers treat it as absent. `ctx_msg` locates the "no type
-// here" case ("expected type name after ':'" vs element position).
 static TypeAnnot *parse_type_annot(Parser *parser, const char *ctx_msg) {
     TypeAnnot *a = arena_alloc(&parser->arena, sizeof(TypeAnnot));
     a->name.kind = TOK_EOF;

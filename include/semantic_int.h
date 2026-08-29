@@ -52,7 +52,6 @@ typedef struct {
     EnumEntry *enums;
     int enum_count;
     int enum_capacity;
-    // Pre-M13 S4: propagation tracking
     bool in_function;
     SemanticType *current_fn_return_type;
 } SemanticContext;
@@ -80,10 +79,6 @@ SemanticType *unify(SemanticContext *ctx, int line,
 bool eq_comparable_kind(PrimitiveType k);
 bool ffi_safe_kind(PrimitiveType k);
 
-// Pre-M13 S4: payload-kind gate for Option/Result constructors and
-// annotations. Allowed: integer kinds, f32/f64, bool, named structs, and
-// nested Option/Result. Rejected (E09, located): str (not an owner — M9.2),
-// arrays, slices, vec/strbuf/map handles, streams, chans, refs, unknown.
 bool optres_payload_ok(SemanticType *t);
 void optres_payload_reject(SemanticContext *ctx, int line, bool is_result,
                            SemanticType *t);
@@ -95,9 +90,6 @@ bool vec_elem_type_ok(SemanticType *t);
 bool vec_elem_same(SemanticType *expected, SemanticType *found);
 void vec_unify_elem(SemanticContext *ctx, int line, SemanticType *expected,
                     SemanticType *found, const char *context);
-// Pre-M13 S4: resolves vec[T] / strbuf / map / Option[T] / Result[T, E]
-// annotations; bare names return NULL so callers fall back to
-// resolve_type_annot (bare Option/Result keep their erased meaning).
 SemanticType *resolve_ann(SemanticContext *ctx, TypeAnnot *a);
 void check_vec_builtin(SemanticContext *ctx, AstNode *node, Token name);
 void check_strbuf_builtin(SemanticContext *ctx, AstNode *node, Token name);

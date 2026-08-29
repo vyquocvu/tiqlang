@@ -63,11 +63,6 @@ typedef struct {
     int enum_count;
 } LowerCtx;
 
-// Pre-M13 S4: the IR/wasm path stores every aggregate field as one 8-byte
-// i64 slot (emit_wasm.c widens small ints and reinterprets floats; there is
-// no per-field type info), so concrete Option/Result payloads that are not
-// i64-compatible cannot round-trip and fail closed with a located
-// diagnostic. The C backend never lowers through ir_lower.c.
 static bool ir_optres_payload_ok(SemanticType *t) {
     if (!t) return false;
     switch (t->kind) {
@@ -243,8 +238,6 @@ static int lower_expr(LowerCtx *ctx, AstNode *node) {
         case AST_BINARY: {
             if (node->as.binary.op == TOK_QUESTION_QUESTION) {
                 SemanticType *lt = node->as.binary.left ? (SemanticType *)node->as.binary.left->semantic_type : NULL;
-                // Pre-M13 S4: non-i64-compatible payloads fail closed before
-                // the field-pointer lowering (see ir_optres_payload_ok).
                 if (lt && (lt->kind == TYPE_OPTION || lt->kind == TYPE_RESULT)) {
                     if (lt->inner_type && !ir_optres_payload_ok(lt->inner_type)) {
                         return ir_optres_reject(ctx, node, lt->kind == TYPE_RESULT, lt->inner_type);
@@ -325,8 +318,6 @@ static int lower_expr(LowerCtx *ctx, AstNode *node) {
         case AST_UNARY: {
             if (node->as.unary.op == TOK_QUESTION) {
                 SemanticType *rt = node->as.unary.right ? (SemanticType *)node->as.unary.right->semantic_type : NULL;
-                // Pre-M13 S4: non-i64-compatible payloads fail closed (see
-                // ir_optres_payload_ok).
                 if (rt && (rt->kind == TYPE_OPTION || rt->kind == TYPE_RESULT)) {
                     if (rt->inner_type && !ir_optres_payload_ok(rt->inner_type)) {
                         return ir_optres_reject(ctx, node, rt->kind == TYPE_RESULT, rt->inner_type);
@@ -451,10 +442,6 @@ static int lower_expr(LowerCtx *ctx, AstNode *node) {
                 return dst;
             }
             if (name_len == 4 && memcmp(name, "some", 4) == 0 && node->as.call.arg_count == 1) {
-                // Pre-M13 S4: the IR/wasm path stores every aggregate field
-                // as one 8-byte i64 slot with no per-field type info, so
-                // concrete non-i64 payloads cannot round-trip; they fail
-                // closed here. The C backend never lowers through ir_lower.c.
                 SemanticType *pt = node->as.call.args[0] ?
                     node->as.call.args[0]->semantic_type : NULL;
                 if (pt && !ir_optres_payload_ok(pt)) {
@@ -470,9 +457,6 @@ static int lower_expr(LowerCtx *ctx, AstNode *node) {
                 return dst;
             }
             if (name_len == 4 && memcmp(name, "none", 4) == 0 && node->as.call.arg_count == 0) {
-                // Pre-M13 S4: a none literal re-pointed to a concrete
-                // instantiation whose payload cannot round-trip through the
-                // i64-slot IR fails closed (see ir_optres_payload_ok).
                 SemanticType *nt = node->semantic_type;
                 if (nt && nt->kind == TYPE_OPTION && nt->inner_type &&
                     nt->inner_type->kind != TYPE_UNKNOWN &&

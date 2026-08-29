@@ -3,13 +3,6 @@
 #include "../include/semantic_int.h"
 #include <stdio.h>
 
-// Pre-M13 S4: structural comparison for Option/Result inner (and error)
-// types. NULL and TYPE_UNKNOWN sides are tolerated (inference may not
-// have resolved them yet). Scalars compare by kind: per-arity function
-// returns intern distinct scalar instances (type_get_func), so pooled
-// pointer identity would falsely reject valid programs. Structs are
-// nominal (declaration-site identity). Nested Option/Result recurse.
-// Exported: the constructors use it for context-typed slots (S4).
 bool optres_inner_same(SemanticType *a, SemanticType *b) {
     if (!a || !b) return true;
     if (a->kind == TYPE_UNKNOWN || b->kind == TYPE_UNKNOWN) return true;
@@ -75,12 +68,6 @@ SemanticType *unify(SemanticContext *ctx, int line,
     return expected;
 }
 
-// Pre-M13 S4: types whose values support == / != without inheriting
-// ambiguous C behaviour.  Numeric kinds, bool, and enum variants
-// (represented as i64) compare by value; everything else — str (pointer
-// vs content), struct (no C ==), array/slice/vec/strbuf/map (handles or
-// address decay), option/result (opaque int64_t slots), stream, chan,
-// ref — must fail closed (LANGUAGE_SPEC §17.1 equality surface).
 bool eq_comparable_kind(PrimitiveType k) {
     return k == TYPE_INT || k == TYPE_FLOAT || k == TYPE_BOOL ||
            k == TYPE_I8  || k == TYPE_I16 || k == TYPE_I32 ||
@@ -88,14 +75,6 @@ bool eq_comparable_kind(PrimitiveType k) {
            k == TYPE_F32;
 }
 
-// Pre-M13 S4: payload kinds that can be stored in an Option/Result value.
-// Allowed: integer kinds, f32/f64, bool, named structs, and nested
-// Option/Result (recursively; a bare inner with no resolvable payload has
-// no spellable struct and is rejected). Everything else fails closed:
-// str is not an owner under M9.2 scope cleanup (a stored payload would
-// dangle), arrays cannot be spelled as struct fields by value in Tiq, and
-// vec/strbuf/map/stream/chan are shared-reference handles rather than
-// values. Callers gate only known, non-unknown payload types.
 bool optres_payload_ok(SemanticType *t) {
     if (!t) return false;
     switch (t->kind) {
@@ -125,9 +104,6 @@ void optres_payload_reject(SemanticContext *ctx, int line, bool is_result,
     diag_error(ctx->diag, ctx->path, line, ERR_TYPE_MISMATCH, msg);
 }
 
-// Pre-M13 S4: the semantic-side twin of the emitter's optres_is_flat — an
-// Option/Result whose payloads are (or may be) the i64 slot instantiations.
-// Bare names (NULL payloads) count as flat: they spell the runtime structs.
 bool optres_type_is_flat(SemanticType *t) {
     if (!t) return true;
     if (t->kind == TYPE_OPTION)

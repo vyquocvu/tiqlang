@@ -32,9 +32,6 @@ void check_pattern(SemanticContext *ctx, Pattern *pat, SemanticType *scrutinee_t
         case PAT_LITERAL: {
             // Type-check the literal expression node, then unify with scrutinee.
             check_node(ctx, pat->as.literal.expr);
-            // Pre-M13 S4: a `none` pattern adopts the scrutinee's concrete
-            // instantiation — the bare literal's aliased type would
-            // otherwise falsely mismatch (expected int??, found int?).
             if (pat->as.literal.expr &&
                 pat->as.literal.expr->kind == AST_LITERAL &&
                 pat->as.literal.expr->as.literal.type == TOK_NONE &&

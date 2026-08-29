@@ -8,11 +8,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-// Pre-M13 S4: re-point a bare `none` literal (and blocks/conditionals whose
-// final value is one) to the concrete Option/Result type expected at the
-// join, so the emitter spells the matching monomorphized struct. Flat
-// contexts are left untouched: they spell the runtime structs exactly as
-// before.
 static void optres_repoint_none(AstNode *node, SemanticType *full) {
     if (!node || !full) return;
     if ((full->kind != TYPE_OPTION && full->kind != TYPE_RESULT) ||
@@ -157,10 +152,6 @@ void check_node(SemanticContext *ctx, AstNode *node) {
                     if (node->as.binary.op == TOK_EQ_EQ || node->as.binary.op == TOK_BANG_EQ ||
                         node->as.binary.op == TOK_LT || node->as.binary.op == TOK_LTE ||
                         node->as.binary.op == TOK_GT || node->as.binary.op == TOK_GTE) {
-                        // Pre-M13 S4: unsupported equality must fail closed
-                        // instead of inheriting C behaviour (LANGUAGE_SPEC §17.1).
-                        // TYPE_UNKNOWN is allowed through (unresolved; not a
-                        // non-comparable type).
                         if (u->kind != TYPE_UNKNOWN && !eq_comparable_kind(u->kind)) {
                             char tbuf[64];
                             char msg[200];
@@ -175,10 +166,6 @@ void check_node(SemanticContext *ctx, AstNode *node) {
                             node->semantic_type = ty(ctx, TYPE_BOOL);
                         }
                     } else {
-                        // Pre-M13 S4: keep the unified full type. The former
-                        // ty(u->kind) lookup aliased the FIRST pooled instance
-                        // of the kind, silently re-typing joins whose payload
-                        // differed from that instance.
                         node->semantic_type = u;
                     }
                 } else {
@@ -291,7 +278,6 @@ void check_node(SemanticContext *ctx, AstNode *node) {
                     if (u) {
                         if (tt->kind == TYPE_UNKNOWN) node->as.conditional.then_branch->semantic_type = u;
                         if (et->kind == TYPE_UNKNOWN) node->as.conditional.else_branch->semantic_type = u;
-                        // Pre-M13 S4: bare `none` branches adopt the join type.
                         if (u->kind == TYPE_OPTION || u->kind == TYPE_RESULT) {
                             optres_repoint_none(node->as.conditional.then_branch, u);
                             optres_repoint_none(node->as.conditional.else_branch, u);
@@ -690,8 +676,6 @@ void check_node(SemanticContext *ctx, AstNode *node) {
                     if (u) ret_kind = u->kind;
                     // M12.6: Preserve full struct type for return
                     // M13.1-P8: likewise vec<T>, so callers get the element type
-                    // Pre-M13 S4: bracketed Option[T]/Result[T, E] annotations
-                    // likewise; bare names stay erased (parity with pre_reg).
                     if (ret_annot->kind == TYPE_STRUCT || ret_annot->kind == TYPE_VEC ||
                         (via_ann && (ret_annot->kind == TYPE_OPTION || ret_annot->kind == TYPE_RESULT)))
                         ret_type = ret_annot;
@@ -720,8 +704,6 @@ void check_node(SemanticContext *ctx, AstNode *node) {
                                ERR_TYPE_MISMATCH, msg);
                 }
             }
-            // Pre-M13 S4: a bare `none` body adopts the annotated concrete
-            // return type so the emitter spells the right monomorphized struct.
             if (ret_type && (ret_type->kind == TYPE_OPTION || ret_type->kind == TYPE_RESULT)) {
                 optres_repoint_none(node->as.function.body, ret_type);
             }
@@ -752,21 +734,11 @@ void check_node(SemanticContext *ctx, AstNode *node) {
                         // arity is checked at the definition site.
                         // M13.1-P8: vec returns keep the full vec<T> the same way
                         // (arity comes from the recorded definition at call sites).
-                        // Pre-M13 S4: Option/Result returns preserve inner and
-                        // error types so callers see the full parameterised type.
                         if (ret_type && (ret_type->kind == TYPE_STRUCT || ret_type->kind == TYPE_VEC)) {
                             sym->type = ret_type;
                         } else if ((ret_kind == TYPE_OPTION || ret_kind == TYPE_RESULT)
                                    && node->as.function.body
                                    && node->as.function.body->semantic_type) {
-                            // Pre-M13 S4: Option/Result returns preserve inner
-                            // and error types so callers see the full
-                            // parameterised type. This stays a raw (unpooled)
-                            // instance on purpose: the call-arity check reads
-                            // param_count off the registered type, which the
-                            // pool interners do not carry. The emitter spells
-                            // it through the same mangling path as pooled
-                            // instances (it reads kind/inner/error pointers).
                             SemanticType *bt = node->as.function.body->semantic_type;
                             SemanticType *ft = calloc(1, sizeof(SemanticType));
                             if (!ft) die_oom();
@@ -1090,7 +1062,6 @@ void check_node(SemanticContext *ctx, AstNode *node) {
                 env_free(&arm_env);
                 AstNode *body = node->as.match_expr.arms[i].body;
                 if (body && body->semantic_type) {
-                    // Pre-M13 S4: a bare `none` arm body adopts the join type.
                     if (result && (result->kind == TYPE_OPTION || result->kind == TYPE_RESULT)) {
                         optres_repoint_none(body, result);
                     }
@@ -1100,9 +1071,6 @@ void check_node(SemanticContext *ctx, AstNode *node) {
                     if (u) result = u;
                 }
             }
-            // Pre-M13 S4: keep the unified arm type. The former
-            // ty(result->kind) lookup aliased the FIRST pooled Option/Result
-            // instance, silently re-typing joins with a different payload.
             node->semantic_type = result ? result : ty(ctx, TYPE_UNKNOWN);
             break;
         }
