@@ -72,7 +72,84 @@ ec_kind_type k:i64 : str -> match k {
     _ => "int64_t"
 }
 
-ec_annot_type src:str toks:vec[Token] ti:i64 : str -> {
+// Token-level mirrors of the C emitter's Option/Result mangling rules: a
+// flat i64 instantiation keeps its runtime struct name, and a flat inner
+// contributes that same flat name, so emitted field types always agree.
+ec_ann_is_i64 src:str toks:vec[Token] ti:i64 : bool -> {
+    n = tk_lex(src, toks, ti)
+    str_eq(n, "i64") ? true : str_eq(n, "int")
+}
+
+ec_ann_is_struct src:str toks:vec[Token] tpn:vec[str] ti:i64 : bool -> {
+    n = tk_lex(src, toks, ti)
+    r <- false
+    j <- 0
+    [j < vec_len(tpn) && r == false] { str_eq(vec_get(tpn, j), n) ? { r <- true }; j <- j + 1 }
+    r
+}
+
+ec_ann_after src:str toks:vec[Token] ti:i64 : i64 -> {
+    r <- ti + 1
+    tk_kind(toks, ti + 1) == TokenKind.Lbracket ? {
+        dep <- 1
+        j <- ti + 2
+        [dep > 0 && tk_kind(toks, j) != TokenKind.Eof] {
+            tk_kind(toks, j) == TokenKind.Lbracket ? { dep <- dep + 1 }
+            tk_kind(toks, j) == TokenKind.Rbracket ? { dep <- dep - 1 }
+            dep > 0 ? { j <- j + 1 }
+        }
+        r <- j + 1
+    }
+    r
+}
+
+ec_ann_elem src:str toks:vec[Token] tp:vec[int] tpn:vec[str] ti:i64 : str -> {
+    n = tk_lex(src, toks, ti)
+    r <- "i64"
+    str_eq(n, "i8") ? { r <- "i8" }
+    str_eq(n, "i16") ? { r <- "i16" }
+    str_eq(n, "i32") ? { r <- "i32" }
+    str_eq(n, "u8") ? { r <- "u8" }
+    str_eq(n, "u16") ? { r <- "u16" }
+    str_eq(n, "u32") ? { r <- "u32" }
+    str_eq(n, "u64") ? { r <- "u64" }
+    str_eq(n, "f32") ? { r <- "f32" }
+    str_eq(n, "f64") ? { r <- "f64" }
+    str_eq(n, "float") ? { r <- "f64" }
+    str_eq(n, "bool") ? { r <- "bool" }
+    ec_ann_is_struct(src, toks, tpn, ti) ? { r <- str_cat(n, "") }
+    str_eq(n, "Option") && tk_kind(toks, ti + 1) == TokenKind.Lbracket ? {
+        fo <- ec_ann_is_i64(src, toks, ti + 2)
+        r <- fo == true ? "TiqOption" : str_cat("TiqOption_", ec_ann_elem(src, toks, tp, tpn, ti + 2))
+    }
+    str_eq(n, "Result") && tk_kind(toks, ti + 1) == TokenKind.Lbracket ? {
+        e2b <- ec_ann_after(src, toks, ti + 2)
+        fr <- ec_ann_is_i64(src, toks, ti + 2) && ec_ann_is_i64(src, toks, e2b)
+        r <- fr == true ? "TiqResult" : str_cat(str_cat("TiqResult_", ec_ann_elem(src, toks, tp, tpn, ti + 2)), str_cat("_", ec_ann_elem(src, toks, tp, tpn, e2b)))
+    }
+    r
+}
+
+// Annotation token index -> mangled Option/Result type name.
+ec_ann_res_name src:str toks:vec[Token] tp:vec[int] tpn:vec[str] ti:i64 : str -> {
+    n = tk_lex(src, toks, ti)
+    r <- "TiqOption"
+    str_eq(n, "Option") && tk_kind(toks, ti + 1) == TokenKind.Lbracket ? {
+        flat <- ec_ann_is_i64(src, toks, ti + 2)
+        flat == false ? { r <- str_cat("TiqOption_", ec_ann_elem(src, toks, tp, tpn, ti + 2)) }
+    }
+    str_eq(n, "Result") && tk_kind(toks, ti + 1) == TokenKind.Lbracket ? {
+        e2 <- ec_ann_after(src, toks, ti + 2)
+        flat2 <- ec_ann_is_i64(src, toks, ti + 2) && ec_ann_is_i64(src, toks, e2)
+        flat2 == false ? {
+            r <- str_cat(str_cat("TiqResult_", ec_ann_elem(src, toks, tp, tpn, ti + 2)), str_cat("_", ec_ann_elem(src, toks, tp, tpn, e2)))
+        }
+        flat2 == true ? { r <- "TiqResult" }
+    }
+    r
+}
+
+ec_annot_type src:str toks:vec[Token] tp:vec[int] tpn:vec[str] ti:i64 : str -> {
     n = tk_lex(src, toks, ti)
     r <- "int64_t"
     str_eq(n, "f64") ? { r <- "double" }
@@ -88,8 +165,11 @@ ec_annot_type src:str toks:vec[Token] ti:i64 : str -> {
     str_eq(n, "vec") ? { r <- "TiqVec *" }
     str_eq(n, "strbuf") ? { r <- "TiqStrBuf *" }
     str_eq(n, "map") ? { r <- "TiqMap *" }
-    str_eq(n, "Option") ? { r <- "TiqOption" }
-    str_eq(n, "Result") ? { r <- "TiqResult" }
+    str_eq(n, "Option") && tk_kind(toks, ti + 1) != TokenKind.Lbracket ? { r <- "TiqOption" }
+    str_eq(n, "Result") && tk_kind(toks, ti + 1) != TokenKind.Lbracket ? { r <- "TiqResult" }
+    str_eq(n, "Option") && tk_kind(toks, ti + 1) == TokenKind.Lbracket ? { r <- ec_ann_res_name(src, toks, tp, tpn, ti) }
+    str_eq(n, "Result") && tk_kind(toks, ti + 1) == TokenKind.Lbracket ? { r <- ec_ann_res_name(src, toks, tp, tpn, ti) }
+    ec_ann_is_struct(src, toks, tpn, ti) ? { r <- str_cat(n, "") }
     r
 }
 
@@ -575,7 +655,8 @@ ec_expr src:str toks:vec[Token] nodes:vec[int] kids:vec[int] hs:vec[int] his:vec
             rt = ri != 0 - 1 ? vec_get(types, ri) : 0 - 1
             rk == TY.Result ? {
                 ec_put(b, "__extension__({ ")
-                rt != 0 - 1 && vec_get(tp, rt * 8 + TF.Kind) == TY.Result ? { ec_put(b, ec_optres_name(tp, tpn, rt)) } : { ec_put(b, "TiqResult") }
+                rt != 0 - 1 && vec_get(tp, rt * 8 + TF.Kind) == TY.Result ? { ec_put(b, ec_optres_name(tp, tpn, rt)) }
+                rt == 0 - 1 || vec_get(tp, rt * 8 + TF.Kind) != TY.Result ? { ec_put(b, "TiqResult") }
                 ec_put(b, " _p = ")
                 ec_expr(src, toks, nodes, kids, hs, his, hem, types, tp, tpn, b, ri)
                 rt != 0 - 1 && vec_get(tp, rt * 8 + TF.Kind) == TY.Result && optres_flat(tp, rt) == 0 ? {
@@ -587,7 +668,8 @@ ec_expr src:str toks:vec[Token] nodes:vec[int] kids:vec[int] hs:vec[int] his:vec
             }
             rk != TY.Result ? {
                 ec_put(b, "__extension__({ ")
-                rt != 0 - 1 && vec_get(tp, rt * 8 + TF.Kind) == TY.Option ? { ec_put(b, ec_optres_name(tp, tpn, rt)) } : { ec_put(b, "TiqOption") }
+                rt != 0 - 1 && vec_get(tp, rt * 8 + TF.Kind) == TY.Option ? { ec_put(b, ec_optres_name(tp, tpn, rt)) }
+                rt == 0 - 1 || vec_get(tp, rt * 8 + TF.Kind) != TY.Option ? { ec_put(b, "TiqOption") }
                 ec_put(b, " _p = ")
                 ec_expr(src, toks, nodes, kids, hs, his, hem, types, tp, tpn, b, ri)
                 rt != 0 - 1 && vec_get(tp, rt * 8 + TF.Kind) == TY.Option && optres_flat(tp, rt) == 0 ? {
@@ -1227,7 +1309,7 @@ ec_function src:str toks:vec[Token] nodes:vec[int] kids:vec[int] fresh:vec[str] 
             j > 0 ? { ec_put(b, ", ") }
             ann = vec_get(kids, s2 + j * 3); rk = vec_get(kids, s2 + j * 3 + 2); pn = tk_lex(src, toks, vec_get(kids, s + j))
             rk == 1 ? { ec_put(b, "const ") }
-            ec_put(b, ann == 0 - 1 ? "int64_t" : ec_annot_type(src, toks, ann))
+            ec_put(b, ann == 0 - 1 ? "int64_t" : ec_annot_type(src, toks, tp, tpn, ann))
             rk != 0 ? { ec_put(b, " *tiq_ref_") }
             rk == 0 ? { ec_put(b, " ") }
             ec_put(b, pn); j <- j + 1
@@ -1243,7 +1325,7 @@ ec_function src:str toks:vec[Token] nodes:vec[int] kids:vec[int] fresh:vec[str] 
             j > 0 ? { ec_put(b, ", ") }
             ann = vec_get(kids, s2 + j * 3); rk = vec_get(kids, s2 + j * 3 + 2); pn = tk_lex(src, toks, vec_get(kids, s + j))
             rk == 1 ? { ec_put(b, "const ") }
-            ec_put(b, ann == 0 - 1 ? "int64_t" : ec_annot_type(src, toks, ann))
+            ec_put(b, ann == 0 - 1 ? "int64_t" : ec_annot_type(src, toks, tp, tpn, ann))
             rk != 0 ? { ec_put(b, " *tiq_ref_") }
             rk == 0 ? { ec_put(b, " ") }
             ec_put(b, pn); j <- j + 1
@@ -1255,7 +1337,7 @@ ec_function src:str toks:vec[Token] nodes:vec[int] kids:vec[int] fresh:vec[str] 
         [j < n] {
             ann = vec_get(kids, s2 + j * 3); rk = vec_get(kids, s2 + j * 3 + 2); pn = tk_lex(src, toks, vec_get(kids, s + j))
             rk != 0 ? {
-                ec_put(b, "    "); ec_put(b, ann == 0 - 1 ? "int64_t" : ec_annot_type(src, toks, ann)); ec_put(b, " "); ec_put(b, pn)
+                ec_put(b, "    "); ec_put(b, ann == 0 - 1 ? "int64_t" : ec_annot_type(src, toks, tp, tpn, ann)); ec_put(b, " "); ec_put(b, pn)
                 ec_put(b, " = *tiq_ref_"); ec_put(b, pn); ec_put(b, ";\n")
             }
             j <- j + 1
@@ -1461,7 +1543,7 @@ ec_header b:strbuf path:str src:str toks:vec[Token] nodes:vec[int] kids:vec[int]
             ec_put(b, "typedef struct {\n")
             ns = nd_get(nodes, ni, NF.L1s); ts = nd_get(nodes, ni, NF.L2s); fc = nd_get(nodes, ni, NF.L1n); q <- 0
             [q < fc] {
-                ec_put(b, "    "); ec_put(b, ec_annot_type(src, toks, vec_get(kids, ts + q))); ec_put(b, " ")
+                ec_put(b, "    "); ec_put(b, ec_annot_type(src, toks, tp, tpn, vec_get(kids, ts + q))); ec_put(b, " ")
                 ec_put(b, tk_lex(src, toks, vec_get(kids, ns + q))); ec_put(b, ";\n"); q <- q + 1
             }
             ec_put(b, "} "); ec_put(b, tk_lex(src, toks, nd_get(nodes, ni, NF.Name))); ec_put(b, ";\n\n")
@@ -1522,7 +1604,7 @@ ec_program_body src:str toks:vec[Token] nodes:vec[int] kids:vec[int] tops:vec[in
             ec_put(b, "typedef struct {\n")
             ns = nd_get(nodes, ni, NF.L1s); ts = nd_get(nodes, ni, NF.L2s); fc = nd_get(nodes, ni, NF.L1n); q <- 0
             [q < fc] {
-                ec_put(b, "    "); ec_put(b, ec_annot_type(src, toks, vec_get(kids, ts + q))); ec_put(b, " ")
+                ec_put(b, "    "); ec_put(b, ec_annot_type(src, toks, tp, tpn, vec_get(kids, ts + q))); ec_put(b, " ")
                 ec_put(b, tk_lex(src, toks, vec_get(kids, ns + q))); ec_put(b, ";\n"); q <- q + 1
             }
             ec_put(b, "} "); ec_put(b, tk_lex(src, toks, nd_get(nodes, ni, NF.Name))); ec_put(b, ";\n\n")

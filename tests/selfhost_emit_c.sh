@@ -191,7 +191,8 @@ case_run "s4_bare_none_repoint" 'struct P { v: i64 }
 mknone u:i64 : Option[P] -> {
   none
 }
-print(mknone(0) ?? P { v: 7 })'
+n = mknone(0) ?? P { v: 7 }
+print(n.v)'
 case_run "numeric_conversions" 'print(i8(130))
 print(u16(65537))
 print(i32(42.9))
