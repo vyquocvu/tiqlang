@@ -465,21 +465,28 @@ Tiq has no exceptions. Fallible functions return a result value.
 
 ### 15.1 Option and Result types
 
-`T?` and `T!E` are postfix **type constructors**: `T?` is an optional (`T` or absent), `T!E` is a result (`T` or an error of type `E`).
+`Option[T]` and `Result[T, E]` are **bracketed generic type constructors**: `Option[T]` holds a value of type `T` or is absent; `Result[T, E]` holds a success value of type `T` or an error of type `E`.
 
 ```tiq
 // Option: may hold a value or be absent
-find xs: i64 key: i64 : i64? -> {
+find xs: i64 key: i64 : Option[i64] -> {
   [i <- 0..len(xs)] { xs[i] == key ? i : skip }
   none
 }
 
 // Result: may hold a value or an error
-parse s: str : i64!str -> {
-  // ... parsing logic ...
+parse s: str : Result[i64, str] -> {
   ok(42)   // or err("invalid")
 }
 ```
+
+**Supported payload types:**
+
+| Kind     | Option[T] | Result[T, E] |
+|----------|-----------|--------------|
+| `i64`    | ✅         | ✅            |
+| struct   | ✅         | ✅            |
+| other    | E09 (fail closed) | E09 (fail closed) |
 
 **Constructors:**
 - `some(x)` wraps a value in an Option.
@@ -498,14 +505,14 @@ x = find(xs, 5) ?? -1   // -1 if not found
 If `expr` is absent or an error, the enclosing function returns that state immediately; otherwise `expr?` evaluates to the unwrapped value. The enclosing function's return type must itself be optional/result-compatible, checked at compile time.
 
 ```tiq
-process s: str : i64? -> {
+process s: str : Option[i64] -> {
   x = parse(s)?   // returns none if parse fails
   some(x * 2)
 }
 ```
 
 **Pattern matching:**
-A `T?` or `T!E` value destructures with `match`:
+An `Option[T]` or `Result[T, E]` value destructures with `match`:
 
 ```tiq
 result = find(xs, key)
@@ -516,7 +523,10 @@ msg = match result {
 }
 ```
 
-Status: implemented — Option/Result types, constructors, fallback, and propagation are fully specified, compiled, and tested.
+**Representation:**
+Each distinct `Option[T]` and `Result[T, E]` instantiation is emitted as a monomorphized C struct named `TiqOption_<T>` and `TiqResult_<T>_<E>`. The `i64` instantiations use the flat names `TiqOption` and `TiqResult` for byte-level compatibility with pre-S4 code. Struct payloads are stored by value — no heap allocation, no boxing.
+
+Status: implemented — Option/Result types with `i64` and struct payloads, constructors, fallback, propagation, and monomorphized emission are fully specified, compiled, and tested.
 
 ## 16. Memory
 

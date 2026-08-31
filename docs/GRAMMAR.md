@@ -92,11 +92,12 @@ constructor_pattern = identifier, "(", pattern, { ",", pattern }, ")" ; (* ✅ �
 enum_pattern        = identifier, ".", identifier ;             (* ✅ — Enum.Variant *)
 literal       = integer | float | string | "true" | "false" | "none" ; (* ✅ — i64 range checked; none = absent Option *)
 
-type          = type_postfix ;                                     (* ✅ — M12.4/M12.6/M8 *)
-type_postfix  = type_primary, [ "?" | "!", type_primary ] ;        (* ✅ — M8: T? = Option, T!E = Result *)
-type_primary  = type_name | array_type | slice_type | "(", type, ")" ; (* ✅ *)
+type          = type_primary ;                                     (* ✅ — M12.4/M12.6/M8/S4 *)
+type_primary  = type_name | array_type | slice_type | generic_type | "(", type, ")" ; (* ✅ *)
 type_name     = "i8" | "i16" | "i32" | "i64" | "u8" | "u16" | "u32" | "u64"
               | "f32" | "f64" | "bool" | "str" | identifier ;      (* ✅ — primitive + struct types *)
+generic_type  = ( "Option", "[", type_name, "]" )
+              | ( "Result", "[", type_name, ",", type_name, "]" ) ; (* ✅ — S4: bracketed generics *)
 array_type    = "[", type, ";", integer, "]" ;                    (* ✅ — [T; N] *)
 slice_type    = "[", "]", type ;                                   (* ✅ — []T *)
 container_type = "strbuf" | "map" | ( "vec", "[", type_name, "]" ) ; (* ✅ — M13.1-P8; annotation position only; vec element must be "int", "str", or a struct name *)
@@ -107,6 +108,8 @@ Function application without parentheses, as in `fib n`, is allowed only in a fu
 **Type annotations (M12.4/M25)**: `function_def` parameters may have optional type annotations (`param:type`). An optional return type may follow the parameter list (`: type -> body`), using `:` for type information and reserving `->` for body introduction (issue #8). When omitted, types are inferred from use. A program whose recursive or exported function type cannot be inferred is rejected.
 
 **Container annotations (M13.1-P8)**: `container_type` is accepted only in function parameter and return annotation position — `strbuf` and `map` parse exactly like plain type names, and `vec` must be immediately followed by `[`, a single element type name, and `]` (reusing the existing bracket tokens, so the grammar stays LL(1) with no new token kinds). `vec`, `strbuf`, and `map` remain ordinary identifiers everywhere else. Container annotations are not valid struct field types (fail closed, semantic E09).
+
+**Generic type annotations (S4)**: `Option[T]` and `Result[T, E]` are the bracketed generic syntax for optional and result types. `T` and `E` must be `i64` or a named struct type; other element types fail closed (E09). `Option` and `Result` without a following `[` are plain identifiers. Struct field types do not accept generics; the grammar production `generic_type` is accepted in annotation position only.
 
 `!` is the logical negation prefix of `unary`; printing is the `print` builtin call (LANGUAGE_SPEC §12), covered by the ordinary `postfix` call production. Function bodies may be blocks because `block` is a `primary`, so `expression` covers both `f a -> a + 1` and `f a -> { ... }`.
 

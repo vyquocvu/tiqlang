@@ -588,21 +588,26 @@ deterministic tests agree.
 
 ### S4 — Type and value-semantics hardening (P1)
 
-- [ ] Preserve full nested and nominal types across match joins, conditional joins,
+- [x] Preserve full nested and nominal types across match joins, conditional joins,
   function returns, and container operations; do not collapse a resolved type to its
-  top-level kind. *Deferred*.
+  top-level kind. Closed 2026-08-31 (S4): join-site unify upgraded to `optres_inner_same`
+  structural comparator; pool aliasing eliminated.
 - [x] Specify equality separately for numeric values, bool, enums, strings, structs, and
   containers. Unsupported equality must fail closed instead of inheriting C behavior.
   Closed 2026-08-13: string patterns use `tiq_str_eq`; numeric / bool / enum keep `==`;
   struct, container, and str equality now fail closed with a located E09 diagnostic
   (both C bootstrap and self-hosted); TYPE_UNKNOWN is allowed through for unresolved
   types.
-- [ ] Complete `Option<T>` and `Result<T, E>` payload representation so supported payloads
-  are not forced through `int64_t`. *Deferred* — the bootstrap still stores payloads in
-  `int64_t` slots; this is the S4 representation migration tracked elsewhere.
+- [x] Complete `Option[T]` and `Result[T, E]` payload representation so supported payloads
+  are not forced through `int64_t`. Closed 2026-08-31 (S4): monomorphized C struct
+  emission (`TiqOption_<T>` / `TiqResult_<T>_<E>`) for struct payloads; flat `i64`
+  paths keep historical `TiqOption`/`TiqResult` names; both C bootstrap and
+  self-hosted emitter updated.
 - [x] Implement the documented control-flow semantics of propagation (`?expr` unwraps on success, early-returns `none`/`err` state, restricted to function scope with matching return type) in bootstrap and self-hosted compilers. (2026-08-22)
-- [ ] Add representation and ownership tests for non-integer Option/Result payloads,
-  nested composites, propagation on both branches, and cleanup on early exit. *Deferred*.
+- [x] Add representation and ownership tests for non-integer Option/Result payloads,
+  nested composites, propagation on both branches, and cleanup on early exit.
+  Closed 2026-08-31 (S4): `s4_*` cases in smoke.sh + selfhost_emit_c.sh cover struct
+  payloads, bare-none repoint, and propagation on both branches.
 
 ### S5 — Fast, isolated, and diagnostic test tiers (P1)
 
