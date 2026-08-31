@@ -1835,7 +1835,7 @@ static void emit_stmt(AstNode *node, EmitContext *ctx, int indent) {
                         emit_expr(node->as.assign.expr, ctx);
                         fputs(";\n", ctx->out);
                     } else {
-                        if (st) emit_type_name(st->kind, ctx->out); else fputs("int64_t", ctx->out);
+                        if (st) emit_semantic_type(st, ctx->out); else fputs("int64_t", ctx->out);
                         fprintf(ctx->out, " %.*s = ", (int)node->as.assign.name.length, node->as.assign.name.start);
                         emit_expr(node->as.assign.expr, ctx);
                         fputs(";\n", ctx->out);

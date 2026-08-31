@@ -193,6 +193,18 @@ mknone u:i64 : Option[P] -> {
 }
 n = mknone(0) ?? P { v: 7 }
 print(n.v)'
+case_run "s4_prop_both_branches" 'struct P { v: i64 }
+mknone u:i64 : Option[P] -> {
+  none
+}
+dbl o:Option[P] : Option[P] -> {
+  p = ?o
+  some(P { v: p.v * 2 })
+}
+x = dbl(mknone(0)) ?? P { v: 0 }
+print(x.v)
+y = dbl(some(P { v: 3 })) ?? P { v: 0 }
+print(y.v)'
 case_run "numeric_conversions" 'print(i8(130))
 print(u16(65537))
 print(i32(42.9))

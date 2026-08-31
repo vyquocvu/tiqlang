@@ -500,6 +500,15 @@ printf 'struct P {\n  v: i64\n}\nmknone u:i64 : Option[P] -> {\n  none\n}\nn = m
 ./build/tiq build "$TMP_DIR/s4_bare_none_repoint.tiq" -o "$TMP_DIR/s4_bare_none_repoint"
 [ "$("$TMP_DIR/s4_bare_none_repoint")" = "7" ]
 
+# Propagation on both branches (early return and unwrapped value) with a
+# concrete struct payload: the absent path re-wraps the monomorphized
+# struct, the present path reads through it.
+printf 'struct P {\n  v: i64\n}\nmknone u:i64 : Option[P] -> {\n  none\n}\ndbl o:Option[P] : Option[P] -> {\n  p = ?o\n  some(P { v: p.v * 2 })\n}\nx = dbl(mknone(0)) ?? P { v: 0 }\nprint(x.v)\ny = dbl(some(P { v: 3 })) ?? P { v: 0 }\nprint(y.v)\n' > "$TMP_DIR/s4_prop_both_branches.tiq"
+./build/tiq build "$TMP_DIR/s4_prop_both_branches.tiq" -o "$TMP_DIR/s4_prop_both_branches"
+"$TMP_DIR/s4_prop_both_branches" > "$TMP_DIR/s4_prop_both_branches.out"
+printf '0\n6\n' > "$TMP_DIR/s4_prop_both_branches.expected"
+cmp "$TMP_DIR/s4_prop_both_branches.out" "$TMP_DIR/s4_prop_both_branches.expected"
+
 # M10.1: CLI argument builtins read real argc/argv (LANGUAGE_SPEC §18.1);
 # out-of-range indices yield the empty string.
 printf 'print(cli_arg_count())\nprint(cli_arg(0))\nprint(cli_arg(1))\nprint(cli_arg(5))\n' > "$TMP_DIR/m10_cli_args.tiq"
