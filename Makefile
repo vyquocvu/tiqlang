@@ -5,7 +5,7 @@ BUILD := build
 TIQ := $(BUILD)/tiq
 TEST_JOBS ?= 5
 
-.PHONY: all clean test test-heavy test-unit test-fuzz test-selfhost test-selfhost-lexer test-selfhost-parser test-selfhost-semantic test-selfhost-emit-c test-bootstrap example benchmark-compare test-check test-run test-qbe test-wasm tool-test tool-fmt tool-bench tool-init tool-cache tool-lsp tool-install tool-registry tool-publish tool-audit tool-proxy tool-router tool-json tool-std perf-record perf-check
+.PHONY: all clean test test-heavy test-unit test-fuzz test-selfhost test-selfhost-lexer test-selfhost-parser test-selfhost-semantic test-selfhost-emit-c test-bootstrap example benchmark-compare test-check test-run test-qbe test-wasm tool-test tool-fmt tool-bench tool-init tool-cache tool-lsp tool-install tool-registry tool-publish tool-audit tool-proxy tool-router tool-json tool-std tool-math perf-record perf-check
 
 # Build the unit runner with the same flags as the compiler. Besides keeping
 # `make` useful as a complete build gate, this preserves sanitizer link flags
@@ -73,6 +73,7 @@ test: $(TIQ) $(BUILD)/qbe $(BUILD)/runtime_qbe.o test-unit test-heavy
 	sh tests/sqlite.sh
 	sh tests/redis.sh
 	sh tests/http_std.sh
+	sh tests/math_std.sh
 	sh tests/playground.sh
 	sh tests/wasm.sh
 	sh tests/concurrency.sh
@@ -250,6 +251,12 @@ tool-router: $(TIQ)
 # builtins remain always available, cwd fallback, wrapper correctness, ASan.
 tool-std: $(TIQ)
 	sh tests/std_mod.sh
+
+# S4: verify std/math.tiq — pure-Tiq integer and float kernels, exact where
+# the algorithm guarantees it, tolerance verdicts elsewhere. Standalone target
+# so a sanitizer build can run it in isolation.
+tool-math: $(TIQ)
+	sh tests/math_std.sh
 
 clean:
 	rm -rf $(BUILD)
