@@ -165,6 +165,21 @@ void check_node(SemanticContext *ctx, AstNode *node) {
                         } else {
                             node->semantic_type = ty(ctx, TYPE_BOOL);
                         }
+                    } else if (integral_only_op(node->as.binary.op) &&
+                               u->kind != TYPE_UNKNOWN && float_kind(u->kind)) {
+                        // Fail closed: the C backend would otherwise emit `%`,
+                        // `&`, `|` or `^` on doubles and let the host compiler
+                        // report the error. Keep the unified type so later uses
+                        // of this expression do not cascade diagnostics.
+                        char tbuf[64];
+                        char msg[200];
+                        type_display(u, tbuf, sizeof tbuf);
+                        snprintf(msg, sizeof msg,
+                                 "operator '%s' is not defined for type '%s'",
+                                 op_symbol(node->as.binary.op), tbuf);
+                        diag_error(ctx->diag, ctx->path, node->token.line,
+                                   ERR_TYPE_MISMATCH, msg);
+                        node->semantic_type = u;
                     } else {
                         node->semantic_type = u;
                     }
@@ -442,6 +457,11 @@ void check_node(SemanticContext *ctx, AstNode *node) {
                     }
                 }
                 if (sym) {
+                    // Known gap: compound assignment (+= -= *= /= %=) reaches
+                    // here after the mutability check only, so the right-hand
+                    // operand type is never unified with sym->type. Fixing it
+                    // needs an integer-widening policy first; deferred to
+                    // POST_BOOTSTRAP_ROADMAP.md.
                     node->semantic_type = sym->type;
                 } else {
                     node->semantic_type = ty(ctx, TYPE_UNKNOWN);

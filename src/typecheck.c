@@ -75,6 +75,28 @@ bool eq_comparable_kind(PrimitiveType k) {
            k == TYPE_F32;
 }
 
+bool float_kind(PrimitiveType k) {
+    return k == TYPE_FLOAT || k == TYPE_F32;
+}
+
+// S4: these operators are integral-only. They parse and emit straight to C,
+// so without a semantic gate a floating operand fails in the host compiler
+// instead of producing a located Tiq diagnostic (LANGUAGE_SPEC §5).
+bool integral_only_op(TokenKind op) {
+    return op == TOK_PERCENT || op == TOK_AMP || op == TOK_PIPE ||
+           op == TOK_CARET;
+}
+
+const char *op_symbol(TokenKind op) {
+    switch (op) {
+        case TOK_PERCENT: return "%";
+        case TOK_AMP:     return "&";
+        case TOK_PIPE:    return "|";
+        case TOK_CARET:   return "^";
+        default:          return "?";
+    }
+}
+
 bool optres_payload_ok(SemanticType *t) {
     if (!t) return false;
     switch (t->kind) {

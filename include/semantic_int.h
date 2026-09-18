@@ -78,6 +78,9 @@ SemanticType *unify(SemanticContext *ctx, int line,
                     const char *context);
 bool eq_comparable_kind(PrimitiveType k);
 bool ffi_safe_kind(PrimitiveType k);
+bool float_kind(PrimitiveType k);
+bool integral_only_op(TokenKind op);
+const char *op_symbol(TokenKind op);
 
 bool optres_payload_ok(SemanticType *t);
 void optres_payload_reject(SemanticContext *ctx, int line, bool is_result,
