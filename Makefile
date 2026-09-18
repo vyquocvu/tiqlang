@@ -18,12 +18,18 @@ SRCS = src/main.c src/emit_c.c src/emit_qbe.c src/emit_wasm.c src/lexer.c src/di
        src/asm_arm64.c src/asm_amd64.c src/asm_rv64.c src/macho_obj.c src/macho_read.c src/link_macho.c \
        src/elf_obj.c src/elf_read.c src/elf_link.c \
        src/pe_obj.c src/pe_read.c src/pe_link.c
-OBJS = $(SRCS:src/%.c=$(BUILD)/%.o)
+OPT_SRCS = src/opt/opt_pipeline.c src/opt/opt_constfold.c src/opt/opt_dce.c src/opt/opt_algebraic.c
+OPT_OBJS = $(OPT_SRCS:src/opt/%.c=$(BUILD)/opt_%.o)
+OBJS = $(SRCS:src/%.c=$(BUILD)/%.o) $(OPT_OBJS)
 
 # Rebuild everything when any public header changes (ABI safety).
 HDRS = $(wildcard include/*.h)
 
 $(BUILD)/%.o: src/%.c $(HDRS)
+	mkdir -p $(BUILD)
+	$(CC) $(CFLAGS) -c $< -o $@
+
+$(BUILD)/opt_%.o: src/opt/%.c $(HDRS)
 	mkdir -p $(BUILD)
 	$(CC) $(CFLAGS) -c $< -o $@
 

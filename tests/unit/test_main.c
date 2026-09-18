@@ -20,6 +20,8 @@
 #include "../../include/asm_rv64.h"
 #include "../../include/elf_link.h"
 #include "../../include/macho_link.h"
+#include "../../include/ir.h"
+#include "../../include/opt.h"
 
 static int tests_run = 0;
 static int tests_failed = 0;
@@ -665,6 +667,30 @@ static void test_asm_rv64_elf_roundtrip_golden(void) {
 
 // ----------------------------------------------------------------- main
 
+static void test_opt_pipeline_level0_is_noop(void) {
+    IrModule mod;
+    ir_module_init(&mod);
+    IrFunction func;
+    ir_func_init(&func, "f", 1);
+    IrType i64 = { .kind = IR_I64, .semantic = NULL };
+    int r0 = ir_new_reg(&func);
+    IrOperand imm = { .kind = IR_OP_IMM, .imm = 42 };
+    ir_emit_instr(&func, IR_CONST_INT, r0, i64, &imm, 1, 0);
+    ir_add_block(&func, 0);
+    func.blocks[0].instr_start = 0;
+    func.blocks[0].instr_end = func.instr_count;
+
+    mod.funcs = malloc(sizeof(IrFunction));
+    mod.funcs[0] = func;
+    mod.func_count = 1;
+
+    int before = func.instr_count;
+    opt_run_pipeline(&mod, 0);
+    ASSERT(mod.funcs[0].instr_count == before);
+
+    ir_module_free(&mod);
+}
+
 int main(void) {
     test_lexer_basic_stream();
     test_lexer_comment_does_not_disturb_stream();
@@ -701,6 +727,8 @@ int main(void) {
     test_asm_rv64_requires_elf_fmt();
     test_asm_rv64_unsupported_fails_closed();
     test_asm_rv64_elf_roundtrip_golden();
+
+    test_opt_pipeline_level0_is_noop();
 
     if (tests_failed > 0) {
         fprintf(stderr, "unit: %d/%d assertions failed\n", tests_failed, tests_run);
