@@ -22,6 +22,7 @@
 #include "../include/macho_link.h"
 #include "../include/elf_link.h"
 #include "../include/pe_link.h"
+#include "../include/opt.h"
 #include <sys/stat.h>
 
 #define TIQ_VERSION "0.1.0-dev"
@@ -29,6 +30,8 @@
 // M16.2: repeatable -l/-L link options forwarded to the host compiler
 // (CLI.md). Capped; overflow fails closed with a usage error.
 #define TIQ_MAX_LINK_OPTS 16
+
+static int g_opt_level = 1;
 
 static void die(const char *message) {
     fprintf(stderr, "tiq: %s\n", message);
@@ -344,6 +347,9 @@ static int build_qbe(const char *input, const char *output, DiagContext *diag) {
     if (diag->has_error) {
         ir_module_free(&module); program_free(&prog); type_pool_free(&pool); return 1;
     }
+
+    // 2b. Run optimization pipeline
+    if (g_opt_level > 0) opt_run_pipeline(&module, g_opt_level);
 
     // 3. Emit QBE IL to temp file
     char *il_path = temporary_qbe_template("XXXXXX");
@@ -728,6 +734,8 @@ static int build_wasm(const char *input, const char *output, DiagContext *diag) 
         ir_module_free(&module); program_free(&prog); type_pool_free(&pool); return 1;
     }
 
+    if (g_opt_level > 0) opt_run_pipeline(&module, g_opt_level);
+
     uint8_t *wasm = NULL;
     size_t wasm_len = 0;
     char err[256];
@@ -836,6 +844,7 @@ static int dump_ir(const char *input, DiagContext *diag) {
     IrModule module;
     ir_module_init(&module);
     ir_lower(root->stmts, root->count, &module, diag, input);
+    if (!diag->has_error && g_opt_level > 0) opt_run_pipeline(&module, g_opt_level);
     if (!diag->has_error) ir_dump(stdout, &module);
     ir_module_free(&module);
     program_free(&prog);
@@ -1018,6 +1027,7 @@ static void usage(FILE *out) {
     fputs("  tiq --version\n", out);
     fputs("  tiq run <file.tiq> [-l lib] [-L dir]\n", out);
     fputs("  tiq build [--release] <file.tiq> [-o output] [--backend qbe] [--target <triple>] [-l lib] [-L dir]\n", out);
+    fputs("  --opt-level=0|1|2  Optimization level (default: 1)\n", out);
     fputs("  tiq emit-c [--lib] <file.tiq>\n", out);
     fputs("  tiq emit-header <file.tiq> [-o output]\n", out);
     fputs("  tiq emit-obj <file.s> -o <file.o>\n", out);
@@ -1109,6 +1119,7 @@ int main(int argc, char **argv) {
         IrModule module;
         ir_module_init(&module);
         ir_lower(root->stmts, root->count, &module, &diag, argv[2]);
+        if (!diag.has_error && g_opt_level > 0) opt_run_pipeline(&module, g_opt_level);
         if (!diag.has_error) emit_qbe(stdout, &module);
         ir_module_free(&module);
         program_free(&prog);
@@ -1202,6 +1213,12 @@ int main(int argc, char **argv) {
                 backend = argv[++i];
             } else if (strcmp(argv[i], "--release") == 0) {
                 optimization = "-O3";
+            } else if (strncmp(argv[i], "--opt-level=", 12) == 0) {
+                g_opt_level = argv[i][12] - '0';
+                if (g_opt_level < 0 || g_opt_level > 2) {
+                    fprintf(stderr, "error: --opt-level must be 0, 1, or 2\n");
+                    return 1;
+                }
             } else if (strcmp(argv[i], "-l") == 0 || strcmp(argv[i], "-L") == 0) {
                 if (i + 1 >= argc) { usage(stderr); return 2; }
                 if (link_count + 2 > TIQ_MAX_LINK_OPTS * 2)

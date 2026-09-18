@@ -82,6 +82,7 @@ test: $(TIQ) $(BUILD)/qbe $(BUILD)/runtime_qbe.o test-unit test-heavy
 	sh tests/math_std.sh
 	sh tests/playground.sh
 	sh tests/wasm.sh
+	sh tests/opt.sh
 	sh tests/concurrency.sh
 
 # These suites dominate sanitizer test time and use disjoint output paths.
