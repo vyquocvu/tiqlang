@@ -1430,4 +1430,47 @@ assert_semantic_ast "typed_map_with_allocator" 'm = map_with_allocator(1)' 'BIND
     IDENT map_with_allocator
     INT 1 <TYPE_INT>'
 
+# --- Self-host driver builtins (LANGUAGE_SPEC 19.6) -------------------------
+# proc_spawn / env_get / fs_remove exist so a Tiq-written driver can exec the
+# host compiler and clean up its temporary C. Their signatures are checked
+# like any other builtin: E12 on arity, E09 on argument type.
+assert_semantic "proc_spawn_bad_arity" 'proc_spawn("cc")
+' "$TMP_DIR/proc_spawn_bad_arity.tiq:1: error[E12]: proc_spawn expects exactly 2 arguments"
+
+assert_semantic "proc_spawn_bad_type" 'proc_spawn(1, "-e")
+' "$TMP_DIR/proc_spawn_bad_type.tiq:1: error[E09]: proc_spawn argument: expected str, found int"
+
+assert_semantic "proc_spawn_second_arg_type" 'proc_spawn("/bin/test", 1)
+' "$TMP_DIR/proc_spawn_second_arg_type.tiq:1: error[E09]: proc_spawn argument: expected str, found int"
+
+assert_semantic "env_get_bad_type" 'env_get(1)
+' "$TMP_DIR/env_get_bad_type.tiq:1: error[E09]: env_get argument: expected str, found int"
+
+assert_semantic "env_get_bad_arity" 'env_get()
+' "$TMP_DIR/env_get_bad_arity.tiq:1: error[E12]: env_get expects exactly 1 argument"
+
+assert_semantic "fs_remove_bad_type" 'fs_remove(1)
+' "$TMP_DIR/fs_remove_bad_type.tiq:1: error[E09]: fs_remove argument: expected str, found int"
+
+assert_semantic "fs_remove_bad_arity" 'fs_remove("a", "b")
+' "$TMP_DIR/fs_remove_bad_arity.tiq:1: error[E12]: fs_remove expects exactly 1 argument"
+
+# Return types: proc_spawn and fs_remove yield int (an exit status / unlink
+# result), env_get yields str. Pinned so a driver can branch on them.
+assert_semantic_ast "typed_proc_spawn" 'rc = proc_spawn("/bin/test", "-e")' 'BINDING rc <TYPE_INT>
+  CALL <TYPE_INT>
+    IDENT proc_spawn
+    STRING "/bin/test" <TYPE_STR>
+    STRING "-e" <TYPE_STR>'
+
+assert_semantic_ast "typed_env_get" 'v = env_get("CC")' 'BINDING v <TYPE_STR>
+  CALL <TYPE_STR>
+    IDENT env_get
+    STRING "CC" <TYPE_STR>'
+
+assert_semantic_ast "typed_fs_remove" 'n = fs_remove("p")' 'BINDING n <TYPE_INT>
+  CALL <TYPE_INT>
+    IDENT fs_remove
+    STRING "p" <TYPE_STR>'
+
 echo "semantic: ok"

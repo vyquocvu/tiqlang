@@ -156,6 +156,27 @@ tiq lsp [--root <path>]
 
 The removed C implementations remain available in git history.
 
+## Self-hosted driver (`src/tiq/tiq_main.tiq`)
+
+The compiler is itself a Tiq program, built by the C bootstrap and afterwards
+by the stage before it (`tests/bootstrap2.sh`). Its command surface is a
+deliberate subset of the table above, and the rest fails closed with exit 2:
+
+```text
+tiq-selfhost build <file.tiq> -o <out>
+tiq-selfhost emit-c <file.tiq>
+tiq-selfhost --version
+```
+
+- `build` writes the generated C11 to `<out>.tiqtmp.c`, compiles it with the host C compiler, and removes the scratch file on every exit path. The compiler is `$CC` when `CC` is set and non-empty, otherwise `cc`; it is spawned directly (`proc_spawn`, LANGUAGE_SPEC §19.6), never through a shell, so a source or output path containing spaces or shell metacharacters is passed as one argument. A path containing a newline is rejected instead of being split into two arguments.
+- `emit-c` writes to stdout with no mode operand: `--lib` and `--header` are not part of this surface, so neither is their E31 definitions-only check.
+- `run`, `check`, `emit-header`, `dump-*`, `emit-obj`, `link-qbe`, `--backend`, `--target`, `--release` and the `-l`/`-L` options remain on the C bootstrap and are reported as unsupported rather than half-implemented.
+- Exit codes match the table below: `0` success, `1` source/semantic/backend/host-compiler failure, `2` invalid usage.
+
+`src/tiq/emit_c_main.tiq` is the narrower emitter-only entry point pinned by
+`tests/bootstrap.sh`; it is not a driver and stays byte-frozen as the M13.6
+convergence subject.
+
 ## Exit codes
 
 ```text

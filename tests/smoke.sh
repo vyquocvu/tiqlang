@@ -1747,4 +1747,51 @@ EOF
 printf '5\n4\n' > "$TMP_DIR/p9_vec_helper_fill.expected"
 cmp "$TMP_DIR/p9_vec_helper_fill.out" "$TMP_DIR/p9_vec_helper_fill.expected"
 
+# --- Self-host driver builtins: proc_spawn / env_get / fs_remove -----------
+# LANGUAGE_SPEC 19.6. These exist so a Tiq-written driver can exec the host C
+# compiler and clean up its temporary C. The contracts that matter to a driver
+# are pinned here: unwrapped exit status, -1 for a program that cannot start,
+# and no shell in between.
+cat > "$TMP_DIR/driver_builtins.tiq" <<EOF
+print(proc_spawn("/bin/test", "-e\n/etc/hosts"))
+print(proc_spawn("/bin/test", "-e\n$TMP_DIR/absent-probe-file"))
+print(proc_spawn("definitely-not-a-tiq-tool-xyz", ""))
+print(proc_spawn("/bin/sh", "-c\nexit 127"))
+print(proc_spawn("/bin/sh", "-c\nexit 3"))
+print(len(env_get("TIQ_UNSET_PROBE_KEY_XYZ")) == 0)
+print(len(env_get("PATH")) > 0)
+print(fs_write("$TMP_DIR/fs-remove-probe-file", "x"))
+print(fs_remove("$TMP_DIR/fs-remove-probe-file"))
+print(fs_exists("$TMP_DIR/fs-remove-probe-file"))
+print(fs_remove("$TMP_DIR/fs-remove-probe-file"))
+EOF
+# 0 = exit status of a true test; 1 = a false one (unwrapped, unlike the
+# system()-encoded 256); -1 = the program could not be started; a real 127
+# from the child stays 127, which is why proc_spawn reports exec failure over
+# a pipe instead of through the exit code.
+./build/tiq build "$TMP_DIR/driver_builtins.tiq" -o "$TMP_DIR/driver_builtins"
+"$TMP_DIR/driver_builtins" > "$TMP_DIR/driver_builtins.out"
+printf '0\n1\n-1\n127\n3\ntrue\ntrue\n0\n0\nfalse\n-1\n' > "$TMP_DIR/driver_builtins.expected"
+cmp "$TMP_DIR/driver_builtins.out" "$TMP_DIR/driver_builtins.expected"
+
+# Shell injection: a path that would be catastrophic under a shell must reach
+# the child as one argv element. This file name, spliced into a shell command
+# line, would run `echo pwned > pwned`; proc_spawn must hand it to cat intact.
+INJ_NAME='poc; echo pwned > pwned'
+printf 'innocent\n' > "$TMP_DIR/$INJ_NAME"
+cat > "$TMP_DIR/inject.tiq" <<EOF
+print(proc_spawn("/bin/cat", "$INJ_NAME"))
+print(proc_spawn("/bin/test", "-e\n$INJ_NAME"))
+EOF
+# The child inherits the working directory, so a shell interpretation would
+# create the marker file inside TMP_DIR.
+./build/tiq build "$TMP_DIR/inject.tiq" -o "$TMP_DIR/inject_bin"
+( cd "$TMP_DIR" && "$TMP_DIR/inject_bin" ) > "$TMP_DIR/inject.out"
+printf 'innocent\n0\n0\n' > "$TMP_DIR/inject.expected"
+cmp "$TMP_DIR/inject.out" "$TMP_DIR/inject.expected"
+if [ -e "$TMP_DIR/pwned" ]; then
+  echo "proc_spawn let a shell interpret an argument: $(cat "$TMP_DIR/pwned")" >&2
+  exit 1
+fi
+
 echo "smoke: ok"

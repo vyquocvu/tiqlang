@@ -320,6 +320,20 @@ corpus "eprint_bad_arity" 'x = eprint("a", "b")'
 corpus "eprint_bad_type" 'x = eprint(42)'
 corpus "fs_list_bad_arity" 'x = fs_list()'
 corpus "fs_list_bad_type" 'x = fs_list(42)'
+# Self-host driver builtins (LANGUAGE_SPEC 19.6). The arity and argument-type
+# diagnostics must match the bootstrap, and the positive triples below pin the
+# return types the driver relies on: int for proc_spawn/fs_remove, str for
+# env_get.
+corpus "proc_spawn_bad_arity" 'x = proc_spawn("/bin/test")'
+corpus "proc_spawn_bad_file_type" 'x = proc_spawn(1, "-e")'
+corpus "proc_spawn_bad_args_type" 'x = proc_spawn("/bin/test", 1)'
+corpus "env_get_bad_arity" 'x = env_get()'
+corpus "env_get_bad_type" 'x = env_get(1)'
+corpus "fs_remove_bad_arity" 'x = fs_remove()'
+corpus "fs_remove_bad_type" 'x = fs_remove(1)'
+corpus "proc_spawn_typed" 'x = proc_spawn("/bin/test", "-e")'
+corpus "env_get_typed" 'x = env_get("CC")'
+corpus "fs_remove_typed" 'x = fs_remove("/tmp/tiq-absent-file")'
 # P3 vec builtins, including the fail-closed unestablished rules and P9.
 corpus "vec_new_bad_arity" 'v = vec_new(1)'
 corpus "vec_push_bad_arity" 'v = vec_new()

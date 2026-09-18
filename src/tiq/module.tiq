@@ -62,7 +62,7 @@ mod_flatten_one path:str seen:map stack:map out:strbuf : i64 -> {
         toks = vec_new()
         failed == 0 ? { failed <- lex_scan(source, path, toks) }
         i <- 0
-        [tk_kind(toks, i) == TokenKind.Newline || tk_kind(toks, i) == TokenKind.Semicolon] { i <- i + 1 }
+        [failed == 0 && (tk_kind(toks, i) == TokenKind.Newline || tk_kind(toks, i) == TokenKind.Semicolon)] { i <- i + 1 }
         [failed == 0 && tk_kind(toks, i) == TokenKind.Import] {
             imp = i
             i <- i + 1

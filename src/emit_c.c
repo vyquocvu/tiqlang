@@ -117,6 +117,8 @@ static bool is_owned_str_builtin_call(AstNode *expr) {
         {"str_sub", 7}, {"fs_list", 7},
         // M13.1-P4: fresh heap snapshot of the buffer (LANGUAGE_SPEC §19.8).
         {"str_buf_to_str", 14},
+        // Self-host driver: getenv result is duplicated to fresh heap.
+        {"env_get", 7},
     };
     if (!expr || expr->kind != AST_CALL || expr->as.call.is_bracket_call) return false;
     if (!expr->as.call.callee || expr->as.call.callee->kind != AST_IDENTIFIER) return false;
@@ -211,6 +213,10 @@ static bool is_safe_builtin_callee(AstNode *callee) {
         {"print", 5}, {"len", 3},
         {"fs_read", 7}, {"fs_write", 8}, {"fs_exists", 9},
         {"proc_exec", 9}, {"proc_exit", 9},
+        // Self-host driver: proc_spawn/fs_remove copy their str operands before
+        // exec/unlink and env_get duplicates the value, so none retains the
+        // caller's buffer.
+        {"proc_spawn", 10}, {"fs_remove", 9}, {"env_get", 7},
         {"json_parse_int", 14}, {"json_encode_str", 15}, {"json_get", 8},
         {"json_arr_len", 12}, {"json_arr_get", 12}, {"net_fetch", 9},
         {"cli_arg_count", 13}, {"cli_arg", 7},
@@ -1031,6 +1037,10 @@ static void emit_expr(AstNode *node, EmitContext *ctx) {
                 static const Btn btn[] = {
                     {"fs_read", 7, "tiq_fs_read", 0}, {"fs_write", 8, "tiq_fs_write", 0},
                     {"fs_exists", 9, "tiq_fs_exists", 0}, {"proc_exec", 9, "tiq_proc_exec", 0},
+                    // Self-host driver support (LANGUAGE_SPEC §19.6).
+                    {"proc_spawn", 10, "tiq_proc_spawn", 0},
+                    {"env_get", 7, "tiq_env_get", 0},
+                    {"fs_remove", 9, "tiq_fs_remove", 0},
                     {"proc_exit", 9, "tiq_proc_exit", 0}, {"json_parse_int", 14, "tiq_json_parse_int", 1},
                     {"json_encode_str", 15, "tiq_json_encode_str", 1}, {"net_fetch", 9, "tiq_net_fetch", 1},
                     {"cli_arg_count", 13, "tiq_cli_arg_count", 0}, {"cli_arg", 7, "tiq_cli_arg", 0},

@@ -508,6 +508,33 @@ if [ "$unsupported_rc" -eq 0 ] || [ -s "$TMP_DIR/unsupported_chan.out" ] ||
   fail=1
 fi
 
+# The driver's most common user error is a mistyped source path, and the
+# flattener reads that file before it ever lexes: it must fail closed with a
+# located E27 and no C on stdout, and must not go on indexing the token vec it
+# never filled.
+"$SELFHOST" "$TMP_DIR/absent-top-level.tiq" >"$TMP_DIR/absent_top.out" 2>"$TMP_DIR/absent_top.err"
+mi_rc=$?
+if [ "$mi_rc" -eq 0 ] || [ -s "$TMP_DIR/absent_top.out" ] ||
+   ! grep -q 'absent-top-level.tiq:1: error\[E27\]: module not found:' "$TMP_DIR/absent_top.err" ||
+   grep -q 'out of bounds' "$TMP_DIR/absent_top.err"; then
+  echo "selfhost_emit_c: FAIL absent_top_level (located E27 without a runtime panic expected)" >&2
+  cat "$TMP_DIR/absent_top.err" >&2
+  fail=1
+fi
+
+# A missing imported module fails closed the same way, from inside the import
+# loop rather than on the first line.
+printf '%s\n' 'import "definitely-absent-module.tiq"
+x = 1' >"$TMP_DIR/missing_import.tiq"
+"$SELFHOST" "$TMP_DIR/missing_import.tiq" >"$TMP_DIR/missing_import.out" 2>"$TMP_DIR/missing_import.err"
+mi_rc=$?
+if [ "$mi_rc" -eq 0 ] || [ -s "$TMP_DIR/missing_import.out" ] ||
+   ! grep -q 'error\[E27\]: module not found: definitely-absent-module.tiq' "$TMP_DIR/missing_import.err"; then
+  echo "selfhost_emit_c: FAIL missing_import (E27 with no emitted C expected)" >&2
+  cat "$TMP_DIR/missing_import.err" >&2
+  fail=1
+fi
+
 # End-to-end M13.5 dogfood gate: consume the compiler's module graph, emit a
 # standalone compiler, compile it strictly, and require the compiled stage to
 # reproduce the exact same deterministic C bytes.

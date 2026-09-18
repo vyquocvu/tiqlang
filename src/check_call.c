@@ -185,6 +185,13 @@ void check_call(SemanticContext *ctx, AstNode *node) {
                         {"fs_write",       8, 2, TYPE_STR, TYPE_INT, TYPE_UNKNOWN, false},
                         {"fs_exists",      9, 1, TYPE_STR, TYPE_BOOL, TYPE_UNKNOWN, false},
                         {"proc_exec",      9, 1, TYPE_STR, TYPE_INT, TYPE_UNKNOWN, false},
+                        // Self-host driver support (LANGUAGE_SPEC §19.6):
+                        // shell-free exec, environment lookup, and temporary
+                        // file removal. Ungated core builtins because the
+                        // bootstrap seed must not depend on a std/ module.
+                        {"proc_spawn",    10, 2, TYPE_STR, TYPE_INT, TYPE_STR, false},
+                        {"env_get",        7, 1, TYPE_STR, TYPE_STR, TYPE_UNKNOWN, false},
+                        {"fs_remove",      9, 1, TYPE_STR, TYPE_INT, TYPE_UNKNOWN, false},
                         {"proc_exit",      9, 1, TYPE_INT, TYPE_INT, TYPE_UNKNOWN, false},
                         {"json_parse_int",14, 1, TYPE_STR, TYPE_INT, TYPE_UNKNOWN, true},
                         {"json_encode_str",15,1, TYPE_STR, TYPE_STR, TYPE_UNKNOWN, true},

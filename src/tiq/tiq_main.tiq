@@ -1,0 +1,153 @@
+// Self-hosted compiler driver: the first Tiq program that compiles a Tiq
+// program end to end.
+//
+// The front-end pipeline below duplicates src/tiq/emit_c_main.tiq:12-61 on
+// purpose. That file is the M13.6 bootstrap pin run by tests/bootstrap.sh, and
+// keeping it byte-frozen means this driver's added behaviour cannot silently
+// invalidate the existing convergence gate. Extracting a shared driver module
+// is the follow-up once this one works.
+//
+// Supported surface (docs/CLI.md): `build`, `emit-c`, `--version`. Every other
+// C bootstrap command fails closed with exit 2 instead of half-working, so the
+// lib/header modes and their E31 preflight are deliberately absent here.
+
+import "emit_c.tiq"
+import "module.tiq"
+
+// LANGUAGE_SPEC 19.6: proc_spawn encodes an argument list as newline-separated
+// segments, so a path containing a newline is not representable. The driver has
+// to reject such a path rather than mis-exec it as two arguments.
+drv_has_nl s:str : i64 -> {
+    found <- 0
+    i <- 0
+    [i < len(s) && found == 0] {
+        str_sub_code(s, i) == 10 ? { found <- 1 }
+        i <- i + 1
+    }
+    found
+}
+
+drv_sfx p:str s:str : str -> str_cat(p, s)
+
+// Tiq cannot declare a zero-parameter function, so the caller passes the
+// specific error line to print above the fixed surface description.
+drv_usage err:str : i64 -> {
+    eprint(err)
+    eprint("tiq-selfhost: this driver implements only:")
+    eprint("  build <file.tiq> -o <out>   compile a Tiq program to an executable")
+    eprint("  emit-c <file.tiq>           write the generated C11 to stdout")
+    eprint("  --version")
+    eprint("tiq-selfhost: run, check, emit-header, dump-*, emit-obj, link-qbe and -l/-L stay on the C bootstrap")
+    0
+}
+
+cmd = cli_arg(0)
+nargs = cli_arg_count()
+
+mode <- 0
+str_eq(cmd, "build") ? { mode <- 1 }
+str_eq(cmd, "emit-c") ? { mode <- 2 }
+
+nargs == 1 && str_eq(cmd, "--version") ? {
+    print("tiq-selfhost 0.1.0-dev - self-hosted Tiq compiler driver")
+    proc_exit(0)
+}
+
+mode == 0 ? {
+    nargs > 0 ? { drv_usage(drv_sfx(drv_sfx("tiq-selfhost: unsupported command '", cmd), "'")) }
+    nargs == 0 ? { drv_usage("tiq-selfhost: missing command") }
+    proc_exit(2)
+}
+mode == 1 && nargs != 4 ? {
+    drv_usage("tiq-selfhost: build takes exactly <file.tiq> -o <out>")
+    proc_exit(2)
+}
+mode == 1 && str_eq(cli_arg(2), "-o") == false ? {
+    drv_usage(drv_sfx(drv_sfx("tiq-selfhost: expected '-o' before the output path, found '", cli_arg(2)), "'"))
+    proc_exit(2)
+}
+mode == 2 && nargs != 2 ? {
+    drv_usage("tiq-selfhost: emit-c takes exactly one source file")
+    proc_exit(2)
+}
+
+path = cli_arg(1)
+out <- ""
+mode == 1 ? { out <- cli_arg(3) }
+
+nl <- drv_has_nl(path)
+mode == 1 ? { nl <- nl + drv_has_nl(out) }
+nl > 0 ? {
+    eprint("tiq-selfhost: a path containing a newline cannot be passed as one spawned argument (LANGUAGE_SPEC 19.6)")
+    proc_exit(2)
+}
+
+source = mod_flatten(path)
+toks = vec_new()
+lex_err = lex_scan(source, path, toks)
+st = vec_new()
+vec_push(st, 0)
+vec_push(st, 0)
+vec_push(st, 0)
+vec_push(st, 0)
+first = p_peek(toks, 0)
+vec_set(st, PS.Cur, first)
+vec_set(st, PS.Prev, first)
+vec_set(st, PS.HasErr, lex_err)
+nodes = vec_new()
+kids = vec_new()
+sk = vec_new()
+sk2 = vec_new()
+tops = vec_new()
+parse_err = p_parse(source, path, toks, st, nodes, kids, sk, sk2, tops)
+tp = vec_new()
+tpn = vec_new()
+types = vec_new()
+has_err <- semantic_run(source, path, toks, nodes, kids, tops, parse_err, tp, tpn, types)
+bad <- 0 - 1
+has_err == 0 ? {
+    j <- 0
+    [j < vec_len(tops) && bad == 0 - 1] {
+        bad <- ec_find_unsupported(source, toks, nodes, kids, types, tp, vec_get(tops, j))
+        j <- j + 1
+    }
+    bad != 0 - 1 ? {
+        eprint(diag_line(path, tk_line(toks, nd_get(nodes, bad, NF.Tok)), 7, "self-hosted C emitter does not support this expression yet"))
+        has_err <- 1
+    }
+}
+has_err != 0 ? { proc_exit(1) }
+c_text = emit_c_program(path, source, toks, nodes, kids, tops, types, tp, tpn, 0)
+
+mode == 2 ? {
+    print(c_text)
+    proc_exit(0)
+}
+
+// Deterministic scratch name, so no mkstemp builtin is needed for a bootstrap
+// seed. Two concurrent `build` runs of the same -o target therefore collide;
+// fs_tmp_path is the deferred fix.
+tmp = drv_sfx(out, ".tiqtmp.c")
+wrote = fs_write(tmp, c_text)
+wrote != 0 ? {
+    eprint(drv_sfx(drv_sfx("tiq-selfhost: cannot write generated C to '", tmp), "'"))
+    fs_remove(tmp)
+    proc_exit(1)
+}
+
+cc <- env_get("CC")
+str_eq(cc, "") ? { cc <- "cc" }
+args <- "-std=c11\n-Os\n-x\nc\n"
+args <- drv_sfx(drv_sfx(args, tmp), "\n-o\n")
+args <- drv_sfx(args, out)
+args <- drv_sfx(args, "\n")
+
+rc <- proc_spawn(cc, args)
+rm <- fs_remove(tmp)
+rc != 0 ? {
+    rc == 0 - 1 ? { eprint(drv_sfx(drv_sfx("tiq-selfhost: could not run host C compiler '", cc), "'")) }
+    rc != 0 - 1 ? { eprint(drv_sfx(drv_sfx("tiq-selfhost: host C compiler '", cc), "' exited non-zero")) }
+    proc_exit(1)
+}
+rm != 0 ? { eprint(drv_sfx(drv_sfx("tiq-selfhost: compiled, but could not remove '", tmp), "'")) }
+proc_exit(0)

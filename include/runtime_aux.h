@@ -43,6 +43,77 @@ static const char TIQ_RUNTIME_PRELUDE_AUX1[] =
     "    return (int64_t)system(cmd);\n"
     "}\n\n"
 
+    // proc_spawn is the shell-free sibling of proc_exec: fork + execvp, so a
+    // Tiq source path containing shell metacharacters reaches the child as one
+    // argv element instead of being re-parsed. `args` is newline-separated and
+    // empty segments are dropped, meaning an empty argument is not
+    // representable; the caller must reject such a path rather than mis-exec.
+    // Returns the child's exit status (never a wrapped wait encoding), or -1
+    // when the program could not be started or did not exit normally. A pipe
+    // carries the exec failure back to the parent because the child's own exit
+    // code cannot distinguish "127 from the program" from "127 because execvp
+    // failed".
+    "static int64_t tiq_proc_spawn(const char *file, const char *args) {\n"
+    "    if (!file || !*file) return -1;\n"
+    "    size_t sep = 0;\n"
+    "    for (const char *q = args; q && *q; q++) { if (*q == '\\n') sep++; }\n"
+    "    char **av = (char **)tiq_alloc((sep + 3) * sizeof(char *));\n"
+    "    size_t n = 0;\n"
+    "    av[n++] = (char *)file;\n"
+    "    const char *p = args;\n"
+    "    while (p && *p) {\n"
+    "        const char *e = strchr(p, '\\n');\n"
+    "        size_t len = e ? (size_t)(e - p) : strlen(p);\n"
+    "        if (len > 0) {\n"
+    "            char *a = (char *)tiq_alloc(len + 1);\n"
+    "            memcpy(a, p, len);\n"
+    "            a[len] = '\\0';\n"
+    "            av[n++] = a;\n"
+    "        }\n"
+    "        if (!e) break;\n"
+    "        p = e + 1;\n"
+    "    }\n"
+    "    av[n] = NULL;\n"
+    "    int pfd[2];\n"
+    "    if (pipe(pfd) != 0) return -1;\n"
+    "    pid_t pid = fork();\n"
+    "    if (pid < 0) { close(pfd[0]); close(pfd[1]); return -1; }\n"
+    "    if (pid == 0) {\n"
+    "        close(pfd[0]);\n"
+    "        execvp(av[0], av);\n"
+    "        char exec_failed = 1;\n"
+    "        ssize_t wrote = write(pfd[1], &exec_failed, 1);\n"
+    "        (void)wrote;\n"
+    "        _exit(127);\n"
+    "    }\n"
+    "    close(pfd[1]);\n"
+    "    char probe = 0;\n"
+    "    ssize_t got = read(pfd[0], &probe, 1);\n"
+    "    while (got < 0 && errno == EINTR) { got = read(pfd[0], &probe, 1); }\n"
+    "    close(pfd[0]);\n"
+    "    if (got > 0) {\n"
+    "        int dead = 0;\n"
+    "        while (waitpid(pid, &dead, 0) < 0 && errno == EINTR) { continue; }\n"
+    "        return -1;\n"
+    "    }\n"
+    "    int status = 0;\n"
+    "    while (waitpid(pid, &status, 0) < 0) {\n"
+    "        if (errno != EINTR) return -1;\n"
+    "    }\n"
+    "    return WIFEXITED(status) ? (int64_t)WEXITSTATUS(status) : -1;\n"
+    "}\n\n"
+
+    "static const char *tiq_env_get(const char *key) {\n"
+    "    if (!key) return tiq_str_dup(\"\");\n"
+    "    const char *v = getenv(key);\n"
+    "    return tiq_str_dup(v ? v : \"\");\n"
+    "}\n\n"
+
+    "static int64_t tiq_fs_remove(const char *path) {\n"
+    "    if (!path || !*path) return -1;\n"
+    "    return (int64_t)unlink(path);\n"
+    "}\n\n"
+
     "static _Noreturn int64_t tiq_proc_exit(int64_t code) {\n"
     "    exit((int)code);\n"
     "}\n\n"

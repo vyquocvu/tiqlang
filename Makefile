@@ -5,7 +5,7 @@ BUILD := build
 TIQ := $(BUILD)/tiq
 TEST_JOBS ?= 5
 
-.PHONY: all clean test test-heavy test-unit test-fuzz test-selfhost test-selfhost-lexer test-selfhost-parser test-selfhost-semantic test-selfhost-emit-c test-bootstrap example benchmark-compare test-check test-run test-qbe test-wasm tool-test tool-fmt tool-bench tool-init tool-cache tool-lsp tool-install tool-registry tool-publish tool-audit tool-proxy tool-router tool-json tool-std tool-math perf-record perf-check
+.PHONY: all clean test test-heavy test-unit test-fuzz test-selfhost test-selfhost-lexer test-selfhost-parser test-selfhost-semantic test-selfhost-emit-c test-bootstrap test-bootstrap2 example benchmark-compare test-check test-run test-qbe test-wasm tool-test tool-fmt tool-bench tool-init tool-cache tool-lsp tool-install tool-registry tool-publish tool-audit tool-proxy tool-router tool-json tool-std tool-math perf-record perf-check
 
 # Build the unit runner with the same flags as the compiler. Besides keeping
 # `make` useful as a complete build gate, this preserves sanitizer link flags
@@ -88,7 +88,7 @@ test: $(TIQ) $(BUILD)/qbe $(BUILD)/runtime_qbe.o test-unit test-heavy
 # These suites dominate sanitizer test time and use disjoint output paths.
 # Bound the default fan-out; smaller hosts can use `make TEST_JOBS=2 test`.
 test-heavy: $(TIQ)
-	+$(MAKE) -j$(TEST_JOBS) test-selfhost-lexer test-selfhost-parser test-selfhost-semantic test-selfhost-emit-c test-bootstrap
+	+$(MAKE) -j$(TEST_JOBS) test-selfhost-lexer test-selfhost-parser test-selfhost-semantic test-selfhost-emit-c test-bootstrap test-bootstrap2
 
 test-selfhost-lexer: $(TIQ)
 	sh tests/selfhost_lexer.sh
@@ -104,6 +104,11 @@ test-selfhost-emit-c: $(TIQ)
 
 test-bootstrap: $(TIQ)
 	sh tests/bootstrap.sh
+
+# M13-S3: the Tiq-to-Tiq chain — one C-bootstrap seed, then the Tiq-built
+# driver builds the next stage.
+test-bootstrap2: $(TIQ)
+	sh tests/bootstrap2.sh
 
 # Pre-M13 S5: tiered targets. test-fast covers lexer/parser/semantic/diagnostic
 # tests (no sockets, network, or platform linkers) — required merge gate for

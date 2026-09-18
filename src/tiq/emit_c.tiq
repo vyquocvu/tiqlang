@@ -219,7 +219,8 @@ ec_ffi_param_type src:str toks:vec[Token] nodes:vec[int] tops:vec[int] ti:i64 : 
 
 ec_runtime_builtin n:str : bool ->
     str_eq(n, "fs_read") || str_eq(n, "fs_write") || str_eq(n, "fs_exists") || str_eq(n, "fs_list") ||
-    str_eq(n, "proc_exec") || str_eq(n, "proc_exit") || str_eq(n, "json_parse_int") || str_eq(n, "json_encode_str") ||
+    str_eq(n, "proc_exec") || str_eq(n, "proc_spawn") || str_eq(n, "env_get") || str_eq(n, "fs_remove") ||
+    str_eq(n, "proc_exit") || str_eq(n, "json_parse_int") || str_eq(n, "json_encode_str") ||
     str_eq(n, "net_fetch") || str_eq(n, "cli_arg_count") || str_eq(n, "cli_arg") || str_eq(n, "json_get") ||
     str_eq(n, "json_arr_len") || str_eq(n, "json_arr_get") || str_eq(n, "json_view") || str_eq(n, "json_has") ||
     str_eq(n, "json_set") || str_eq(n, "json_del") || str_eq(n, "net_listen") || str_eq(n, "net_accept") ||
@@ -363,7 +364,7 @@ ec_owned_name n:str : bool ->
     str_eq(n, "http_method") || str_eq(n, "http_path") || str_eq(n, "json_set") ||
     str_eq(n, "json_del") || str_eq(n, "str_cat") || str_eq(n, "int_str") ||
     str_eq(n, "http_header") || str_eq(n, "str_sub") || str_eq(n, "fs_list") ||
-    str_eq(n, "str_buf_to_str")
+    str_eq(n, "str_buf_to_str") || str_eq(n, "env_get")
 
 ec_name_in names:vec[str] name:str : bool -> {
     r <- false
