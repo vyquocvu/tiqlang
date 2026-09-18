@@ -844,6 +844,78 @@ static void test_opt_constfold_cbr_constant_condition(void) {
     ir_module_free(&mod);
 }
 
+static void test_opt_dce_removes_unused_register(void) {
+    IrFunction func = make_test_func();
+    IrType i64 = { .kind = IR_I64, .semantic = NULL };
+    int r0 = ir_new_reg(&func);
+    int r1 = ir_new_reg(&func);
+    int r2 = ir_new_reg(&func);
+    IrOperand imm3 = { .kind = IR_OP_IMM, .imm = 3 };
+    IrOperand imm4 = { .kind = IR_OP_IMM, .imm = 4 };
+    ir_emit_instr(&func, IR_CONST_INT, r0, i64, &imm3, 1, 0);
+    ir_emit_instr(&func, IR_CONST_INT, r1, i64, &imm4, 1, 0);
+    IrOperand ops[2] = {
+        { .kind = IR_OP_REG, .reg = r0 },
+        { .kind = IR_OP_REG, .reg = r0 }
+    };
+    ir_emit_instr(&func, IR_ADD, r2, i64, ops, 2, 0);
+    func.blocks[0].instr_end = func.instr_count;
+
+    IrModule mod = make_single_func_module(func);
+    OptResult r = opt_dce(&mod, &mod.funcs[0]);
+
+    ASSERT(r.changes == 2);
+    int alive = 0;
+    for (int i = 0; i < mod.funcs[0].instr_count; i++) {
+        if (mod.funcs[0].instrs[i].op != IR_OP_COUNT) alive++;
+    }
+    ASSERT(alive == 1);
+
+    ir_module_free(&mod);
+}
+
+static void test_opt_dce_keeps_side_effects(void) {
+    IrFunction func = make_test_func();
+    IrType i64 = { .kind = IR_I64, .semantic = NULL };
+    int r0 = ir_new_reg(&func);
+    IrOperand imm42 = { .kind = IR_OP_IMM, .imm = 42 };
+    ir_emit_instr(&func, IR_CONST_INT, r0, i64, &imm42, 1, 0);
+    IrOperand print_op = { .kind = IR_OP_REG, .reg = r0 };
+    ir_emit_instr(&func, IR_PRINT, -1, (IrType){ .kind = IR_VOID, .semantic = NULL }, &print_op, 1, 0);
+    func.blocks[0].instr_end = func.instr_count;
+
+    IrModule mod = make_single_func_module(func);
+    OptResult r = opt_dce(&mod, &mod.funcs[0]);
+
+    ASSERT(r.changes == 0);
+
+    ir_module_free(&mod);
+}
+
+static void test_opt_dce_keeps_used_values(void) {
+    IrFunction func = make_test_func();
+    IrType i64 = { .kind = IR_I64, .semantic = NULL };
+    int r0 = ir_new_reg(&func);
+    int r1 = ir_new_reg(&func);
+    IrOperand imm3 = { .kind = IR_OP_IMM, .imm = 3 };
+    ir_emit_instr(&func, IR_CONST_INT, r0, i64, &imm3, 1, 0);
+    IrOperand ops[2] = {
+        { .kind = IR_OP_REG, .reg = r0 },
+        { .kind = IR_OP_REG, .reg = r0 }
+    };
+    ir_emit_instr(&func, IR_ADD, r1, i64, ops, 2, 0);
+    IrOperand ret_op = { .kind = IR_OP_REG, .reg = r1 };
+    ir_emit_instr(&func, IR_RET, -1, (IrType){ .kind = IR_VOID, .semantic = NULL }, &ret_op, 1, 0);
+    func.blocks[0].instr_end = func.instr_count;
+
+    IrModule mod = make_single_func_module(func);
+    OptResult r = opt_dce(&mod, &mod.funcs[0]);
+
+    ASSERT(r.changes == 0);
+
+    ir_module_free(&mod);
+}
+
 // ----------------------------------------------------------------- main
 
 static void test_opt_pipeline_level0_is_noop(void) {
@@ -915,6 +987,10 @@ int main(void) {
     test_opt_constfold_div_by_zero_skipped();
     test_opt_constfold_non_constant_not_folded();
     test_opt_constfold_cbr_constant_condition();
+
+    test_opt_dce_removes_unused_register();
+    test_opt_dce_keeps_side_effects();
+    test_opt_dce_keeps_used_values();
 
     if (tests_failed > 0) {
         fprintf(stderr, "unit: %d/%d assertions failed\n", tests_failed, tests_run);
