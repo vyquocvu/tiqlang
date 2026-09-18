@@ -106,6 +106,8 @@ Tiq-specific operators:
 
 `!` is logical negation. Its operand must be `bool` and the result is `bool`; Tiq has no truthiness. Printing is not an operator — it is the `print` builtin (§12).
 
+`% & | ^` are **integral-only**: their operands must unify to an integer type. Applying any of them to a floating-point operand is rejected during semantic analysis (E09: `operator '%' is not defined for type 'float'`) rather than reaching a backend.
+
 ## 6. Bindings
 
 Immutable definition:
@@ -742,6 +744,7 @@ The following constructs **parse** successfully but are **rejected during semant
 | `spawn expr` | E07: "spawn is not supported yet" | M7 (concurrency runtime) |
 | `chan T` | E07: "chan is not supported yet" | M7 (concurrency runtime) |
 | `&x` outside call arguments | E07: "borrow is only valid as an argument to a reference parameter" | M9 (borrow extensions: stored/returned borrows) |
+| `% & \| ^` on a floating-point operand | E09: "operator '%' is not defined for type 'float'" | none — permanent (§5) |
 
 The parser accepts these forward-compatibility spellings so that future milestones can promote them to implemented without grammar breakage.
 

@@ -1,6 +1,25 @@
 # Tiq Implementation Status
 
-Updated: 2026-08-22
+Updated: 2026-09-18
+
+S4 — Fail-closed integral-only operators (closed 2026-09-18):
+`% & | ^` now require integer operands. Each parses at its ordinary precedence
+level and previously type-checked on `f64`/`f32`, then failed inside the
+generated C with `invalid operands to binary expression` — a host-compiler
+message with no Tiq error code and no source location. The gate lives in the
+binary-expression check next to the equality-comparability rule
+(`src/semantic.c`), reuses `ERR_TYPE_MISMATCH`, and keeps the unified type so a
+single bad operator produces one diagnostic instead of a cascade. Mirrored in
+the self-hosted checker (`src/tiq/semantic.tiq`), where the message strings are
+spelled literally per operator so they diff against the C formats. Verified by
+the `float_mod`, `f32_mod`, `float_bitand`, `float_bitor`, `float_bitxor` cases
+in `tests/semantic.sh`, by the `e09_float_mod` / `e09_float_bitand` diff pair in
+`tests/selfhost_semantic.sh` (51 fixtures), and by `make test-bootstrap`.
+Documented in LANGUAGE_SPEC §5 and the §17.3 fail-closed table.
+**Deferred, unchanged:** compound assignment (`+= -= *= /= %=`) still performs
+no operand type checking — `x += "s"` on an `i64` is the same class of opaque
+host-C failure. Fixing it first needs an integer-widening policy decision;
+tracked in `POST_BOOTSTRAP_ROADMAP.md`.
 
 M20.3 — Interactive Web Playground (closed 2026-08-22):
 `editors/playground/` (index.html, playground.js, playground.css, README.md) provides an in-browser playground environment with WASI preview1 runtime polyfill, real-time code runner, preset examples (`hello`, `fib`, `primes`, `option_result`, `pattern_matching`), target switcher (WASM, Emitted C, SSA IR), and shareable URL hashing. Verified by `tests/playground.sh`.
