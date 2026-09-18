@@ -1,0 +1,170 @@
+//! link: -l sqlite3
+import "std/sqlite.tiq"
+
+arg_count = cli_arg_count()
+[arg_count < 1] {
+    proc_exec("rm -f build/todo_demo.db")
+    db = sqlite_open("build/todo_demo.db")
+    sqlite_exec(db, "CREATE TABLE IF NOT EXISTS tasks (id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT, done INTEGER DEFAULT 0, created_at TEXT DEFAULT CURRENT_TIMESTAMP);")
+
+    sqlite_exec(db, "INSERT INTO tasks (title) VALUES ('Learn Tiq');")
+    print("Added: Learn Tiq")
+    sqlite_exec(db, "INSERT INTO tasks (title) VALUES ('Build a project');")
+    print("Added: Build a project")
+
+    print("Tasks:")
+    stmt = sqlite_prepare(db, "SELECT id, done, title FROM tasks ORDER BY id;")
+    row_done <- 0
+    [row_done == 0] {
+        st = sqlite_step(stmt)
+        [!sqlite_is_row(st)] {
+            row_done <- 1
+            break
+        }
+        [row_done == 0] {
+            tid = sqlite_col_int(stmt, 0)
+            tdone = sqlite_col_int(stmt, 1)
+            ttitle = sqlite_col_str(stmt, 2)
+            tdone == 1 ? print(str_cat("  [x] ", str_cat(int_str(tid), str_cat(": ", ttitle)))) : print(str_cat("  [ ] ", str_cat(int_str(tid), str_cat(": ", ttitle))))
+            break
+        }
+    }
+    sqlite_finalize(stmt)
+
+    sqlite_exec(db, "UPDATE tasks SET done = 1 WHERE id = 1;")
+    print("Marked task 1 as done")
+
+    sqlite_exec(db, "DELETE FROM tasks WHERE id = 2;")
+    print("Removed task 2")
+
+    print("Tasks:")
+    stmt2 = sqlite_prepare(db, "SELECT id, done, title FROM tasks ORDER BY id;")
+    row_done <- 0
+    [row_done == 0] {
+        st = sqlite_step(stmt2)
+        [!sqlite_is_row(st)] {
+            row_done <- 1
+            break
+        }
+        [row_done == 0] {
+            tid = sqlite_col_int(stmt2, 0)
+            tdone = sqlite_col_int(stmt2, 1)
+            ttitle = sqlite_col_str(stmt2, 2)
+            tdone == 1 ? print(str_cat("  [x] ", str_cat(int_str(tid), str_cat(": ", ttitle)))) : print(str_cat("  [ ] ", str_cat(int_str(tid), str_cat(": ", ttitle))))
+            break
+        }
+    }
+    sqlite_finalize(stmt2)
+
+    sqlite_close(db)
+    proc_exit(0)
+}
+
+cmd = cli_arg(0)
+db = sqlite_open("todo.db")
+
+[db == u64(0)] {
+    eprint("Error: Failed to open database")
+    proc_exit(1)
+    break
+}
+
+sqlite_exec(db, "CREATE TABLE IF NOT EXISTS tasks (id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT, done INTEGER DEFAULT 0, created_at TEXT DEFAULT CURRENT_TIMESTAMP);")
+
+// add command
+[str_eq(cmd, "add")] {
+    [arg_count < 2] {
+        eprint("Usage: tiq run todo.tiq add <title>")
+        sqlite_close(db)
+        proc_exit(1)
+        break
+    }
+    title = cli_arg(1)
+    sql = str_cat("INSERT INTO tasks (title) VALUES ('", str_cat(title, "');"))
+    rc = sqlite_exec(db, sql)
+    [sqlite_is_ok(rc)] {
+        print(str_cat("Added: ", title))
+        break
+    }
+    [!sqlite_is_ok(rc)] {
+        eprint("Error: Failed to add task")
+        break
+    }
+    break
+}
+
+// list command
+[str_eq(cmd, "list")] {
+    stmt = sqlite_prepare(db, "SELECT id, done, title FROM tasks ORDER BY id;")
+    [stmt != u64(0)] {
+        print("Tasks:")
+        row_done <- 0
+        [row_done == 0] {
+            st = sqlite_step(stmt)
+            [!sqlite_is_row(st)] {
+                row_done <- 1
+                break
+            }
+            [row_done == 0] {
+                id = sqlite_col_int(stmt, 0)
+                done = sqlite_col_int(stmt, 1)
+                title = sqlite_col_str(stmt, 2)
+                done == 1 ? print(str_cat("  [x] ", str_cat(int_str(id), str_cat(": ", title)))) : print(str_cat("  [ ] ", str_cat(int_str(id), str_cat(": ", title))))
+                break
+            }
+        }
+        sqlite_finalize(stmt)
+        break
+    }
+    [stmt == u64(0)] {
+        eprint("Error: Failed to query tasks")
+        break
+    }
+    break
+}
+
+// done command
+[str_eq(cmd, "done")] {
+    [arg_count < 2] {
+        eprint("Usage: tiq run todo.tiq done <id>")
+        sqlite_close(db)
+        proc_exit(1)
+        break
+    }
+    id_str = cli_arg(1)
+    sql = str_cat("UPDATE tasks SET done = 1 WHERE id = ", id_str)
+    rc = sqlite_exec(db, sql)
+    [sqlite_is_ok(rc)] {
+        print(str_cat("Marked task ", str_cat(id_str, " as done")))
+        break
+    }
+    [!sqlite_is_ok(rc)] {
+        eprint("Error: Failed to update task")
+        break
+    }
+    break
+}
+
+// remove command
+[str_eq(cmd, "remove")] {
+    [arg_count < 2] {
+        eprint("Usage: tiq run todo.tiq remove <id>")
+        sqlite_close(db)
+        proc_exit(1)
+        break
+    }
+    id_str = cli_arg(1)
+    sql = str_cat("DELETE FROM tasks WHERE id = ", id_str)
+    rc = sqlite_exec(db, sql)
+    [sqlite_is_ok(rc)] {
+        print(str_cat("Removed task ", id_str))
+        break
+    }
+    [!sqlite_is_ok(rc)] {
+        eprint("Error: Failed to remove task")
+        break
+    }
+    break
+}
+
+sqlite_close(db)
