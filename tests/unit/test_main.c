@@ -665,6 +665,185 @@ static void test_asm_rv64_elf_roundtrip_golden(void) {
     free(obj);
 }
 
+// -------------------------------------------------------- constfold tests
+
+static IrFunction make_test_func(void) {
+    IrFunction func;
+    ir_func_init(&func, "test", 4);
+    ir_add_block(&func, 0);
+    return func;
+}
+
+static IrModule make_single_func_module(IrFunction func) {
+    IrModule mod;
+    ir_module_init(&mod);
+    mod.funcs = malloc(sizeof(IrFunction));
+    mod.funcs[0] = func;
+    mod.func_count = 1;
+    mod.func_cap = 1;
+    return mod;
+}
+
+static void test_opt_constfold_integer_add(void) {
+    IrFunction func = make_test_func();
+    IrType i64 = { .kind = IR_I64, .semantic = NULL };
+    int r0 = ir_new_reg(&func);
+    int r1 = ir_new_reg(&func);
+    int r2 = ir_new_reg(&func);
+    IrOperand imm3 = { .kind = IR_OP_IMM, .imm = 3 };
+    IrOperand imm4 = { .kind = IR_OP_IMM, .imm = 4 };
+    ir_emit_instr(&func, IR_CONST_INT, r0, i64, &imm3, 1, 0);
+    ir_emit_instr(&func, IR_CONST_INT, r1, i64, &imm4, 1, 0);
+    IrOperand ops[2] = {
+        { .kind = IR_OP_REG, .reg = r0 },
+        { .kind = IR_OP_REG, .reg = r1 }
+    };
+    ir_emit_instr(&func, IR_ADD, r2, i64, ops, 2, 0);
+    func.blocks[0].instr_end = func.instr_count;
+
+    IrModule mod = make_single_func_module(func);
+    OptResult r = opt_constfold(&mod, &mod.funcs[0]);
+
+    ASSERT(r.changes == 1);
+    IrInstr *add_instr = &mod.funcs[0].instrs[2];
+    ASSERT(add_instr->op == IR_CONST_INT);
+    ASSERT(add_instr->operands[0].imm == 7);
+
+    ir_module_free(&mod);
+}
+
+static void test_opt_constfold_integer_mul(void) {
+    IrFunction func = make_test_func();
+    IrType i64 = { .kind = IR_I64, .semantic = NULL };
+    int r0 = ir_new_reg(&func);
+    int r1 = ir_new_reg(&func);
+    int r2 = ir_new_reg(&func);
+    IrOperand imm5 = { .kind = IR_OP_IMM, .imm = 5 };
+    IrOperand imm6 = { .kind = IR_OP_IMM, .imm = 6 };
+    ir_emit_instr(&func, IR_CONST_INT, r0, i64, &imm5, 1, 0);
+    ir_emit_instr(&func, IR_CONST_INT, r1, i64, &imm6, 1, 0);
+    IrOperand ops[2] = {
+        { .kind = IR_OP_REG, .reg = r0 },
+        { .kind = IR_OP_REG, .reg = r1 }
+    };
+    ir_emit_instr(&func, IR_MUL, r2, i64, ops, 2, 0);
+    func.blocks[0].instr_end = func.instr_count;
+
+    IrModule mod = make_single_func_module(func);
+    OptResult r = opt_constfold(&mod, &mod.funcs[0]);
+
+    ASSERT(r.changes == 1);
+    IrInstr *mul_instr = &mod.funcs[0].instrs[2];
+    ASSERT(mul_instr->op == IR_CONST_INT);
+    ASSERT(mul_instr->operands[0].imm == 30);
+
+    ir_module_free(&mod);
+}
+
+static void test_opt_constfold_comparison(void) {
+    IrFunction func = make_test_func();
+    IrType i64 = { .kind = IR_I64, .semantic = NULL };
+    IrType boolty = { .kind = IR_BOOL, .semantic = NULL };
+    int r0 = ir_new_reg(&func);
+    int r1 = ir_new_reg(&func);
+    int r2 = ir_new_reg(&func);
+    IrOperand imm10 = { .kind = IR_OP_IMM, .imm = 10 };
+    IrOperand imm20 = { .kind = IR_OP_IMM, .imm = 20 };
+    ir_emit_instr(&func, IR_CONST_INT, r0, i64, &imm10, 1, 0);
+    ir_emit_instr(&func, IR_CONST_INT, r1, i64, &imm20, 1, 0);
+    IrOperand ops[2] = {
+        { .kind = IR_OP_REG, .reg = r0 },
+        { .kind = IR_OP_REG, .reg = r1 }
+    };
+    ir_emit_instr(&func, IR_CMP_LT, r2, boolty, ops, 2, 0);
+    func.blocks[0].instr_end = func.instr_count;
+
+    IrModule mod = make_single_func_module(func);
+    OptResult r = opt_constfold(&mod, &mod.funcs[0]);
+
+    ASSERT(r.changes == 1);
+    IrInstr *cmp_instr = &mod.funcs[0].instrs[2];
+    ASSERT(cmp_instr->op == IR_CONST_BOOL);
+    ASSERT(cmp_instr->operands[0].imm == 1);
+
+    ir_module_free(&mod);
+}
+
+static void test_opt_constfold_div_by_zero_skipped(void) {
+    IrFunction func = make_test_func();
+    IrType i64 = { .kind = IR_I64, .semantic = NULL };
+    int r0 = ir_new_reg(&func);
+    int r1 = ir_new_reg(&func);
+    int r2 = ir_new_reg(&func);
+    IrOperand imm10 = { .kind = IR_OP_IMM, .imm = 10 };
+    IrOperand imm0 = { .kind = IR_OP_IMM, .imm = 0 };
+    ir_emit_instr(&func, IR_CONST_INT, r0, i64, &imm10, 1, 0);
+    ir_emit_instr(&func, IR_CONST_INT, r1, i64, &imm0, 1, 0);
+    IrOperand ops[2] = {
+        { .kind = IR_OP_REG, .reg = r0 },
+        { .kind = IR_OP_REG, .reg = r1 }
+    };
+    ir_emit_instr(&func, IR_DIV, r2, i64, ops, 2, 0);
+    func.blocks[0].instr_end = func.instr_count;
+
+    IrModule mod = make_single_func_module(func);
+    OptResult r = opt_constfold(&mod, &mod.funcs[0]);
+
+    ASSERT(r.changes == 0);
+    ASSERT(mod.funcs[0].instrs[2].op == IR_DIV);
+
+    ir_module_free(&mod);
+}
+
+static void test_opt_constfold_non_constant_not_folded(void) {
+    IrFunction func = make_test_func();
+    IrType i64 = { .kind = IR_I64, .semantic = NULL };
+    int r0 = ir_new_reg(&func);
+    int r1 = ir_new_reg(&func);
+    (void)r1;
+    int r2 = ir_new_reg(&func);
+    IrOperand reg_op = { .kind = IR_OP_REG, .reg = r0 };
+    IrOperand imm5 = { .kind = IR_OP_IMM, .imm = 5 };
+    ir_emit_instr(&func, IR_ADD, r2, i64, (IrOperand[]){ reg_op, imm5 }, 2, 0);
+    func.blocks[0].instr_end = func.instr_count;
+
+    IrModule mod = make_single_func_module(func);
+    OptResult r = opt_constfold(&mod, &mod.funcs[0]);
+
+    ASSERT(r.changes == 0);
+    ASSERT(mod.funcs[0].instrs[0].op == IR_ADD);
+
+    ir_module_free(&mod);
+}
+
+static void test_opt_constfold_cbr_constant_condition(void) {
+    IrFunction func = make_test_func();
+    IrType boolty = { .kind = IR_BOOL, .semantic = NULL };
+    int r0 = ir_new_reg(&func);
+    int bb1 = ir_add_block(&func, 1);
+    int bb2 = ir_add_block(&func, 2);
+    IrOperand imm_true = { .kind = IR_OP_IMM, .imm = 1 };
+    ir_emit_instr(&func, IR_CONST_BOOL, r0, boolty, &imm_true, 1, 0);
+    IrOperand cbr_ops[3] = {
+        { .kind = IR_OP_REG, .reg = r0 },
+        { .kind = IR_OP_BLOCK, .block = bb1 },
+        { .kind = IR_OP_BLOCK, .block = bb2 }
+    };
+    ir_emit_instr(&func, IR_CBR, -1, (IrType){ .kind = IR_VOID, .semantic = NULL }, cbr_ops, 3, 0);
+    func.blocks[0].instr_end = func.instr_count;
+
+    IrModule mod = make_single_func_module(func);
+    OptResult r = opt_constfold(&mod, &mod.funcs[0]);
+
+    ASSERT(r.changes == 1);
+    IrInstr *cbr_instr = &mod.funcs[0].instrs[1];
+    ASSERT(cbr_instr->op == IR_BR);
+    ASSERT(cbr_instr->operands[0].kind == IR_OP_BLOCK);
+    ASSERT(cbr_instr->operands[0].block == bb1);
+
+    ir_module_free(&mod);
+}
+
 // ----------------------------------------------------------------- main
 
 static void test_opt_pipeline_level0_is_noop(void) {
@@ -729,6 +908,13 @@ int main(void) {
     test_asm_rv64_elf_roundtrip_golden();
 
     test_opt_pipeline_level0_is_noop();
+
+    test_opt_constfold_integer_add();
+    test_opt_constfold_integer_mul();
+    test_opt_constfold_comparison();
+    test_opt_constfold_div_by_zero_skipped();
+    test_opt_constfold_non_constant_not_folded();
+    test_opt_constfold_cbr_constant_condition();
 
     if (tests_failed > 0) {
         fprintf(stderr, "unit: %d/%d assertions failed\n", tests_failed, tests_run);
