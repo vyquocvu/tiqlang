@@ -916,6 +916,107 @@ static void test_opt_dce_keeps_used_values(void) {
     ir_module_free(&mod);
 }
 
+static void test_opt_algebraic_add_zero(void) {
+    IrFunction func = make_test_func();
+    IrType i64 = { .kind = IR_I64, .semantic = NULL };
+    int r0 = ir_new_reg(&func);
+    int r1 = ir_new_reg(&func);
+    int r2 = ir_new_reg(&func);
+    IrOperand imm0 = { .kind = IR_OP_IMM, .imm = 0 };
+    ir_emit_instr(&func, IR_CONST_INT, r1, i64, &imm0, 1, 0);
+    IrOperand ops[2] = {
+        { .kind = IR_OP_REG, .reg = r0 },
+        { .kind = IR_OP_REG, .reg = r1 }
+    };
+    ir_emit_instr(&func, IR_ADD, r2, i64, ops, 2, 0);
+    func.blocks[0].instr_end = func.instr_count;
+
+    IrModule mod = make_single_func_module(func);
+    opt_constfold(&mod, &mod.funcs[0]);
+    OptResult r = opt_algebraic(&mod, &mod.funcs[0]);
+
+    ASSERT(r.changes == 1);
+    IrInstr *add_instr = &mod.funcs[0].instrs[1];
+    ASSERT(add_instr->op == IR_COPY);
+    ASSERT(add_instr->operands[0].kind == IR_OP_REG);
+    ASSERT(add_instr->operands[0].reg == r0);
+
+    ir_module_free(&mod);
+}
+
+static void test_opt_algebraic_mul_one(void) {
+    IrFunction func = make_test_func();
+    IrType i64 = { .kind = IR_I64, .semantic = NULL };
+    int r0 = ir_new_reg(&func);
+    int r1 = ir_new_reg(&func);
+    int r2 = ir_new_reg(&func);
+    IrOperand imm1 = { .kind = IR_OP_IMM, .imm = 1 };
+    ir_emit_instr(&func, IR_CONST_INT, r1, i64, &imm1, 1, 0);
+    IrOperand ops[2] = {
+        { .kind = IR_OP_REG, .reg = r0 },
+        { .kind = IR_OP_REG, .reg = r1 }
+    };
+    ir_emit_instr(&func, IR_MUL, r2, i64, ops, 2, 0);
+    func.blocks[0].instr_end = func.instr_count;
+
+    IrModule mod = make_single_func_module(func);
+    opt_constfold(&mod, &mod.funcs[0]);
+    OptResult r = opt_algebraic(&mod, &mod.funcs[0]);
+
+    ASSERT(r.changes == 1);
+    ASSERT(mod.funcs[0].instrs[1].op == IR_COPY);
+
+    ir_module_free(&mod);
+}
+
+static void test_opt_algebraic_mul_zero(void) {
+    IrFunction func = make_test_func();
+    IrType i64 = { .kind = IR_I64, .semantic = NULL };
+    int r0 = ir_new_reg(&func);
+    int r1 = ir_new_reg(&func);
+    int r2 = ir_new_reg(&func);
+    IrOperand imm0 = { .kind = IR_OP_IMM, .imm = 0 };
+    ir_emit_instr(&func, IR_CONST_INT, r1, i64, &imm0, 1, 0);
+    IrOperand ops[2] = {
+        { .kind = IR_OP_REG, .reg = r0 },
+        { .kind = IR_OP_REG, .reg = r1 }
+    };
+    ir_emit_instr(&func, IR_MUL, r2, i64, ops, 2, 0);
+    func.blocks[0].instr_end = func.instr_count;
+
+    IrModule mod = make_single_func_module(func);
+    opt_constfold(&mod, &mod.funcs[0]);
+    OptResult r = opt_algebraic(&mod, &mod.funcs[0]);
+
+    ASSERT(r.changes == 1);
+    ASSERT(mod.funcs[0].instrs[1].op == IR_CONST_INT);
+    ASSERT(mod.funcs[0].instrs[1].operands[0].imm == 0);
+
+    ir_module_free(&mod);
+}
+
+static void test_opt_algebraic_xor_self(void) {
+    IrFunction func = make_test_func();
+    IrType i64 = { .kind = IR_I64, .semantic = NULL };
+    int r0 = ir_new_reg(&func);
+    int r2 = ir_new_reg(&func);
+    IrOperand ops[2] = {
+        { .kind = IR_OP_REG, .reg = r0 },
+        { .kind = IR_OP_REG, .reg = r0 }
+    };
+    ir_emit_instr(&func, IR_BIT_XOR, r2, i64, ops, 2, 0);
+    func.blocks[0].instr_end = func.instr_count;
+
+    IrModule mod = make_single_func_module(func);
+    OptResult r = opt_algebraic(&mod, &mod.funcs[0]);
+
+    ASSERT(r.changes == 1);
+    ASSERT(mod.funcs[0].instrs[0].op == IR_CONST_INT);
+    ASSERT(mod.funcs[0].instrs[0].operands[0].imm == 0);
+
+    ir_module_free(&mod);
+}
+
 // ----------------------------------------------------------------- main
 
 static void test_opt_pipeline_level0_is_noop(void) {
@@ -991,6 +1092,11 @@ int main(void) {
     test_opt_dce_removes_unused_register();
     test_opt_dce_keeps_side_effects();
     test_opt_dce_keeps_used_values();
+
+    test_opt_algebraic_add_zero();
+    test_opt_algebraic_mul_one();
+    test_opt_algebraic_mul_zero();
+    test_opt_algebraic_xor_self();
 
     if (tests_failed > 0) {
         fprintf(stderr, "unit: %d/%d assertions failed\n", tests_failed, tests_run);
