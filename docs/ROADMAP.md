@@ -608,6 +608,14 @@ deterministic tests agree.
   nested composites, propagation on both branches, and cleanup on early exit.
   Closed 2026-08-31 (S4): `s4_*` cases in smoke.sh + selfhost_emit_c.sh cover struct
   payloads, bare-none repoint, and propagation on both branches.
+- [x] Make `% & | ^` fail closed on floating-point operands instead of reaching a
+  backend. Closed 2026-09-18 (S4): located E09 from both checkers, pinned by five
+  `tests/semantic.sh` cases and the `e09_float_*` self-hosted diff pair.
+  LANGUAGE_SPEC §5, §17.3.
+- [x] Ship the numeric library in Tiq itself rather than as builtins. Closed
+  2026-09-18 (S4, M19.7): `std/math.tiq` i64 and f64 surfaces, verified by
+  `tests/math_std.sh` — including a totality group that runs emitted C under
+  ASan/UBSan and an `alarm()` watchdog — and `examples/math_demo.tiq`.
 
 ### S5 — Fast, isolated, and diagnostic test tiers (P1)
 

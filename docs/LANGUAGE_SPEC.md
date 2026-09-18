@@ -835,6 +835,7 @@ Behavior:
 - Inside a `std/` module the builtin is recognized directly, so each wrapper body calls the intrinsic.
 - Core builtins remain always available with no import: `print`, `eprint`, `len`, `str_cat`, `int_str`, `str_sub`, `str_sub_code`, `str_eq`, `fs_read`, `fs_write`, `fs_exists`, `fs_list`, `proc_exec`, `proc_exit`, `cli_arg_count`, `cli_arg`, `clock_ms`, and the `vec_*`, `str_buf_*`, and `map_*` families.
 - Two domain builtins stay ungated because they cannot be wrapped in a Tiq function: `json_view` (§19.1) returns a zero-copy `str_view` for which there is no function-return annotation, and `ev_loop` (§19.4) takes no parameters while Tiq has no zero-parameter function syntax. `dl_error` (§19.11) is likewise ungated for the zero-parameter reason.
+- Membership in `std/` is not itself a visibility boundary. A module written entirely in Tiq defines no builtins and therefore gates nothing: importing `std/math.tiq` brings its own `math_*` definitions into scope (§17.6) and makes no intrinsic reachable.
 
 Import resolution for `std/`: the path is first resolved relative to the importing file (§17.6); if that fails, it is retried from the current working directory, so `import "std/<mod>.tiq"` resolves from any file depth when `tiq` is invoked from the project root.
 

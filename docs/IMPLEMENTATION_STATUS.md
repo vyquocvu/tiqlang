@@ -2,6 +2,32 @@
 
 Updated: 2026-09-18
 
+S4 / M19.7 — Pure-Tiq math standard library (closed 2026-09-18):
+`std/math.tiq` is the first numeric library for Tiq, authored in Tiq: no
+`extern "C"`, no libm symbol at any call site, and no new builtin, so the module
+gates nothing (§17.7). The `i64` surface is magnitude and bounds, the Euclidean
+`math_mod`/`math_div` pair, `gcd`/`lcm`, `isqrt`, `pow`, `log2`, `popcount`, and
+`is_prime`; the `f64` surface is `math_const` behind an enum tag, the
+`fabs`/`is_nan`/`is_finite`/`close` predicates, `two_pow`, the rounding family,
+`sqrt`, `fmod`, `exp`, `ln`, `powf`, the trigonometric set, `hypot`, and
+`deg`/`rad`. Two invariants keep it total over every representable argument:
+each loop carries an explicit iteration cap, and each `f64` → `i64` conversion
+sits behind a range guard. Out-of-domain `i64` results return `-1` and `f64`
+results return `0.0`; the rounding family propagates NaN and infinity by
+defaulting to its argument. Accuracy is about 1e-12 relative on the documented
+domains — explicitly not libm parity — while `fmod` and the rounding family are
+exact. `tests/math_std.sh` pins integers and `math_close` bool verdicts only,
+because emitted C is compiled without `-ffp-contract=off` and an FMA contraction
+can move a Taylor accumulator by an ulp across ISAs. Its ninth group emits C for
+three totality programs and runs them under ASan plus non-recovering UBSan behind
+the `alarm()` watchdog, which found a real hole the value tests could not see:
+`math_sin`/`math_cos` passed the rounded count of pi/2 halves to `math_mod`,
+whose `i64` parameter made the emitter insert an `f64` → `i64` conversion for
+arguments past 2 ** 63; both now sit behind `math_reducible`. Portability stops
+at the C reference backend: the IR path cannot lower `f64(x)`/`i64(x)`
+(`POST_BOOTSTRAP_ROADMAP.md` M17.4.5). `examples/math_demo.tiq` covers the
+import path from a user's position.
+
 S4 — Fail-closed integral-only operators (closed 2026-09-18):
 `% & | ^` now require integer operands. Each parses at its ordinary precedence
 level and previously type-checked on `f64`/`f32`, then failed inside the
