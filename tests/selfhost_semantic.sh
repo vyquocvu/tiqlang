@@ -104,6 +104,14 @@ corpus "e09_mismatch" 'x = 1 + "s"'
 corpus "e09_cond_branches" 'c = true
 x = c ? 1 : "s"'
 corpus "e09_bang_operand" 'x = !1'
+# S4: integral-only operators on floating operands (diff pair for
+# tests/semantic.sh float_mod / float_bitand).
+corpus "e09_float_mod" 'x = 1.0
+y = 2.0
+z = x % y'
+corpus "e09_float_bitand" 'x = 1.0
+y = 2.0
+z = x & y'
 corpus "e09_array_elems" 'a = [1, "s"]'
 corpus "e09_array_index" 'a = [1, 2]
 x = a["s"]'

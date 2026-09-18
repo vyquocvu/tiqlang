@@ -754,6 +754,34 @@ vec_push(v, 1)
 r = v != v
 ' "$TMP_DIR/neq_vec.tiq:3: error[E09]: type 'vec<int>' does not support equality comparison"
 
+# S4: % & | ^ are integral-only.  Before this gate they passed semantic
+# analysis and failed in the generated C as "invalid operands to binary
+# expression", which is not a located Tiq diagnostic (LANGUAGE_SPEC §5).
+assert_semantic "float_mod" 'a = 1.0
+b = 2.0
+c = a % b
+' "$TMP_DIR/float_mod.tiq:3: error[E09]: operator '%' is not defined for type 'float'"
+
+assert_semantic "f32_mod" 'a = f32(1.0)
+b = f32(2.0)
+c = a % b
+' "$TMP_DIR/f32_mod.tiq:3: error[E09]: operator '%' is not defined for type 'f32'"
+
+assert_semantic "float_bitand" 'a = 1.0
+b = 2.0
+c = a & b
+' "$TMP_DIR/float_bitand.tiq:3: error[E09]: operator '&' is not defined for type 'float'"
+
+assert_semantic "float_bitor" 'a = 1.0
+b = 2.0
+c = a | b
+' "$TMP_DIR/float_bitor.tiq:3: error[E09]: operator '|' is not defined for type 'float'"
+
+assert_semantic "float_bitxor" 'a = 1.0
+b = 2.0
+c = a ^ b
+' "$TMP_DIR/float_bitxor.tiq:3: error[E09]: operator '^' is not defined for type 'float'"
+
 # Sized types are printable (typed AST).
 assert_semantic_ast "typed_print_i32" 'x = i32(42)
 print(x)
