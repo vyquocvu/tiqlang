@@ -139,9 +139,9 @@ Status: done
   - C emission: `tiq_gen_<name>(int n)` functions for parameterless generators.
   - C emission: `tiq_gen_<name>(params..., int n)` for parameterized stream gen functions.
   - C emission: bracket call on function call results (`pow(2)[0]` → `tiq_gen_pow(2, 0)`).
-  - Bounded generators with `while`/`until` termination.
+  - Bounded generators with `while`/`until` are parsed but rejected during semantic analysis with E07; termination is not implemented.
   - Diagnostics: cannot range-slice a stream generator.
-  - Tests: `parser.sh` (stream gen AST golden), `semantic.sh` (stream gen type errors), `smoke.sh` (stream gen indexing, parameterized functions, bracket loop integration).
+  - Tests: `parser.sh` (stream gen AST golden), `semantic.sh` (stream gen type errors and bounded-generator E07 rejection), `smoke.sh` (stream gen indexing, parameterized functions, bracket loop integration).
   
 
 ### Exit criteria
@@ -152,7 +152,8 @@ Status: done
 - [x] invalid programs are rejected (loop condition types, break outside loop)
 - [x] arrays (literals, indexing, bindings, mutable element assignment, bounds checking, len built-in)
 - [x] slices, string views, collection primitives (slice syntax specified in LANGUAGE_SPEC)
-- [x] stream generators (parameterless and parameterized, single indexing, bounded generators)
+- [x] stream generators (parameterless and parameterized, single indexing)
+- [ ] bounded stream generators and predicate slicing
 
 ## M4 — Ownership
 

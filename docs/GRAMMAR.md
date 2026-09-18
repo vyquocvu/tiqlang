@@ -38,19 +38,18 @@ field_def     = identifier, ":", type ;                              (* ✅ — 
 enum_def      = "enum", identifier, "{", { identifier, [ "," ] }, "}" ; (* ✅ — M13.1-P2; variants auto-numbered 0..n-1 *)
 binding       = identifier, "=", expression ;                       (* ✅ *)
 mutable_def   = identifier, "<-", expression ;                     (* ✅ *)
-statement     = assign_stmt | bracket_loop | bracket_cond | control_stmt | defer_stmt | expression ; (* ✅ *)
+statement     = assign_stmt | bracket_loop | control_stmt | defer_stmt | expression ; (* ✅ *)
 assign_stmt   = identifier, ("<-" | "+=" | "-=" | "*=" | "/=" | "%="), expression ;  (* ✅ *)
 control_stmt  = "break" | "skip" ;                                  (* ✅ — loop-context checked *)
 defer_stmt    = "defer", statement ;                                (* ✅ — block-context checked *)
 bracket_loop  = "[", ( loop_domain | binder_clauses ), "]", "{", { statement, separator }, "}" ; (* ✅ *)
-bracket_cond  = "?", "[", expression, "]", ( block | statement ) ;  (* ✅ — single-branch conditional *)
 binder_clauses = identifier, "<-", loop_domain, { ",", identifier, "<-", loop_domain } ; (* ✅ *)
 loop_domain   = expression ;                                        (* ✅ — range context flag set *)
 block         = "{", { statement, separator }, [ expression ], "}" ; (* ✅ — E07 outside function body *)
 separator     = newline | ";" ;                                     (* ✅ *)
 
 expression    = conditional ;                                       (* ✅ *)
-conditional   = fallback, [ "?", expression, ":", expression ] ;   (* ✅ — branches unified *)
+conditional   = fallback, [ "?", expression, [ ":", expression ] ] ; (* ✅ — two arms unify; one arm discards its value and yields unit *)
 fallback      = logical_or, { "??", logical_or } ;                 (* ✅ — M8: Option/Result fallback *)
 logical_or    = logical_and, { "||", logical_and } ;               (* ✅ *)
 logical_and   = bit_or, { "&&", bit_or } ;                        (* ✅ *)
@@ -63,21 +62,20 @@ shift         = range, { ("<<" | ">>"), range } ;                  (* ✅ *)
 range         = additive, [ "..", additive ] ;                      (* ✅ — E07 outside loop/slice context *)
 additive      = multiplicative, { ("+" | "-"), multiplicative } ;  (* ✅ *)
 multiplicative = unary, { ("*" | "/" | "%"), unary } ;             (* ✅ — '%' parses here but is integral-only: float operands fail semantically, E09 (LANGUAGE_SPEC §5) *)
-unary         = ("!" | "+" | "-" | "move"), unary | postfix ;     (* ✅ — "!" requires bool operand *)
+unary         = ("!" | "+" | "-" | "move" | "?"), unary | postfix ; (* ✅ — "!" requires bool; "?" is prefix Option/Result propagation *)
               (* "&" unary prefix: ✅ only as a call argument (borrow_arg); elsewhere semantic E07 (LANGUAGE_SPEC §16.3/§17.3) *)
-postfix       = primary, { call | index | field | propagate } ;    (* ✅ — M8: propagate = "?" *)
+postfix       = primary, { call | index | field } ;                 (* ✅ *)
 call          = "(", [ arg, { ",", arg } ], ")" ;                 (* ✅ — builtins and user functions *)
 arg           = borrow_arg | expression ;                           (* ✅ — M9.1 *)
 borrow_arg    = "&", [ "mut" ], identifier ;                        (* ✅ — only for & / &mut parameters *)
 index         = "[", ( slice_range | expression | stream_slice ), "]" ; (* ✅ / ✅ / 🔴 *)
 field         = ".", identifier ;                                   (* ✅ — M12.6 struct field access *)
-propagate     = "?" ;                                               (* ✅ — M8: Option/Result propagation *)
 slice_range   = [ expression ], "..", [ expression ] ;             (* ✅ *)
-stream_slice  = ("while" | "until"), expression ;                  (* 🔴 — bounded generators E07 *)
+stream_slice  = ("while" | "until"), expression ;                  (* 🔴 — predicate slicing unsupported *)
 primary       = identifier | literal | stream_gen | array_fill | match_expr | record_lit | "(", expression, ")" | block ; (* ✅ *)
 record_lit    = identifier, "{", { field_init, [ "," ] }, "}" ;    (* ✅ — M12.6 *)
 field_init    = identifier, ":", expression ;                       (* ✅ — M12.6 *)
-stream_gen    = "[", expression, { ",", expression }, ",", "...", [ stream_binder, "->" ], expression, [ stream_bound ], "]" ; (* ✅ — explicit binders required; ≤2 seeds *)
+stream_gen    = "[", expression, { ",", expression }, ",", "...", stream_binder, "->", expression, [ stream_bound ], "]" ; (* ✅ — explicit binders required; ≤2 seeds *)
 stream_binder = "(", identifier, [ ",", identifier ], [ ";", identifier ], ")" ; (* ✅ — window binders + optional index binder *)
 stream_bound  = ("while" | "until"), expression ;                  (* 🔴 — semantic E07 bounded unsupported *)
 array_fill    = "[", expression, ";", expression, "]" ;            (* ✅ — length must be integer literal *)
@@ -118,7 +116,7 @@ Function application without parentheses, as in `fib n`, is allowed only in a fu
 From tightest to loosest:
 
 1. postfix call and index
-2. unary `! + - move`
+2. unary `! + - move ?`
 3. `* / %`
 4. `+ -`
 5. `..`
@@ -130,16 +128,17 @@ From tightest to loosest:
 11. `|`
 12. `&&`
 13. `||`
-14. `?:`
-15. `=` (immutable binding)
-16. `<-` (mutable binding and reassignment)
-17. `->` (function definition)
+14. `??` (Option/Result fallback)
+15. `? :` (conditional; `: else` is optional)
+16. `=` (immutable binding)
+17. `<-` (mutable binding and reassignment)
+18. `->` (function definition)
 
 ## Bootstrap grammar
 
 The bootstrap compiler must reject all unsupported input with a diagnostic containing source position and a non-zero exit status.
 
-The bootstrap parser additionally accepts `chan expr`, `spawn expr`, and borrow prefixes (`"&", ["mut"], unary`) in any expression position for forward compatibility; `chan`/`spawn` are rejected during semantic analysis with a "not supported yet" diagnostic, and borrows outside call argument position are rejected with E07 (fail closed, LANGUAGE_SPEC §16.3/§17.3). `struct` definitions and record literals do not parse. Inline loop guards (`break if`, `skip if`) are not accepted.
+The bootstrap parser additionally accepts `chan expr`, `spawn expr`, and borrow prefixes (`"&", ["mut"], unary`) in any expression position for forward compatibility; `chan`/`spawn` are rejected during semantic analysis with a "not supported yet" diagnostic, and borrows outside call argument position are rejected with E07 (fail closed, LANGUAGE_SPEC §16.3/§17.3). `struct` definitions and record literals are implemented (LANGUAGE_SPEC §17.2). Inline loop guards (`break if`, `skip if`) are not accepted.
 
 See LANGUAGE_SPEC §17 for the complete four-tier surface table (Implemented / Provisional / Fail-closed / Reserved) with error codes and blocking milestones.
 

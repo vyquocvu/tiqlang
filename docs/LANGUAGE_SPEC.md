@@ -101,7 +101,8 @@ Tiq-specific operators:
 ..   half-open range
 ...  stream generator expansion
 =>   match arm (§17.1); lambda reserved for a later v0.x
-??   optional fallback; reserved for a later v0.x
+??   Option/Result fallback (§15.1)
+?    prefix Option/Result propagation (§15.1)
 ```
 
 `!` is logical negation. Its operand must be `bool` and the result is `bool`; Tiq has no truthiness. Printing is not an operator — it is the `print` builtin (§12).
@@ -285,16 +286,24 @@ label = age >= 18 ? "adult" : "minor"
 
 The condition must be `bool`. Both branches must have a compatible type.
 
-### 8.1 Bracket Conditions
+### 8.1 One-arm conditionals
 
-Single-branch conditional execution uses `?[condition] { body }` or the single-line form `?[condition] statement`. The condition must be `bool`. The body executes once if the condition is `true`; it is a pure conditional (not a loop). `break` and `skip` inside a bracket condition apply to the nearest enclosing bracket loop (`[...]`); a `break` or `skip` with no enclosing bracket loop is a compile-time error.
+Single-branch conditional execution uses `condition ? { body }` or `condition ? expression`. The condition must be `bool`; there is no truthiness conversion. The branch executes at most once, only when the condition is `true`. Its value is discarded, and the conditional has type `unit`.
 
 ```tiq
-?[count > 10] {
-    print("over limit")
-}
+count = 12
+count > 10 ? { print("over limit") }
+// Output: over limit
+```
 
-?[done] break
+Unlike `[condition] { body }`, this form is not a loop. A `break` or `skip` inside its block can only target the nearest enclosing loop; either statement without an enclosing loop is a compile-time error.
+
+```tiq
+[i <- 0..10] {
+    i == 5 ? { break }
+    print(i)
+}
+// Output: 0, 1, 2, 3, 4 on separate lines.
 ```
 
 ## 9. Blocks
@@ -430,7 +439,9 @@ To work with Unicode code points, split by `len()` and slice rather than index.
 
 Omitting the start index defaults to `0`. Omitting the end index defaults to `len(xs)` (or string length for `str`).
 
-Slice bounds are evaluated at runtime. Slicing dynamically enforces 0 <= start <= end <= len. If a slice bound is violated, execution halts deterministically.
+Valid slices require `0 <= start <= end <= len`. The intended language contract is to check these bounds dynamically and halt deterministically on a violation.
+
+**Bootstrap deviation:** the current C backend does not check slice construction or integer-slice indexing. Programs must keep those bounds valid; invalid accesses can produce undefined behavior. This differs from its checked array and string-byte indexing paths.
 
 The built-in `len()` returns the runtime length of arrays, array slices, and string views:
 
@@ -443,23 +454,28 @@ print(len(xs[1..3])) // prints 2
 
 ## 14. Stream Generators
 
-Stream generators define infinite or lazy recursive sequences via initial seed values followed by `...` and a windowed combination expression with explicit binders:
+Stream generators define indexed recurrences from one or two integer seeds, followed by `...`, explicit binders, and a rule:
 
 ```tiq
 fib = [0, 1, ... (a, b) -> a + b]
-first = fib[0]   // 0
-tenth = fib[10]  // 55
+factorial = [1, ... (x; i) -> x * i]
+powers base -> [1, ... (x) -> x * base]
 
-// Bounded stream generator
-powers = [1, ... (x) -> x * 2 while x < 100]
-
-// Predicate slicing
-print(fib[while x < 100])
+print(fib[10])       // 55
+print(factorial[5])  // 120
+print(powers(2)[10]) // 1024
 ```
 
-The generator expression is preceded by an explicit binder list `(w1, w2) ->` (one or two window binders) that names the preceding terms bound in the expression. An optional index binder may follow after a semicolon: `(w1, w2; idx) ->`. The number of seed elements determines the window size. Generators can specify inline termination bounds (`while condition` or `until condition`). Indexing or predicate slicing evaluates or retrieves terms in $O(k)$ time using $O(1)$ state.
+- **Seeds are chronological:** `fib[0]` is `0`, and `fib[1]` is `1`.
+- **Window binders are newest-first:** `(x)` names the preceding term; `(a, b)` names the most recent term and then the older term. The first generated Fibonacci step binds `a = 1`, `b = 0`. The number of seeds determines the window size.
+- **The optional index binder follows a semicolon:** `(x; i)` names the index being generated. It starts at the seed count: `1` for `factorial`, or `2` for a two-seed recurrence. Use `i` for the index binder with the current C backend.
+- **Functions can parameterize the rule:** `powers(base)` supplies `base` when computing an indexed term.
 
-Every binder in a stream generator must be explicitly named; the compiler does not inject any implicit names. A stream generator without explicit binders is rejected at compile time (E23: "stream generators require explicit binders: use (name) -> expr").
+The current C backend starts from the seeds on every access; it does not build an array or cache prior results. Accessing index `k` takes O(k) recurrence evaluations and O(1) recurrence state. For a constant-cost rule, this is O(k) time; repeated indexing repeats that work.
+
+**Unsupported:** bounded generators with `while condition` or `until condition` are parsed but rejected during semantic analysis with E07 ("bounded stream generators are not yet supported"). Predicate slicing is also unsupported.
+
+Every binder in a stream generator must be explicitly named; the compiler does not inject any implicit names. A stream generator without explicit binders is rejected at compile time (E07: "stream generators require explicit binders: use (name) -> expr").
 
 ## 15. Errors
 
@@ -471,15 +487,15 @@ Tiq has no exceptions. Fallible functions return a result value.
 
 ```tiq
 // Option: may hold a value or be absent
-find xs: i64 key: i64 : Option[i64] -> {
-  [i <- 0..len(xs)] { xs[i] == key ? i : skip }
-  none
-}
+present value: i64 : Option[i64] -> some(value)
 
 // Result: may hold a value or an error
-parse s: str : Result[i64, str] -> {
-  ok(42)   // or err("invalid")
-}
+half n: i64 : Result[i64, i64] ->
+  n % 2 == 0 ? ok(n / 2) : err(1)
+
+print(present(42) ?? 0) // 42
+print(half(40) ?? -1)   // 20
+print(half(41) ?? -1)   // -1
 ```
 
 **Supported payload types:**
@@ -497,32 +513,36 @@ parse s: str : Result[i64, str] -> {
 - `err(e)` wraps an error in a Result.
 
 **Fallback operator (`??`):**
-`a ?? b` evaluates to `a` if `a` is present/ok, otherwise `b`. It short-circuits — the right operand is evaluated only when the left operand is absent or an error. Its precedence sits between `||` and `?:` (tighter than `?:`, looser than `||`), so `a ?? b ? x : y` parses as `(a ?? b) ? x : y`.
+`a ?? b` evaluates to the **unwrapped payload** of `a` when it is present/ok, otherwise to `b`; it does not return the wrapped Option/Result. It short-circuits — the right operand is evaluated only when the left operand is absent or an error. Its precedence sits between `||` and `?:` (tighter than `?:`, looser than `||`), so `a ?? b ? x : y` parses as `(a ?? b) ? x : y`.
 
 ```tiq
-x = find(xs, 5) ?? -1   // -1 if not found
+print(some(42) ?? 0) // 42
+print(none ?? 8080)  // 8080
 ```
 
-**Propagation (`expr?`):**
-If `expr` is absent or an error, the enclosing function returns that state immediately; otherwise `expr?` evaluates to the unwrapped value. The enclosing function's return type must itself be optional/result-compatible, checked at compile time.
+**Prefix propagation (`?expr`):**
+If `expr` is absent or an error, the enclosing function returns that state immediately; otherwise `?expr` evaluates to the unwrapped value. Propagation is restricted to function scope, and the enclosing function's return type must be compatible with the propagated Option/Result, checked at compile time.
 
 ```tiq
-process s: str : Option[i64] -> {
-  x = parse(s)?   // returns none if parse fails
-  some(x * 2)
+twice value: Option[i64] : Option[i64] -> {
+  n = ?value
+  some(n * 2)
 }
+
+print(twice(some(21)) ?? 0) // 42
+print(twice(none) ?? 99)    // 99
 ```
 
 **Pattern matching:**
 An `Option[T]` or `Result[T, E]` value destructures with `match`:
 
 ```tiq
-result = find(xs, key)
+result = some(42)
 msg = match result {
-  some(v) => "found",
-  none => "not found",
-  _ => "unreachable"
+  some(v) => int_str(v),
+  _ => "not found"
 }
+print(msg) // 42
 ```
 
 **Representation:**

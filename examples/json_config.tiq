@@ -1,0 +1,49 @@
+// tiq json config — Read and validate a JSON configuration file
+// Demonstrates: JSON parsing, structs, Option/Result, match
+
+import "std/json.tiq"
+
+struct AppConfig {
+    name: str,
+    version: str,
+    port: i64,
+    host: str
+}
+
+validate_config json_str: str : i64 -> {
+    print("Validating config...")
+
+    name = json_get(json_str, "name")
+    str_eq(name, "") ? eprint("Error: missing required field 'name'") : print(str_cat("  name: ", name))
+    str_eq(name, "") ? proc_exit(1) : 0
+
+    version = json_get(json_str, "version")
+    str_eq(version, "") ? eprint("Error: missing required field 'version'") : print(str_cat("  version: ", version))
+    str_eq(version, "") ? proc_exit(1) : 0
+
+    port_str = json_get(json_str, "port")
+    str_eq(port_str, "") ? eprint("Error: missing required field 'port'") : print(str_cat("  port: ", int_str(json_parse_int(port_str))))
+    str_eq(port_str, "") ? proc_exit(1) : 0
+
+    host = json_get(json_str, "host")
+    str_eq(host, "") ? print("  host: localhost (default)") : print(str_cat("  host: ", host))
+
+    debug = json_has(json_str, "debug")
+    debug ? print("  debug: true") : print("  debug: false (default)")
+
+    print("Config validation successful")
+    0
+}
+
+// Demo: write a config file, read it back, validate it
+config_path = "config.json"
+config_content = "{\"name\":\"my-app\",\"version\":\"1.0.0\",\"port\":8080,\"host\":\"0.0.0.0\",\"debug\":true}"
+
+fs_write(config_path, config_content)
+print("Wrote config.json")
+
+json_data = fs_read(config_path)
+print("Read config.json")
+
+exit_code = validate_config(json_data)
+proc_exit(exit_code)

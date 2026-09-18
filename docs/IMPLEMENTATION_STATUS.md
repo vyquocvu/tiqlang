@@ -2,6 +2,14 @@
 
 Updated: 2026-09-18
 
+Introduction documentation: all 13 [README programs](../README.md#a-taste-of-tiq)
+and seven updated examples in LANGUAGE_SPEC §8.1/§14/§15.1 were independently
+compiled and run with exact stdout checks on the C backend. Regression evidence:
+`tests/smoke.sh` (one-arm conditionals and prefix propagation),
+`tests/visible_binding_audit.sh` (newest-first stream ordering), and
+`tests/semantic.sh` (bounded-generator rejection). LANGUAGE_SPEC §13.1 also
+records the C backend's unchecked slice construction and integer-slice indexing.
+
 S4 / M19.7 — Pure-Tiq math standard library (closed 2026-09-18):
 `std/math.tiq` is the first numeric library for Tiq, authored in Tiq: no
 `extern "C"`, no libm symbol at any call site, and no new builtin, so the module
@@ -218,9 +226,9 @@ The C11 bootstrap compiler was reduced to the core pipeline (lexer, parser, sema
   - C11 backend emission for parameterless stream gen bindings (`tiq_gen_<name>(int n)`).
   - C11 backend emission for parameterized stream gen functions (`tiq_gen_<name>(params..., int n)`).
   - Bracket call on function call results for stream gen functions (`pow(2)[0]` emits `tiq_gen_pow(2, 0)`).
-  - Bounded stream generators with `while`/`until` termination.
+  - Bounded stream generators with `while`/`until` are parsed but rejected during semantic analysis with E07; termination is not implemented. Predicate slicing is also unsupported.
   - Range slicing of stream generators rejected (ERR_TYPE_MISMATCH: "cannot range-slice a stream generator").
-  - Tests: `parser.sh` (stream gen AST golden tests), `semantic.sh` (stream gen type errors), `smoke.sh` (stream gen indexing, parameterized functions, bracket loop integration).
+  - Tests: `parser.sh` (stream gen AST golden tests), `semantic.sh` (stream gen type errors and bounded-generator E07 rejection), `smoke.sh` (stream gen indexing, parameterized functions, bracket loop integration).
 - M4: `move` keyword (unary prefix operator for ownership transfer).
 - M4: Move semantics semantic checking: immutable binding move rejected (ERR_CANNOT_MOVE_IMMUTABLE), use-after-move detection (ERR_USE_AFTER_MOVE), moved state reset on compound assignment.
 - M4: Move semantics C backend: `move x` emits identity (C has no move semantics); array move emits `memcpy` for correct C array copy.

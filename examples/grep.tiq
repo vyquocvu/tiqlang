@@ -1,0 +1,121 @@
+// tiq grep - A simple line searcher
+// Usage: tiq build grep.tiq -o grep && ./grep <pattern> <file>
+
+arg_count = cli_arg_count()
+
+[arg_count < 2] {
+    // Demo mode: search a temp file
+    demo_text = "hello world\nfoo bar\nhello again\ngoodbye"
+    demo_pat = "hello"
+    fs_write("build/grep_demo.txt", demo_text)
+
+    text = fs_read("build/grep_demo.txt")
+    text_len = len(text)
+    pat_len = len(demo_pat)
+    pos <- 0
+    match_count <- 0
+
+    [pos < text_len] {
+        le <- pos
+        [le < text_len && text[le] != 10] {
+            le += 1
+        }
+        line_end <- le
+
+        line = str_sub(text, pos, line_end)
+        line_len = len(line)
+
+        found <- 0
+        i <- 0
+        [i <= line_len - pat_len && found == 0] {
+            j <- 0
+            matched <- 1
+            [j < pat_len] {
+                [line[i + j] != demo_pat[j]] {
+                    matched <- 0
+                    break
+                }
+                j += 1
+            }
+            [matched == 1] {
+                found <- 1
+                break
+            }
+            i += 1
+        }
+
+        [found == 1] {
+            print(str_cat(int_str(pos + 1), ":"))
+            print(line)
+            match_count += 1
+            break
+        }
+
+        pos <- line_end
+        pos <- pos + 1
+    }
+
+    print(str_cat("Found ", str_cat(int_str(match_count), " matches")))
+    proc_exit(0)
+}
+
+pattern = cli_arg(0)
+filename = cli_arg(1)
+pat_len = len(pattern)
+
+[!fs_exists(filename)] {
+    eprint(str_cat("grep: ", str_cat(filename, ": No such file")))
+    proc_exit(1)
+    break
+}
+
+text = fs_read(filename)
+text_len = len(text)
+pos <- 0
+match_count <- 0
+
+[pos < text_len] {
+    le <- pos
+    [le < text_len && text[le] != 10] {
+        le += 1
+    }
+    line_end <- le
+
+    line = str_sub(text, pos, line_end)
+    line_len = len(line)
+
+    found <- 0
+    i <- 0
+    [i <= line_len - pat_len && found == 0] {
+        j <- 0
+        matched <- 1
+        [j < pat_len] {
+            [line[i + j] != pattern[j]] {
+                matched <- 0
+                break
+            }
+            j += 1
+        }
+        [matched == 1] {
+            found <- 1
+            break
+        }
+        i += 1
+    }
+
+    [found == 1] {
+        print(str_cat(int_str(pos + 1), ":"))
+        print(line)
+        match_count += 1
+        break
+    }
+
+    pos <- line_end
+    pos <- pos + 1
+}
+
+[match_count > 0] {
+    proc_exit(0)
+    break
+}
+proc_exit(1)
