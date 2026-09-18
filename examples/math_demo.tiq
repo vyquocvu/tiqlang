@@ -1,0 +1,24 @@
+// std/math.tiq: the numeric library written in Tiq itself.
+//
+// Integer entry points return their value, or -1 outside the domain. Float
+// entry points are compared with math_close rather than printed, because a
+// double has no exact decimal form.
+import "std/math.tiq"
+
+pi = math_const(MathConst.Pi)
+
+print(math_gcd(48, 180))
+print(math_lcm(4, 6))
+print(math_mod(-7, 3))
+print(math_div(-7, 3))
+print(math_isqrt(1000000))
+print(math_pow(2, 16))
+print(math_log2(1024))
+print(math_clamp(42, 0, 10))
+print(math_close(math_sqrt(2.0), 1.4142135623730951))
+print(math_close(math_exp(1.0), 2.718281828459045))
+print(math_close(math_ln(math_exp(3.0)), 3.0))
+print(math_close(math_sin(pi / 2.0), 1.0))
+print(math_close(math_atan2(1.0, 1.0), pi / 4.0))
+print(math_close(math_hypot(3.0, 4.0), 5.0))
+print(math_fmod(5.5, 2.0) == 1.5)
