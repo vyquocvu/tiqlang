@@ -20,9 +20,10 @@ OptResult opt_dce(IrModule *mod, IrFunction *func) {
     (void)mod;
     OptResult result = { .changes = 0, .modified = false };
 
-    int use_count[func->next_reg];
-    memset(use_count, 0, sizeof(use_count));
+    int *use_count = calloc((size_t)func->next_reg, sizeof(int));
+    if (!use_count) return result;
 
+    // Count uses in regular instructions
     for (int i = 0; i < func->instr_count; i++) {
         IrInstr *instr = &func->instrs[i];
         for (int j = 0; j < instr->operand_count; j++) {
@@ -30,6 +31,22 @@ OptResult opt_dce(IrModule *mod, IrFunction *func) {
                 int reg = instr->operands[j].reg;
                 if (reg >= 0 && reg < func->next_reg) {
                     use_count[reg]++;
+                }
+            }
+        }
+    }
+
+    // Count uses in PHI nodes
+    for (int b = 0; b < func->block_count; b++) {
+        IrBlock *blk = &func->blocks[b];
+        for (int p = 0; p < blk->phi_count; p++) {
+            // PHI args are (reg, block) pairs; registers at even indices
+            for (int a = 0; a < blk->phis[p].arg_count; a += 2) {
+                if (blk->phis[p].args[a].kind == IR_OP_REG) {
+                    int reg = blk->phis[p].args[a].reg;
+                    if (reg >= 0 && reg < func->next_reg) {
+                        use_count[reg]++;
+                    }
                 }
             }
         }
@@ -44,6 +61,8 @@ OptResult opt_dce(IrModule *mod, IrFunction *func) {
             result.modified = true;
         }
     }
+
+    free(use_count);
 
     return result;
 }

@@ -298,6 +298,7 @@ static void regtypes_build(const IrFunction *func, RegTypes *rt) {
         }
         for (int i = blk->instr_start; i < blk->instr_end; i++) {
             const IrInstr *ins = &func->instrs[i];
+            if (ins->op == IR_OP_COUNT) continue;
             if (ins->dst >= 0 && ins->dst < MAX_REGS) {
                 rt->kinds[ins->dst] = ins->dst_type.kind;
                 if (ins->dst >= rt->count) rt->count = ins->dst + 1;
@@ -1202,6 +1203,7 @@ static int emit_func_body(Buf *body, const FuncCtx *fc) {
 
         // Instructions
         for (int i = blk->instr_start; i < blk->instr_end; i++) {
+            if (f->instrs[i].op == IR_OP_COUNT) continue;
             if (emit_instr(&cc, &f->instrs[i], fc->err, fc->errlen) != 0)
                 return -1;
         }
