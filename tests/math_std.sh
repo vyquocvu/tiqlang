@@ -16,6 +16,7 @@ set -eu
 
 TIQ="${TIQ:-./build/tiq}"
 CC_BIN="${CC:-cc}"
+TIMEOUT_SECS=60
 TMP_DIR="${TMPDIR:-/tmp}/tiq-math-std-$$"
 mkdir -p "$TMP_DIR"
 trap 'rm -rf "$TMP_DIR"' EXIT INT TERM
@@ -83,48 +84,12 @@ assert_rejects() {
   fi
 }
 
-# run_guarded EXE OUT SECS — run EXE with stdout in OUT and stderr in OUT.log,
-# and kill it if it is still alive after SECS. The deadline is a sleep loop
-# because `timeout` is not portable to the macOS hosts this suite runs on, and
-# an uncapped kernel loop would otherwise wedge `make test` indefinitely. Sets
-# GUARDED_RC and GUARDED_TIMEDOUT.
-run_guarded() {
-  exe="$1"
-  out="$2"
-  secs="$3"
-  deadline="$out.deadline"
-  rm -f "$deadline"
-  GUARDED_TIMEDOUT=0
-  "$exe" >"$out" 2>"$out.log" &
-  pid=$!
-  (
-    n=0
-    while [ "$n" -lt "$secs" ]; do
-      kill -0 "$pid" 2>/dev/null || exit 0
-      sleep 1
-      n=$((n + 1))
-    done
-    if kill -0 "$pid" 2>/dev/null; then
-      kill -9 "$pid" 2>/dev/null
-      : >"$deadline"
-    fi
-  ) &
-  wpid=$!
-  GUARDED_RC=0
-  wait "$pid" || GUARDED_RC=$?
-  kill "$wpid" 2>/dev/null || true
-  wait "$wpid" 2>/dev/null || true
-  if [ -f "$deadline" ]; then
-    GUARDED_TIMEDOUT=1
-  fi
-}
-
 # assert_sanitized NAME SOURCE EXPECTED — emit C for SOURCE, compile it with
-# ASan plus non-recovering UBSan, and run it under the watchdog. Groups 1-8
-# pin values through `tiq run`, which cannot see the two failure modes this
-# path is for: an out-of-range f64 -> i64 conversion saturates on arm64 and
-# yields LLONG_MIN on x86-64, so only UBSan reports it at all, and a loop
-# without a cap looks like a slow test rather than a hang.
+# ASan plus non-recovering UBSan, and run it under a deadline. Groups 1-8 pin
+# values through `tiq run`, which cannot see the two failure modes this path is
+# for: an out-of-range f64 -> i64 conversion saturates on arm64 and yields
+# LLONG_MIN on x86-64, so only UBSan reports it at all, and a loop without a
+# cap looks like a slow test rather than a hang.
 assert_sanitized() {
   name="$1"
   source="$2"
@@ -146,12 +111,16 @@ assert_sanitized() {
   if ! "$CC_BIN" -std=c11 -g -O1 $sanflags "$cfile" -o "$bin" 2>"$ccerr"; then
     fail "$name (sanitizer compile failed)" "$ccerr"
   fi
-  run_guarded "$bin" "$out" 60
-  if [ "$GUARDED_TIMEDOUT" = "1" ]; then
-    fail "$name (watchdog: no result in 60s)" "$src" "$out" "$out.log"
+  # alarm() survives exec, so SIGALRM lands on the program itself: the same
+  # watchdog tests/examples.sh uses. Exit 142 means the deadline fired; any
+  # other nonzero status means the sanitizer rejected the run.
+  status=0
+  perl -e "alarm $TIMEOUT_SECS; exec @ARGV" "$bin" >"$out" 2>"$out.log" || status=$?
+  if [ "$status" -eq 142 ]; then
+    fail "$name (watchdog: no result in ${TIMEOUT_SECS}s)" "$src" "$out" "$out.log"
   fi
-  if [ "$GUARDED_RC" != "0" ]; then
-    fail "$name (sanitized run exited $GUARDED_RC)" "$src" "$out.log"
+  if [ "$status" -ne 0 ]; then
+    fail "$name (sanitized run exited $status)" "$src" "$out.log"
   fi
   printf '%s\n' "$expected" > "$exp"
   if ! cmp -s "$exp" "$out"; then
