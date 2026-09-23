@@ -15,6 +15,12 @@ No entry-point boilerplate. No mandatory VM or garbage collector. The default co
 
 **Pre-alpha:** Tiq is experimental. Syntax and ABI can change, memory management is incomplete, and backend support varies. Start with small programs, not production-critical services.
 
+## Try Tiq
+
+**Online (static demo):** Browse the [Tiq Playground](editors/playground/index.html) to see syntax highlighting and example programs. The playground displays Tiq code but cannot compile or run it yet (WebAssembly compiler bridge not implemented).
+
+**Local (full compiler):** Clone this repo and run `make` — you'll have a working compiler in under a minute. See [Quick start](#quick-start) below.
+
 [Quick start](#quick-start) · [A taste of Tiq](#a-taste-of-tiq) · [Examples](#explore-real-programs) · [Status](#what-works-today) · [Documentation](#go-deeper)
 
 ## Why Tiq?
@@ -28,15 +34,34 @@ The guiding rule is **semantic density, not code golf**: fewer repeated mechanic
 
 ## Quick start
 
-From the repository root, with `make`, a C11 compiler (Clang or GCC), and a POSIX-like shell on macOS or Linux:
+**Prerequisites:** `make`, a C11 compiler (Clang or GCC), and a POSIX-like shell. Tested on macOS and Linux.
+
+**Option 1: Homebrew (macOS/Linux)**
 
 ```sh
+brew tap vyquocvu/tiq
+brew install tiq
+tiq --version
+```
+
+See `packaging/homebrew/README.md` for details.
+
+**Option 2: Build from source**
+
+```sh
+git clone https://github.com/vyquocvu/tiqlang.git
+cd tiqlang
 make
 ./build/tiq --version
+```
+
+**Run your first program:**
+
+```sh
 ./build/tiq run examples/fib.tiq
 ```
 
-Check, inspect, or keep an executable:
+**Check, inspect, or keep an executable:**
 
 ```sh
 ./build/tiq check examples/hello.tiq
@@ -44,6 +69,25 @@ Check, inspect, or keep an executable:
 ./build/tiq build examples/hello.tiq -o build/hello
 ./build/hello
 ```
+
+**VS Code extension:** Syntax highlighting, snippets, and language configuration are available in `editors/vscode/`. Install locally with:
+
+```sh
+mkdir -p ~/.vscode/extensions/tiqlang.tiq-vscode-0.1.0
+cp -r editors/vscode/* ~/.vscode/extensions/tiqlang.tiq-vscode-0.1.0/
+```
+
+Restart VS Code and open any `.tiq` file. See `editors/vscode/README.md` for details.
+
+**Vim support:** Syntax highlighting is available in `editors/vim/`. Install with:
+
+```sh
+mkdir -p ~/.vim/syntax ~/.vim/ftdetect
+cp editors/vim/syntax/tiq.vim ~/.vim/syntax/
+cp editors/vim/ftdetect/tiq.vim ~/.vim/ftdetect/
+```
+
+Open any `.tiq` file and syntax highlighting will activate automatically. See `editors/vim/README.md` for details.
 
 Every Tiq block below is a complete, independent program for the default C backend. Save one as `demo.tiq` in the repository root and run `./build/tiq run demo.tiq`. Comments beside `print` show the expected output; each call prints a newline.
 
@@ -285,14 +329,26 @@ It requires `python3`, `cc`, `go`, and `rustc`. Read the [benchmark methodology]
 
 ## Go deeper
 
+- [Getting Started](docs/GETTING_STARTED.md) — step-by-step onboarding guide.
+- [The Tiq Book](docs/TIQ_BOOK.md) — practical tutorial from first program to real tools.
+- [Tiq by Example](docs/TIQ_BY_EXAMPLE.md) — pattern-based reference for common idioms.
+- [Quick Reference](docs/QUICK_REFERENCE.md) — syntax cheat sheet for everyday use.
+- [Migration Guide](docs/MIGRATION.md) — coming from C, Rust, Python, or Go.
+- [Showcase](docs/SHOWCASE.md) — real-world programs and use cases.
+- [FAQ](docs/FAQ.md) — frequently asked questions and troubleshooting.
 - [Design principles](docs/DESIGN_PRINCIPLES.md) — why Tiq spends its syntax budget this way.
 - [Language specification](docs/LANGUAGE_SPEC.md) and [grammar](docs/GRAMMAR.md) — detailed semantics and syntax.
 - [Type system](docs/TYPE_SYSTEM.md) and [memory model](docs/MEMORY_MODEL.md) — constraints behind the compact surface.
 - [CLI reference](docs/CLI.md) — compiler commands, backends, and developer tools.
 - [Compiler architecture](docs/COMPILER_ARCHITECTURE.md) — how source becomes an executable.
+- [Performance benchmarks](docs/PERFORMANCE_BENCHMARKS.md) — concrete runtime comparisons with C, Go, Rust, and Python.
 - [Post-bootstrap roadmap](docs/POST_BOOTSTRAP_ROADMAP.md) and [dogfooding](docs/DOGFOODING.md) — tools, services, and readiness gates.
 
 Repository landmarks: `src/` is the C bootstrap, `src/tiq/` the Tiq implementation and tools, `std/` the standard library, `examples/` sample programs, and `tests/` the verification suites.
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for how to report bugs, request features, and submit code. See [CHANGELOG.md](CHANGELOG.md) for recent changes.
 
 ## License
 

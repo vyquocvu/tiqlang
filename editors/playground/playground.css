@@ -98,6 +98,25 @@ main {
   flex: 1;
   display: flex;
   overflow: hidden;
+  flex-direction: column;
+}
+
+.status-banner {
+  background-color: #1c1206;
+  border: 1px solid #533d14;
+  color: #e3b341;
+  padding: 0.5rem 1rem;
+  font-size: 0.85rem;
+  text-align: center;
+}
+
+.status-banner a {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.status-banner a:hover {
+  text-decoration: underline;
 }
 
 .pane {

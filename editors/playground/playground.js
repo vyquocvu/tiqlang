@@ -172,19 +172,7 @@ document.addEventListener("DOMContentLoaded", () => {
   runBtn.addEventListener("click", async () => {
     const code = codeInput.value;
     const target = targetSelect.value;
-    outputConsole.textContent = "Compiling and running...\n";
-
-    try {
-      if (window.TiqWasmCompiler) {
-        const res = await window.TiqWasmCompiler.compileAndRun(code, target);
-        outputConsole.textContent = res;
-      } else {
-        // Fallback simulation/info mode when standalone
-        outputConsole.textContent = `[Target: ${target}]\nSource (${code.length} bytes) verified.\nTo run live with full compiler backend, serve with WebAssembly compiler bridge.`;
-      }
-    } catch (err) {
-      outputConsole.textContent = `Error: ${err.message}`;
-    }
+    outputConsole.textContent = "Static demo mode. Compiler bridge not yet implemented.";
   });
 
   // Enable Tab indentation in textarea

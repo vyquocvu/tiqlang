@@ -1,0 +1,75 @@
+// Tiq syntax highlighting demo
+// Tests keywords, types, operators, literals, and control flow
+
+// === Functions ===
+add a: i64 b: i64 : i64 -> a + b
+
+factorial n: i64 : i64 ->
+    n <= 1 ? 1 : n * factorial(n - 1)
+
+// === Bindings and types ===
+x = 42
+pi = 3.14159
+name = "Tiq"
+flag = true
+nothing = none
+
+// === Operators ===
+sum = 10 + 20 * 3
+comparison = sum > 50
+logical = comparison && true
+bitand = 255 & 15
+bitor = 240 | 15
+bitxor = 255 ^ 15
+shift = 1 << 8
+
+// === Control flow ===
+result = x > 0 ? "positive" : "non-positive"
+
+opt_val = some(42)
+checked = opt_val ?? 0
+
+// === Loops ===
+[i <- 0..5] {
+    print(i)
+}
+
+[count <- 0..10] {
+    count % 2 == 0 ? { skip }
+    print(count)
+}
+
+// === Structs ===
+struct Point {
+    x: i64
+    y: i64
+}
+
+origin = Point { x: 0, y: 0 }
+
+// === Pattern matching ===
+classify n: i64 : str ->
+    match n {
+        0 => "zero"
+        1 => "one"
+        _ => "many"
+    }
+
+// === Enums ===
+enum Color {
+    Red,
+    Green,
+    Blue
+}
+
+// === Strings with escapes ===
+greeting = "Hello, Tiq!"
+multiline = "Line1\nLine2\tTabbed"
+quote = "She said \"hello\""
+
+// === Run examples ===
+print(add(10, 20))
+print(factorial(5))
+print(classify(0))
+print(classify(1))
+print(classify(42))

@@ -16,6 +16,7 @@
 #include "../include/ir.h"
 #include "../include/emit_qbe.h"
 #include "../include/emit_wasm.h"
+#include "../include/emit_native.h"
 #include "../include/asm_arm64.h"
 #include "../include/asm_amd64.h"
 #include "../include/asm_rv64.h"
@@ -688,6 +689,106 @@ static int build_qbe(const char *input, const char *output, DiagContext *diag) {
     return 0;
 }
 
+static int build_native(const char *input, const char *output, DiagContext *diag) {
+#if defined(__linux__) && defined(__x86_64__)
+    Program prog;
+    if (!program_load(&prog, input, diag)) { program_free(&prog); return 1; }
+    TypePool pool;
+    type_pool_init(&pool);
+    if (!diag->has_error) semantic_check_modules(prog.sem, prog.count, diag, &pool);
+    if (diag->has_error) {
+        program_free(&prog); type_pool_free(&pool); return 1;
+    }
+
+    SemanticModule *root = &prog.sem[prog.count - 1];
+    IrModule module;
+    ir_module_init(&module);
+    ir_lower(root->stmts, root->count, &module, diag, input);
+    if (diag->has_error) {
+        ir_module_free(&module); program_free(&prog); type_pool_free(&pool); return 1;
+    }
+    if (g_opt_level > 0) opt_run_pipeline(&module, g_opt_level);
+
+    char *asm_path = temporary_qbe_template("XXXXXX.s");
+    FILE *asm_file = fopen(asm_path, "w");
+    if (!asm_file) {
+        fprintf(stderr, "tiq: cannot create temp assembly file: %s\n", strerror(errno));
+        free(asm_path); ir_module_free(&module); program_free(&prog); type_pool_free(&pool);
+        return 1;
+    }
+    if (!emit_native(asm_file, &module)) {
+        fclose(asm_file); remove(asm_path); free(asm_path);
+        ir_module_free(&module); program_free(&prog); type_pool_free(&pool);
+        fprintf(stderr, "tiq: native assembly emission failed\n");
+        return 1;
+    }
+    fclose(asm_file);
+    ir_module_free(&module);
+    program_free(&prog);
+    type_pool_free(&pool);
+
+    char *obj_path = temporary_qbe_template("XXXXXX.o");
+    {
+        FILE *af = fopen(asm_path, "rb");
+        if (!af) {
+            fprintf(stderr, "tiq: cannot read %s: %s\n", asm_path, strerror(errno));
+            remove(asm_path); free(asm_path); free(obj_path); return 1;
+        }
+        fseek(af, 0, SEEK_END);
+        long asm_size = ftell(af);
+        fseek(af, 0, SEEK_SET);
+        char *asm_text = malloc((size_t)asm_size + 1);
+        if (!asm_text || fread(asm_text, 1, (size_t)asm_size, af) != (size_t)asm_size) {
+            fclose(af); free(asm_text);
+            fprintf(stderr, "tiq: cannot read %s\n", asm_path);
+            remove(asm_path); free(asm_path); free(obj_path); return 1;
+        }
+        fclose(af);
+        AsmUnit unit;
+        asm_unit_init(&unit);
+        unit.fmt = ASM_FMT_ELF;
+        int asm_ok = asm_amd64_assemble(&unit, asm_text, (size_t)asm_size) == 0;
+        if (asm_ok) {
+            FILE *obj_file = fopen(obj_path, "wb");
+            if (!obj_file || elf_obj_write(&unit, obj_file) != 0) asm_ok = 0;
+            if (obj_file && fclose(obj_file) != 0) asm_ok = 0;
+        }
+        if (!asm_ok) {
+            if (unit.has_error)
+                fprintf(stderr, "tiq: %s:%d: error: %s\n", asm_path, unit.errline, unit.errmsg);
+            else
+                fprintf(stderr, "tiq: cannot write object file %s\n", obj_path);
+            remove(obj_path);
+            asm_unit_free(&unit); free(asm_text);
+            remove(asm_path); free(asm_path); free(obj_path);
+            return 1;
+        }
+        asm_unit_free(&unit);
+        free(asm_text);
+    }
+    remove(asm_path);
+    free(asm_path);
+
+    char *rt_dir = find_runtime_dir();
+    if (!rt_dir) {
+        fprintf(stderr, "tiq: cannot locate runtime directory\n");
+        remove(obj_path); free(obj_path); return 1;
+    }
+    char runtime_obj[4096];
+    snprintf(runtime_obj, sizeof(runtime_obj), "%s/runtime_qbe.o", rt_dir);
+    free(rt_dir);
+
+    int lr = link_elf_objects(obj_path, runtime_obj, output);
+    remove(obj_path);
+    free(obj_path);
+    return lr;
+#else
+    (void)input; (void)output; (void)diag;
+    fprintf(stderr, "tiq: --backend native is only supported on x86_64 Linux\n");
+    return 1;
+#endif
+}
+
 static int build_target(const char *input, const char *output, const char *target,
                         const char *optimization, char **link_opts, int link_count,
                         DiagContext *diag) {
@@ -1038,6 +1139,7 @@ static void usage(FILE *out) {
     fputs("  tiq dump-typed-ast <file.tiq>\n", out);
     fputs("  tiq dump-ir <file.tiq>\n", out);
     fputs("  tiq dump-qbe <file.tiq>\n", out);
+    fputs("  tiq dump-native <file.tiq>\n", out);
 }
 
 int main(int argc, char **argv) {
@@ -1081,6 +1183,8 @@ int main(int argc, char **argv) {
             int result;
             if (backend && strcmp(backend, "qbe") == 0) {
                 result = build_qbe(input, tmp_exe, &diag);
+            } else if (backend && strcmp(backend, "native") == 0) {
+                result = build_native(input, tmp_exe, &diag);
             } else {
                 result = build(input, tmp_exe, link_buf, link_count, &diag);
             }
@@ -1121,6 +1225,24 @@ int main(int argc, char **argv) {
         ir_lower(root->stmts, root->count, &module, &diag, argv[2]);
         if (!diag.has_error && g_opt_level > 0) opt_run_pipeline(&module, g_opt_level);
         if (!diag.has_error) emit_qbe(stdout, &module);
+        ir_module_free(&module);
+        program_free(&prog);
+        type_pool_free(&pool);
+        return diag.has_error ? 1 : 0;
+    }
+    if (argc == 3 && strcmp(argv[1], "dump-native") == 0) {
+        Program prog;
+        if (!program_load(&prog, argv[2], &diag)) { program_free(&prog); return 1; }
+        TypePool pool;
+        type_pool_init(&pool);
+        if (!diag.has_error) semantic_check_modules(prog.sem, prog.count, &diag, &pool);
+        if (diag.has_error) { program_free(&prog); type_pool_free(&pool); return 1; }
+        SemanticModule *root = &prog.sem[prog.count - 1];
+        IrModule module;
+        ir_module_init(&module);
+        ir_lower(root->stmts, root->count, &module, &diag, argv[2]);
+        if (!diag.has_error && g_opt_level > 0) opt_run_pipeline(&module, g_opt_level);
+        if (!diag.has_error) emit_native(stdout, &module);
         ir_module_free(&module);
         program_free(&prog);
         type_pool_free(&pool);
@@ -1233,6 +1355,9 @@ int main(int argc, char **argv) {
         // M17.2: --backend qbe routes through the QBE native codegen path
         if (backend && strcmp(backend, "qbe") == 0) {
             return build_qbe(input, output, &diag);
+        }
+        if (backend && strcmp(backend, "native") == 0) {
+            return build_native(input, output, &diag);
         }
         // M17.4.2: --target wasm32-wasi routes through the in-process wasm backend
         if (target && strcmp(target, "wasm32-wasi") == 0) {

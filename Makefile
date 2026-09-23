@@ -12,7 +12,7 @@ TEST_JOBS ?= 5
 # for the documented two-step `make CFLAGS=...` then `make test` workflow.
 all: $(TIQ) $(BUILD)/unit_tests $(BUILD)/qbe $(BUILD)/runtime_qbe.o
 
-SRCS = src/main.c src/emit_c.c src/emit_qbe.c src/emit_wasm.c src/lexer.c src/diag.c src/parser.c src/semantic.c \
+SRCS = src/main.c src/emit_c.c src/emit_qbe.c src/emit_wasm.c src/emit_native.c src/lexer.c src/diag.c src/parser.c src/semantic.c \
        src/env.c src/symtab.c src/typecheck.c src/check_builtins.c src/check_call.c src/check_pattern.c \
        src/type.c src/arena.c src/module.c src/ir.c src/ir_lower.c src/ir_dump.c \
        src/asm_arm64.c src/asm_amd64.c src/asm_rv64.c src/macho_obj.c src/macho_read.c src/link_macho.c \
@@ -81,6 +81,15 @@ test: $(TIQ) $(BUILD)/qbe $(BUILD)/runtime_qbe.o test-unit test-heavy
 	sh tests/http_std.sh
 	sh tests/math_std.sh
 	sh tests/playground.sh
+	sh tests/vscode_extension.sh
+	sh tests/tiq_book.sh
+	sh tests/tiq_by_example.sh
+	sh tests/quick_reference.sh
+	sh tests/getting_started.sh
+	sh tests/vim_support.sh
+	sh tests/homebrew.sh
+	sh tests/migration.sh
+	sh tests/showcase.sh
 	sh tests/wasm.sh
 	sh tests/opt.sh
 	sh tests/concurrency.sh
@@ -134,6 +143,7 @@ test-selfhost: $(TIQ)
 # test but callable independently.
 test-backend: $(TIQ) $(BUILD)/qbe $(BUILD)/runtime_qbe.o
 	sh tests/ir.sh
+	sh tests/native_backend.sh
 	sh tests/qbe_backend.sh
 	sh tests/ffi.sh
 

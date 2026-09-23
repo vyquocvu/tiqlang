@@ -108,8 +108,14 @@ no operand type checking — `x += "s"` on an `i64` is the same class of opaque
 host-C failure. Fixing it first needs an integer-widening policy decision;
 tracked in `POST_BOOTSTRAP_ROADMAP.md`.
 
-M20.3 — Interactive Web Playground (closed 2026-08-22):
-`editors/playground/` (index.html, playground.js, playground.css, README.md) provides an in-browser playground environment with WASI preview1 runtime polyfill, real-time code runner, preset examples (`hello`, `fib`, `primes`, `option_result`, `pattern_matching`), target switcher (WASM, Emitted C, SSA IR), and shareable URL hashing. Verified by `tests/playground.sh`.
+M20.3 — Interactive Web Playground (static demo, honest labeling 2026-09-23):
+`editors/playground/` (index.html, playground.js, playground.css, README.md) provides an in-browser playground environment with preset examples (`hello`, `fib`, `primes`, `option_result`, `pattern_matching`), target switcher (WASM, Emitted C, SSA IR), and shareable URL hashing. **Static demo only** — the WebAssembly compiler bridge is not implemented, so the Run button is disabled and the UI clearly states "Static Demo: This playground shows Tiq syntax but cannot compile or run code yet." The path to a live playground is documented in `editors/playground/README.md` (Option A: client-side Emscripten build, Option B: server-side compile endpoint). Verified by `tests/playground.sh` which asserts the honest labeling is present and examples pass `tiq check`.
+
+M20.4 — The Tiq Book & Interactive Documentation Portal (closed 2026-09-23):
+`docs/TIQ_BOOK.md` provides a comprehensive, chapter-by-chapter tutorial covering values and bindings, functions, control flow, recurrences, data structures, pattern matching, error handling with Option/Result, modules, and compiler usage. Each chapter includes runnable code examples that are complete, standalone Tiq programs. Linked from README.md as the primary learning resource for new users.
+
+M20.5 — Performance Benchmarks & Dogfooding Metrics (closed 2026-09-23):
+`docs/PERFORMANCE_BENCHMARKS.md` presents concrete runtime measurements comparing Tiq to C, Go, Rust, and Python across five CPU-bound workloads (arithmetic, array access, branches, function calls, matrix multiplication). Results show Tiq runtime within 5-26% of optimized C, competitive with Rust, 5-30% faster than Go, and 20-30x faster than Python. Binary sizes are small (~50 KB). Benchmark suite in `benchmarks/language_compare/` is reproducible via `make benchmark-compare`. Linked from README.md.
 
 M19.3 — Zero-copy HTTP/1.1 Client & Server Standard Library (closed 2026-08-22):
 `std/http.tiq` provides pure Tiq HTTP/1.1 protocol parsing (`http_response_status`, `http_response_body`, `http_decode_chunked`, `http_find_header_end`), server response building (`http_server_response`), and network client helpers (`http_client_get`, `http_client_post`). Verified by `examples/http_client.tiq` and `tests/http_std.sh`.
@@ -120,8 +126,11 @@ M19.6 — Standard Database Connectors: Redis Protocol Client (closed 2026-08-22
 M17.4.6 — Pattern Matching SSA IR Lowering (closed 2026-08-22):
 `src/ir_lower.c` implements SSA IR lowering for `AST_MATCH` across enum variants, literals, Option/Result constructors (`some`, `ok`, `err`, `none`), and wildcards, emitting basic blocks with conditional branching (`IR_CBR`) and phi nodes (`IR_PHI`). Promoted `examples/pattern_matching.tiq` to supported IR test set in `tests/ir.sh`.
 
-M20.2 — Official VS Code Extension (closed 2026-08-16):
-`editors/vscode/` provides the official extension package with rich TextMate syntax grammar (`syntaxes/tiq.tmLanguage.json`), bracket/delimiter configuration (`language-configuration.json`), code snippets (`snippets/tiq.code-snippets`), and LSP integration readiness.
+M17.5 — Native AMD64 Backend (closed 2026-09-19):
+`src/emit_native.c` translates SSA IR directly to AMD64 assembly, eliminating the QBE binary dependency for the native code path. The pipeline is `Tiq source → typed AST → SSA IR → AMD64 assembly → integrated assembler (asm_amd64.c) → ELF object → integrated linker (elf_link.c) → executable`. Stack-spill register allocation assigns every SSA register a dedicated stack slot with R10/R11 as scratch; PHI nodes use a two-phase temp-slot approach (save sources to per-block temps, then copy to destinations) to handle parallel copies correctly. Function parameters follow System V AMD64 ABI (args in %rdi, %rsi, %rdx, %rcx, %r8, %r9; return in %rax). CLI: `--backend native` for `tiq build` and `tiq run`, `tiq dump-native` for assembly inspection. Platform constraint: `build_native` works only on Linux x86_64 (integrated amd64 assembler + ELF linker); `dump-native` works on any platform. Unsupported IR operations fail closed with clear diagnostics. Evidence: `tests/native_backend.sh` (wired into `make test-backend`) covers arithmetic, functions, conditionals, comparisons, loops, boolean operations, strings, and negative numbers with pattern checks on generated assembly; execution tests run on Linux x86_64. `make test` and sanitizer builds pass. C backend unchanged.
+
+M20.2 — Official VS Code Extension (closed 2026-08-16, structural validation 2026-09-23):
+`editors/vscode/` provides the official extension package with rich TextMate syntax grammar (`syntaxes/tiq.tmLanguage.json`), bracket/delimiter configuration (`language-configuration.json`), code snippets (`snippets/tiq.code-snippets`), and LSP integration readiness. Structure validated by `tests/vscode_extension.sh`; visual verification of syntax highlighting and LSP features requires manual testing in VS Code.
 
 M17.4.5 — Option and Result SSA IR Lowering (closed 2026-08-16):
 `src/ir_lower.c` lowers `some`, `none`, `ok`, and `err` constructors to `IR_STRUCT_INIT`, `??` nullish coalescing to conditional branches with `phi`, and `?` unwrapping to `IR_FIELD_PTR`. Promoted `examples/option_result.tiq` to supported IR test set in `tests/ir.sh`.

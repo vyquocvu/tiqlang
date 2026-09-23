@@ -29,11 +29,15 @@
       </select>
 
       <button id="share-btn">Share</button>
-      <button id="run-btn" class="primary">Run ▶</button>
+      <button id="run-btn" class="primary" disabled title="Static demo — compiler bridge not yet implemented">Run ▶</button>
     </div>
   </header>
 
   <main>
+    <div class="status-banner">
+      <strong>Static Demo:</strong> This playground shows Tiq syntax but cannot compile or run code yet. The WebAssembly compiler bridge is not implemented. See <a href="README.md#building-the-compiler-bridge">README.md</a> for the path to a live playground.
+    </div>
+
     <div class="pane">
       <div class="pane-header">
         <span>Tiq Source Code</span>
@@ -48,7 +52,7 @@
         <span>Output / Execution Console</span>
       </div>
       <div class="output-container">
-        <pre id="output-console">Ready. Click 'Run ▶' to compile and execute.</pre>
+        <pre id="output-console">Static demo mode. Compiler bridge not yet implemented.</pre>
       </div>
     </div>
   </main>
