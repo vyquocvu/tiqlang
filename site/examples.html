@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Examples — Tiq</title>
+  <link rel="stylesheet" href="assets/styles.css">
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<nav class="nav"><div class="nav-inner">
+  <a class="brand" href="index.html"><span class="brand-mark">T</span> Tiq</a>
+  <button class="menu-btn" id="menu-btn">☰</button>
+  <div class="nav-links" id="nav-links">
+    <a href="index.html">Home</a><a href="docs.html">Docs</a><a href="examples.html" class="active">Examples</a>
+    <a href="../../editors/playground/index.html">Playground</a><a href="docs.html#status">Status</a>
+    <a href="https://github.com/vyquocvu/tiqlang">GitHub</a>
+  </div>
+  <div class="nav-cta"><button class="search-btn" id="search-btn">Search ⌃K</button></div>
+</div></nav>
+
+<main class="section" id="main">
+  <h2>Working examples</h2>
+  <p class="lede">Every block is a complete program. Save as <code>demo.tiq</code>, run <code>./build/tiq run demo.tiq</code>. Sources in <code>examples/</code>.</p>
+
+  <div class="example-grid">
+    <div class="card" id="recurrence"><h3>Fibonacci &amp; factorial</h3><pre id="ex-fib">fib = [0, 1, ... (a, b) -&gt; a + b]
+print(fib[10]) // 55
+
+factorial = [1, ... (x; i) -&gt; x * i]
+print(factorial[5])  // 120</pre><button class="copy-btn" data-copy="ex-fib" style="color:var(--accent);border-color:var(--line)">Copy</button> <a href="https://github.com/vyquocvu/tiqlang/blob/main/examples/fib.tiq">fib.tiq →</a></div>
+    <div class="card" id="functions"><h3>Functions</h3><pre id="ex-fn">square n -&gt; n * n
+larger a b -&gt; a &gt; b ? a : b
+add a: i32 b: i32 : i32 -&gt; a + b
+
+print(square(7))    // 49
+print(larger(3, 8)) // 8
+print(add(20, 22))  // 42</pre><button class="copy-btn" data-copy="ex-fn" style="color:var(--accent);border-color:var(--line)">Copy</button></div>
+    <div class="card" id="loops"><h3>Bracket loops</h3><pre id="ex-loop">total &lt;- 0
+[n &lt;- 1..11] {
+    n % 2 == 0 ? { skip }
+    total += n
+}
+print(total) // 25
+
+pairs &lt;- 0
+[i &lt;- 0..4, j &lt;- 0..i] {
+    pairs += 1
+}
+print(pairs) // 6</pre><button class="copy-btn" data-copy="ex-loop" style="color:var(--accent);border-color:var(--line)">Copy</button></div>
+    <div class="card" id="mutation"><h3>Explicit mutation</h3><pre id="ex-mut">increment value: &amp;mut i64 -&gt; {
+    value += 1
+}
+answer = 42
+count &lt;- 41
+increment(&amp;mut count)
+print(count == answer) // true</pre><button class="copy-btn" data-copy="ex-mut" style="color:var(--accent);border-color:var(--line)">Copy</button> <a href="https://github.com/vyquocvu/tiqlang/blob/main/examples/ownership_borrow.tiq">ownership_borrow.tiq →</a></div>
+    <div class="card" id="option-result"><h3>Option &amp; Result</h3><pre id="ex-opt">half n: i64 : Result[i64, i64] -&gt;
+    n % 2 == 0 ? ok(n / 2) : err(1)
+
+half_plus_one n: i64 : Result[i64, i64] -&gt; {
+    value = ?half(n)
+    ok(value + 1)
+}
+
+print(half_plus_one(40) ?? -1) // 21
+print(half_plus_one(41) ?? -1) // -1</pre><button class="copy-btn" data-copy="ex-opt" style="color:var(--accent);border-color:var(--line)">Copy</button> <a href="https://github.com/vyquocvu/tiqlang/blob/main/examples/option_result.tiq">option_result.tiq →</a></div>
+    <div class="card" id="structs"><h3>Structs &amp; slices</h3><pre id="ex-struct">struct Point { x: i64, y: i64 }
+squared_length p: Point : i64 -&gt; p.x * p.x + p.y * p.y
+print(squared_length(Point { x: 3, y: 4 })) // 25
+
+values = [10, 20, 30, 40]
+middle = values[1..3]
+print(len(middle)) // 2</pre><button class="copy-btn" data-copy="ex-struct" style="color:var(--accent);border-color:var(--line)">Copy</button></div>
+    <div class="card" id="interop"><h3>JSON + C interop</h3><pre id="ex-ffi">import "std/json.tiq"
+config = "{\"name\":\"Tiq\",\"port\":8080}"
+print(json_get(config, "name")) // Tiq
+
+extern "C" llabs value: i64 : i64
+print(llabs(-42)) // 42</pre><button class="copy-btn" data-copy="ex-ffi" style="color:var(--accent);border-color:var(--line)">Copy</button> <a href="https://github.com/vyquocvu/tiqlang/blob/main/examples/ffi_c_interop.tiq">ffi_c_interop.tiq →</a></div>
+    <div class="card"><h3>More programs</h3><p>Sequences, primes, grep, HTTP client, SQLite, Redis, math demo — all under <code>examples/</code>, all checked by <code>tests/examples.sh</code>.</p><a class="btn" href="https://github.com/vyquocvu/tiqlang/tree/main/examples">Browse examples/ →</a></div>
+  </div>
+</main>
+
+<footer class="footer"><div class="footer-inner">
+  <span><a href="index.html">← Home</a> · <a href="docs.html">Docs →</a></span>
+</div></footer>
+<div class="search-overlay" id="search-overlay"><div class="search-box">
+  <input id="search-input" placeholder="Search docs… (Esc to close)">
+  <div class="search-results" id="search-results"></div>
+</div></div>
+<script src="assets/site.js"></script>
+</body>
+</html>

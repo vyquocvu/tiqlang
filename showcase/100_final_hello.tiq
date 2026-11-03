@@ -1,0 +1,16 @@
+// 100: Final hello - combining many features
+struct Greeter {
+    name: str,
+    count: i64
+}
+
+greet g: Greeter -> {
+    msg = "Hello"
+    print(msg)
+    print(g.count)
+}
+
+make_greeter n: str : Greeter -> Greeter { n: n, count: 0 }
+
+gr = make_greeter("Tiq")
+greet(gr)

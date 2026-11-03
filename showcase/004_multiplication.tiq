@@ -1,0 +1,4 @@
+// 004: Multiplication table of 7
+[i <- 1..11] {
+    print(7 * i)
+}

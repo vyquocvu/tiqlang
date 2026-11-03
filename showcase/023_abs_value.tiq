@@ -1,0 +1,6 @@
+// 023: Absolute value
+abs_val n: i64 : i64 -> n < 0 ? 0 - n : n
+print(abs_val(5))
+print(abs_val(-5))
+print(abs_val(0))
+print(abs_val(-100))

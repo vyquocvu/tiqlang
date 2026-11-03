@@ -1,0 +1,4 @@
+// 012: Count down with reverse range
+[i <- 0..10] {
+    print(10 - i)
+}

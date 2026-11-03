@@ -1,0 +1,8 @@
+// 070: Chained option operations
+first = some(10)
+second = first ?? 0
+third = second + 5
+print(third)
+absent = none
+fallback = absent ?? 42
+print(fallback)

@@ -1,0 +1,11 @@
+// 055: Iterative power
+ipow base: i64 exp: i64 : i64 -> {
+    result <- 1
+    [i <- 0..exp] {
+        result <- result * base
+    }
+    result
+}
+print(ipow(2, 0))
+print(ipow(2, 10))
+print(ipow(3, 5))

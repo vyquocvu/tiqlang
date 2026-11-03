@@ -1,0 +1,15 @@
+// 057: Reverse a number
+reverse_num n: i64 : i64 -> {
+    rev <- 0
+    x <- n
+    [i <- 0..20] {
+        x > 0 ? {
+            rev <- rev * 10 + (x % 10)
+            x <- x / 10
+        } : 0
+    }
+    rev
+}
+print(reverse_num(12345))
+print(reverse_num(100))
+print(reverse_num(7))

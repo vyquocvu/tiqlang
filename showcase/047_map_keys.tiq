@@ -1,0 +1,6 @@
+// 047: Map key access
+m = map_new()
+map_set(m, "x", 10)
+map_set(m, "y", 20)
+k0 = map_key_at(m, 0)
+print(k0)

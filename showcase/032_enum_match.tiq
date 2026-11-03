@@ -1,0 +1,15 @@
+// 032: Enum with match
+enum Shape {
+    Circle,
+    Square,
+    Triangle
+}
+describe s: i64 -> match s {
+    Shape.Circle => "round",
+    Shape.Square => "four equal sides",
+    Shape.Triangle => "three sides",
+    _ => "unknown"
+}
+print(describe(Shape.Circle))
+print(describe(Shape.Square))
+print(describe(Shape.Triangle))

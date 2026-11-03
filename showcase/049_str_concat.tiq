@@ -1,0 +1,6 @@
+// 049: String equality after building
+sb = str_buf_new()
+str_buf_append(sb, "hello")
+str_buf_append(sb, " world")
+s = str_buf_to_str(sb)
+print(str_eq(s, "hello world"))

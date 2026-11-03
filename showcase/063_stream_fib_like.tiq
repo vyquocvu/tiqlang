@@ -1,0 +1,5 @@
+// 063: Tribonacci-like stream
+trib = [0, 0, 1, ... (a, b, c) -> a + b + c]
+[i <- 0..10] {
+    print(trib[i])
+}

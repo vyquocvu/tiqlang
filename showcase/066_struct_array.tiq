@@ -1,0 +1,10 @@
+// 066: Struct with array field
+struct Pair {
+    first: i64,
+    second: i64
+}
+sum_pair p: Pair : i64 -> p.first + p.second
+p1 = Pair { first: 3, second: 4 }
+p2 = Pair { first: 10, second: 20 }
+print(sum_pair(p1))
+print(sum_pair(p2))

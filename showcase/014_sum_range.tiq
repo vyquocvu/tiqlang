@@ -1,0 +1,6 @@
+// 014: Sum of 1..100
+total = 0
+[i <- 1..101] {
+    total <- total + i
+}
+print(total)

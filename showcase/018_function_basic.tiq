@@ -1,0 +1,5 @@
+// 018: Simple function
+double n: i64 : i64 -> n * 2
+print(double(5))
+print(double(0))
+print(double(-3))

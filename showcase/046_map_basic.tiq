@@ -1,0 +1,6 @@
+// 046: Map set and get
+m = map_new()
+map_set(m, "alpha", 1)
+map_set(m, "beta", 2)
+map_set(m, "gamma", 3)
+print(map_len(m))

@@ -1,0 +1,16 @@
+// 085: Harshad (Niven) number check
+digit_sum n: i64 : i64 -> {
+    total <- 0
+    x <- n
+    [i <- 0..20] {
+        x > 0 ? {
+            total <- total + (x % 10)
+            x <- x / 10
+        } : 0
+    }
+    total
+}
+is_harshad n: i64 : bool -> n % digit_sum(n) == 0
+print(is_harshad(18))
+print(is_harshad(21))
+print(is_harshad(22))

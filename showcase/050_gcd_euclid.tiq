@@ -1,0 +1,5 @@
+// 050: GCD via Euclidean algorithm
+gcd a: i64 b: i64 : i64 -> b == 0 ? a : gcd(b, a % b)
+print(gcd(48, 18))
+print(gcd(100, 75))
+print(gcd(17, 13))

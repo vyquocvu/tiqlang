@@ -1,0 +1,5 @@
+// 061: Arithmetic progression stream
+ap = [0, ... (x) -> x + 3]
+[i <- 0..10] {
+    print(ap[i])
+}

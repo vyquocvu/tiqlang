@@ -1,0 +1,7 @@
+// 088: Find min in array
+arr = [15, 3, 22, 7, 1, 18, 4, 9]
+mn <- arr[0]
+[i <- 1..8] {
+    arr[i] < mn ? mn <- arr[i] : 0
+}
+print(mn)

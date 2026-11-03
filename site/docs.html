@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Docs — Tiq</title>
+  <link rel="stylesheet" href="assets/styles.css">
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<nav class="nav"><div class="nav-inner">
+  <a class="brand" href="index.html"><span class="brand-mark">T</span> Tiq</a>
+  <button class="menu-btn" id="menu-btn">☰</button>
+  <div class="nav-links" id="nav-links">
+    <a href="index.html">Home</a><a href="docs.html" class="active">Docs</a><a href="examples.html">Examples</a>
+    <a href="../../editors/playground/index.html">Playground</a><a href="docs.html#status">Status</a>
+    <a href="https://github.com/vyquocvu/tiqlang">GitHub</a>
+  </div>
+  <div class="nav-cta"><button class="search-btn" id="search-btn">Search ⌃K</button></div>
+</div></nav>
+
+<main class="section" id="main">
+  <h2>Documentation</h2>
+  <p class="lede">Start here, then go deeper. Full sources live in <code>docs/</code> — this page mirrors them so the site works offline.</p>
+
+  <h3 id="getting-started">Getting started</h3>
+  <div class="card"><pre id="quickstart">git clone https://github.com/vyquocvu/tiqlang.git
+cd tiqlang
+make
+./build/tiq run examples/fib.tiq
+
+./build/tiq check examples/hello.tiq
+./build/tiq emit-c examples/hello.tiq
+./build/tiq build examples/hello.tiq -o build/hello
+./build/hello</pre>
+  <p>Prerequisites: <code>make</code>, C11 compiler (Clang/GCC), POSIX shell. Homebrew: <code>brew tap vyquocvu/tiq &amp;&amp; brew install tiq</code>.</p>
+  <button class="btn" data-copy="quickstart" style="border:1px solid var(--line);cursor:pointer">Copy commands</button></div>
+
+  <h3 id="cli" style="margin-top:28px">CLI reference</h3>
+  <table class="ref">
+    <tr><th>Command</th><th>What it does</th></tr>
+    <tr><td><code>tiq check file.tiq</code></td><td>Parse + type-check only, fail closed with located diagnostics</td></tr>
+    <tr><td><code>tiq run file.tiq</code></td><td>Compile via C backend and run</td></tr>
+    <tr><td><code>tiq build file.tiq -o out</code></td><td>Build native executable (add <code>-l/-L</code> for C libs, <code>--release</code> for -O3)</td></tr>
+    <tr><td><code>tiq emit-c file.tiq</code></td><td>Print generated C11 to stdout</td></tr>
+    <tr><td><code>tiq emit-ir / dump-native</code></td><td>Inspect SSA IR / native assembly</td></tr>
+    <tr><td><code>tiq fmt / test / bench / init / lsp</code></td><td>Developer tools written in Tiq (see docs/CLI.md)</td></tr>
+  </table>
+
+  <h3 id="quick-reference" style="margin-top:28px">Quick reference</h3>
+  <table class="ref">
+    <tr><th>Area</th><th>Forms</th></tr>
+    <tr><td>Bindings</td><td><code>x = 42</code> immutable · <code>y &lt;- 10</code> mutable · <code>y &lt;- 20</code> update</td></tr>
+    <tr><td>Functions</td><td><code>square n -&gt; n * n</code> · <code>add a: i64 b: i64 : i64 -&gt; a + b</code></td></tr>
+    <tr><td>Control</td><td><code>c ? a : b</code> · <code>match v { 0 =&gt; "zero", _ =&gt; "other" }</code> (wildcard required)</td></tr>
+    <tr><td>Loops</td><td><code>[i &lt;- 0..10] { }</code> · <code>[cond] { }</code> · <code>{ skip }</code> / <code>{ break }</code> in braces</td></tr>
+    <tr><td>Recurrence</td><td><code>fib = [0, 1, ... (a, b) -&gt; a + b]</code> · <code>fib[10]</code></td></tr>
+    <tr><td>Option/Result</td><td><code>some(42)/none</code> · <code>ok(v)/err(e)</code> · <code>?x</code> · <code>x ?? default</code></td></tr>
+    <tr><td>Types</td><td><code>i32 i64 f64 bool str void [T] Option[T] Result[T,E]</code></td></tr>
+  </table>
+
+  <h3 id="book" style="margin-top:28px">Go deeper</h3>
+  <div class="docs-list">
+    <div class="doc-item"><h3>Getting Started</h3><p>Step-by-step onboarding, first program, next steps.</p><a href="https://github.com/vyquocvu/tiqlang/blob/main/docs/GETTING_STARTED.md">docs/GETTING_STARTED.md →</a></div>
+    <div class="doc-item"><h3>The Tiq Book</h3><p>Chapter-by-chapter tutorial, every example runnable.</p><a href="https://github.com/vyquocvu/tiqlang/blob/main/docs/TIQ_BOOK.md">docs/TIQ_BOOK.md →</a></div>
+    <div class="doc-item"><h3>Tiq by Example</h3><p>Pattern-based reference for common idioms.</p><a href="https://github.com/vyquocvu/tiqlang/blob/main/docs/TIQ_BY_EXAMPLE.md">docs/TIQ_BY_EXAMPLE.md →</a></div>
+    <div class="doc-item"><h3>Migration Guide</h3><p>Coming from C, Rust, Python, or Go.</p><a href="https://github.com/vyquocvu/tiqlang/blob/main/docs/MIGRATION.md">docs/MIGRATION.md →</a></div>
+    <div class="doc-item"><h3>Showcase</h3><p>Real-world programs and use cases.</p><a href="https://github.com/vyquocvu/tiqlang/blob/main/docs/SHOWCASE.md">docs/SHOWCASE.md →</a></div>
+    <div class="doc-item"><h3>FAQ</h3><p>Questions and troubleshooting.</p><a href="https://github.com/vyquocvu/tiqlang/blob/main/docs/FAQ.md">docs/FAQ.md →</a></div>
+    <div class="doc-item"><h3>Language spec + Grammar</h3><p>Normative semantics and syntax. Required reading before syntax changes.</p><a href="https://github.com/vyquocvu/tiqlang/blob/main/docs/LANGUAGE_SPEC.md">LANGUAGE_SPEC →</a> · <a href="https://github.com/vyquocvu/tiqlang/blob/main/docs/GRAMMAR.md">GRAMMAR →</a></div>
+    <div class="doc-item"><h3>Design principles</h3><p>Why Tiq spends its syntax budget this way.</p><a href="https://github.com/vyquocvu/tiqlang/blob/main/docs/DESIGN_PRINCIPLES.md">DESIGN_PRINCIPLES →</a></div>
+    <div class="doc-item"><h3>Type system + Memory model</h3><p>Constraints behind the compact surface.</p><a href="https://github.com/vyquocvu/tiqlang/blob/main/docs/TYPE_SYSTEM.md">TYPE_SYSTEM →</a> · <a href="https://github.com/vyquocvu/tiqlang/blob/main/docs/MEMORY_MODEL.md">MEMORY_MODEL →</a></div>
+    <div class="doc-item"><h3>Compiler architecture</h3><p>How source becomes an executable.</p><a href="https://github.com/vyquocvu/tiqlang/blob/main/docs/COMPILER_ARCHITECTURE.md">COMPILER_ARCHITECTURE →</a></div>
+    <div class="doc-item" id="benchmarks"><h3>Performance benchmarks</h3><p>Concrete comparisons with C, Go, Rust, Python. Run <code>make benchmark-compare</code>.</p><a href="https://github.com/vyquocvu/tiqlang/blob/main/docs/PERFORMANCE_BENCHMARKS.md">PERFORMANCE_BENCHMARKS →</a></div>
+    <div class="doc-item" id="editors"><h3>Editors</h3><p>VS Code: copy <code>editors/vscode/</code> into extensions. Vim: copy syntax + ftdetect. Playground is a static demo (Run disabled).</p><a href="https://github.com/vyquocvu/tiqlang/tree/main/editors">editors/ →</a></div>
+  </div>
+
+  <h3 id="status" style="margin-top:28px">What works today</h3>
+  <table class="ref">
+    <tr><th>Area</th><th>Current scope</th></tr>
+    <tr><td>Default compiler</td><td>ISO C11 bootstrap; emits C, invokes host compiler</td></tr>
+    <tr><td>Self-hosting</td><td>Tiq-written compiler, three-stage bootstrap fixed-point test</td></tr>
+    <tr><td>Other backends</td><td>Experimental QBE native + wasm32-wasi; coverage differs</td></tr>
+    <tr><td>Tools</td><td><code>fmt test bench init cache lsp proxy router json</code> under src/tiq/tools/</td></tr>
+    <tr><td>Limits</td><td>No general closures, no bounded/predicate-sliced streams, no arbitrary generics, no full lifetime system</td></tr>
+  </table>
+  <p>Full evidence: <a href="https://github.com/vyquocvu/tiqlang/blob/main/docs/IMPLEMENTATION_STATUS.md">IMPLEMENTATION_STATUS.md</a> · Remaining: <a href="https://github.com/vyquocvu/tiqlang/blob/main/docs/ROADMAP.md">ROADMAP.md</a></p>
+</main>
+
+<footer class="footer"><div class="footer-inner">
+  <span><a href="index.html">← Home</a> · <a href="examples.html">Examples →</a></span>
+  <span style="margin-left:auto">Static site — open via any file server: <code>python3 -m http.server -d site</code></span>
+</div></footer>
+<div class="search-overlay" id="search-overlay"><div class="search-box">
+  <input id="search-input" placeholder="Search docs… (Esc to close)">
+  <div class="search-results" id="search-results"></div>
+</div></div>
+<script src="assets/site.js"></script>
+</body>
+</html>

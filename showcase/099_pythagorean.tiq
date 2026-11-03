@@ -1,0 +1,7 @@
+// 099: Check Pythagorean triple
+is_pyth a: i64 b: i64 c: i64 : bool -> {
+    a * a + b * b == c * c
+}
+print(is_pyth(3, 4, 5))
+print(is_pyth(5, 12, 13))
+print(is_pyth(1, 2, 3))

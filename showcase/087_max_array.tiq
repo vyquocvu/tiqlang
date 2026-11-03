@@ -1,0 +1,7 @@
+// 087: Find max in array
+arr = [3, 7, 2, 9, 1, 5, 8, 4, 6]
+mx <- arr[0]
+[i <- 1..9] {
+    arr[i] > mx ? mx <- arr[i] : 0
+}
+print(mx)

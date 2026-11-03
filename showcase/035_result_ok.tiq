@@ -1,0 +1,4 @@
+// 035: Result ok
+r = ok(200)
+val = r ?? 0
+print(val)

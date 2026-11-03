@@ -1,0 +1,7 @@
+// 028: Array slicing
+arr = [1, 2, 3, 4, 5, 6, 7]
+sub = arr[2..5]
+print(len(sub))
+print(sub[0])
+print(sub[1])
+print(sub[2])

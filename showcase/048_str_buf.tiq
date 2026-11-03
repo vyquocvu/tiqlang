@@ -1,0 +1,7 @@
+// 048: String builder
+sb = str_buf_new()
+str_buf_append(sb, "foo")
+str_buf_append(sb, "bar")
+str_buf_append(sb, "baz")
+result = str_buf_to_str(sb)
+print(result)

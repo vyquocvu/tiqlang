@@ -1,0 +1,6 @@
+// 044: Vec creation and push
+v = vec_new()
+vec_push(v, 100)
+vec_push(v, 200)
+vec_push(v, 300)
+print(vec_len(v))

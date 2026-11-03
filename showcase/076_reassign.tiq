@@ -1,0 +1,7 @@
+// 076: Variable reassignment with <-
+x <- 1
+print(x)
+x <- 2
+print(x)
+x <- x + 10
+print(x)

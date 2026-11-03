@@ -1,0 +1,9 @@
+// 040: Multiple defers run in reverse order
+multi -> {
+    defer print("last")
+    defer print("middle")
+    defer print("first-deferred")
+    print("body")
+    0
+}
+multi()

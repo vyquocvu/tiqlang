@@ -1,0 +1,5 @@
+// 021: Recursive fibonacci
+rfib n: i64 : i64 -> n < 2 ? n : rfib(n - 1) + rfib(n - 2)
+[i <- 0..10] {
+    print(rfib(i))
+}

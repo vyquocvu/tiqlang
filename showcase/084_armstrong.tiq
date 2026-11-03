@@ -1,0 +1,11 @@
+// 084: Armstrong number check (3-digit)
+cube n: i64 : i64 -> n * n * n
+is_armstrong n: i64 : bool -> {
+    d1 <- n / 100
+    d2 <- (n / 10) % 10
+    d3 <- n % 10
+    cube(d1) + cube(d2) + cube(d3) == n
+}
+print(is_armstrong(153))
+print(is_armstrong(370))
+print(is_armstrong(100))

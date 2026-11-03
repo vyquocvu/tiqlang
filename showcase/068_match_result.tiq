@@ -1,0 +1,8 @@
+// 068: Match on Result
+handle r: Result -> match r {
+    ok(v) => "ok",
+    err(e) => "err",
+    _ => "unknown"
+}
+print(handle(ok(1)))
+print(handle(err(2)))

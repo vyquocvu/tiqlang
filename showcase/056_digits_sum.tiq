@@ -1,0 +1,15 @@
+// 056: Sum of digits
+digit_sum n: i64 : i64 -> {
+    total <- 0
+    x <- n
+    [i <- 0..20] {
+        x > 0 ? {
+            total <- total + (x % 10)
+            x <- x / 10
+        } : 0
+    }
+    total
+}
+print(digit_sum(12345))
+print(digit_sum(999))
+print(digit_sum(0))

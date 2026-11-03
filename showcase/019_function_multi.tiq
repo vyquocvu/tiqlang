@@ -1,0 +1,7 @@
+// 019: Function with block body
+max a: i64 b: i64 : i64 -> {
+    a > b ? a : b
+}
+print(max(3, 7))
+print(max(10, 5))
+print(max(4, 4))

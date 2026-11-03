@@ -1,0 +1,6 @@
+// 020: Recursive factorial
+fact n: i64 : i64 -> n <= 1 ? 1 : n * fact(n - 1)
+print(fact(0))
+print(fact(1))
+print(fact(5))
+print(fact(10))

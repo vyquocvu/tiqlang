@@ -1,0 +1,8 @@
+// 030: Struct with function
+struct Rect {
+    w: i64,
+    h: i64
+}
+area r: Rect : i64 -> r.w * r.h
+r = Rect { w: 5, h: 10 }
+print(area(r))

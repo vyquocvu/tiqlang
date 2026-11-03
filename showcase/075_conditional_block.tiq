@@ -1,0 +1,13 @@
+// 075: Conditional block execution
+flag <- true
+flag ? {
+    print("executed")
+} : {
+    print("skipped")
+}
+flag <- false
+flag ? {
+    print("executed")
+} : {
+    print("skipped")
+}

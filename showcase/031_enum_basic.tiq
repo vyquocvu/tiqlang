@@ -1,0 +1,9 @@
+// 031: Basic enum
+enum Color {
+    Red,
+    Green,
+    Blue
+}
+c = Color.Red
+print(c == Color.Red)
+print(c == Color.Blue)

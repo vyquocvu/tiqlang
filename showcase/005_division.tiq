@@ -1,0 +1,4 @@
+// 005: Integer division
+print(100 / 3)
+print(99 / 9)
+print(7 / 2)

@@ -1,0 +1,4 @@
+// 079: Function factory pattern
+make_adder base: i64 -> base + 10
+print(make_adder(5))
+print(make_adder(20))

@@ -1,0 +1,12 @@
+// 082: Combinations C(n, k)
+comb n: i64 k: i64 : i64 -> {
+    k == 0 ? 1 : {
+        k == n ? 1 : {
+            comb(n - 1, k - 1) + comb(n - 1, k)
+        }
+    }
+}
+print(comb(5, 0))
+print(comb(5, 2))
+print(comb(5, 5))
+print(comb(10, 3))

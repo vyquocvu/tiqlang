@@ -1,0 +1,20 @@
+// 060: Diamond pattern with streams
+spaces n: i64 -> {
+    [i <- 0..n] {
+        print(" ")
+    }
+    0
+}
+stars n: i64 -> {
+    [i <- 0..n] {
+        print("*")
+    }
+    0
+}
+// Simple diamond top half
+[i <- 1..4] {
+    print(i)
+}
+[i <- 3..0] {
+    print(i + 1)
+}

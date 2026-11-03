@@ -1,0 +1,8 @@
+// 039: Defer execution
+demo -> {
+    defer print("deferred")
+    print("first")
+    print("second")
+    0
+}
+demo()

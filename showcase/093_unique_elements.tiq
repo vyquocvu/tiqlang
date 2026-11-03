@@ -1,0 +1,11 @@
+// 093: Print unique elements
+arr = [1, 2, 3, 2, 1, 4, 3, 5]
+[i <- 0..8] {
+    is_dup <- false
+    [j <- 0..i] {
+        j < i ? {
+            arr[j] == arr[i] ? is_dup <- true : 0
+        } : 0
+    }
+    !is_dup ? print(arr[i]) : 0
+}

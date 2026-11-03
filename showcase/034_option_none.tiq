@@ -1,0 +1,4 @@
+// 034: Option none with fallback
+val = none
+result = val ?? 99
+print(result)

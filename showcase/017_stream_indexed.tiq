@@ -1,0 +1,5 @@
+// 017: Indexed stream (triangular numbers)
+tri = [0, ... (x; i) -> x + i]
+[i <- 0..10] {
+    print(tri[i])
+}

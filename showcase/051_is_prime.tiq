@@ -1,0 +1,17 @@
+// 051: Primality test
+is_prime n: i64 : bool -> {
+    n < 2 ? false : {
+        found = false
+        i <- 2
+        [i <- 2..n] {
+            i * i > n ? 0 : {
+                n % i == 0 ? found <- true : 0
+            }
+        }
+        !found
+    }
+}
+print(is_prime(2))
+print(is_prime(7))
+print(is_prime(10))
+print(is_prime(97))

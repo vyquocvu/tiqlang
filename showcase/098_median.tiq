@@ -1,0 +1,16 @@
+// 098: Median of three numbers
+median a: i64 b: i64 c: i64 : i64 -> {
+    a >= b ? {
+        b >= c ? b : {
+            a >= c ? c : a
+        }
+    } : {
+        a >= c ? a : {
+            b >= c ? c : b
+        }
+    }
+}
+print(median(1, 2, 3))
+print(median(3, 1, 2))
+print(median(2, 3, 1))
+print(median(5, 5, 5))

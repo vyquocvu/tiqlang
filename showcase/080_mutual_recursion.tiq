@@ -1,0 +1,7 @@
+// 080: Mutual recursion (even/odd)
+is_even n: i64 : bool -> n == 0 ? true : is_odd(n - 1)
+is_odd n: i64 : bool -> n == 0 ? false : is_even(n - 1)
+print(is_even(0))
+print(is_even(4))
+print(is_odd(3))
+print(is_odd(6))

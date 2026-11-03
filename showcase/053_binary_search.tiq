@@ -1,0 +1,15 @@
+// 053: Binary search on sorted array
+arr = [2, 5, 8, 12, 16, 23, 38, 56, 72, 91]
+target = 23
+found = false
+lo = 0
+hi = 9
+[i <- 0..4] {
+    lo <= hi ? {
+        mid = (lo + hi) / 2
+        arr[mid] == target ? found <- true : {
+            arr[mid] < target ? lo <- mid + 1 : hi <- mid - 1
+        }
+    } : 0
+}
+print(found)

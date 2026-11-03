@@ -1,0 +1,9 @@
+// 097: Clamp value to range
+clamp val: i64 lo: i64 hi: i64 : i64 -> {
+    val < lo ? lo : {
+        val > hi ? hi : val
+    }
+}
+print(clamp(5, 0, 10))
+print(clamp(-5, 0, 10))
+print(clamp(15, 0, 10))

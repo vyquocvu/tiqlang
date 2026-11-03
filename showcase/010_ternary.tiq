@@ -1,0 +1,7 @@
+// 010: Ternary conditional
+x = 15
+result = x > 10 ? "big" : "small"
+print(result)
+y = 3
+result2 = y > 10 ? "big" : "small"
+print(result2)

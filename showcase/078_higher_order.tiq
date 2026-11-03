@@ -1,0 +1,6 @@
+// 078: Higher-order function pattern
+apply_twice n: i64 : i64 -> n * 2
+x = 5
+y = apply_twice(x)
+z = apply_twice(y)
+print(z)

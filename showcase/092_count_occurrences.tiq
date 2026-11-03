@@ -1,0 +1,8 @@
+// 092: Count occurrences in array
+arr = [1, 2, 3, 2, 1, 2, 4, 2]
+target = 2
+count <- 0
+[i <- 0..8] {
+    arr[i] == target ? count <- count + 1 : 0
+}
+print(count)

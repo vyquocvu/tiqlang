@@ -1,0 +1,6 @@
+// 025: String equality
+a = "abc"
+b = "abc"
+c = "xyz"
+print(str_eq(a, b))
+print(str_eq(a, c))

@@ -1,0 +1,5 @@
+// 027: Array fill syntax
+zeros = [0; 5]
+[i <- 0..5] {
+    print(zeros[i])
+}

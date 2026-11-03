@@ -1,0 +1,10 @@
+// 069: Option propagation with ?
+safe_div a: i64 b: i64 : Option -> {
+    b == 0 ? none : {
+        some(a / b)
+    }
+}
+r = safe_div(10, 3) ?? 0
+print(r)
+r2 = safe_div(10, 0) ?? -1
+print(r2)

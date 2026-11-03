@@ -81,6 +81,7 @@ test: $(TIQ) $(BUILD)/qbe $(BUILD)/runtime_qbe.o test-unit test-heavy
 	sh tests/http_std.sh
 	sh tests/math_std.sh
 	sh tests/playground.sh
+	sh tests/site.sh
 	sh tests/vscode_extension.sh
 	sh tests/tiq_book.sh
 	sh tests/tiq_by_example.sh

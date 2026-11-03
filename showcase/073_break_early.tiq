@@ -1,0 +1,7 @@
+// 073: Break when condition met
+[i <- 0..100] {
+    i * i > 50 ? {
+        print(i)
+        break
+    } : 0
+}

@@ -1,0 +1,5 @@
+// 016: Single-seed stream (powers of 2)
+pows = [1, ... (x) -> x * 2]
+[i <- 0..10] {
+    print(pows[i])
+}

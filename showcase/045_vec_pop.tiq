@@ -1,0 +1,8 @@
+// 045: Vec pop
+v = vec_new()
+vec_push(v, 1)
+vec_push(v, 2)
+vec_push(v, 3)
+popped = vec_pop(v)
+print(popped)
+print(vec_len(v))

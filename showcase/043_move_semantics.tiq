@@ -1,0 +1,7 @@
+// 043: Move semantics
+consume s: str -> {
+    print("consumed")
+}
+original = "hello"
+moved <- move original
+consume(moved)

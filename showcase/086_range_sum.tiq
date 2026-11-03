@@ -1,0 +1,5 @@
+// 086: Sum of range using formula
+range_sum n: i64 : i64 -> n * (n - 1) / 2
+print(range_sum(10))
+print(range_sum(100))
+print(range_sum(1000))

@@ -1,0 +1,8 @@
+// 029: Basic struct
+struct Vec2 {
+    x: i64,
+    y: i64
+}
+v = Vec2 { x: 3, y: 4 }
+print(v.x)
+print(v.y)

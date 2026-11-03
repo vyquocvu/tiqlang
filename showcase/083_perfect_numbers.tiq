@@ -1,0 +1,14 @@
+// 083: Find perfect numbers up to limit
+sum_divisors n: i64 : i64 -> {
+    total <- 0
+    [i <- 1..n] {
+        i < n ? {
+            n % i == 0 ? total <- total + i : 0
+        } : 0
+    }
+    total
+}
+[n <- 2..30] {
+    s = sum_divisors(n)
+    s == n ? print(n) : 0
+}

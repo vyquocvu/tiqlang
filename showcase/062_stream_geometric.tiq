@@ -1,0 +1,5 @@
+// 062: Geometric progression stream
+gp = [1, ... (x) -> x * 3]
+[i <- 0..8] {
+    print(gp[i])
+}

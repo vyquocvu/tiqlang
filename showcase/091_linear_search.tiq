@@ -1,0 +1,11 @@
+// 091: Linear search
+arr = [4, 7, 2, 9, 1, 5, 8]
+target = 9
+found_idx <- -1
+[i <- 0..7] {
+    arr[i] == target ? {
+        found_idx <- i
+        break
+    } : 0
+}
+print(found_idx)

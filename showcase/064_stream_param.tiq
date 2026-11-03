@@ -1,0 +1,6 @@
+// 064: Parameterized stream factory
+make_ap start: i64 step: i64 -> [start, ... (x) -> x + step]
+evens = make_ap(0, 2)
+odds = make_ap(1, 2)
+print(evens[5])
+print(odds[5])

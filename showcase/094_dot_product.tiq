@@ -1,0 +1,8 @@
+// 094: Dot product of two arrays
+a = [1, 2, 3, 4, 5]
+b = [5, 4, 3, 2, 1]
+dot <- 0
+[i <- 0..5] {
+    dot <- dot + a[i] * b[i]
+}
+print(dot)

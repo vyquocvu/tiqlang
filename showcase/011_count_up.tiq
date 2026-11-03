@@ -1,0 +1,4 @@
+// 011: Count up loop
+[i <- 0..10] {
+    print(i)
+}

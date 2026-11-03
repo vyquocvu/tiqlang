@@ -1,0 +1,17 @@
+// 054: Bubble sort
+arr = [5, 3, 8, 1, 9, 2, 7, 4, 6]
+n = 9
+[i <- 0..n] {
+    [j <- 0..n] {
+        j < n ? {
+            arr[j] > arr[j + 1] ? {
+                tmp <- arr[j]
+                arr[j] <- arr[j + 1]
+                arr[j + 1] <- tmp
+            } : 0
+        } : 0
+    }
+}
+[i <- 0..n] {
+    print(arr[i])
+}

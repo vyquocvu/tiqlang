@@ -1,0 +1,5 @@
+// 024: String literals
+greeting = "Hello"
+name = "Tiq"
+print(greeting)
+print(name)

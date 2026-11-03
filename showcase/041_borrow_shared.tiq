@@ -1,0 +1,6 @@
+// 041: Shared borrow
+read_only v: &i64 -> {
+    print("borrowed value seen")
+}
+x = 42
+read_only(&x)

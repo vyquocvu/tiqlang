@@ -1,0 +1,4 @@
+// 036: Result err
+r = err(404)
+val = r ?? -1
+print(val)

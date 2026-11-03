@@ -1,0 +1,11 @@
+// 065: Nested structs
+struct Inner {
+    val: i64
+}
+struct Outer {
+    a: i64,
+    b: i64
+}
+o = Outer { a: 10, b: 20 }
+i = Inner { val: 42 }
+print(o.a + o.b + i.val)

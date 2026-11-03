@@ -1,0 +1,4 @@
+// 033: Option some
+val = some(42)
+result = val ?? 0
+print(result)

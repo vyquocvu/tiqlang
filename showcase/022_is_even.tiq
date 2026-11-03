@@ -1,0 +1,5 @@
+// 022: Even/odd checker
+is_even n: i64 : bool -> n % 2 == 0
+[i <- 0..10] {
+    print(is_even(i))
+}

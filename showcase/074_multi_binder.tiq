@@ -1,0 +1,4 @@
+// 074: Multi-binder Cartesian product
+[i <- 0..3, j <- 0..3] {
+    i == j ? print("diag") : print("off")
+}

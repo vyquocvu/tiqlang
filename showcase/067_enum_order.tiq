@@ -1,0 +1,15 @@
+// 067: Enum ordering
+enum Size {
+    Small,
+    Medium,
+    Large
+}
+size_val s: i64 : i64 -> match s {
+    Size.Small => 1,
+    Size.Medium => 2,
+    Size.Large => 3,
+    _ => 0
+}
+print(size_val(Size.Small))
+print(size_val(Size.Medium))
+print(size_val(Size.Large))

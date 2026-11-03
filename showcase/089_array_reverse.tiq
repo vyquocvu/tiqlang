@@ -1,0 +1,12 @@
+// 089: Reverse array in place
+arr = [1, 2, 3, 4, 5]
+n = 5
+[i <- 0..2] {
+    j = n - 1 - i
+    tmp <- arr[i]
+    arr[i] <- arr[j]
+    arr[j] <- tmp
+}
+[i <- 0..5] {
+    print(arr[i])
+}

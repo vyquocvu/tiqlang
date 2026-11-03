@@ -1,0 +1,11 @@
+// 090: Rotate array left by 1
+arr = [10, 20, 30, 40, 50]
+first <- arr[0]
+n = 5
+[i <- 1..n] {
+    i < n ? arr[i - 1] <- arr[i] : 0
+}
+arr[n - 1] <- first
+[i <- 0..n] {
+    print(arr[i])
+}
